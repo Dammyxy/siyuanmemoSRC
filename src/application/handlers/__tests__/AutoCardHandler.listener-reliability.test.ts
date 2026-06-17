@@ -205,7 +205,7 @@ describe('AutoCardHandler listener reliability', () => {
     }));
   });
 
-  it('suppresses provenance-matched listener candidates without reading block content', async () => {
+  it('suppresses provenance-matched source-mark listener candidates without reading block content', async () => {
     const { handler, executeAutoCard, getBlockKramdown } = createFixture();
     const transactions = [{
       doOperations: [{
@@ -222,7 +222,7 @@ describe('AutoCardHandler listener reliability', () => {
         entries: [{
           blockId: 'excerpt-topic',
           expiresAt: 2_000,
-          reason: 'progressive-excerpt-topic-card',
+          reason: 'progressive-excerpt-source-mark',
           source: 'progressive-excerpt',
         }],
       },

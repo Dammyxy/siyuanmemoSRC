@@ -255,6 +255,8 @@ export class ProgressiveExcerptHotkeyHandler {
         return;
       }
 
+      this.showTopicContinuationCreatingMessage();
+
       if (preparation?.mode === 'manual-cloze') {
         const preparedMark = this.tryPrepareSelectionClozeMark(selection);
         if (!preparedMark) {
@@ -265,6 +267,10 @@ export class ProgressiveExcerptHotkeyHandler {
         }
 
         try {
+          if (!preparedMark.alreadyApplied) {
+            this.context.getProgressiveReadingService()
+              .recordProgressiveExcerptSourceMarkProvenance?.(preparedMark.blockIds);
+          }
           await this.tryApplySelectionClozeMark(preparedMark, {
             stage: 'topic-manual-cloze',
             sourceBlockId: selection.sourceBlockId,
@@ -567,6 +573,14 @@ export class ProgressiveExcerptHotkeyHandler {
     if (typeof instance?.reload === 'function') {
       instance.reload(false);
     }
+  }
+
+  private showTopicContinuationCreatingMessage(): void {
+    showMessage(
+      this.translate('progressiveExcerptContinuationCreating', '正在当前 Topic 下创建 Item...'),
+      2000,
+      'info',
+    );
   }
 
   private formatTopicContinuationMessage(

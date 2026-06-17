@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-16 (Round 617)
+Last update: 2026-06-17 (Round 618)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-17 - Topic Item creation latency feedback
+
+- Task: Implement OpenSpec change `optimize-topic-item-creation-latency` so creating an Item under a Topic from selected text gives immediate start feedback and routes the programmatic source-mark mutation through transaction provenance suppression.
+- Touched slice: Progressive / Excerpt + Topic-derived item + AutoCard listener in `src/application/handlers/ProgressiveExcerptHotkeyHandler.ts`, focused Progressive handler tests, AutoCard listener reliability tests, OpenSpec task ledger, and this backlog.
+- Debt fixed now: Manual Topic Item creation now shows an in-progress toast before the source mark / child document / card / native Riff chain settles, while the final success or failure toast remains tied to the durable `SelectionTopicContinuationService.createFromSelection()` result. New manual source marks are recorded through `ProgressiveReadingService.recordProgressiveExcerptSourceMarkProvenance()` before DOM mutation, so existing transaction fanout can suppress matching AutoCard candidates before enqueue; already-applied marks do not record unnecessary provenance. The AutoCard listener coverage now names the `progressive-excerpt-source-mark` path and proves suppressed operations stay diagnostic-only without block reads or candidate lifecycle acceptance.
+- Debt deferred: Repeated `UnifiedStorageManager` / Xiuyuan save-path normalization seen during live Topic Item creation remains out of scope, and no live SiYuan wall-clock smoke was run in this CLI pass.
+- Why deferred: This change only owns perceived feedback timing and source-mark listener suppression. Storage normalization crosses Card CRUD / Xiuyuan persistence / sync behavior and needs a separate profiling-backed change; live smoke needs the running SiYuan UI.
+- Next safe step: Live-smoke one selection/right-click Topic Item creation, compare toast timing and transaction/storage logs, then open a narrow storage/Xiuyuan coalescing change if repeated no-op normalization still dominates wall-clock time.
+- Validation: `pnpm exec vitest run src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/application/handlers/__tests__/AutoCardHandler.listener-reliability.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
 
 ### 2026-06-17 - Topic-derived Item creation stabilization
 

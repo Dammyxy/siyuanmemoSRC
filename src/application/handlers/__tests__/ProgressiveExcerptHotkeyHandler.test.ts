@@ -123,6 +123,7 @@ function createHandler(options?: {
     suppressNextTopicDerivedMarkMutation: vi.fn(),
   };
   const updateSourceBlockDom = vi.fn(async () => undefined);
+  const recordProgressiveExcerptSourceMarkProvenance = vi.fn();
   const tabApplicationService = {
     openDocumentTab: vi.fn(async () => undefined),
     openBlockTab: vi.fn(async () => undefined),
@@ -157,6 +158,7 @@ function createHandler(options?: {
       }),
       getProgressiveReadingService: () => ({
         updateSourceBlockDom,
+        recordProgressiveExcerptSourceMarkProvenance,
       }),
       getSelectionTopicContinuationService: () => ({
         prepareSelection: prepareTopicContinuation,
@@ -170,6 +172,7 @@ function createHandler(options?: {
     createTopicContinuation,
     autoCardHandler,
     updateSourceBlockDom,
+    recordProgressiveExcerptSourceMarkProvenance,
     tabApplicationService,
   };
 }
@@ -870,18 +873,110 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       highlightTargetCount: 0,
       available: true,
     };
+    let resolveCreateTopicContinuation: ((value: { created: number; skipped: number; items: never[] }) => void) | null = null;
+    const createTopicContinuation = vi.fn(() => new Promise<{ created: number; skipped: number; items: never[] }>((resolve) => {
+      resolveCreateTopicContinuation = resolve;
+    }));
+    const autoCardHandler = {
+      suppressNextTopicDerivedMarkMutation: vi.fn(),
+    };
+    const { handler, recordProgressiveExcerptSourceMarkProvenance } = createHandler({
+      prepareTopicContinuation: vi.fn(() => preparation),
+      createTopicContinuation,
+      autoCardHandler,
+    });
+
+    const running = handler.runItemFromEditor({
+      wysiwyg: {
+        element: document.body,
+      },
+      block: {
+        rootID: 'topic-doc-root-1',
+      },
+    } as any);
+
+    await vi.waitFor(() => {
+      expect(createTopicContinuation).toHaveBeenCalledTimes(1);
+    });
+
+    expect(showMessage).toHaveBeenNthCalledWith(1, '正在当前 Topic 下创建 Item...', 2000, 'info');
+    expect(showMessage).toHaveBeenCalledTimes(1);
+    expect(recordProgressiveExcerptSourceMarkProvenance).toHaveBeenCalledWith(['block-1']);
+    expect(recordProgressiveExcerptSourceMarkProvenance.mock.invocationCallOrder[0])
+      .toBeLessThan(applyPreparedSelectionClozeMark.mock.invocationCallOrder[0]);
+
+    resolveCreateTopicContinuation?.({ created: 1, skipped: 0, items: [] });
+    await running;
+
+    expect(createTopicContinuation).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'block-1',
+      selectedText: 'Beta',
+      rootId: 'topic-doc-root-1',
+    }), preparation);
+    expect(prepareSelectionClozeMark).toHaveBeenCalledTimes(1);
+    expect(applyPreparedSelectionClozeMark).toHaveBeenCalledTimes(1);
+    expect(autoCardHandler.suppressNextTopicDerivedMarkMutation).toHaveBeenCalledWith('block-1');
+    expect(showMessage).toHaveBeenNthCalledWith(2, '已在当前 Topic 下新增 1 个 Item', 3000, 'info');
+  });
+
+  it('does not record manual Topic source-mark provenance when the mark already exists', async () => {
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(document.body, {
+      protyle: {
+        wysiwyg: { element: document.body },
+        block: { rootID: 'topic-doc-root-1' },
+      },
+      text: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+      blockSelections: [{
+        blockId: 'block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"> Gamma</div></div>',
+      }],
+    }));
+    prepareSelectionClozeMark.mockReturnValueOnce({
+      blockId: 'block-1',
+      blockIds: ['block-1'],
+      previousBlockHtml: '<div data-node-id="block-1">Hello</div>',
+      nextBlockHtml: '<div data-node-id="block-1"><span data-type="text mark">Hello</span></div>',
+      blockMutations: [{
+        blockId: 'block-1',
+        previousBlockHtml: '<div data-node-id="block-1">Hello</div>',
+        nextBlockHtml: '<div data-node-id="block-1"><span data-type="text mark">Hello</span></div>',
+        alreadyApplied: true,
+      }],
+      root: document.body,
+      protyle: { getInstance: () => ({ reload: vi.fn() }) },
+      alreadyApplied: true,
+    });
+
+    const preparation = {
+      rootId: 'topic-doc-root-1',
+      topicContext: {
+        topicCardId: 'topic-card-1',
+        topicBlockId: 'topic-doc-root-1',
+        sourceDocId: 'topic-doc-root-1',
+        scope: 'doc-root' as const,
+      },
+      normalizedContent: 'Beta',
+      plannerContent: 'Alpha ==Beta== Gamma',
+      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span> Gamma</div></div>',
+      answerFingerprint: 'block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma',
+      decisions: [{ id: 'ManualSelectionClozeRule', family: 'cloze' }],
+      mode: 'manual-cloze' as const,
+      highlightTargetCount: 0,
+      available: true,
+    };
     const createTopicContinuation = vi.fn(async () => ({
       created: 1,
       skipped: 0,
       items: [],
     }));
-    const autoCardHandler = {
-      suppressNextTopicDerivedMarkMutation: vi.fn(),
-    };
-    const { handler } = createHandler({
+    const { handler, recordProgressiveExcerptSourceMarkProvenance } = createHandler({
       prepareTopicContinuation: vi.fn(() => preparation),
       createTopicContinuation,
-      autoCardHandler,
     });
 
     await handler.runItemFromEditor({
@@ -893,15 +988,8 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       },
     } as any);
 
-    expect(createTopicContinuation).toHaveBeenCalledWith(expect.objectContaining({
-      sourceBlockId: 'block-1',
-      selectedText: 'Beta',
-      rootId: 'topic-doc-root-1',
-    }), preparation);
-    expect(prepareSelectionClozeMark).toHaveBeenCalledTimes(1);
-    expect(applyPreparedSelectionClozeMark).toHaveBeenCalledTimes(1);
-    expect(autoCardHandler.suppressNextTopicDerivedMarkMutation).toHaveBeenCalledWith('block-1');
-    expect(showMessage).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item', 3000, 'info');
+    expect(recordProgressiveExcerptSourceMarkProvenance).not.toHaveBeenCalled();
+    expect(createTopicContinuation).toHaveBeenCalledTimes(1);
   });
 
   it('continues creating the Topic Item and reports source mark failure when topic manual cloze persistence fails', async () => {
