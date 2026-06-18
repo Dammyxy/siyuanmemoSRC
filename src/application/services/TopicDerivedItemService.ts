@@ -96,6 +96,7 @@ export interface TopicDerivedItemInput {
   sourceBlockId: string;
   sourceDocId: string;
   parentTopicCardId: string;
+  parentTopicTitle?: string;
   parentExcerptId?: string;
   sourceRootKind?: ProgressiveSourceRootKind;
   plannerContent: string;
@@ -162,6 +163,7 @@ export class TopicDerivedItemService {
     const sourceBlockId = String(input.sourceBlockId || '').trim();
     const sourceDocId = String(input.sourceDocId || '').trim();
     const parentTopicCardId = String(input.parentTopicCardId || '').trim();
+    const parentTopicTitle = normalizeWhitespace(String(input.parentTopicTitle || ''));
     const parentExcerptId = String(input.parentExcerptId || '').trim() || undefined;
     const plannerContent = String(input.plannerContent || '');
     const artifactContentDom = String(input.artifactContentDom || '').trim();
@@ -221,12 +223,13 @@ export class TopicDerivedItemService {
 
       let derivedDocId = '';
       try {
+        const childDocTitleText = parentTopicTitle || candidate.previewText;
         const childDoc = await this.createChildDocFromTopicSource({
           sourceDocId,
           kind: 'derived-item-doc',
-          fallbackTitle: '挖空',
-          previewText: candidate.previewText,
-          previewMax: 16,
+          fallbackTitle: parentTopicTitle || '挖空',
+          previewText: childDocTitleText,
+          previewMax: parentTopicTitle ? 80 : 16,
           storageMode,
           attrs: {
             [ATTR_PROGRESSIVE_KIND]: 'derived-item-doc',

@@ -196,6 +196,13 @@ describe('SelectionTopicContinuationService', () => {
     const service = new SelectionTopicContinuationService(
       createSiyuanPortMock({
         sql: vi.fn(async () => [{ root_id: 'topic-doc-root-1', type: 'p' }]),
+        getDocInfo: vi.fn(async () => ({
+          id: 'topic-doc-root-1',
+          box: 'notebook-a',
+          path: '/neural-topic.sy',
+          hpath: '/Neural Topic',
+          name: 'Neural Topic',
+        })),
       }),
       createCardServiceMock({
         sourceBlockId: 'source-block-1',
@@ -251,6 +258,7 @@ describe('SelectionTopicContinuationService', () => {
       sourceBlockId: 'source-block-1',
       sourceDocId: 'topic-doc-root-1',
       parentTopicCardId: 'topic-card-topic-root-1',
+      parentTopicTitle: 'Neural Topic',
       sourceRootKind: 'topic-doc',
       plannerContent: 'Alpha ==Beta== Gamma',
       artifactContentDom: expect.stringContaining('<span data-type="text mark">Beta</span>'),
@@ -276,7 +284,12 @@ describe('SelectionTopicContinuationService', () => {
     };
     const service = new SelectionTopicContinuationService(
       createSiyuanPortMock({
-        sql: vi.fn(async () => [{ root_id: 'ordinary-doc-root-1', type: 'p' }]),
+        sql: vi.fn(async (stmt: string) => {
+          if (stmt.includes('content')) {
+            return [{ content: 'Super Block Topic' }];
+          }
+          return [{ root_id: 'ordinary-doc-root-1', type: 'p' }];
+        }),
       }),
       createCardServiceMock({
         sourceBlockId: 'topic-super-block-1',
@@ -330,6 +343,7 @@ describe('SelectionTopicContinuationService', () => {
       sourceBlockId: 'source-block-1',
       sourceDocId: 'ordinary-doc-root-1',
       parentTopicCardId: 'topic-card-super-1',
+      parentTopicTitle: 'Super Block Topic',
       sourceRootKind: 'ordinary-doc',
       mode: 'manual-cloze',
     }));
@@ -549,6 +563,13 @@ describe('SelectionTopicContinuationService', () => {
     const service = new SelectionTopicContinuationService(
       createSiyuanPortMock({
         sql: vi.fn(async () => [{ root_id: 'topic-doc-root-batch-2', type: 'p' }]),
+        getDocInfo: vi.fn(async () => ({
+          id: 'topic-doc-root-batch-2',
+          box: 'notebook-a',
+          path: '/Batch Topic.sy',
+          hpath: '/Batch Topic',
+          name: 'Batch Topic',
+        })),
       }),
       createCardServiceMock({
         sourceBlockId: 'source-block-batch-2',
@@ -575,6 +596,7 @@ describe('SelectionTopicContinuationService', () => {
       sourceBlockId: 'source-block-batch-2',
       sourceDocId: 'topic-doc-root-batch-2',
       parentTopicCardId: 'topic-card-topic-root-batch-2',
+      parentTopicTitle: 'Batch Topic',
       mode: 'manual-cloze',
       decisions: [expect.objectContaining({ id: 'ManualSelectionClozeRule', family: 'cloze' })],
     }));

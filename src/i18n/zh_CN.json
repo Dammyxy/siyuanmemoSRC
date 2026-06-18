@@ -788,7 +788,7 @@
   "progressiveExcerptCreatedSourceMarkFailed": "已创建 Topic，但原文标记未写入",
   "progressiveExcerptDisabled": "摘抄快捷键已关闭，请先在设置中开启",
   "progressiveExcerptFailed": "摘抄失败：{message}",
-  "progressiveExcerptContinuationMenuLabel": "在 Topic 下创建 Item",
+  "progressiveExcerptContinuationMenuLabel": "挖空",
   "progressiveExcerptContinuationCreated": "已在当前 Topic 下新增 {created} 个 Item",
   "progressiveExcerptContinuationCreatedSkipped": "已在当前 Topic 下新增 {created} 个 Item，跳过 {skipped} 个重复项",
   "progressiveExcerptContinuationSkipped": "当前 Topic 下已存在相同 Item，已跳过 {skipped} 个重复项",

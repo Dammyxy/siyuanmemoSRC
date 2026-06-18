@@ -116,7 +116,7 @@ export class ProgressiveExcerptHotkeyHandler {
 
     menu.addItem({
       icon: 'iconAdd',
-      label: this.translate('progressiveExcerptContinuationMenuLabel', '在 Topic 下创建 Item'),
+      label: this.translate('progressiveExcerptContinuationMenuLabel', '挖空'),
       click: async () => {
         await this.runTopicContinuationFromSnapshot(selection, topicContinuationPreparation);
       },

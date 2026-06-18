@@ -144,7 +144,7 @@ function createHandler(options?: {
         progressiveExcerptNoSelection: 'Select text before excerpting',
         progressiveExcerptDisabled: 'Excerpt shortcut is disabled. Enable it in settings first.',
         progressiveExcerptMenuLabel: 'Excerpt',
-        progressiveExcerptContinuationMenuLabel: '在 Topic 下创建 Item',
+        progressiveExcerptContinuationMenuLabel: '挖空',
         progressiveExcerptContinuationCreated: '已在当前 Topic 下新增 {created} 个 Item',
         progressiveExcerptContinuationCreatedSourceMarkFailed: '已在当前 Topic 下新增 {created} 个 Item，但原文标记未写入',
         progressiveExcerptContinuationCreatedSkipped: '已在当前 Topic 下新增 {created} 个 Item，跳过 {skipped} 个重复项',
@@ -740,7 +740,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     });
 
     expect(menu.addItem).toHaveBeenCalledTimes(2);
-    expect(menu.addItem.mock.calls[1][0].label).toBe('在 Topic 下创建 Item');
+    expect(menu.addItem.mock.calls[1][0].label).toBe('挖空');
 
     await menu.addItem.mock.calls[1][0].click();
 

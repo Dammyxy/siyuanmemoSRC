@@ -760,6 +760,40 @@ describe('TopicDerivedItemService', () => {
     expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['derived-block-1']);
   });
 
+  it('uses the parent Topic title for manual cloze child document titles instead of the answer preview', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider(),
+    );
+
+    await service.createFromTopicSource({
+      sourceBlockId: 'source-block-title-1',
+      sourceDocId: 'topic-doc-title-1',
+      parentTopicCardId: 'topic-card-title-1',
+      parentTopicTitle: 'Cognitive Load Theory',
+      plannerContent: 'Alpha ==Beta== Gamma',
+      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark">Beta</span> Gamma</div></div>',
+      previewText: 'Beta',
+      answerFingerprint: 'source-block-title-1::ManualSelectionClozeRule::Alpha::Beta::Gamma',
+      mode: 'manual-cloze',
+      decisions: [CLOZE_DECISION],
+    });
+
+    const firstChildInput = vi.mocked(progressiveReadingService.service.createChildDocFromSource).mock.calls[0]?.[0];
+    expect(firstChildInput).toEqual(expect.objectContaining({
+      fallbackTitle: 'Cognitive Load Theory',
+      previewText: 'Cognitive Load Theory',
+      previewMax: 80,
+      contentDom: expect.stringContaining('Beta'),
+    }));
+    expect(String(firstChildInput?.previewText || '')).not.toContain('Beta');
+  });
+
   it('skips duplicate manual Topic cloze items by the contextual answer fingerprint', async () => {
     const existingCards = [
       {

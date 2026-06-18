@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-17 (Round 618)
+Last update: 2026-06-17 (Round 620)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-17 - Topic continuation menu wording
+
+- Task: Rename the selected-text right-click menu entry for creating an Item under Topic from `在 Topic 下创建 Item` to `挖空`.
+- Touched slice: Progressive / Excerpt editor menu in `src/application/handlers/ProgressiveExcerptHotkeyHandler.ts`, `src/i18n/{zh_CN,en_US}.json`, and the focused handler test.
+- Debt fixed now: The right-click menu now uses the user-facing cloze language directly while preserving the existing Topic-derived Item creation command and status/failure messages. The handler fallback label and zh/en locale entries are aligned, so missing i18n and normal zh/en runtime paths no longer diverge.
+- Debt deferred: Status toasts and settings help text still mention `创建 Item` where they describe the underlying durable Item creation chain rather than the compact menu command.
+- Why deferred: The user requested the right-click menu label only; broad copy cleanup would widen this into product wording review.
+- Next safe step: Live-smoke the editor content menu in a Topic selection and confirm the `挖空` menu item still creates a child Item.
+- Validation: `pnpm exec vitest run src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `git diff --check` (only Windows line-ending notices); `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
+
+### 2026-06-17 - Topic-derived Item child title
+
+- Task: Make manual/current-block Topic-derived Item child document titles use the parent Topic title instead of the selected answer text, and inspect whether multiple highlighted marks in one Topic block can create multiple Items.
+- Touched slice: Topic-derived item + Progressive / Excerpt selection continuation in `src/application/services/{SelectionTopicContinuationService,TopicDerivedItemService}.ts` and focused service tests.
+- Debt fixed now: Manual selection/right-click Topic Item creation now carries a resolved parent Topic title into the shared Topic-derived Item service. Document-root Topics resolve from `getDocInfo().name` with hpath tail fallback, and non-document Topic containers resolve from the Topic block content. `TopicDerivedItemService` uses the parent Topic title for child document title generation when present, so the child title no longer leaks the selected answer while lineage, dedupe, cloze DOM, card creation, and Riff registration stay on the same creation chain. Current-block multi-mark backfill forwards the same title into its single batched request.
+- Debt deferred: Automatic listener-derived Topic item titles still depend on whether their caller supplies a parent Topic title, and no live SiYuan right-click/current-block smoke was run in this CLI pass.
+- Why deferred: The user asked to explore, not implement, the listener/highlight automation question. Extending title lookup into listener-owned AutoCard execution would touch the monitored path and should be decided together with whether that path remains product-facing.
+- Next safe step: Discuss whether to keep only explicit selection/right-click/current-block backfill as the SuperMemo-style creation path, then either hide/de-emphasize listener-driven derivation or add parent Topic title propagation to that path in a separate narrow change.
+- Validation: Red/green `pnpm exec vitest run src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/services/__tests__/SelectionTopicContinuationService.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `git diff --check` (only Windows line-ending notices); `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
 
 ### 2026-06-17 - Topic Item creation latency feedback
 

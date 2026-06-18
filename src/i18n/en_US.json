@@ -782,7 +782,7 @@
   "progressiveExcerptCreatedSourceMarkFailed": "Topic created, but the source mark was not written",
   "progressiveExcerptDisabled": "Excerpt shortcut is disabled. Enable it in settings first.",
   "progressiveExcerptFailed": "Excerpt failed: {message}",
-  "progressiveExcerptContinuationMenuLabel": "Create Item Under Topic",
+  "progressiveExcerptContinuationMenuLabel": "Cloze",
   "progressiveExcerptContinuationCreated": "Added {created} Item(s) under the current Topic",
   "progressiveExcerptContinuationCreatedSkipped": "Added {created} Item(s) under the current Topic and skipped {skipped} duplicate(s)",
   "progressiveExcerptContinuationSkipped": "Skipped {skipped} duplicate Item(s) under the current Topic",

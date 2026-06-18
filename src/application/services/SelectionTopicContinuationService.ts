@@ -79,6 +79,11 @@ type BlockInfoRow = {
   type?: string;
 };
 
+type TopicTitleRow = {
+  content?: string;
+  markdown?: string;
+};
+
 type PreparedBlockMarkContinuation = {
   plannerContent: string;
   artifactContentDom: string;
@@ -115,6 +120,10 @@ function normalizeInlineWhitespace(value: string): string {
     .replace(/\n\s+/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function normalizeTopicTitle(value: string): string {
+  return normalizeInlineWhitespace(value).slice(0, 80).trim();
 }
 
 function extractPlannerTextFromNode(node: Node): string {
@@ -744,11 +753,13 @@ export class SelectionTopicContinuationService {
         items: [],
       };
     }
+    const parentTopicTitle = await this.resolveTopicTitle(sourceContext.topicContext || prepared.topicContext);
 
     return this.topicDerivedItemService.createFromTopicSource({
       sourceBlockId,
       sourceDocId: sourceContext.sourceDocId || prepared.topicContext.sourceDocId,
       parentTopicCardId,
+      ...(parentTopicTitle ? { parentTopicTitle } : {}),
       parentExcerptId: sourceContext.parentExcerptId,
       sourceRootKind: sourceContext.rootKind as ProgressiveSourceRootKind,
       plannerContent: prepared.plannerContent,
@@ -791,6 +802,7 @@ export class SelectionTopicContinuationService {
         items: [],
       };
     }
+    const parentTopicTitle = await this.resolveTopicTitle(sourceContext.topicContext || prepared.topicContext);
 
     const candidates = buildCurrentBlockMarkContinuations(sourceBlockId, contentDom);
     if (candidates.length === 0) {
@@ -805,6 +817,7 @@ export class SelectionTopicContinuationService {
       sourceBlockId,
       sourceDocId: sourceContext.sourceDocId || prepared.topicContext.sourceDocId,
       parentTopicCardId,
+      ...(parentTopicTitle ? { parentTopicTitle } : {}),
       parentExcerptId: sourceContext.parentExcerptId,
       sourceRootKind: sourceContext.rootKind as ProgressiveSourceRootKind,
       plannerContent: candidates[0]?.plannerContent || '',
@@ -813,6 +826,32 @@ export class SelectionTopicContinuationService {
       decisions: [DIRECT_CLOZE_DECISION],
       manualClozeCandidates: candidates,
     });
+  }
+
+  private async resolveTopicTitle(topicContext: ProgressiveTopicContext): Promise<string | undefined> {
+    const topicBlockId = String(topicContext.topicBlockId || '').trim();
+    if (!topicBlockId) {
+      return undefined;
+    }
+
+    if (topicContext.scope === 'doc-root') {
+      const docInfo = await this.siyuanApi.getDocInfo(topicBlockId);
+      const hpathTail = String(docInfo.hpath || '')
+        .split('/')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .pop() || '';
+      return normalizeTopicTitle(docInfo.name || hpathTail) || undefined;
+    }
+
+    const rows = await this.siyuanApi.sql<TopicTitleRow>(`
+      SELECT content, markdown
+      FROM blocks
+      WHERE id = '${this.escapeSql(topicBlockId)}'
+      LIMIT 1
+    `);
+    const row = rows[0] || {};
+    return normalizeTopicTitle(row.content || row.markdown || '') || undefined;
   }
 
   private async resolveBlockInfo(blockId: string): Promise<{ rootId: string; blockType: string }> {
