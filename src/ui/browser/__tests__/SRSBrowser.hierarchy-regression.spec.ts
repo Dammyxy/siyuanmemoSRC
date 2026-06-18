@@ -206,7 +206,10 @@ vi.mock('../BrowserHierarchy.vue', () => ({
         }
         return Array.from(counts.entries())
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([id, count]) => `${id}:${count}`);
+          .map(([id, count]) => ({
+            id,
+            summary: `${id}:${count}`,
+          }));
       });
 
       return () => h('div', { class: 'browser-hierarchy-stub' }, [
@@ -219,7 +222,11 @@ vi.mock('../BrowserHierarchy.vue', () => ({
           onClick: () => emit('selectGlobal', '__dismissed__'),
         }, `Suspended ${String((props.globalStats as { dismissed: number }).dismissed ?? 0)}`),
         ...queueSummaries.value.map((summary) => h('div', { class: 'queue-entry' }, summary)),
-        ...docSummaries.value.map((summary) => h('div', { class: 'doc-entry' }, summary)),
+        ...docSummaries.value.map((doc) => h('button', {
+          class: 'doc-entry',
+          'data-doc-id': doc.id,
+          onClick: () => emit('selectDoc', doc.id),
+        }, doc.summary)),
       ]);
     },
   }),
@@ -1190,6 +1197,121 @@ describe('SRSBrowser hierarchy regressions', () => {
       scopeDocIds: null,
     });
     expect(wrapper.get('.toolbar-scope-count').text()).toBe('0');
+  });
+
+  it('scopes hierarchy document clicks to the selected document tree', async () => {
+    const rows = [
+      buildBrowserCard('card-1', 'doc-1'),
+      buildBrowserCard('card-2', 'doc-1-child'),
+    ];
+    const collectDocReviewScope = vi.fn(() => ({
+      cards: [],
+      docIds: ['doc-1', 'doc-1-child'],
+    }));
+    createDeckDataSourceMock.mockImplementation(() => createQueryableDataSource(rows));
+
+    const wrapper = mountBrowser({
+      plugin: {
+        getContext: () => ({
+          getDocTreeReviewScopeService: () => ({
+            collectDocReviewScope,
+            hydrate: vi.fn(async () => {}),
+          }),
+        }),
+      } as never,
+    });
+
+    await advance(0);
+    await advance(0);
+    await advance(200);
+
+    expect(wrapper.text()).toContain('doc-1:1');
+    await wrapper.get('[data-doc-id="doc-1"]').trigger('click');
+    await advance(0);
+    await advance(0);
+    await advance(240);
+
+    expect(collectDocReviewScope).toHaveBeenCalledWith('doc-1');
+    expect(createDeckDataSourceMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      docId: null,
+      scopeDocIds: ['doc-1', 'doc-1-child'],
+      preset: 'all',
+    });
+    expect(wrapper.get('.toolbar-scope-count').text()).toBe('2');
+  });
+
+  it('hydrates a cold document-tree scope before applying hierarchy document clicks', async () => {
+    const rows = [
+      buildBrowserCard('card-1', 'doc-1'),
+      buildBrowserCard('card-2', 'doc-1-child'),
+    ];
+    const hydrate = vi.fn(async () => {});
+    const collectDocReviewScope = vi.fn()
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce({
+        cards: [],
+        docIds: ['doc-1', 'doc-1-child'],
+      });
+    createDeckDataSourceMock.mockImplementation(() => createQueryableDataSource(rows));
+
+    const wrapper = mountBrowser({
+      plugin: {
+        getContext: () => ({
+          getDocTreeReviewScopeService: () => ({
+            collectDocReviewScope,
+            hydrate,
+          }),
+        }),
+      } as never,
+    });
+
+    await advance(0);
+    await advance(0);
+    await advance(200);
+    await wrapper.get('[data-doc-id="doc-1"]').trigger('click');
+    await advance(0);
+    await advance(0);
+    await advance(240);
+
+    expect(hydrate).toHaveBeenCalledTimes(1);
+    expect(collectDocReviewScope).toHaveBeenCalledTimes(2);
+    expect(createDeckDataSourceMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      docId: null,
+      scopeDocIds: ['doc-1', 'doc-1-child'],
+    });
+  });
+
+  it('keeps an unresolved hierarchy document click scoped to the clicked document', async () => {
+    const rows = [
+      buildBrowserCard('card-1', 'doc-1'),
+    ];
+    const collectDocReviewScope = vi.fn(() => null);
+    createDeckDataSourceMock.mockImplementation(() => createQueryableDataSource(rows));
+
+    const wrapper = mountBrowser({
+      plugin: {
+        getContext: () => ({
+          getDocTreeReviewScopeService: () => ({
+            collectDocReviewScope,
+            hydrate: vi.fn(async () => {}),
+          }),
+        }),
+      } as never,
+    });
+
+    await advance(0);
+    await advance(0);
+    await advance(200);
+    await wrapper.get('[data-doc-id="doc-1"]').trigger('click');
+    await advance(0);
+    await advance(0);
+    await advance(240);
+
+    expect(createDeckDataSourceMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      docId: null,
+      scopeDocIds: ['doc-1'],
+    });
+    expect(wrapper.get('.toolbar-scope-count').text()).toBe('1');
   });
 
   it('normalizes legacy missing-block browser state back to the default global view', async () => {

@@ -17,8 +17,8 @@ GitHub CLI was unavailable in this environment, so the refresh used the GitHub R
 ### Completion Snapshot
 
 - GitHub closed issues: 22.
-- Open GitHub issues with local completion evidence: 20 issue numbers, consisting of 19 implemented numbers (#71, #72, #73, #65, #60, #56, #64, #63, #61, #57, #55, #54, #52, #20, #19, #16, #59, #47, #46) plus #58 as validation-only coverage.
-- If #58 is counted only as verification rather than implementation, local implemented still-open issue count is 19; total issue numbers covered is 41 implemented/closed plus one validation-only.
+- Open GitHub issues with local completion evidence: 21 issue numbers, consisting of 20 implemented numbers (#71, #72, #73, #65, #60, #56, #64, #63, #61, #57, #55, #54, #52, #21, #20, #19, #16, #59, #47, #46) plus #58 as validation-only coverage.
+- If #58 is counted only as verification rather than implementation, local implemented still-open issue count is 20; total issue numbers covered is 42 implemented/closed plus one validation-only.
 - OpenSpec status confirms these issue-backed changes are complete: `polish-progressive-excerpt-doc-and-source-marks`, `add-review-command-hotkeys-and-doc-scope-review`, `fix-topic-container-shortcut-item-creation`, `fix-multicloze-review-rendering`, `fix-formula-cloze-katex-marker-rendering`, `show-suspended-card-badge-in-browser`, `render-custom-review-surface-links`, `add-concept-review-roam-entry`, `scope-srs-browser-sql-filter-to-card-universe`, `harden-symbol-listener-business-idempotency`, `explain-srs-browser-count-differences`, `add-relative-priority-actions-in-browser`, and `preserve-progressive-excerpt-source-links-and-marks`.
 
 ### Newly Observed Since 2026-05-18
@@ -46,7 +46,7 @@ GitHub CLI was unavailable in this environment, so the refresh used the GitHub R
 ### Decision Notes
 
 - Do not treat GitHub-open status as not implemented. Several implemented local changes still correspond to open GitHub issues.
-- Prefer closing or commenting GitHub issues after user/live smoke confirmation, especially for #71/#72/#73, #65/#60/#56, #64, #63, #61, #57, #55, #54, #52, #20, #19, #16, #59, #47, and #46.
+- Prefer closing or commenting GitHub issues after user/live smoke confirmation, especially for #71/#72/#73, #65/#60/#56, #64, #63, #61, #57, #55, #54, #52, #21, #20, #19, #16, #59, #47, and #46.
 - #71/#72/#73 were implemented together by OpenSpec change `polish-progressive-excerpt-doc-and-source-marks`: generated excerpt document formatting, first visible source reference placement, and multi-block source mark coverage share Progressive / Excerpt ownership.
 - The live excerpt blocker `BLOCK_ATTR_WRITE_FORBIDDEN: custom-fsrs-reading-source-lineage (large-or-high-churn-payload)` was fixed in the same slice by moving rich source semantics into plugin-owned excerpt records and keeping block attrs compact.
 - #58 stays validation-only but now has active regression coverage for first-source-reference placement at the end of the first meaningful excerpt content block.
@@ -57,6 +57,10 @@ GitHub CLI was unavailable in this environment, so the refresh used the GitHub R
 - 2026-06-18 maintainer triage: #53 remains a future Review UI design candidate, not a paused issue. Breadcrumbs can act like RemNote-style expanded hierarchy context hints; move it later until breadcrumb usage/design is reviewed.
 - 2026-06-18 maintainer triage: #49 is paused/shelved. The current Browser search input no longer displays the old `state:new/review` advanced placeholder, while the query parser still supports `state:` syntax internally. Removed the unused i18n placeholder text; broader Browser search/filter naming unification should wait for a dedicated Browser UI terminology pass.
 - 2026-06-18 implementation: #47 is completed in the active code path. The document-tree block menu registers `open-menu-doctree`, collects current document plus descendant document ids through `DocTreeReviewScopeService`, and now exposes a Browse group that opens SRS Browser with `initialOpenState.scopeDocIds` plus `preset: 'all'`. Regression coverage passes in `BlockMenuHandler.core-review-entry.test.ts` and `BrowserDeckQueryKernel.scope-doc-ids.test.ts`; live SiYuan menu smoke is still pending.
+- 2026-06-18 maintainer triage: #36 is paused. "关于卡片调度器" is too broad to auto-pull as the next issue; resume only after the scheduler question is narrowed to a concrete behavior, bug, or implementation slice.
+- 2026-06-18 maintainer triage: #32 is paused. Browser tag search needs a dedicated Browser query/product decision before it is safe to auto-pull again.
+- 2026-06-18 implementation: #15 is completed by OpenSpec change `scope-browser-doc-click-to-doc-tree`. SRS Browser left hierarchy document clicks now resolve the clicked document plus descendant documents through `DocTreeReviewScopeService`, reload through existing Browser `scopeDocIds`, and clear exact `docId` so child document cards are not filtered out. The optional include/exclude child-doc toggle is intentionally not included in this slice.
+- 2026-06-18 implementation: #21 is completed by OpenSpec change `review-insert-position-slider`. Review footer skip actions now keep the primary `跳过` as a one-click action and move later-position insertion into an inline expandable panel with presets, slider, local last-position memory, and quick direct date scheduling. Regression coverage passes in `ReviewActions.spec.ts` and `SkipMenuButton.spec.ts`; live SiYuan smoke is still pending.
 
 ### Later-Batch Grouping
 
@@ -196,6 +200,7 @@ GitHub may still report these issues open, but current active code and regressio
 | Issue | Status |
 |---|---|
 | #47 | Implemented: document-tree block menu opens SRS Browser with current document plus descendant document scope through `initialOpenState.scopeDocIds`; live SiYuan smoke still pending. |
+| #21 | Implemented: Review footer skip/later area now uses an inline expandable panel with presets, slider, local last-position memory, and quick direct date scheduling; live SiYuan smoke still pending. |
 
 ### Next Batch Grouping
 
@@ -240,6 +245,8 @@ Implementation note:
 - #58 stayed validation-only: current tests still assert only the first source reference is emitted for multi-block excerpts.
 - Deferred skip list for future pulls now includes #49, #38, #10, #48, #13, #41, and #42.
 - #47 is implemented in the active code path: the existing document-tree scope/query chain is now reachable from a Browse group in the document-tree block menu. Keep it out of future next-issue pulls unless live smoke finds a regression.
+- #36 is paused and must not be auto-pulled until the scheduler scope is made concrete again.
+- #32 is paused and must not be auto-pulled until Browser tag search scope is made concrete again.
 
 ### Deferred / Do Not Auto-Pull
 
@@ -253,6 +260,8 @@ When selecting the next local issue batch, skip these issues unless the user exp
 | #13 | Deferred | Document-wide super-block one-click card creation broadens batch creation scope. |
 | #41 | Deferred | Missing-source repair belongs to Browser/repair workflow, not current excerpt preservation work. |
 | #42 | Deferred | Quick-card cancel-and-recreate changes quick-card mutation semantics and needs its own decision. |
+| #36 | Paused by maintainer | "关于卡片调度器" is too broad to auto-pull; resume only when the scheduler question is narrowed to a concrete behavior, bug, or implementation slice. |
+| #32 | Paused by maintainer | Browser tag search needs a dedicated Browser query/product decision before it is safe to auto-pull again. |
 | #70 | Paused by maintainer | Notebook-dependent Excerpt Topic storage is a broader storage-policy/settings decision; do not auto-pull unless explicitly named. |
 | #68 | Paused by maintainer | Delete-card confirmation bypass is a Card CRUD safety/UX decision; skipped by maintainer for now. |
 | #67 | Needs-info / paused by maintainer | Current code does not limit manual Topic-derived Item creation to paragraph source blocks. Clarify whether the desired change is broader AutoCard listener source block support, a richer Item artifact/container, or both before proposing implementation. |
@@ -354,5 +363,5 @@ Open terms to sharpen:
 
 - Review/UI: #60, #57, #56, #54, #40, #39, #35, #30, #26, #25, #23, #22, #18, #6, #53; #49 is shelved until a Browser UI terminology pass.
 - Creation/progressive reading: #59, #58, #46, #31, #29, #28
-- Deferred / do not auto-pull unless explicitly named: #49, #48, #42, #41, #38, #13, #10
-- Queue/Browser enhancements: #47 and #16 implemented; remaining candidates are #36, #32, #21, and #15.
+- Deferred / do not auto-pull unless explicitly named: #36, #32, #49, #48, #42, #41, #38, #13, #10
+- Queue/Browser enhancements: #47, #16, #15, and #21 implemented; #36 and #32 are paused.

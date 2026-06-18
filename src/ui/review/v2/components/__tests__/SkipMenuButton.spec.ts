@@ -1,33 +1,10 @@
 import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import SkipMenuButton from '../SkipMenuButton.vue';
-
-const skipMenuButtonMocks = vi.hoisted(() => {
-  const instances: Array<{ addItem: ReturnType<typeof vi.fn>; open: ReturnType<typeof vi.fn> }> = [];
-
-  class MockMenu {
-    addItem = vi.fn();
-    open = vi.fn();
-
-    constructor() {
-      instances.push(this);
-    }
-  }
-
-  return {
-    instances,
-    MockMenu,
-  };
-});
-
-vi.mock('siyuan', () => ({
-  Menu: skipMenuButtonMocks.MockMenu,
-}));
 
 describe('SkipMenuButton', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-    skipMenuButtonMocks.instances.length = 0;
   });
 
   it('emits skip on primary button click', async () => {
@@ -55,58 +32,42 @@ describe('SkipMenuButton', () => {
     expect(wrapper.classes()).not.toContain('skip-menu-button--mobile');
   });
 
-  it('opens a native SiYuan menu from the trailing affordance instead of rendering a local panel', async () => {
-    const wrapper = mount(SkipMenuButton, {
-      attachTo: document.body,
-    });
-
-    expect(wrapper.find('.skip-menu-button__panel').exists()).toBe(false);
-    await wrapper.get('.skip-menu-button__trigger').trigger('click', {
-      clientX: 64,
-      clientY: 32,
-    });
-
-    expect(skipMenuButtonMocks.instances).toHaveLength(1);
-    const menu = skipMenuButtonMocks.instances[0]!;
-    expect(menu.addItem).toHaveBeenCalledTimes(2);
-    expect(menu.addItem.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      label: '插入到队列指定位置',
-      icon: 'iconPin',
-    }));
-    expect(menu.addItem.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
-      label: '安排复习日期',
-      icon: 'iconCalendar',
-    }));
-    expect(menu.open).toHaveBeenCalled();
-  });
-
-  it('emits insert from the native menu item', async () => {
+  it('emits a panel toggle from the trailing affordance', async () => {
     const wrapper = mount(SkipMenuButton, {
       attachTo: document.body,
     });
 
     await wrapper.get('.skip-menu-button__trigger').trigger('click');
-    const menu = skipMenuButtonMocks.instances[0]!;
-    const insertItem = menu.addItem.mock.calls[0]?.[0];
-    await insertItem.click();
 
-    expect(wrapper.emitted('insert')).toBeTruthy();
+    expect(wrapper.emitted('togglePanel')).toEqual([[]]);
   });
 
-  it('hides the schedule action when canScheduleDate is false', async () => {
+  it('reflects expanded state for the inline panel trigger', () => {
     const wrapper = mount(SkipMenuButton, {
       props: {
-        canScheduleDate: false,
+        expanded: true,
+      },
+    });
+
+    expect(wrapper.get('.skip-menu-button__trigger').attributes('aria-expanded')).toBe('true');
+  });
+
+  it('uses a downward chevron as the collapsed trailing affordance', () => {
+    const wrapper = mount(SkipMenuButton);
+
+    expect(wrapper.get('.skip-menu-button__chevron').html()).toContain('#iconDown');
+  });
+
+  it('does not emit panel toggle when disabled', async () => {
+    const wrapper = mount(SkipMenuButton, {
+      props: {
+        disabled: true,
       },
       attachTo: document.body,
     });
 
     await wrapper.get('.skip-menu-button__trigger').trigger('click');
 
-    const menu = skipMenuButtonMocks.instances[0]!;
-    expect(menu.addItem).toHaveBeenCalledTimes(1);
-    expect(menu.addItem.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      label: '插入到队列指定位置',
-    }));
+    expect(wrapper.emitted('togglePanel')).toBeFalsy();
   });
 });

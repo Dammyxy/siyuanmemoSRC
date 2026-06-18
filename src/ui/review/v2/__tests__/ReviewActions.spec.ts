@@ -30,6 +30,7 @@ function mountReviewActions(
   isMobile = false,
   currentCard: FSRSCard | null = null,
   extraProps: Record<string, unknown> = {},
+  stubs: Record<string, unknown> = {},
 ) {
   return mount(ReviewActions, {
     props: {
@@ -47,11 +48,13 @@ function mountReviewActions(
       stubs: {
         SkipMenuButton: {
           name: 'SkipMenuButton',
-          template: '<div class="skip-menu-button-stub"></div>',
+          template: '<button class="skip-menu-button-stub" @click="$emit(\'togglePanel\')"></button>',
+          emits: ['skip', 'togglePanel'],
         },
         InsertPositionDialog: true,
         ScheduleDateDialog: true,
         teleport: true,
+        ...stubs,
       },
     },
   });
@@ -327,18 +330,24 @@ describe('ReviewActions layout', () => {
     }
   });
 
-  it('opens schedule dialog for regular cards when skip menu emits schedule', async () => {
+  it('opens the inline skip panel for regular cards when the skip trigger toggles', async () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: false,
-    }));
+    }), false, null, {
+      meta: { canBack: true, remainingSize: 3, transition: 'none' },
+      queue: {
+        insertAt: vi.fn(async () => undefined),
+      },
+    });
 
-    wrapper.getComponent({ name: 'SkipMenuButton' }).vm.$emit('schedule');
+    wrapper.getComponent({ name: 'SkipMenuButton' }).vm.$emit('togglePanel');
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.find('schedule-date-dialog-stub').exists()).toBe(true);
+    expect(wrapper.find('.review-skip-panel').exists()).toBe(true);
+    expect(wrapper.find('.review-skip-panel__card--schedule').exists()).toBe(true);
   });
 
-  it('blocks schedule dialog for neural roam virtual cards', async () => {
+  it('blocks quick schedule controls for neural roam virtual cards', async () => {
     const wrapper = mountReviewActions(
       createActions({ showAnswer: false }),
       false,
@@ -368,15 +377,22 @@ describe('ReviewActions layout', () => {
           },
         },
       } as FSRSCard,
+      {
+        meta: { canBack: true, remainingSize: 3, transition: 'none' },
+        queue: {
+          insertAt: vi.fn(async () => undefined),
+        },
+      },
     );
 
-    wrapper.getComponent({ name: 'SkipMenuButton' }).vm.$emit('schedule');
+    wrapper.getComponent({ name: 'SkipMenuButton' }).vm.$emit('togglePanel');
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.find('schedule-date-dialog-stub').exists()).toBe(false);
+    expect(wrapper.find('.review-skip-panel').exists()).toBe(true);
+    expect(wrapper.find('.review-skip-panel__card--schedule').exists()).toBe(false);
   });
 
-  it('uses ReviewApplicationService for schedule confirmation', async () => {
+  it('fills a date from quick schedule controls and waits for confirmation', async () => {
     const rescheduleCard = vi.fn(async () => undefined);
     const removeCard = vi.fn(async () => undefined);
     const wrapper = mountReviewActions(
@@ -389,17 +405,25 @@ describe('ReviewActions layout', () => {
             getReviewService: () => ({ rescheduleCard }),
           }),
         },
-        queue: { removeCard },
+        queue: {
+          insertAt: vi.fn(async () => undefined),
+          removeCard,
+        },
       },
     );
 
-    wrapper.getComponent({ name: 'SkipMenuButton' }).vm.$emit('schedule');
+    wrapper.getComponent({ name: 'SkipMenuButton' }).vm.$emit('togglePanel');
     await wrapper.vm.$nextTick();
 
-    wrapper.getComponent({ name: 'ScheduleDateDialog' }).vm.$emit('confirm', {
-      mode: 'direct',
-      days: 2,
-    });
+    await wrapper.findAll('.review-skip-panel__date-presets .review-skip-panel__preset')[0]!.trigger('click');
+    await flushPromises();
+
+    expect(rescheduleCard).not.toHaveBeenCalled();
+    expect(removeCard).not.toHaveBeenCalled();
+    expect(wrapper.emitted('skip')).toBeFalsy();
+    expect((wrapper.get('.review-skip-panel__date-custom input').element as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    await wrapper.get('.review-skip-panel__date-custom .b3-button').trigger('click');
     await flushPromises();
 
     expect(rescheduleCard).toHaveBeenCalledWith(
@@ -411,5 +435,264 @@ describe('ReviewActions layout', () => {
     );
     expect(removeCard).toHaveBeenCalledWith('card-1');
     expect(wrapper.emitted('skip')).toBeTruthy();
+  });
+});
+
+describe('ReviewActions skip later panel', () => {
+  it('keeps primary skip one-click and toggles the inline later panel from the trailing control', async () => {
+    const wrapper = mountReviewActions(
+      createActions({ showAnswer: true }),
+      false,
+      null,
+      {
+        meta: { canBack: true, remainingSize: 47, transition: 'none' },
+        queue: {
+          insertAt: vi.fn(async () => undefined),
+        },
+      },
+      {
+        SkipMenuButton: false,
+      },
+    );
+
+    expect(wrapper.find('.review-skip-panel').exists()).toBe(false);
+
+    await wrapper.get('.skip-menu-button__main').trigger('click');
+    expect(wrapper.emitted('skip')).toEqual([[]]);
+    expect(wrapper.find('.review-skip-panel').exists()).toBe(false);
+
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
+
+    expect(wrapper.find('.review-skip-panel').exists()).toBe(true);
+    expect(wrapper.find('.review-skip-panel').text()).toContain('稍后再看');
+    expect(wrapper.find('.review-skip-panel input[type="range"]').exists()).toBe(true);
+    expect(wrapper.findAll('.review-skip-panel__presets .review-skip-panel__preset').map((node) => node.text())).toEqual([
+      '5 张后',
+      '10 张后',
+      '中段',
+      '队尾',
+    ]);
+    expect(wrapper.find('insert-position-dialog-stub').exists()).toBe(false);
+  });
+
+  it('inserts the current card through preset or slider positions and remembers the last position locally', async () => {
+    const insertAt = vi.fn(async () => undefined);
+    const wrapper = mountReviewActions(
+      createActions({ showAnswer: true }),
+      false,
+      null,
+      {
+        meta: { canBack: true, remainingSize: 47, transition: 'none' },
+        queue: {
+          insertAt,
+        },
+      },
+      {
+        SkipMenuButton: false,
+      },
+    );
+
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
+    await wrapper.findAll('.review-skip-panel__presets .review-skip-panel__preset')[0]!.trigger('click');
+    await wrapper.get('.review-skip-panel__commit-button').trigger('click');
+    await flushPromises();
+
+    expect(insertAt).toHaveBeenCalledWith('card-1', 5);
+    expect(wrapper.emitted('skip')).toEqual([[]]);
+    expect(wrapper.find('.review-skip-panel').exists()).toBe(false);
+
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
+    expect((wrapper.get('.review-skip-panel input[type="range"]').element as HTMLInputElement).value).toBe('5');
+
+    await wrapper.get('.review-skip-panel input[type="range"]').setValue(14);
+    expect(wrapper.get('.review-skip-panel__state').text()).toContain('14');
+
+    await wrapper.get('.review-skip-panel__commit-button').trigger('click');
+    await flushPromises();
+
+    expect(insertAt).toHaveBeenLastCalledWith('card-1', 14);
+    expect(wrapper.emitted('skip')).toEqual([[], []]);
+  });
+
+  it('clamps tail insertion to queued cards after the current card', async () => {
+    const insertAt = vi.fn(async () => undefined);
+    const wrapper = mountReviewActions(
+      createActions({ showAnswer: true }),
+      false,
+      null,
+      {
+        meta: { canBack: true, remainingSize: 6, transition: 'none' },
+        queue: {
+          insertAt,
+        },
+      },
+      {
+        SkipMenuButton: false,
+      },
+    );
+
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
+    await wrapper.findAll('.review-skip-panel__presets .review-skip-panel__preset')[3]!.trigger('click');
+    await wrapper.get('.review-skip-panel__commit-button').trigger('click');
+    await flushPromises();
+
+    expect(insertAt).toHaveBeenCalledWith('card-1', 5);
+  });
+
+  it('keeps preset selection distinct when short queues clamp to the same position', async () => {
+    const wrapper = mountReviewActions(
+      createActions({ showAnswer: true }),
+      false,
+      null,
+      {
+        meta: { canBack: true, remainingSize: 6, transition: 'none' },
+        queue: {
+          insertAt: vi.fn(async () => undefined),
+        },
+      },
+      {
+        SkipMenuButton: false,
+      },
+    );
+
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
+    const presets = wrapper.findAll('.review-skip-panel__presets .review-skip-panel__preset');
+
+    await presets[1]!.trigger('click');
+    expect(wrapper.findAll('.review-skip-panel__presets .is-active').map((node) => node.text())).toEqual(['10 张后']);
+
+    await presets[3]!.trigger('click');
+    expect(wrapper.findAll('.review-skip-panel__presets .is-active').map((node) => node.text())).toEqual(['队尾']);
+  });
+
+  it('fills quick schedule dates without skipping until the confirmation button is clicked', async () => {
+    const rescheduleCard = vi.fn(async () => undefined);
+    const removeCard = vi.fn(async () => undefined);
+    const wrapper = mountReviewActions(
+      createActions({ showAnswer: true }),
+      false,
+      null,
+      {
+        meta: { canBack: true, remainingSize: 47, transition: 'none' },
+        plugin: {
+          getContext: () => ({
+            getReviewService: () => ({ rescheduleCard }),
+          }),
+        },
+        queue: {
+          insertAt: vi.fn(async () => undefined),
+          removeCard,
+        },
+      },
+      {
+        SkipMenuButton: false,
+      },
+    );
+
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
+    await wrapper.findAll('.review-skip-panel__date-presets .review-skip-panel__preset')[0]!.trigger('click');
+    await flushPromises();
+
+    expect(rescheduleCard).not.toHaveBeenCalled();
+    expect(removeCard).not.toHaveBeenCalled();
+    expect(wrapper.emitted('skip')).toBeFalsy();
+    expect(wrapper.find('.review-skip-panel').exists()).toBe(true);
+    expect((wrapper.get('.review-skip-panel__date-custom input').element as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    await wrapper.get('.review-skip-panel__date-custom .b3-button').trigger('click');
+    await flushPromises();
+
+    expect(rescheduleCard).toHaveBeenCalledWith(
+      'card-1',
+      expect.objectContaining({
+        mode: 'direct',
+        dueTimestamp: expect.any(Number),
+      }),
+    );
+    expect(removeCard).toHaveBeenCalledWith('card-1');
+    expect(wrapper.emitted('skip')).toEqual([[]]);
+    expect(wrapper.find('.review-skip-panel').exists()).toBe(false);
+  });
+
+  it('does not schedule when the custom date value is invalid', async () => {
+    const rescheduleCard = vi.fn(async () => undefined);
+    const removeCard = vi.fn(async () => undefined);
+    const wrapper = mountReviewActions(
+      createActions({ showAnswer: true }),
+      false,
+      null,
+      {
+        meta: { canBack: true, remainingSize: 47, transition: 'none' },
+        plugin: {
+          getContext: () => ({
+            getReviewService: () => ({ rescheduleCard }),
+          }),
+        },
+        queue: {
+          insertAt: vi.fn(async () => undefined),
+          removeCard,
+        },
+      },
+      {
+        SkipMenuButton: false,
+      },
+    );
+
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
+    await wrapper.get('.review-skip-panel__date-custom input').setValue('not-a-date');
+    await wrapper.get('.review-skip-panel__date-custom .b3-button').trigger('click');
+    await flushPromises();
+
+    expect(rescheduleCard).not.toHaveBeenCalled();
+    expect(removeCard).not.toHaveBeenCalled();
+    expect(wrapper.emitted('skip')).toBeFalsy();
+    expect(wrapper.find('.review-skip-panel').exists()).toBe(true);
+  });
+
+  it('hides quick date scheduling for neural roam virtual cards', async () => {
+    const wrapper = mountReviewActions(
+      createActions({ showAnswer: true }),
+      false,
+      {
+        id: 'virtual-1',
+        blockId: 'virtual-1',
+        due: Date.now(),
+        stability: 0,
+        difficulty: 0,
+        elapsedDays: 0,
+        scheduledDays: 0,
+        reps: 0,
+        lapses: 0,
+        state: 0,
+        lastReview: Date.now(),
+        priority: 50,
+        type: 'topic',
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        meta: {
+          neuralContext: {
+            isFlashcard: false,
+          },
+        },
+      } as FSRSCard,
+      {
+        meta: { canBack: true, remainingSize: 47, transition: 'none' },
+        queue: {
+          insertAt: vi.fn(async () => undefined),
+        },
+      },
+      {
+        SkipMenuButton: false,
+      },
+    );
+
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
+
+    expect(wrapper.find('.review-skip-panel__card--later').exists()).toBe(true);
+    expect(wrapper.find('.review-skip-panel__card--schedule').exists()).toBe(false);
   });
 });

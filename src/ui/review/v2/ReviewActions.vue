@@ -35,9 +35,9 @@
           :is-mobile="props.isMobile"
           :can-schedule-date="canScheduleDate"
           :disabled="isAdvancing"
+          :expanded="showSkipPanel"
           @skip="emit('skip')"
-          @insert="handleInsert"
-          @schedule="handleSchedule"
+          @toggle-panel="toggleSkipPanel"
         />
       </div>
     </template>
@@ -73,9 +73,9 @@
           :is-mobile="props.isMobile"
           :can-schedule-date="canScheduleDate"
           :disabled="isAdvancing"
+          :expanded="showSkipPanel"
           @skip="emit('skip')"
-          @insert="handleInsert"
-          @schedule="handleSchedule"
+          @toggle-panel="toggleSkipPanel"
         />
       </div>
     </template>
@@ -114,9 +114,9 @@
             :is-mobile="props.isMobile"
             :can-schedule-date="canScheduleDate"
             :disabled="isAdvancing"
+            :expanded="showSkipPanel"
             @skip="emit('skip')"
-            @insert="handleInsert"
-            @schedule="handleSchedule"
+            @toggle-panel="toggleSkipPanel"
           />
         </div>
       </div>
@@ -178,9 +178,9 @@
             :is-mobile="props.isMobile"
             :can-schedule-date="canScheduleDate"
             :disabled="isAdvancing"
+            :expanded="showSkipPanel"
             @skip="emit('skip')"
-            @insert="handleInsert"
-            @schedule="handleSchedule"
+            @toggle-panel="toggleSkipPanel"
           />
         </div>
       </div>
@@ -231,33 +231,100 @@
     </span>
   </div>
 
-  <teleport to="body">
-    <div v-if="showInsertDialog" class="b3-dialog b3-dialog--open siyuanmemo-dialog" @mousedown.self="handleDialogMouseDown">
-      <div class="b3-dialog__scrim" @click="closeInsertDialog"></div>
-      <div class="b3-dialog__container" :style="insertDialogContainerStyle">
-        <InsertPositionDialog
-          :queue-size="remainingSize"
-          :i18n="i18n"
-          @confirm="onInsertConfirm"
-          @cancel="closeInsertDialog"
-        />
+  <section
+    v-if="showSkipPanel"
+    class="review-skip-panel"
+    :class="{ 'review-skip-panel--mobile': props.isMobile }"
+    role="region"
+    :aria-label="t('skipLaterPanel', '跳过和稍后操作')"
+  >
+    <div class="review-skip-panel__card review-skip-panel__card--later">
+      <div class="review-skip-panel__head">
+        <strong>{{ t('reviewLaterTitle', '稍后再看') }}</strong>
+        <span>{{ laterPanelMeta }}</span>
       </div>
-    </div>
-  </teleport>
 
-  <teleport to="body">
-    <div v-if="showScheduleDialog" class="b3-dialog b3-dialog--open siyuanmemo-dialog" @mousedown.self="handleDialogMouseDown">
-      <div class="b3-dialog__scrim" @click="closeScheduleDialog"></div>
-      <div class="b3-dialog__container" :style="scheduleDialogContainerStyle">
-        <ScheduleDateDialog
-          :card-type="cardType"
-          :i18n="i18n"
-          @confirm="onScheduleConfirm"
-          @cancel="closeScheduleDialog"
+      <div class="review-skip-panel__presets">
+        <button
+          v-for="preset in laterPresets"
+          :key="preset.key"
+          type="button"
+          class="review-skip-panel__preset"
+          :class="{ 'is-active': selectedLaterPresetKey === preset.key }"
+          :disabled="!canInsertLater || isAdvancing"
+          @click="selectLaterPosition(preset)"
+        >
+          {{ preset.label }}
+        </button>
+      </div>
+
+      <label class="review-skip-panel__slider">
+        <span>{{ t('currentPositionStart', '当前') }}</span>
+        <input
+          v-model.number="laterPosition"
+          type="range"
+          :min="1"
+          :max="laterPositionMax"
+          :disabled="!canInsertLater || isAdvancing"
+          :aria-label="t('reviewLaterSlider', '稍后位置')"
+          @input="handleLaterSliderInput"
         />
+        <span>{{ laterPosition }} {{ t('cardsLaterUnit', '张后') }}</span>
+      </label>
+
+      <div class="review-skip-panel__commit">
+        <div class="review-skip-panel__state">
+          {{ laterSummary }}
+        </div>
+        <button
+          type="button"
+          class="b3-button b3-button--text review-skip-panel__commit-button"
+          :disabled="!canInsertLater || isAdvancing"
+          @click="confirmLaterPosition"
+        >
+          {{ t('placeCardLater', '放到稍后') }}
+        </button>
       </div>
     </div>
-  </teleport>
+
+    <div v-if="canScheduleDate" class="review-skip-panel__card review-skip-panel__card--schedule">
+      <div class="review-skip-panel__head">
+        <strong>{{ t('scheduleDate', '安排复习日期') }}</strong>
+        <span>{{ t('scheduleLeavesCurrentQueue', '移出当前队列') }}</span>
+      </div>
+
+      <div class="review-skip-panel__date-presets">
+        <button
+          v-for="preset in schedulePresets"
+          :key="preset.days"
+          type="button"
+          class="review-skip-panel__preset"
+          :disabled="isAdvancing"
+          @click="selectSchedulePreset(preset.days)"
+        >
+          {{ preset.label }}
+        </button>
+      </div>
+
+      <div class="review-skip-panel__date-custom">
+        <input
+          v-model="customScheduleDate"
+          type="date"
+          class="b3-text-field"
+          :disabled="isAdvancing"
+          :aria-label="t('chooseDate', '选择日期')"
+        />
+        <button
+          type="button"
+          class="b3-button"
+          :disabled="!customScheduleDate || isAdvancing"
+          @click="scheduleCustomDate"
+        >
+          {{ t('confirm', '确认') }}
+        </button>
+      </div>
+    </div>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -265,8 +332,6 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { HIDE_CURRENT_IN_SCOPE_COMMAND_ID } from '@/core/queue/abstraction/customActionIds';
 import type { ReviewUIState } from './types';
 import SkipMenuButton from './components/SkipMenuButton.vue';
-import InsertPositionDialog from './dialogs/InsertPositionDialog.vue';
-import ScheduleDateDialog, { type ScheduleOptions } from './dialogs/ScheduleDateDialog.vue';
 import { createLogger } from '@/utils/logger';
 import type FSRSPlugin from '@/index';
 import type { IReviewQueue } from '@/types/unified-data-source';
@@ -278,8 +343,21 @@ import { buildRatingAriaLabel, type ReviewRatingValue } from './reviewHotkeys';
 const logger = createLogger('ReviewActions');
 
 type ReviewQueueLike = IReviewQueue & {
-  getRemainingSize?: () => number;
+  getRemainingSize?: () => number | Promise<number>;
   insertAt?: (cardId: string, position: number) => Promise<void>;
+};
+
+type ScheduleOptions = {
+  mode: 'direct';
+  dueDate: string;
+};
+
+type LaterPresetKey = 'plus-5' | 'plus-10' | 'middle' | 'tail';
+
+type LaterPreset = {
+  key: LaterPresetKey;
+  label: string;
+  position: number;
 };
 
 const props = defineProps<{
@@ -314,7 +392,6 @@ const isTopicCard = computed(() => {
   return result;
 });
 
-const cardType = computed<'item' | 'topic'>(() => (isTopicCard.value ? 'topic' : 'item'));
 const canScheduleDate = computed(() => !isNeuralRoamNonFlashcard(props.currentCard));
 const isFilterGroupReview = computed(() => props.queueType === 'filter-group');
 
@@ -329,20 +406,53 @@ const isAdvancing = computed(() => props.meta?.advancePending?.active === true);
 const showAdvanceHint = ref(false);
 let advanceHintTimer: ReturnType<typeof setTimeout> | null = null;
 
-const showInsertDialog = ref(false);
-const showScheduleDialog = ref(false);
+const showSkipPanel = ref(false);
+const rememberedLaterPosition = ref(10);
+const laterPosition = ref(10);
+const customScheduleDate = ref('');
+const selectedLaterPresetKey = ref<LaterPresetKey | null>(null);
+const insertableQueueSize = computed(() => Math.max(0, remainingSize.value - 1));
+const laterPositionMax = computed(() => Math.max(1, insertableQueueSize.value));
+const canInsertLater = computed(() => (
+  insertableQueueSize.value > 0
+  && !!props.queue
+  && typeof props.queue.insertAt === 'function'
+));
 
-const insertDialogContainerStyle = computed(() => ({
-  maxWidth: props.isMobile ? '92vw' : '400px',
-}));
+const laterPresets = computed<LaterPreset[]>(() => {
+  const max = laterPositionMax.value;
+  return [
+    { key: 'plus-5', label: t('reviewLaterFiveCards', '5 张后'), position: clampPosition(5) },
+    { key: 'plus-10', label: t('reviewLaterTenCards', '10 张后'), position: clampPosition(10) },
+    { key: 'middle', label: t('reviewLaterMiddle', '中段'), position: clampPosition(Math.ceil(max / 2)) },
+    { key: 'tail', label: t('reviewLaterTail', '队尾'), position: max },
+  ];
+});
 
-const scheduleDialogContainerStyle = computed(() => ({
-  maxWidth: props.isMobile ? '92vw' : '540px',
-}));
+const schedulePresets = computed(() => [
+  { days: 1, label: t('tomorrow', '明天') },
+  { days: 3, label: t('threeDaysLater', '3 天后') },
+  { days: 7, label: t('sevenDaysLater', '7 天后') },
+]);
 
-function handleDialogMouseDown(ev: MouseEvent) {
-  ev.stopPropagation();
-}
+const laterPanelMeta = computed(() => {
+  if (!canInsertLater.value) {
+    return t('reviewLaterUnavailable', '当前队列不支持稍后插入');
+  }
+
+  return t('reviewLaterMeta', '剩余 {remaining} 张 · 记住上次：{position} 张后')
+    .replace('{remaining}', String(remainingSize.value))
+    .replace('{position}', String(clampPosition(rememberedLaterPosition.value)));
+});
+
+const laterSummary = computed(() => {
+  if (!canInsertLater.value) {
+    return t('reviewLaterUnavailableSummary', '没有可插入的后续队列位置。');
+  }
+
+  return t('reviewLaterSummary', '将当前卡放到第 {position} 张后，不改变复习日期。')
+    .replace('{position}', String(clampPosition(laterPosition.value)));
+});
 
 watch(() => props.actions.grades, (grades) => {
   logger.debug('grades changed', { grades });
@@ -457,42 +567,45 @@ function handleTopicNextClick(event: MouseEvent): void {
   emit('grade', 3);
 }
 
-function handleInsert() {
+function clampPosition(position: number): number {
+  const finite = Number.isFinite(position) ? Math.round(position) : rememberedLaterPosition.value;
+  return Math.min(Math.max(finite, 1), laterPositionMax.value);
+}
+
+function toggleSkipPanel() {
   if (isAdvancing.value) {
     return;
   }
-  logger.debug('handleInsert called', {
-    remainingSize: remainingSize.value,
-    metaRemainingSize: props.meta?.remainingSize,
-    hasQueue: !!props.queue,
-    queueType: props.queue?.constructor?.name,
-  });
 
-  if (!props.queue) {
-    logger.warn('No queue available');
+  showSkipPanel.value = !showSkipPanel.value;
+  if (!showSkipPanel.value) {
     return;
   }
 
-  let actualRemainingSize = remainingSize.value;
-  if (actualRemainingSize === 0 && typeof props.queue.getRemainingSize === 'function') {
-    actualRemainingSize = props.queue.getRemainingSize();
-    logger.debug('Got remaining size from queue', { actualRemainingSize });
-  }
-
-  if (actualRemainingSize === 0) {
-    logger.warn('Queue is empty, cannot insert');
-    return;
-  }
-
-  showInsertDialog.value = true;
+  laterPosition.value = clampPosition(rememberedLaterPosition.value);
+  selectedLaterPresetKey.value = null;
 }
 
-function closeInsertDialog() {
-  showInsertDialog.value = false;
+function selectLaterPosition(preset: LaterPreset) {
+  selectedLaterPresetKey.value = preset.key;
+  laterPosition.value = clampPosition(preset.position);
 }
 
-async function onInsertConfirm(position: number) {
+function handleLaterSliderInput() {
+  selectedLaterPresetKey.value = null;
+}
+
+async function confirmLaterPosition() {
   try {
+    if (!canInsertLater.value) {
+      logger.warn('Queue does not support later insertion', {
+        remainingSize: remainingSize.value,
+        hasQueue: !!props.queue,
+        hasInsertAt: typeof props.queue?.insertAt,
+      });
+      return;
+    }
+
     const cardId = props.actions.cardMeta?.cardID || props.actions.cardMeta?.blockID;
     if (!cardId) {
       logger.error('No card ID found', {
@@ -501,7 +614,8 @@ async function onInsertConfirm(position: number) {
       return;
     }
 
-    logger.debug('onInsertConfirm - Queue inspection', {
+    const position = clampPosition(laterPosition.value);
+    logger.debug('confirmLaterPosition - Queue inspection', {
       hasQueue: !!props.queue,
       queueType: props.queue?.constructor?.name,
       queueKeys: props.queue ? Object.keys(props.queue) : [],
@@ -521,35 +635,51 @@ async function onInsertConfirm(position: number) {
     }
 
     await props.queue.insertAt(cardId, position);
-    logger.debug('Card inserted at position', { cardId, position });
+    rememberedLaterPosition.value = position;
+    laterPosition.value = position;
+    selectedLaterPresetKey.value = null;
+    logger.debug('Card inserted later from skip panel', { cardId, position });
 
-    closeInsertDialog();
+    showSkipPanel.value = false;
     emit('skip');
   } catch (error) {
-    logger.error('Failed to insert card', error);
+    logger.error('Failed to insert card later', error);
   }
 }
 
-function handleSchedule() {
-  if (isAdvancing.value) {
+function scheduleCustomDate() {
+  if (!customScheduleDate.value) {
     return;
   }
-  if (!canScheduleDate.value) {
-    logger.info('Schedule date disabled for neural roam virtual card');
-    return;
-  }
-  showScheduleDialog.value = true;
+
+  void onScheduleConfirm({
+    mode: 'direct',
+    dueDate: customScheduleDate.value,
+  });
 }
 
-function closeScheduleDialog() {
-  showScheduleDialog.value = false;
+function selectSchedulePreset(days: number) {
+  customScheduleDate.value = formatLocalDate(addDaysFromToday(days));
+}
+
+function addDaysFromToday(days: number): Date {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 async function onScheduleConfirm(options: ScheduleOptions) {
   try {
     if (!canScheduleDate.value) {
       logger.warn('Blocked schedule confirm for neural roam virtual card');
-      closeScheduleDialog();
       return;
     }
 
@@ -574,41 +704,24 @@ async function onScheduleConfirm(options: ScheduleOptions) {
       return;
     }
 
-    let targetDate: number;
-    if (options.dueDate) {
-      targetDate = new Date(options.dueDate).getTime();
-    } else if (options.days) {
-      targetDate = Date.now() + options.days * 24 * 60 * 60 * 1000;
-    } else {
-      targetDate = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    const targetDate = new Date(options.dueDate).getTime();
+    if (!Number.isFinite(targetDate)) {
+      logger.warn('Invalid schedule date selected', { cardId, dueDate: options.dueDate });
+      return;
     }
 
-    if (options.mode === 'rating') {
-      await reviewService.rescheduleCard(cardId, {
-        mode: 'rating',
-        rating: options.rating || 3,
-        dueTimestamp: targetDate,
-      });
+    await reviewService.rescheduleCard(cardId, {
+      mode: options.mode,
+      dueTimestamp: targetDate,
+    });
 
-      logger.debug('Card scheduled with rating to target date', {
-        cardId,
-        rating: options.rating || 3,
-        targetDate,
-      });
-    } else {
-      await reviewService.rescheduleCard(cardId, {
-        mode: 'direct',
-        dueTimestamp: targetDate,
-      });
-
-      logger.debug('Card due date updated', { cardId, targetDate });
-    }
+    logger.debug('Card due date updated', { cardId, targetDate });
 
     if (props.queue && typeof props.queue.removeCard === 'function') {
       await props.queue.removeCard(cardId);
     }
 
-    closeScheduleDialog();
+    showSkipPanel.value = false;
     emit('skip');
   } catch (error) {
     logger.error('Failed to schedule date', error);
@@ -955,28 +1068,159 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   margin-bottom: 1px;
 }
 
-.siyuanmemo-dialog.b3-dialog {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.review-skip-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 8px 8px;
+  border-top: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
 }
 
-.siyuanmemo-dialog .b3-dialog__scrim {
-  position: absolute;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.18);
-}
-
-.siyuanmemo-dialog .b3-dialog__container {
-  position: relative;
-  background-color: var(--b3-theme-background);
+.review-skip-panel__card {
+  min-width: 0;
+  padding: 12px;
   border: 1px solid var(--b3-border-color);
   border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  max-height: 80vh;
-  overflow: auto;
+  background: color-mix(in srgb, var(--b3-theme-surface) 92%, var(--b3-theme-background));
 }
+
+.review-skip-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.review-skip-panel__head strong {
+  color: var(--b3-theme-on-surface);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.review-skip-panel__presets,
+.review-skip-panel__date-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.review-skip-panel__date-presets {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.review-skip-panel__preset {
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 5px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.review-skip-panel__preset:hover:not(:disabled),
+.review-skip-panel__preset.is-active {
+  border-color: var(--b3-theme-primary);
+  background: var(--b3-theme-primary-lightest);
+  color: var(--b3-theme-primary);
+}
+
+.review-skip-panel__slider {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 8px;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+}
+
+.review-skip-panel__slider input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--b3-theme-primary);
+}
+
+.review-skip-panel__commit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.review-skip-panel__state {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.review-skip-panel__commit-button,
+.review-skip-panel__date-custom .b3-button {
+  min-height: 34px;
+}
+
+.review-skip-panel__date-custom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px;
+  gap: 8px;
+}
+
+.review-skip-panel__date-custom .b3-text-field {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  border-radius: 5px;
+}
+
+.review-skip-panel--mobile {
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 0 10px calc(10px + env(safe-area-inset-bottom));
+}
+
+.review-skip-panel--mobile .review-skip-panel__card {
+  padding: 10px;
+}
+
+.review-skip-panel--mobile .review-skip-panel__head {
+  margin-bottom: 8px;
+}
+
+.review-skip-panel--mobile .review-skip-panel__presets {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.review-skip-panel--mobile .review-skip-panel__date-presets {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.review-skip-panel--mobile .review-skip-panel__preset {
+  min-height: 32px;
+  padding-inline: 4px;
+}
+
+.review-skip-panel--mobile .review-skip-panel__commit {
+  grid-template-columns: minmax(0, 1fr) 88px;
+}
+
+.review-skip-panel--mobile .review-skip-panel__date-custom {
+  grid-template-columns: minmax(0, 1fr) 68px;
+}
+
 </style>

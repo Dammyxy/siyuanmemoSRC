@@ -21,32 +21,30 @@
 
     <button
       class="skip-menu-button__trigger b3-button b3-button--cancel"
-      aria-haspopup="menu"
-      aria-expanded="false"
+      aria-haspopup="dialog"
+      :aria-expanded="props.expanded ? 'true' : 'false'"
       :aria-label="t('moreSkipActions', '更多跳过操作')"
       :disabled="props.disabled"
-      @click="openMenu"
+      @click="handleTogglePanel"
     >
-      <svg class="skip-menu-button__chevron"><use xlink:href="#iconUp"></use></svg>
+      <svg class="skip-menu-button__chevron"><use xlink:href="#iconDown"></use></svg>
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Menu } from 'siyuan';
-
 interface Props {
   i18n?: Record<string, string>;
   queueSize?: number;
   isMobile?: boolean;
   canScheduleDate?: boolean;
   disabled?: boolean;
+  expanded?: boolean;
 }
 
 interface Emits {
   (e: 'skip'): void;
-  (e: 'insert'): void;
-  (e: 'schedule'): void;
+  (e: 'togglePanel'): void;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -69,48 +67,13 @@ function handleSkip(event: MouseEvent): void {
   emit('skip');
 }
 
-function resolveMenuAnchor(target: EventTarget | null): HTMLElement | null {
-  return target instanceof HTMLElement ? target : null;
-}
-
-function openMenu(event: MouseEvent): void {
+function handleTogglePanel(event: MouseEvent): void {
   event.stopPropagation();
   event.preventDefault();
   if (props.disabled) {
     return;
   }
-
-  const menu = new Menu('review-skip-menu');
-  menu.addItem({
-    icon: 'iconPin',
-    label: t('insertToPosition', '插入到队列指定位置'),
-    click: () => emit('insert'),
-  });
-
-  if (props.canScheduleDate) {
-    menu.addItem({
-      icon: 'iconCalendar',
-      label: t('scheduleDate', '安排复习日期'),
-      click: () => emit('schedule'),
-    });
-  }
-
-  const anchor = resolveMenuAnchor(event.currentTarget) || resolveMenuAnchor(event.target);
-  const rect = anchor?.getBoundingClientRect();
-  if (rect) {
-    menu.open({
-      x: rect.right,
-      y: rect.top,
-      isLeft: true,
-    });
-    return;
-  }
-
-  menu.open({
-    x: event.clientX,
-    y: event.clientY,
-    isLeft: true,
-  });
+  emit('togglePanel');
 }
 </script>
 
@@ -216,6 +179,11 @@ function openMenu(event: MouseEvent): void {
   width: 12px;
   height: 12px;
   color: var(--b3-theme-on-surface-light);
+  transition: transform 0.12s ease;
+}
+
+.skip-menu-button__trigger[aria-expanded="true"] .skip-menu-button__chevron {
+  transform: rotate(180deg);
 }
 
 .skip-menu-button--mobile {

@@ -4,6 +4,36 @@ Last update: 2026-06-18 (Round 621)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-06-18 - Review skip/later live regression fixes
+
+- Task: Fix four live-testing regressions in the new Review skip/later inline panel: reversed arrow intuition, duplicate preset active state on short queues, queue `insertAt()` overflow, and quick date presets skipping immediately.
+- Touched slice: Review UI actions in `src/ui/review/v2/ReviewActions.vue`, the split skip trigger in `src/ui/review/v2/components/SkipMenuButton.vue`, and focused Review action regression tests.
+- Debt fixed now: The collapsed split trigger now uses the native down-chevron affordance and rotates only when expanded. Later insertion now treats Review `remainingSize` as including the current card and clamps UI insertion to the queue cards after the current card, so `remainingSize=6` confirms `insertAt(..., 5)` instead of overflowing a size-5 queue. Preset active state now tracks the selected preset key instead of the clamped numeric position, so `10 张后` and `队尾` no longer both highlight when they collapse to the same target. Quick schedule presets now only fill the date input; scheduling/removal/skip only happens after the confirmation button, with invalid date values rejected.
+- Debt deferred: Live SiYuan footer smoke is still pending after rebuilding the plugin, and the historical `ScheduleDateDialog.vue` remains in the tree even though the active Review skip path no longer imports it.
+- Why deferred: Live smoke needs the running SiYuan host. Removing the old dialog file is dead-code cleanup outside this regression fix and should be done after confirming no other entry still imports it.
+- Next safe step: In live Review, test a queue with fewer than 10 remaining cards: open the panel, click `10 张后`, click `队尾`, confirm `放到稍后`, then click `明天` and verify the date appears without advancing until `确认`.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/components/__tests__/SkipMenuButton.spec.ts`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings). `openspec validate review-insert-position-slider --strict` was attempted but the change item is no longer present in this worktree's OpenSpec registry (`Unknown item`).
+
+### 2026-06-18 - Review skip/later inline panel
+
+- Task: Implement GitHub issue #21 by redoing the Review footer skip/later area from the approved inline-panel prototype.
+- Touched slice: Review UI actions in `src/ui/review/v2/ReviewActions.vue`, `src/ui/review/v2/components/SkipMenuButton.vue`, focused Review action tests, local issue triage docs, and OpenSpec change `review-insert-position-slider`.
+- Debt fixed now: Removed the hidden native skip menu plus number-input insert modal from the active Review action path. The primary `跳过` control remains one click, while the trailing affordance now expands an inline panel with later-position presets, a bounded slider, local last-position memory, and quick direct date scheduling through the existing ReviewApplicationService and queue `insertAt` / `removeCard` contracts.
+- Debt deferred: Live SiYuan footer smoke is still pending, and quick scheduling intentionally supports direct due-date changes only instead of recreating the old schedule dialog's rating-mode controls.
+- Why deferred: Live smoke needs the running SiYuan host. Rating-mode scheduling broadens this UI cleanup into scheduler/feedback semantics, while this slice only targets the #21 skip/later placement friction.
+- Next safe step: In live Review, open the skip panel on desktop and mobile, place a card 5/10/custom positions later, schedule one card for tomorrow, and verify the footer remains readable after expansion.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/components/__tests__/SkipMenuButton.spec.ts`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate review-insert-position-slider --strict` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
+
+### 2026-06-18 - Browser hierarchy doc-tree selection
+
+- Task: Implement GitHub issue #15 so SRS Browser left document clicks show cards from the clicked document and child documents.
+- Touched slice: Browser hierarchy selection in `src/ui/browser/SRSBrowser.vue`, Browser hierarchy regression tests, local issue triage docs, and OpenSpec change `scope-browser-doc-click-to-doc-tree`.
+- Debt fixed now: The Browser already had `scopeDocIds` datasource/query support, but normal hierarchy clicks still wrote exact `activeDocId`, which intersected child document cards away. Document clicks now resolve the document tree through `DocTreeReviewScopeService`, hydrate once when cold, store the resolved ids in `activeScopeDocIds`, clear exact `activeDocId`, and reload through the existing Browser load path while preserving queue/preset/search/card-type filters.
+- Debt deferred: The optional include/exclude child-document toggle and live SiYuan Browser click smoke are still pending.
+- Why deferred: The maintainer asked for the default child-document behavior first, and the deterministic Browser tests cover the active click/query chain; live UI smoke needs the running SiYuan host.
+- Next safe step: In live SRS Browser, click a parent document with child-document cards and confirm the grid shows both parent and child cards, then decide later whether an include-child-doc toggle is still useful.
+- Validation: `pnpm test:run src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/application/queries/browser/__tests__/BrowserDeckQueryKernel.scope-doc-ids.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate scope-browser-doc-click-to-doc-tree --strict` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
+
 ### 2026-06-18 - Document-tree Browser entry
 
 - Task: Check whether GitHub issue #47 was already done, then complete the missing document-tree menu entry if needed.

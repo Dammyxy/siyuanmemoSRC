@@ -650,8 +650,18 @@ type BrowserPluginContext = {
   getHybridSyncService?: () => unknown;
   getDialogManager?: () => BrowserDialogManagerPort | null;
   getTabManager?: () => BrowserTabManagerPort | null;
+  getDocTreeReviewScopeService?: () => BrowserDocTreeReviewScopeService | null;
   getSemanticActivationCommandClient?: () => SemanticActivationCommandClient | null;
   getSemanticActivationBrowserReadClient?: () => SemanticActivationBrowserReadClient | null;
+};
+
+type BrowserDocTreeReviewScope = {
+  docIds?: string[] | null;
+};
+
+type BrowserDocTreeReviewScopeService = {
+  collectDocReviewScope?: (docId: string) => BrowserDocTreeReviewScope | null;
+  hydrate?: () => Promise<void> | void;
 };
 
 type BrowserHybridSyncService = {
@@ -2326,6 +2336,7 @@ async function ensureAllRowsSnapshotReady(): Promise<BrowserCard[]> {
 
 let loadDataImpl: (forceRefresh?: boolean, options?: BrowserLoadDataOptions) => Promise<void> = async () => {};
 let abortLoadData = () => {};
+let docSelectionScopeTaskId = 0;
 
 async function loadData(forceRefresh = false, options: BrowserLoadDataOptions = {}) {
   await loadDataImpl(forceRefresh, options);
@@ -3747,6 +3758,35 @@ function handleExitFocus() {
   });
 }
 
+function normalizeDocTreeScopeIds(docId: string, scope?: BrowserDocTreeReviewScope | null): string[] {
+  const docIds = Array.isArray(scope?.docIds) ? scope.docIds : [];
+  const normalized = Array.from(new Set(
+    [docId, ...docIds]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  ));
+  return normalized.length > 0 ? normalized : [docId];
+}
+
+async function resolveSelectedDocTreeScopeIds(docId: string): Promise<string[]> {
+  const service = pluginContext.value?.getDocTreeReviewScopeService?.();
+  if (!service?.collectDocReviewScope) {
+    return [docId];
+  }
+
+  try {
+    let scope = service.collectDocReviewScope(docId);
+    if (!scope && service.hydrate) {
+      await service.hydrate();
+      scope = service.collectDocReviewScope(docId);
+    }
+    return normalizeDocTreeScopeIds(docId, scope);
+  } catch (error) {
+    logger.error('[SiYuanMemo][SRSBrowser] Failed to resolve selected document tree scope:', error);
+    return [docId];
+  }
+}
+
 function handleSelectDoc(docId: string) {
   const id = String(docId || '').trim();
 
@@ -3771,9 +3811,28 @@ function handleSelectDoc(docId: string) {
     return;
   }
 
-  syncSelectionForQueryChange();
-  activeDocId.value = id;
-  void loadData(false, { refreshQueueCounts: false });
+  if (!id) {
+    return;
+  }
+
+  const taskId = ++docSelectionScopeTaskId;
+  void runWithSuspendedBrowserStateBootstrap(async () => {
+    const scopeDocIds = await resolveSelectedDocTreeScopeIds(id);
+    if (taskId !== docSelectionScopeTaskId) {
+      return;
+    }
+
+    syncSelectionForQueryChange();
+    activeScopeDocIds.value = scopeDocIds;
+    activeDocId.value = null;
+    shouldFocusDocList.value = false;
+
+    await loadData(false, {
+      refreshQueueCounts: false,
+      snapshotDelayMs: DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+    });
+    await refreshGlobalStatsAfterFirstRows(false);
+  });
 }
 
 function handleFilterDoc(docId: string) {
