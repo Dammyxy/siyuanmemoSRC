@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-17 (Round 620)
+Last update: 2026-06-18 (Round 621)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-18 - Document-tree Browser entry
+
+- Task: Check whether GitHub issue #47 was already done, then complete the missing document-tree menu entry if needed.
+- Touched slice: Review/Browser entry boundary in `src/application/managers/BlockMenuHandler.ts`, focused block-menu and Browser scope query regression tests, and local issue triage docs.
+- Debt fixed now: The document-tree scope collection and Browser `scopeDocIds` query path already existed, but the document-tree block menu did not expose a Browse group. The menu now opens SRS Browser with `initialOpenState.scopeDocIds` and `preset: 'all'`, so current document plus descendant documents are reachable from the requested right-click entry.
+- Debt deferred: Live SiYuan menu smoke is still pending.
+- Why deferred: The deterministic manager/query tests cover the active call chain, while visual menu interaction needs the running SiYuan host.
+- Next safe step: In live SiYuan, right-click a document block icon in the document tree, choose SiYuanMemo -> Browse -> Open SRS Browser, and confirm Browser rows are scoped to that document plus child documents.
+- Validation: `pnpm test:run src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts src/application/queries/browser/__tests__/BrowserDeckQueryKernel.scope-doc-ids.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
 
 ### 2026-06-17 - Topic continuation menu wording
 

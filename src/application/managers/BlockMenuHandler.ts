@@ -652,6 +652,34 @@ export class BlockMenuHandler {
     ];
   }
 
+  private buildDocBrowserActions(scope: ReviewScopeSnapshot): SiyuanMenuItem[] {
+    return [
+      {
+        icon: 'iconRiffCard',
+        label: this.deps.i18n?.openSrsBrowser || '打开 SRS 浏览器',
+        click: async () => {
+          await this.deps.dialogManager.openBrowserDialog({
+            initialOpenState: {
+              scopeDocIds: scope.scopeDocIds,
+              preset: 'all',
+            },
+          });
+        },
+      },
+    ];
+  }
+
+  private buildDocBrowserLoadingActions(): SiyuanMenuItem[] {
+    const loadingText = this.deps.i18n?.loading || '加载中...';
+    return [
+      {
+        icon: 'iconRiffCard',
+        label: `${this.deps.i18n?.openSrsBrowser || '打开 SRS 浏览器'} <span class="ft__secondary">(${loadingText})</span>`,
+        disabled: true,
+      },
+    ];
+  }
+
   private buildDocMenuGroup(labelKey: string, fallback: string, icon: string, submenu: SiyuanMenuItem[]): SiyuanMenuItem {
     return {
       icon,
@@ -681,6 +709,12 @@ export class BlockMenuHandler {
           this.separator(),
           ...this.buildConceptActions(docId),
         ],
+      ),
+      this.buildDocMenuGroup(
+        'menuGroupBrowse',
+        '浏览',
+        'iconSearch',
+        this.buildDocBrowserActions(scope),
       ),
       this.buildDocMenuGroup(
         'menuGroupDocumentProcessing',
@@ -719,6 +753,12 @@ export class BlockMenuHandler {
           this.separator(),
           ...this.buildConceptActions(docId),
         ],
+      ),
+      this.buildDocMenuGroup(
+        'menuGroupBrowse',
+        '浏览',
+        'iconSearch',
+        this.buildDocBrowserLoadingActions(),
       ),
       this.buildDocMenuGroup(
         'menuGroupDocumentProcessing',

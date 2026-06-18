@@ -616,7 +616,6 @@
   "msg_no_operable_blocks": "No operable blocks found",
   "srsBrowser": "SRS Browser",
   "openSrsBrowser": "Open SRS Browser",
-  "searchPlaceholderAdvanced": "Search: tag:xxx deck:xxx state:new/review doc:xxx or keywords",
   "flatView": "Flat View",
   "hierarchyView": "Hierarchy View",
   "queueDeliberate": "Deliberate Practice",

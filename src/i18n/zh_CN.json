@@ -1133,7 +1133,6 @@
   "topicSchedulerHint": "用于 Concept 卡和 Topic 卡，适合阅读材料，动态调整难度因子（固定使用 A-Factor v2）",
   "itemScheduler": "Item/Descriptor 调度器",
   "itemSchedulerHint": "用于 Item 卡和 Descriptor 卡，现代算法，准确预测遗忘曲线（固定使用 FSRS v6）",
-  "searchPlaceholderAdvanced": "搜索：tag:xxx deck:xxx state:new/review doc:xxx 或关键词",
   "flatView": "平铺视图",
   "hierarchyView": "层级视图",
   "startPractice": "开始练习",
