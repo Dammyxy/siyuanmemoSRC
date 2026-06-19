@@ -80,6 +80,18 @@ type CachedHeaderState = {
   queueProgress: ReviewQueueProgressSnapshot;
 };
 
+type SessionCounterState = {
+  total: number;
+  remaining: number;
+  answeredCount: number;
+};
+
+type HeaderCounterNumbers = {
+  remaining: number;
+  total: number;
+  due: number;
+};
+
 const ANSWER_TEMPLATE_IDS = new Set<string>([
   'builtin-list-item',
   'builtin-basic-qa',
@@ -569,6 +581,84 @@ function toBucketMap(snapshot: QueueCounterSnapshot | null | undefined): Map<Hea
   return buckets;
 }
 
+function resolveSessionCounter(context?: AdapterContext): SessionCounterState | null {
+  const session = context?.session;
+  if (!session || session.initialTotal === undefined || session.initialTotal === null) {
+    return null;
+  }
+
+  const rawTotal = Number(session.initialTotal);
+  if (!Number.isFinite(rawTotal)) {
+    return null;
+  }
+
+  const total = Math.max(0, rawTotal);
+  const answeredCount = Math.max(0, Number(session.answeredCount) || 0);
+  return {
+    total,
+    remaining: Math.max(0, total - answeredCount),
+    answeredCount,
+  };
+}
+
+function reconcileCounterWithSession(
+  queueType: string,
+  counter: HeaderCounterNumbers,
+  context?: AdapterContext,
+): HeaderCounterNumbers {
+  if (queueType === 'neural-roam') {
+    return counter;
+  }
+
+  const sessionCounter = resolveSessionCounter(context);
+  if (!sessionCounter) {
+    return counter;
+  }
+
+  const staleAfterNoScoreRemoval = sessionCounter.total < counter.total;
+  const staleAfterAnsweredCard = sessionCounter.answeredCount > 0 && counter.remaining > sessionCounter.remaining;
+  if (!staleAfterNoScoreRemoval && !staleAfterAnsweredCard) {
+    return counter;
+  }
+
+  const remaining = Math.min(counter.remaining, sessionCounter.remaining);
+  const total = staleAfterNoScoreRemoval ? sessionCounter.total : counter.total;
+  return {
+    remaining,
+    total: Math.max(remaining, total),
+    due: Math.min(counter.due, remaining),
+  };
+}
+
+function withReconciledSnapshot(
+  snapshot: QueueCounterSnapshot | null | undefined,
+  counter: HeaderCounterNumbers,
+): QueueCounterSnapshot | null | undefined {
+  if (!snapshot) {
+    return snapshot;
+  }
+
+  if (
+    snapshot.remaining === counter.remaining
+    && snapshot.due === counter.due
+    && snapshot.total === counter.total
+  ) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    remaining: counter.remaining,
+    due: counter.due,
+    total: counter.total,
+    buckets: {
+      ...snapshot.buckets,
+      all: Math.min(Math.max(0, Number(snapshot.buckets.all) || 0), counter.remaining),
+    },
+    source: 'reconciled',
+  };
+}
+
 export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   private readonly i18n?: Record<string, string>;
   private readonly headerVariant?: ReviewHeaderVariant;
@@ -801,12 +891,22 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         );
       }
     }
-    const overallRemaining = queueType === 'neural-roam' && neuralBatch
+    let overallRemaining = queueType === 'neural-roam' && neuralBatch
       ? Math.max(0, Number(neuralBatch.remainingCount) || 0)
       : Math.max(0, Number(snapshot?.remaining) || stats.size);
-    const overallTotal = queueType === 'neural-roam' && neuralBatch
+    let overallTotal = queueType === 'neural-roam' && neuralBatch
       ? Math.max(0, Number(neuralBatch.roundSize) || 0)
       : Math.max(0, Number(snapshot?.total) || overallRemaining);
+    let overallDue = Math.max(0, Number(snapshot?.due) || 0);
+    const reconciledCounter = reconcileCounterWithSession(queueType, {
+      remaining: overallRemaining,
+      total: overallTotal,
+      due: overallDue,
+    }, safeContext);
+    overallRemaining = reconciledCounter.remaining;
+    overallTotal = reconciledCounter.total;
+    overallDue = reconciledCounter.due;
+    snapshot = withReconciledSnapshot(snapshot, reconciledCounter);
     const presentation = this.buildCounterPresentation({
       headerVariant,
       queue,
@@ -817,7 +917,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const label = neuralBatch
       ? `${presentation.counterSummary?.label || ''} ${Math.max(0, Number(presentation.counterSummary?.value) || 0)}/${Math.max(0, Number(neuralBatch.roundSize) || 0)}`
       : snapshot
-        ? `${Math.max(0, Number(snapshot.due) || 0)} due · ${overallRemaining} remaining`
+        ? `${overallDue} due · ${overallRemaining} remaining`
         : (stats.label || `${overallRemaining} due`);
 
     return this.cacheAndBuildAuxHeader(queueType, {
@@ -848,6 +948,35 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     context: AdapterContext,
   ): Pick<ReviewUIState['header'], 'stats' | 'counterSummary' | 'counterBadges'> & Pick<ReviewUIState['meta'], 'queueSize' | 'remainingSize' | 'queueProgress'> {
     if (this.cachedHeaderState && this.cachedHeaderState.cacheKey === cacheKey) {
+      const reconciledCounter = reconcileCounterWithSession(queueType, {
+        remaining: this.cachedHeaderState.remainingSize,
+        total: this.cachedHeaderState.queueSize,
+        due: this.cachedHeaderState.remainingSize,
+      }, context);
+      if (
+        reconciledCounter.remaining !== this.cachedHeaderState.remainingSize
+        || reconciledCounter.total !== this.cachedHeaderState.queueSize
+      ) {
+        const surfaceTitle = resolveReviewSurfaceTitle({ i18n: this.i18n, queueType, headerVariant });
+        return {
+          stats: {
+            current: reconciledCounter.remaining,
+            total: reconciledCounter.total,
+            label: reconciledCounter.total > 0 ? `${reconciledCounter.remaining} due` : '',
+            queueName: this.cachedHeaderState.stats.queueName || surfaceTitle,
+          },
+          counterSummary: null,
+          counterBadges: [],
+          queueSize: reconciledCounter.total,
+          remainingSize: reconciledCounter.remaining,
+          queueProgress: buildQueueProgressSnapshot(
+            this.i18n,
+            queueType,
+            reconciledCounter.total,
+            reconciledCounter.remaining,
+          ),
+        };
+      }
       return {
         stats: this.cachedHeaderState.stats,
         counterSummary: this.cachedHeaderState.counterSummary,

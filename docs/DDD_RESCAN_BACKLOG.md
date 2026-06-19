@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-18 (Round 621)
+Last update: 2026-06-19 (Round 623)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-19 - Review scheduled-date no-score removal counter
+
+- Task: Fix live Review behavior where confirming `安排复习日期` writes the new due date and removes the current card, but the Review counter can still show the old queue size until exhaustion.
+- Touched slice: Review actions/session advancement in `src/ui/review/v2/{ReviewActions.vue,ReviewView.vue,reviewSessionController.ts,types.ts}`, Review header counter reconciliation in `src/application/adapters/UnifiedReviewAdapter.ts`, and focused Review adapter/action/session/SRS-editor tests.
+- Debt fixed now: Date scheduling now emits a dedicated `scheduled` event instead of reusing ordinary `skip`. ReviewView handles scheduled/dismissed current-card removal by removing both `cardId` and `blockId` from the active removable queue, then advancing without queue feedback. `advanceWithoutFeedback({ decrementTotal: true })` now models a no-score removal that decrements the session total without adding review history or blocked-CDF diagnostics. `UnifiedReviewAdapter` now reconciles stale live queue snapshots/cache against the session total for no-score removals and answered-card stale counters, so auxiliary header refresh cannot restore the old `remaining/total` after the current card has been scheduled out.
+- Debt deferred: The broader observer payload still mixes card/block identifiers in some `cardIds` arrays, and the live log's CDF mid-session enqueue warning for a missing card remains unowned by this fix.
+- Why deferred: The reported bug is the Review scheduled-date current-session flow after a successful `ReviewApplicationService.rescheduleCard()` call. Observer event ID normalization and CDF enqueue repair cross data-observer/Card CRUD boundaries and need their own reproduced loop.
+- Next safe step: Live-smoke `安排复习日期` in retrieval and incremental Review queues: choose a future date, confirm, and verify the current card disappears, total/remaining count drops by one, stays dropped after auxiliary refresh, and no ordinary skip feedback is recorded.
+- Validation: Red/green `pnpm exec vitest run src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts`; focused `pnpm exec vitest run src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/__tests__/ReviewView.srs-editor-schedule.spec.ts src/ui/review/v2/__tests__/useReviewSession.spec.ts`; prior service guard `pnpm exec vitest run src/application/services/__tests__/ReviewApplicationService.reschedule-membership.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
 
 ### 2026-06-18 - Review skip/later live regression fixes
 

@@ -209,6 +209,7 @@
           @reveal="handleReveal"
           @grade="handleGrade"
           @skip="handleSkip"
+          @scheduled="advanceScheduledCurrentCard"
           @back="handleBack"
           @command="hook.executeCommand"
           @openMenu="handleOpenMenu"
@@ -2281,7 +2282,10 @@ function filterOutCurrentCardId(cardIds: string[], currentCardId: string): strin
   return reviewCardActionRuntime.filterOutCurrentCardId(cardIds, currentCardId);
 }
 
-async function advanceCurrentReviewCardByReference(payload: { cardId?: string; blockId?: string }): Promise<void> {
+async function advanceCurrentReviewCardByReference(
+  payload: { cardId?: string; blockId?: string },
+  options: { withoutFeedback?: boolean } = {},
+): Promise<void> {
   const requestedCardId = String(payload.cardId || '').trim();
   const requestedBlockId = String(payload.blockId || '').trim();
   const currentReference = getCurrentReviewCardReference();
@@ -2297,7 +2301,11 @@ async function advanceCurrentReviewCardByReference(payload: { cardId?: string; b
     return;
   }
 
-  await removeCardIdsFromActiveQueue([requestedCardId || requestedBlockId]);
+  await removeCardIdsFromActiveQueue([requestedCardId, requestedBlockId]);
+  if (options.withoutFeedback === true) {
+    await hook.advanceWithoutFeedback({ decrementTotal: true });
+    return;
+  }
   await hook.skip();
 }
 
@@ -2307,6 +2315,8 @@ async function advanceScheduledCurrentCard(payload: ScheduledReviewCardPayload):
   await advanceCurrentReviewCardByReference({
     cardId: scheduledCardId,
     blockId: scheduledBlockId,
+  }, {
+    withoutFeedback: true,
   });
 }
 
@@ -2320,6 +2330,8 @@ async function advanceDismissedCurrentCard(payload: DismissedReviewCardPayload):
   await advanceCurrentReviewCardByReference({
     cardId: dismissedCardId,
     blockId: dismissedBlockId,
+  }, {
+    withoutFeedback: true,
   });
 }
 

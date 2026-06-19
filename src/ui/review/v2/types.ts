@@ -270,6 +270,7 @@ export interface ReviewNoScoreRemovalDiagnostic {
 
 export interface ReviewAdvanceWithoutFeedbackOptions {
   diagnostic?: ReviewNoScoreRemovalDiagnostic;
+  decrementTotal?: boolean;
 }
 
 export type ReviewMidSessionInsertedOrigin =

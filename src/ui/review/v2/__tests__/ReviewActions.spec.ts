@@ -433,8 +433,15 @@ describe('ReviewActions layout', () => {
         dueTimestamp: expect.any(Number),
       }),
     );
-    expect(removeCard).toHaveBeenCalledWith('card-1');
-    expect(wrapper.emitted('skip')).toBeTruthy();
+    expect(removeCard).not.toHaveBeenCalled();
+    expect(wrapper.emitted('skip')).toBeFalsy();
+    expect(wrapper.emitted('scheduled')).toEqual([[
+      expect.objectContaining({
+        cardId: 'card-1',
+        blockId: 'block-1',
+        dueTimestamp: expect.any(Number),
+      }),
+    ]]);
   });
 });
 
@@ -609,8 +616,15 @@ describe('ReviewActions skip later panel', () => {
         dueTimestamp: expect.any(Number),
       }),
     );
-    expect(removeCard).toHaveBeenCalledWith('card-1');
-    expect(wrapper.emitted('skip')).toEqual([[]]);
+    expect(removeCard).not.toHaveBeenCalled();
+    expect(wrapper.emitted('skip')).toBeFalsy();
+    expect(wrapper.emitted('scheduled')).toEqual([[
+      expect.objectContaining({
+        cardId: 'card-1',
+        blockId: 'block-1',
+        dueTimestamp: expect.any(Number),
+      }),
+    ]]);
     expect(wrapper.find('.review-skip-panel').exists()).toBe(false);
   });
 

@@ -352,6 +352,12 @@ type ScheduleOptions = {
   dueDate: string;
 };
 
+type ScheduledReviewCardPayload = {
+  cardId: string;
+  blockId: string;
+  dueTimestamp: number;
+};
+
 type LaterPresetKey = 'plus-5' | 'plus-10' | 'middle' | 'tail';
 
 type LaterPreset = {
@@ -375,6 +381,7 @@ const emit = defineEmits<{
   (e: 'reveal'): void;
   (e: 'grade', rating: number): void;
   (e: 'skip'): void;
+  (e: 'scheduled', payload: ScheduledReviewCardPayload): void;
   (e: 'back'): void;
   (e: 'command', cmdId: string): void;
   (e: 'openMenu', menu: ReviewUIState['actions']['menu'], ev: MouseEvent): void;
@@ -710,19 +717,19 @@ async function onScheduleConfirm(options: ScheduleOptions) {
       return;
     }
 
-    await reviewService.rescheduleCard(cardId, {
+    const updatedCard = await reviewService.rescheduleCard(cardId, {
       mode: options.mode,
       dueTimestamp: targetDate,
     });
 
     logger.debug('Card due date updated', { cardId, targetDate });
 
-    if (props.queue && typeof props.queue.removeCard === 'function') {
-      await props.queue.removeCard(cardId);
-    }
-
     showSkipPanel.value = false;
-    emit('skip');
+    emit('scheduled', {
+      cardId: String(updatedCard?.id || updatedCard?.cardID || cardId),
+      blockId: String(updatedCard?.blockId || updatedCard?.blockID || props.actions.cardMeta?.blockID || ''),
+      dueTimestamp: targetDate,
+    });
   } catch (error) {
     logger.error('Failed to schedule date', error);
   }

@@ -1171,6 +1171,47 @@ describe('UnifiedReviewAdapter', () => {
     });
   });
 
+  it('does not let a stale live snapshot restore remaining count after no-score removal', async () => {
+    const liveCards = [
+      createCard('item-1', CardType.Item),
+      createCard('item-2', CardType.Item),
+      createCard('item-3', CardType.Item),
+    ];
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards,
+      snapshot: {
+        remaining: 3,
+        due: 3,
+        total: 3,
+        buckets: {
+          all: 3,
+          item: 3,
+          descriptor: 0,
+          topic: 0,
+          concept: 0,
+        },
+      },
+    });
+    const adapter = new UnifiedReviewAdapter({ headerVariant: 'retrieval-practice' });
+    const context = createContext({ initialTotal: 2, answeredCount: 0 });
+
+    const ui = await renderState(adapter, queue, liveCards[1], context);
+
+    expect(ui.header.stats.current).toBe(2);
+    expect(ui.header.stats.total).toBe(2);
+    expect(ui.header.stats.label).toBe('2 due · 2 remaining');
+    expect(ui.meta.remainingSize).toBe(2);
+    expect(ui.meta.queueSize).toBe(2);
+    expect(ui.header.counterSummary).toEqual({
+      kind: 'value',
+      text: '2',
+      tooltip: '2 remaining · 2 due',
+      ariaLabel: '2 remaining · 2 due',
+      value: 2,
+    });
+  });
+
   it('fails closed when live counter snapshot read fails', async () => {
     const currentItem = createCard('item-counter-fail', CardType.Item);
     const queue = {

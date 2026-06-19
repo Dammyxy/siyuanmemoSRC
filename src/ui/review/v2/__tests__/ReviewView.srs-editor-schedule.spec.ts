@@ -7,17 +7,35 @@ import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
 import SrsArenaConflictDialog from '../dialogs/SrsArenaConflictDialog.vue';
 
-const { createVueDialogMock, confirmDialogMock } = vi.hoisted(() => ({
+const {
+  createVueDialogMock,
+  confirmDialogMock,
+  inputDialogMock,
+  threeChoiceDialogMock,
+} = vi.hoisted(() => ({
   createVueDialogMock: vi.fn(() => ({
     dialog: {} as never,
     destroy: vi.fn(),
   })),
   confirmDialogMock: vi.fn(async () => true),
+  inputDialogMock: vi.fn(async () => null),
+  threeChoiceDialogMock: vi.fn(async () => null),
 }));
 
 vi.mock('@/utils/dialog', () => ({
   createVueDialog: createVueDialogMock,
   confirmDialog: confirmDialogMock,
+  inputDialog: inputDialogMock,
+  threeChoiceDialog: threeChoiceDialogMock,
+}));
+
+vi.mock('siyuan', () => ({
+  Menu: class {
+    addItem = vi.fn();
+    addSeparator = vi.fn();
+    open = vi.fn();
+  },
+  showMessage: vi.fn(),
 }));
 
 function buildCard(id: string, priority: number) {
@@ -46,6 +64,43 @@ function buildCard(id: string, priority: number) {
     createdAt: now,
     updatedAt: now,
     meta: {},
+  };
+}
+
+function buildCleanDomainSyncDiagnostics() {
+  return {
+    ok: true,
+    ledger: {
+      operationCount: 0,
+      newestOperationAt: null,
+      operationTypes: {},
+    },
+    processedSources: {
+      recent: [],
+      skipped: [],
+      totalProcessed: 0,
+      totalSkipped: 0,
+    },
+    sanity: {
+      status: 'clean',
+      checkedAt: 1,
+      ledgerOperationCount: 0,
+      pendingImportCount: 0,
+      processedSourceCount: 0,
+      skippedSourceCount: 0,
+      repairableDivergenceCount: 0,
+      unrepairableDivergenceCount: 0,
+      divergentLedgerCount: 0,
+      divergentCardCount: 0,
+      reasonCounts: {},
+      affectedCardIds: [],
+      truncated: false,
+    },
+    repair: {
+      available: false,
+      repairableDivergenceCount: 0,
+      latestPlanId: null,
+    },
   };
 }
 
@@ -253,10 +308,8 @@ describe('ReviewView SRS editor scheduling', () => {
     await flushPromises();
 
     expect(queue.removeCard).toHaveBeenCalledWith(firstCard.id);
-    expect(queue.onFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ id: firstCard.id }),
-      { action: 'skip' },
-    );
+    expect(queue.removeCard).toHaveBeenCalledWith(firstCard.blockId);
+    expect(queue.onFeedback).not.toHaveBeenCalled();
     expect(queue.next).toHaveBeenCalledTimes(2);
     expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
 
@@ -279,6 +332,7 @@ describe('ReviewView SRS editor scheduling', () => {
             getArenaKernelService: () => ({ buildSrsRecommendation }),
             getSchedulerRouter: () => ({ getSchedulerType: () => 'fsrs-v6' }),
             getUnifiedDataSourceManager: () => null,
+            readDomainSyncDiagnostics: vi.fn(async () => buildCleanDomainSyncDiagnostics()),
             getStorage: () => ({
               getSettings: () => ({}),
               getCard: () => firstCard,
@@ -337,6 +391,7 @@ describe('ReviewView SRS editor scheduling', () => {
             getArenaKernelService: () => ({ buildSrsRecommendation }),
             getSchedulerRouter: () => ({ getSchedulerType: () => 'fsrs-v6' }),
             getUnifiedDataSourceManager: () => null,
+            readDomainSyncDiagnostics: vi.fn(async () => buildCleanDomainSyncDiagnostics()),
             getStorage: () => ({
               getSettings: () => ({}),
               getCard: () => firstCard,
@@ -387,6 +442,7 @@ describe('ReviewView SRS editor scheduling', () => {
             getArenaKernelService: () => ({ buildSrsRecommendation }),
             getSchedulerRouter: () => ({ getSchedulerType: () => 'fsrs-v6' }),
             getUnifiedDataSourceManager: () => null,
+            readDomainSyncDiagnostics: vi.fn(async () => buildCleanDomainSyncDiagnostics()),
             getStorage: () => ({
               getSettings: () => ({}),
               getCard: () => firstCard,
@@ -448,6 +504,7 @@ describe('ReviewView SRS editor scheduling', () => {
             getArenaKernelService: () => ({ buildSrsRecommendation }),
             getSchedulerRouter: () => ({ getSchedulerType: () => 'fsrs-v6' }),
             getUnifiedDataSourceManager: () => null,
+            readDomainSyncDiagnostics: vi.fn(async () => buildCleanDomainSyncDiagnostics()),
             getStorage: () => ({
               getSettings: () => ({}),
               getCard: () => firstCard,
@@ -553,10 +610,8 @@ describe('ReviewView SRS editor scheduling', () => {
     await flushPromises();
 
     expect(queue.removeCard).toHaveBeenCalledWith(firstCard.id);
-    expect(queue.onFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ id: firstCard.id }),
-      { action: 'skip' },
-    );
+    expect(queue.removeCard).toHaveBeenCalledWith(firstCard.blockId);
+    expect(queue.onFeedback).not.toHaveBeenCalled();
     expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
 
     wrapper.unmount();

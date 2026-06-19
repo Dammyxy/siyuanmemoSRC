@@ -316,6 +316,12 @@ function pushNoScoreRemovalDiagnostic(
   context: AdapterContext,
   options?: ReviewAdvanceWithoutFeedbackOptions,
 ): void {
+  const shouldDecrementTotal = options?.decrementTotal === true || options?.diagnostic?.kind === 'blocked-cdf';
+  if (shouldDecrementTotal) {
+    const session = ensureSessionState(context);
+    session.initialTotal = Math.max(0, (Number(session.initialTotal) || 0) - 1);
+  }
+
   const diagnostic = options?.diagnostic;
   if (!diagnostic) {
     return;
@@ -331,9 +337,6 @@ function pushNoScoreRemovalDiagnostic(
     nextDiagnostic,
   ];
   session.blockedSkippedCount = Math.max(0, Number(session.blockedSkippedCount) || 0) + 1;
-  if (diagnostic.kind === 'blocked-cdf') {
-    session.initialTotal = Math.max(0, (Number(session.initialTotal) || 0) - 1);
-  }
 }
 
 function rollbackReviewHistory(context: AdapterContext): void {
