@@ -73,7 +73,7 @@ function isCardTemplate(value: unknown): value is ICardTemplate {
 }
 
 function traceAutoCardCreation(event: string, payload: Record<string, unknown>): void {
-  logger.info('[AutoCardTrace]', { event, ...payload });
+  logger.debug('[AutoCardTrace]', { event, ...payload });
 }
 
 function summarizeTraceAttrs(attrs: Record<string, string> | null | undefined): Record<string, unknown> {

@@ -1250,13 +1250,13 @@ export class UnifiedDataSourceManager {
 
         const affectedQueueTypes = this.invalidateQueuesForCardMutation();
 
-        const affectedIds = Array.from(new Set(
-            updatedCards.flatMap((card) => [card.id, card.blockId].filter(Boolean))
-        ));
+        const affectedCardIds = this.normalizeEventIds(updatedCards.map((card) => card.id));
+        const affectedBlockIds = this.normalizeEventIds(updatedCards.map((card) => card.blockId));
         const timestamp = Date.now();
         this.notifyObservers({
             type: 'card-updated',
-            cardIds: affectedIds,
+            cardIds: affectedCardIds,
+            blockIds: affectedBlockIds,
             timestamp,
         });
 
@@ -1275,11 +1275,13 @@ export class UnifiedDataSourceManager {
     public async onCardCreated(card: FSRSCard): Promise<void> {
         const affectedQueueTypes = this.invalidateQueuesForCardMutation();
 
-        const affectedIds = Array.from(new Set([card.id, card.blockId].filter(Boolean)));
+        const affectedCardIds = this.normalizeEventIds([card.id]);
+        const affectedBlockIds = this.normalizeEventIds([card.blockId]);
         const timestamp = Date.now();
         this.notifyObservers({
             type: 'card-created',
-            cardIds: affectedIds,
+            cardIds: affectedCardIds,
+            blockIds: affectedBlockIds,
             timestamp,
         });
 

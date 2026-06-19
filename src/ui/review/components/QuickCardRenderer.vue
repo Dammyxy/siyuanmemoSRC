@@ -7,9 +7,11 @@
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
 
       <ReviewRichHtmlContent
+        v-if="renderedContent"
         class="quick-card-renderer__card"
         :class="contentClasses"
-        :html="renderedHtml"
+        :content="renderedContent"
+        :on-open-block="onOpenBlock"
       />
     </div>
   </div>
@@ -18,6 +20,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import type { QuickCardRenderService, QuickCardViewModel } from '@/core/card/quick-card/application/QuickCardRenderService';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
@@ -37,6 +40,7 @@ interface Props {
   preparedViewModel?: unknown;
   preparedIdentity?: string;
   refreshEpoch?: number;
+  onOpenBlock?: (blockId: string) => void | Promise<void>;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -57,7 +61,7 @@ function t(key: string, fallback: string): string {
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<QuickCardViewModel | null>(null);
-const renderedHtml = ref('');
+const renderedContent = ref<RichContentResult | null>(null);
 const activeViewModelIdentity = ref('');
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
@@ -71,7 +75,7 @@ const renderIdentity = computed(() => {
 function renderDisplayHtml(result: QuickCardViewModel): string {
   const isLatexCloze = result.metadata.symbol === '\\cloze';
   if (!isLatexCloze) {
-    return result.html;
+    return result.content.html;
   }
   logger.debug('[SiYuanMemo][QuickCardRenderer] Applying KaTeX re-render for latex cloze quick card', {
     blockId: result.blockId,
@@ -79,9 +83,16 @@ function renderDisplayHtml(result: QuickCardViewModel): string {
     side: (result as { side?: string }).side,
     symbol: result.metadata.symbol,
   });
-  return renderMathWithKatex(result.html, (renderError) => {
+  return renderMathWithKatex(result.content.html, (renderError) => {
     logger.warn('[QuickCardRenderer] Failed to render KaTeX expression:', renderError);
   });
+}
+
+function renderDisplayContent(result: QuickCardViewModel): RichContentResult {
+  return {
+    ...result.content,
+    html: renderDisplayHtml(result),
+  };
 }
 
 const contentClasses = computed(() => {
@@ -98,13 +109,13 @@ async function loadViewModel() {
   }
   if (activeViewModelIdentity.value !== cacheKey) {
     viewModel.value = null;
-    renderedHtml.value = '';
+    renderedContent.value = null;
     activeViewModelIdentity.value = '';
   }
   const cached = localViewModelCache.get(cacheKey);
   if (cached) {
     viewModel.value = cached;
-    renderedHtml.value = renderDisplayHtml(cached);
+    renderedContent.value = renderDisplayContent(cached);
     activeViewModelIdentity.value = cacheKey;
     error.value = null;
     loading.value = false;
@@ -145,7 +156,7 @@ async function loadViewModel() {
     viewModel.value = result;
     activeViewModelIdentity.value = cacheKey;
     localViewModelCache.set(cacheKey, result);
-    renderedHtml.value = renderDisplayHtml(result);
+    renderedContent.value = renderDisplayContent(result);
     emit('loaded', result);
   } catch (err) {
     if (seq !== loadSeq) {
@@ -173,7 +184,7 @@ function applyPreparedViewModel(identity = renderIdentity.value): boolean {
 
   loadSeq += 1;
   viewModel.value = prepared;
-  renderedHtml.value = renderDisplayHtml(prepared);
+  renderedContent.value = renderDisplayContent(prepared);
   activeViewModelIdentity.value = identity;
   localViewModelCache.set(identity, prepared);
   error.value = null;

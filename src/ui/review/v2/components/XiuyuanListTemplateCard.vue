@@ -3,7 +3,8 @@
     <CdfDirectLayout
       v-if="shouldUseDirectDisplay"
       :breadcrumbs="breadcrumbs"
-      :content-html="directContentHtml"
+      :content="directContent"
+      :on-open-block="onOpenBlock"
     />
 
     <template v-else>
@@ -13,7 +14,11 @@
       variant="preview"
     />
 
-    <div class="xiuyuan-question" v-html="questionHtml"></div>
+    <ReviewRichHtmlContent
+      class="xiuyuan-question"
+      :content="questionContent"
+      :on-open-block="onOpenBlock"
+    />
 
     <div v-if="meta.currentIndex && meta.currentIndex > 0" class="xiuyuan-previous-answers">
       <div
@@ -23,7 +28,7 @@
       >
         <span class="xiuyuan-answer-marker">✓</span>
         <span class="xiuyuan-answer-index">{{ index + 1 }}.</span>
-        <RichMarkdownContent class="xiuyuan-answer-text" :content="child.answer" />
+        <ReviewRichHtmlContent class="xiuyuan-answer-text" :content="child.answerContent" :on-open-block="onOpenBlock" />
       </div>
     </div>
 
@@ -31,13 +36,13 @@
       <div v-if="!showAnswer && hasCue" class="xiuyuan-current-cue">
         <span class="xiuyuan-cue-marker">?</span>
         <span class="xiuyuan-cue-index">{{ (meta.currentIndex || 0) + 1 }}.</span>
-        <RichMarkdownContent class="xiuyuan-cue-text" :content="currentCue" />
+        <ReviewRichHtmlContent class="xiuyuan-cue-text" :content="currentCueContent" :on-open-block="onOpenBlock" />
       </div>
 
       <div v-else class="xiuyuan-current-answer">
         <span class="xiuyuan-answer-marker">✓</span>
         <span class="xiuyuan-answer-index">{{ (meta.currentIndex || 0) + 1 }}.</span>
-        <RichMarkdownContent class="xiuyuan-answer-text" :content="currentAnswer" />
+        <ReviewRichHtmlContent class="xiuyuan-answer-text" :content="currentAnswerContent" :on-open-block="onOpenBlock" />
       </div>
     </div>
 
@@ -51,6 +56,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import type { BreadcrumbItem } from '@/core/card/common/application/types';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
+import type { ReviewRichContentRenderer } from '@/core/card/common/application/ReviewRichContentRenderer';
 import type {
   CdfDirectPathSegment,
   CdfDirectScene,
@@ -68,7 +75,7 @@ import {
   projectCdfRelation,
   renderCdfDirectScene,
 } from '@/ui/shared/cdf-direct/renderScene';
-import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
+import ReviewRichHtmlContent from '@/ui/review/components/ReviewRichHtmlContent.vue';
 import { createLogger } from '@/utils/logger';
 
 type SiyuanApiLike = {
@@ -81,6 +88,8 @@ type ParsedListTemplateChild = {
   id: string;
   cue: string;
   answer: string;
+  cueContent: RichContentResult;
+  answerContent: RichContentResult;
   source: string;
   directPath?: CdfDirectPathSegment[];
 };
@@ -91,14 +100,40 @@ const props = defineProps<{
   questionBlockId: string;
   siyuanApi?: SiyuanApiLike;
   displayMode?: 'semantic' | 'direct';
+  richContentRenderer: ReviewRichContentRenderer;
+  onOpenBlock?: (blockId: string) => void | Promise<void>;
 }>();
 
 const logger = createLogger('XiuyuanListTemplateCard');
 
-const questionHtml = ref('');
+const questionContent = ref<RichContentResult>(createEmptyHtmlContent('question'));
 const breadcrumbs = ref<BreadcrumbItem[]>([]);
 const parsedChildren = ref<ParsedListTemplateChild[]>([]);
 let loadSeq = 0;
+
+function createEmptyHtmlContent(field: string): RichContentResult {
+  return props.richContentRenderer.renderHtml('', {
+    id: props.questionBlockId,
+    kind: 'xiuyuan-list-template',
+    field,
+  });
+}
+
+function renderXiuyuanHtml(html: string, field: string, id = props.questionBlockId): RichContentResult {
+  return props.richContentRenderer.renderHtml(html, {
+    id,
+    kind: 'xiuyuan-list-template',
+    field,
+  });
+}
+
+function renderXiuyuanMarkdown(markdown: string, field: string, id = props.questionBlockId): RichContentResult {
+  return props.richContentRenderer.renderMarkdown(markdown, {
+    sourceId: id,
+    sourceKind: 'xiuyuan-list-template',
+    field,
+  });
+}
 
 function toLevel(index: number): 0 | 1 | 2 {
   if (index <= 0) {
@@ -187,6 +222,8 @@ const currentChild = computed(() => {
 
 const currentCue = computed(() => currentChild.value?.cue || '');
 const currentAnswer = computed(() => currentChild.value?.answer || '');
+const currentCueContent = computed(() => currentChild.value?.cueContent ?? createEmptyHtmlContent('current-cue'));
+const currentAnswerContent = computed(() => currentChild.value?.answerContent ?? createEmptyHtmlContent('current-answer'));
 const currentSource = computed(() => currentChild.value?.source || '');
 const hasCue = computed(() => currentCue.value.trim().length > 0);
 const currentRelation = computed(() => projectCdfRelation(currentSource.value, '→'));
@@ -203,7 +240,7 @@ const directScene = computed<CdfDirectScene | null>(() => {
 
   const pathRows = current.directPath?.length
     ? buildPathRows(current.directPath)
-    : buildFallbackPathRows(questionHtml.value);
+    : buildFallbackPathRows(questionContent.value.html);
   const rows: CdfDirectRow[] = [...pathRows];
   const relation = currentRelation.value;
   const currentLevel = rows.length === 0 ? 0 : rows.length === 1 ? 1 : 2;
@@ -273,6 +310,7 @@ const directContentHtml = computed(() => {
     showAnswer: props.showAnswer === true,
   });
 });
+const directContent = computed<RichContentResult>(() => renderXiuyuanHtml(directContentHtml.value, 'cdf-direct'));
 
 async function loadCardContent(): Promise<void> {
   const seq = ++loadSeq;
@@ -310,6 +348,8 @@ async function loadCardContent(): Promise<void> {
             id,
             cue: parsed.cue,
             answer: parsed.answer,
+            cueContent: renderXiuyuanMarkdown(parsed.cue, 'cue', id),
+            answerContent: renderXiuyuanMarkdown(parsed.answer, 'answer', id),
             source,
             directPath: isCdfDirectPathSegmentArray(storedChild?.directPath)
               ? storedChild.directPath
@@ -323,7 +363,7 @@ async function loadCardContent(): Promise<void> {
       return;
     }
 
-    questionHtml.value = questionResult?.dom || '';
+    questionContent.value = renderXiuyuanHtml(questionResult?.dom || '', 'question');
     breadcrumbs.value = breadcrumbItems;
     parsedChildren.value = childMarkdownList;
   }
@@ -332,7 +372,7 @@ async function loadCardContent(): Promise<void> {
       return;
     }
     logger.error('[XiuyuanListTemplateCard] Failed to load question block:', error);
-    questionHtml.value = '<div class="ft__error">加载失败</div>';
+    questionContent.value = renderXiuyuanHtml('<div class="ft__error">加载失败</div>', 'question');
     parsedChildren.value = [];
   }
 }

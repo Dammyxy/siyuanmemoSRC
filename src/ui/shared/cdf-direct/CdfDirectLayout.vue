@@ -2,12 +2,12 @@
   <div class="cdf-direct-layout">
     <CardBreadcrumb v-if="breadcrumbs.length > 0" :items="breadcrumbs" variant="preview" />
 
-    <div
-      v-if="contentHtml"
-      ref="editorRootRef"
+    <ReviewRichHtmlContent
+      v-if="contentRichContent.html"
       class="cdf-direct-layout__editor b3-typography"
-      v-html="contentHtml"
-    ></div>
+      :content="contentRichContent"
+      :on-open-block="onOpenBlock"
+    />
 
     <div v-else class="cdf-direct-layout__body">
       <section
@@ -16,7 +16,11 @@
         class="cdf-direct-layout__section cdf-direct-layout__section--prompt"
       >
         <div v-if="section.label" class="cdf-direct-layout__label">{{ section.label }}</div>
-        <div class="cdf-direct-layout__content b3-typography" v-html="section.html"></div>
+        <ReviewRichHtmlContent
+          class="cdf-direct-layout__content b3-typography"
+          :content="sectionRichContent(section, 'prompt')"
+          :on-open-block="onOpenBlock"
+        />
       </section>
 
       <div v-if="showAnswer && answerSections.length > 0" class="cdf-direct-layout__divider">
@@ -29,17 +33,22 @@
         class="cdf-direct-layout__section cdf-direct-layout__section--answer"
       >
         <div v-if="section.label" class="cdf-direct-layout__label">{{ section.label }}</div>
-        <div class="cdf-direct-layout__content b3-typography" v-html="section.html"></div>
+        <ReviewRichHtmlContent
+          class="cdf-direct-layout__content b3-typography"
+          :content="sectionRichContent(section, 'answer')"
+          :on-open-block="onOpenBlock"
+        />
       </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed } from 'vue';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import type { BreadcrumbItem } from '@/core/card/common/application/types';
-import { enhanceRenderedMarkdown } from '@/ui/shared/rich-content';
+import ReviewRichHtmlContent from '@/ui/review/components/ReviewRichHtmlContent.vue';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 
 export interface CdfDirectSection {
   key: string;
@@ -51,39 +60,42 @@ const props = withDefaults(defineProps<{
   breadcrumbs?: BreadcrumbItem[];
   promptSections?: CdfDirectSection[];
   answerSections?: CdfDirectSection[];
-  contentHtml?: string;
+  content?: RichContentResult | null;
   showAnswer?: boolean;
   answerDividerLabel?: string;
+  onOpenBlock?: (blockId: string) => void | Promise<void>;
 }>(), {
   breadcrumbs: () => [],
   promptSections: () => [],
   answerSections: () => [],
-  contentHtml: '',
   showAnswer: false,
   answerDividerLabel: '答案',
 });
 
 const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSections : []));
-const editorRootRef = ref<HTMLElement | null>(null);
-
-async function postRender(): Promise<void> {
-  await nextTick();
-  if (!editorRootRef.value) {
-    return;
-  }
-  await enhanceRenderedMarkdown(editorRootRef.value);
-}
-
-onMounted(() => {
-  void postRender();
+const contentRichContent = computed<RichContentResult>(() => props.content ?? {
+  html: '',
+  atoms: [],
+  diagnostics: [],
+  source: {
+    kind: 'cdf-direct',
+  },
+  renderKind: 'html',
 });
 
-watch(
-  () => props.contentHtml,
-  () => {
-    void postRender();
-  },
-);
+function sectionRichContent(section: CdfDirectSection, fieldPrefix: 'prompt' | 'answer'): RichContentResult {
+  return {
+    html: section.html || '',
+    atoms: [],
+    diagnostics: [],
+    source: {
+      id: section.key,
+      kind: 'cdf-direct',
+      field: `${fieldPrefix}:${section.key}`,
+    },
+    renderKind: 'html',
+  };
+}
 </script>
 
 <style scoped>

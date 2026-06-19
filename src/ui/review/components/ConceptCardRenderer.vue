@@ -29,7 +29,8 @@
 
           <ReviewRichHtmlContent
             class="concept-card-renderer__html-content"
-            :html="viewModel.contentHtml"
+            :content="viewModel.content"
+            :on-open-block="onOpenBlock"
           />
         </div>
       </div>
@@ -68,6 +69,7 @@ const props = defineProps<{
   preparedViewModel?: unknown;
   preparedIdentity?: string;
   refreshEpoch?: number;
+  onOpenBlock?: (blockId: string) => void | Promise<void>;
 }>();
 
 const emit = defineEmits<{

@@ -2,12 +2,26 @@ import { mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import QuickCardRenderer from '../QuickCardRenderer.vue';
 import type { QuickCardRenderService, QuickCardViewModel } from '@/core/card/quick-card/application/QuickCardRenderService';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
+
+function richContent(html: string, field = 'front'): RichContentResult {
+  return {
+    html,
+    atoms: [],
+    diagnostics: [],
+    source: {
+      kind: 'quick',
+      field,
+    },
+    renderKind: 'html',
+  };
+}
 
 function createViewModel(partial: Partial<QuickCardViewModel> = {}): QuickCardViewModel {
   return {
     blockId: 'block-1',
     breadcrumbs: [],
-    html: '<div>Test content</div>',
+    content: richContent('<div>Test content</div>'),
     cssClasses: [],
     cardType: 'basic',
     metadata: { symbol: '>>' },
@@ -41,7 +55,7 @@ describe('QuickCardRenderer.vue', () => {
   });
 
   it('uses a prepared view model without entering the loading path', async () => {
-    const viewModel = createViewModel({ html: '<div>Prepared quick</div>' });
+    const viewModel = createViewModel({ content: richContent('<div>Prepared quick</div>') });
     const prepareViewModel = vi.fn().mockResolvedValue(viewModel);
 
     const wrapper = mount(QuickCardRenderer, {
@@ -156,8 +170,8 @@ describe('QuickCardRenderer.vue', () => {
   });
 
   it('reuses the local cache when flipping back to an already rendered side', async () => {
-    const frontViewModel = createViewModel({ html: '<div>Front</div>' });
-    const backViewModel = createViewModel({ html: '<div>Back</div>' });
+    const frontViewModel = createViewModel({ content: richContent('<div>Front</div>', 'front') });
+    const backViewModel = createViewModel({ content: richContent('<div>Back</div>', 'back') });
     const prepareViewModel = vi.fn()
       .mockResolvedValueOnce(frontViewModel)
       .mockResolvedValueOnce(backViewModel);

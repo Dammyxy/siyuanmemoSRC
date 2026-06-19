@@ -206,6 +206,55 @@ describe('reviewDataObserverRuntime', () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
+  it('uses blockIds for current-card matching without loading them as cards', async () => {
+    const refresh = vi.fn();
+    const appendCardsToTail = vi.fn(() => 0);
+    const restored = cdfCard({ id: 'restored-due', blockId: 'restored-source' });
+    const manager = {
+      getCard: vi.fn(async (cardId: string) => {
+        if (cardId === 'restored-due') {
+          return restored;
+        }
+        throw new Error(`Card not found: ${cardId}`);
+      }),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+    };
+    const runtime = createReviewDataObserverRuntime({
+      logger: {},
+      now: () => 100,
+      getManager: () => manager as never,
+      getFilterGroupQueue: () => null,
+      getFilterCommandClient: () => null,
+      getQueueStrategyWithTailAppend: () => ({ appendCardsToTail }),
+      getActiveQueueStrategy: () => null,
+      getCurrentReference: () => ({ cardId: 'current-card', blockId: '20260619151059-9gsaxr7' }),
+      getCurrentCard: () => null,
+      getSession: () => null,
+      setAppliedFilter: vi.fn(),
+      setShowAnswer: vi.fn(),
+      isAdvancePending: () => false,
+      buildExpectedRefreshOptions: () => ({ expectedCurrentCardId: '', expectedCurrentBlockId: '' }),
+      refreshCurrentItem: vi.fn(),
+      refreshCurrentReviewCard: refresh,
+      advanceCurrentReviewCardByReference: vi.fn(),
+      removeCardIdsFromActiveQueue: vi.fn(),
+    });
+
+    runtime.bind();
+    runtime.observer.onDataChanged({
+      type: 'card-updated',
+      cardIds: ['restored-due'],
+      blockIds: ['20260619151059-9gsaxr7'],
+      timestamp: 1,
+    });
+    await Promise.resolve();
+
+    expect(manager.getCard).toHaveBeenCalledTimes(1);
+    expect(manager.getCard).toHaveBeenCalledWith('restored-due', { silent: true });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it('appends externally restored due CDF cards once without interrupting the current card', async () => {
     const currentCard = card({ id: 'current', blockId: 'current-block' });
     const restored = cdfCard({

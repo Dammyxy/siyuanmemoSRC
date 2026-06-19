@@ -1,4 +1,6 @@
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
+import { ReviewRichContentRenderer } from '@/core/card/common/application/ReviewRichContentRenderer';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { SiyuanKramdownGateway } from '@/core/card/common/infrastructure/SiyuanKramdownGateway';
 import {
@@ -18,8 +20,8 @@ import { createLogger } from '@/utils/logger';
 export type MultiClozeRenderMode = typeof FORMULA_CLOZE_RENDER_MODE_INLINE | 'default';
 
 export interface MultiClozeCardViewModel extends BaseCardViewModel {
-  frontHtml: string;
-  backHtml: string;
+  frontContent: RichContentResult;
+  backContent: RichContentResult;
   faceIndex: number;
   requestedFaceIndex?: number;
   totalFaces: number;
@@ -62,6 +64,10 @@ const COMPLEX_BLANK_WIDTH_CH = 12;
 export class MultiClozeCardRenderService extends BaseCardRenderService {
   private readonly kramdownGateway = new SiyuanKramdownGateway(logger);
 
+  constructor(private readonly richContentRenderer = new ReviewRichContentRenderer()) {
+    super();
+  }
+
   async prepareViewModel(card: MultiClozeCardInput): Promise<MultiClozeCardViewModel> {
     const faces = card.meta?.faces || [];
     const requestedFaceIndex = resolveCardFaceIndex(card);
@@ -72,8 +78,16 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
     return {
       blockId: card.blockId,
       breadcrumbs,
-      frontHtml: rendered.frontHtml,
-      backHtml: rendered.backHtml,
+      frontContent: this.richContentRenderer.renderHtml(rendered.frontHtml, {
+        id: `${card.blockId}:front:${rendered.faceIndex}`,
+        kind: 'multi-cloze',
+        field: 'front',
+      }),
+      backContent: this.richContentRenderer.renderHtml(rendered.backHtml, {
+        id: `${card.blockId}:back:${rendered.faceIndex}`,
+        kind: 'multi-cloze',
+        field: 'back',
+      }),
       faceIndex: rendered.faceIndex,
       requestedFaceIndex: rendered.requestedFaceIndex,
       totalFaces: faces.length,

@@ -121,6 +121,30 @@ function createProgressiveTopicXiuyuan(): Xiuyuan {
   return xiuyuan;
 }
 
+function createOrdinaryItemXiuyuan(): Xiuyuan {
+  const xiuyuan = must(
+    Xiuyuan.create({
+      blockIDs: [must(BlockId.create('20260102000003-item001'))],
+      templateID: must(TemplateId.create('builtin-quick-card')),
+      faces: [
+        must(
+          CardFace.create({
+            question: 'Question',
+            answer: 'Answer',
+            questionBlockId: '20260102000003-item001',
+            answerBlockId: '20260102000003-item001',
+          })
+        ),
+      ],
+      meta: {
+        cardType: 'item',
+      },
+    })
+  );
+  must(xiuyuan.createCard(0));
+  return xiuyuan;
+}
+
 describe('XiuyuanRepository managed riff binding attrs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -138,16 +162,26 @@ describe('XiuyuanRepository managed riff binding attrs', () => {
     expect(setBlockAttrsMock).not.toHaveBeenCalled();
   });
 
-  it('still persists card type attrs for managed riff xiuyuans without writing custom-xiuyuan-id', async () => {
+  it('does not persist deprecated card type attrs for managed riff xiuyuans', async () => {
     const repository = new XiuyuanRepository(createStorageMock() as any);
     const xiuyuan = createManagedRiffXiuyuan({ cardType: 'topic' });
 
     const result = await repository.save(xiuyuan);
 
     expect(result.ok).toBe(true);
+    expect(setBlockAttrsMock).not.toHaveBeenCalled();
+  });
+
+  it('persists only xiuyuan binding attrs for ordinary xiuyuans', async () => {
+    const repository = new XiuyuanRepository(createStorageMock() as any);
+    const xiuyuan = createOrdinaryItemXiuyuan();
+
+    const result = await repository.save(xiuyuan);
+
+    expect(result.ok).toBe(true);
     expect(setBlockAttrsMock).toHaveBeenCalledWith(
-      '20260102000001-riff001',
-      { 'custom-fsrs-card-type': 'topic' }
+      '20260102000003-item001',
+      { 'custom-xiuyuan-id': xiuyuan.getId().getValue() }
     );
   });
 

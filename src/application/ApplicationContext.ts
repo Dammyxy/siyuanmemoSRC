@@ -191,6 +191,8 @@ import type {
 } from '../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('ApplicationContext');
+const APPLICATION_CONTEXT_DISPOSE_STEP_TIMEOUT_MS = 2_000;
+const REVIEW_TRUTH_FLUSH_DISPOSE_TIMEOUT_MS = 1_500;
 
 type I18nDictionary = Record<string, string>;
 
@@ -281,6 +283,11 @@ interface SqlPersistenceBundle {
 }
 
 type DisposableSrsBackendTransport = ApplicationBackendRuntimeTransport;
+type DisposalErrorCollector = Array<{ service: string; error: unknown }>;
+type DisposalStepOutcome<TResult> =
+  | { status: 'completed'; value: TResult }
+  | { status: 'failed'; error: unknown }
+  | { status: 'timeout'; error: Error };
 
 /**
  * 应用配置接口
@@ -2695,7 +2702,7 @@ export class ApplicationContext {
       return;
     }
     
-    const errors: Array<{ service: string; error: unknown }> = [];
+    const errors: DisposalErrorCollector = [];
     
     try {
       logger.info('[ApplicationContext] Starting disposal...');
@@ -2713,13 +2720,14 @@ export class ApplicationContext {
       
       // 0. 立即保存 SettingsService (优先级最高)
       if (this.isServiceCreated('settingsService')) {
-        try {
-          const settingsService = this.getSettingsService();
-          await settingsService.dispose();
+        const settingsService = this.getSettingsService();
+        const outcome = await this.runBoundedDisposalStep(
+          'settingsService',
+          () => settingsService.dispose(),
+          errors,
+        );
+        if (outcome.status === 'completed') {
           logger.info('[ApplicationContext] ✅ SettingsService disposed and saved');
-        } catch (error) {
-          logger.error('[ApplicationContext] Error disposing SettingsService:', error);
-          errors.push({ service: 'settingsService', error });
         }
       }
       
@@ -2766,41 +2774,24 @@ export class ApplicationContext {
 
       await this.flushReviewTruthBeforeUnloadIfWritable(errors);
 
+      this.disposeSrsBackendRuntime(errors);
+
       if (this.frontendInstanceRuntime) {
-        try {
-          await this.frontendInstanceRuntime.dispose();
-          this.frontendInstanceRuntime = null;
-          this.followerCommandClient = null;
+        const frontendInstanceRuntime = this.frontendInstanceRuntime;
+        const outcome = await this.runBoundedDisposalStep(
+          'frontendInstanceRuntime',
+          () => frontendInstanceRuntime.dispose(),
+          errors,
+        );
+        this.frontendInstanceRuntime = null;
+        this.followerCommandClient = null;
+        if (outcome.status === 'completed') {
           logger.info('[ApplicationContext] ✅ FrontendInstanceRuntime disposed');
-        } catch (error) {
-          logger.error('[ApplicationContext] Error disposing FrontendInstanceRuntime:', error);
-          errors.push({ service: 'frontendInstanceRuntime', error });
         }
       }
       
       // 4. 销毁所有已创建的服务（按创建顺序的逆序）
       await this.disposeServices(errors);
-
-      if (this.srsBackendClient) {
-        try {
-          this.srsBackendClient.dispose?.();
-        } catch (error) {
-          logger.error('[ApplicationContext] Error disposing SRS backend client:', error);
-          errors.push({ service: 'srsBackendClient', error });
-        }
-      }
-
-      if (this.srsBackendTransport) {
-        try {
-          this.srsBackendTransport.dispose?.();
-          this.srsBackendTransport = null;
-          this.srsBackendClient = null;
-          logger.info('[ApplicationContext] ✅ SRS backend Worker transport disposed');
-        } catch (error) {
-          logger.error('[ApplicationContext] Error disposing SRS backend Worker transport:', error);
-          errors.push({ service: 'srsBackendTransport', error });
-        }
-      }
       
       // 5. Save storage data only when explicitly allowed
       if (shouldPersistStorage) {
@@ -2853,7 +2844,7 @@ export class ApplicationContext {
   }
 
   private async flushReviewTruthBeforeUnloadIfWritable(
-    errors: Array<{ service: string; error: unknown }>,
+    errors: DisposalErrorCollector,
   ): Promise<void> {
     if (!this.srsBackendClient || typeof this.srsBackendClient.flushReviewTruthBeforeUnload !== 'function') {
       return;
@@ -2866,15 +2857,77 @@ export class ApplicationContext {
       });
       return;
     }
-    try {
-      const completed = await this.srsBackendClient.flushReviewTruthBeforeUnload();
-      if (!completed) {
-        logger.warn('[ApplicationContext] Review truth flush did not finish before unload timeout; startup compensation will retry');
-      }
-    } catch (error) {
-      logger.error('[ApplicationContext] Error flushing Review truth before unload:', error);
-      errors.push({ service: 'srsBackendClient.reviewTruthFlush', error });
+    const srsBackendClient = this.srsBackendClient;
+    const outcome = await this.runBoundedDisposalStep(
+      'srsBackendClient.reviewTruthFlush',
+      () => srsBackendClient.flushReviewTruthBeforeUnload(),
+      errors,
+      REVIEW_TRUTH_FLUSH_DISPOSE_TIMEOUT_MS,
+    );
+    if (outcome.status === 'completed' && !outcome.value) {
+      logger.warn('[ApplicationContext] Review truth flush did not finish before unload timeout; startup compensation will retry');
     }
+  }
+
+  private disposeSrsBackendRuntime(errors: DisposalErrorCollector): void {
+    if (this.srsBackendClient) {
+      try {
+        this.srsBackendClient.dispose?.();
+      } catch (error) {
+        logger.error('[ApplicationContext] Error disposing SRS backend client:', error);
+        errors.push({ service: 'srsBackendClient', error });
+      }
+    }
+
+    if (this.srsBackendTransport) {
+      try {
+        this.srsBackendTransport.dispose?.();
+        logger.info('[ApplicationContext] ✅ SRS backend Worker transport disposed');
+      } catch (error) {
+        logger.error('[ApplicationContext] Error disposing SRS backend Worker transport:', error);
+        errors.push({ service: 'srsBackendTransport', error });
+      }
+    }
+
+    this.srsBackendTransport = null;
+    this.srsBackendClient = null;
+  }
+
+  private async runBoundedDisposalStep<TResult>(
+    service: string,
+    task: () => Promise<TResult> | TResult,
+    errors: DisposalErrorCollector,
+    timeoutMs = APPLICATION_CONTEXT_DISPOSE_STEP_TIMEOUT_MS,
+  ): Promise<DisposalStepOutcome<TResult>> {
+    const normalizedTimeoutMs = Math.max(0, Math.floor(timeoutMs));
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const taskPromise = Promise.resolve().then(task);
+    const guardedTask = taskPromise.then<DisposalStepOutcome<TResult>>(
+      (value) => ({ status: 'completed', value }),
+      (error) => ({ status: 'failed', error }),
+    );
+    const timeout = new Promise<DisposalStepOutcome<TResult>>((resolve) => {
+      timeoutHandle = setTimeout(() => {
+        resolve({
+          status: 'timeout',
+          error: new Error(`${service} disposal timed out after ${normalizedTimeoutMs}ms`),
+        });
+      }, normalizedTimeoutMs);
+    });
+    const outcome = await Promise.race([guardedTask, timeout]);
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    if (outcome.status === 'failed') {
+      logger.error(`[ApplicationContext] Error disposing ${service}:`, outcome.error);
+      errors.push({ service, error: outcome.error });
+    } else if (outcome.status === 'timeout') {
+      logger.warn(`[ApplicationContext] ${service} disposal did not finish before timeout; continuing unload cleanup`, {
+        timeoutMs: normalizedTimeoutMs,
+      });
+      errors.push({ service, error: outcome.error });
+    }
+    return outcome;
   }
   
   /**
@@ -2890,7 +2943,7 @@ export class ApplicationContext {
    * 
    * @param errors - 错误收集数组
    */
-  private async disposeServices(errors: Array<{ service: string; error: unknown }>): Promise<void> {
+  private async disposeServices(errors: DisposalErrorCollector): Promise<void> {
     // 获取所有已创建的服务（按创建顺序）
     const services = Array.from(this.serviceContainer.entries());
     
@@ -2898,18 +2951,18 @@ export class ApplicationContext {
     for (let i = services.length - 1; i >= 0; i--) {
       const [serviceName, service] = services[i];
       
-      try {
-        // 如果服务有 dispose 方法，调用它
-        const disposableService = service as { dispose?: () => Promise<void> | void } | undefined;
-        if (disposableService && typeof disposableService.dispose === 'function') {
-          logger.info(`[ApplicationContext] Disposing service: ${serviceName}...`);
-          await disposableService.dispose();
+      // 如果服务有 dispose 方法，调用它
+      const disposableService = service as { dispose?: () => Promise<void> | void } | undefined;
+      if (disposableService && typeof disposableService.dispose === 'function') {
+        logger.info(`[ApplicationContext] Disposing service: ${serviceName}...`);
+        const outcome = await this.runBoundedDisposalStep(
+          serviceName,
+          () => disposableService.dispose!(),
+          errors,
+        );
+        if (outcome.status === 'completed') {
           logger.info(`[ApplicationContext] Disposed service: ${serviceName}`);
         }
-      } catch (error) {
-        logger.error(`[ApplicationContext] Error disposing service '${serviceName}':`, error);
-        errors.push({ service: serviceName, error });
-        // 继续销毁其他服务，不抛出错误
       }
     }
   }

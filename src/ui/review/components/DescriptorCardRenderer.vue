@@ -7,7 +7,8 @@
       v-else-if="viewModel && shouldUseDirectDisplay"
       class="descriptor-card-renderer__direct"
       :breadcrumbs="viewModel.breadcrumbs"
-      :content-html="directContentHtml"
+      :content="directContent"
+      :on-open-block="onOpenBlock"
     />
 
     <div v-else-if="viewModel" class="descriptor-card-renderer__content">
@@ -15,7 +16,8 @@
       <ReviewRichHtmlContent
         class="descriptor-card-renderer__html-content"
         :class="showAnswer ? 'descriptor-card-renderer__back' : 'descriptor-card-renderer__front'"
-        :html="showAnswer ? viewModel.backHtml : viewModel.frontHtml"
+        :content="showAnswer ? viewModel.backContent : viewModel.frontContent"
+        :on-open-block="onOpenBlock"
       />
     </div>
   </div>
@@ -34,6 +36,7 @@ import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 import { renderCdfDirectScene } from '@/ui/shared/cdf-direct/renderScene';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 
 const logger = createLogger('DescriptorCardRenderer');
 
@@ -48,6 +51,7 @@ const props = defineProps<{
   preparedViewModel?: unknown;
   preparedIdentity?: string;
   refreshEpoch?: number;
+  onOpenBlock?: (blockId: string) => void | Promise<void>;
 }>();
 
 const emit = defineEmits<{
@@ -87,6 +91,17 @@ const directContentHtml = computed(() => {
     showAnswer: props.showAnswer === true,
   });
 });
+const directContent = computed<RichContentResult>(() => ({
+  html: directContentHtml.value,
+  atoms: [],
+  diagnostics: [],
+  source: {
+    id: props.blockId,
+    kind: 'descriptor',
+    field: 'cdf-direct',
+  },
+  renderKind: 'html',
+}));
 
 const renderIdentity = computed(() => {
   return [props.blockId || '', props.cardId || '', props.card?.id || '', props.card?.updatedAt || ''].join('|');

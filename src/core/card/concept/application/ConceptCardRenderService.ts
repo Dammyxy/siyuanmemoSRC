@@ -1,10 +1,10 @@
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
-import { renderReviewMarkdown } from '@/core/card/common/application/reviewMarkdownRender';
+import { ReviewRichContentRenderer } from '@/core/card/common/application/ReviewRichContentRenderer';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { getBlockKramdown } from '@/core/siyuan/api';
 import { createLogger } from '@/utils/logger';
 import {
-  resolveLuteRenderer,
   resolveSiyuanMemoPlugin,
 } from '@/core/card/concept-definition/application/runtime';
 
@@ -13,7 +13,7 @@ const logger = createLogger('ConceptCardRenderService');
 export interface ConceptCardViewModel extends BaseCardViewModel {
   conceptName: string;
   conceptBlockId: string;
-  contentHtml: string;
+  content: RichContentResult;
 }
 
 interface ConceptCardInput {
@@ -38,6 +38,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export class ConceptCardRenderService extends BaseCardRenderService {
+  constructor(private readonly richContentRenderer = new ReviewRichContentRenderer()) {
+    super();
+  }
+
   async prepareViewModel(blockId: string, card?: ConceptCardInput): Promise<ConceptCardViewModel> {
     logger.debug('[ConceptCardRenderService] prepareViewModel called with:', {
       blockId,
@@ -68,14 +72,14 @@ export class ConceptCardRenderService extends BaseCardRenderService {
       throw new Error(`Concept block has no content: ${conceptBlockId}`);
     }
 
-    const contentHtml = this.renderMarkdown(contentKramdown);
+    const content = this.renderMarkdown(contentKramdown, conceptBlockId);
     const breadcrumbs = await this.loadBreadcrumbs(conceptBlockId);
 
     return {
       blockId: conceptBlockId,
       conceptName,
       conceptBlockId,
-      contentHtml,
+      content,
       breadcrumbs,
       dependencyBlockIds: Array.from(new Set([
         conceptBlockId,
@@ -148,16 +152,11 @@ export class ConceptCardRenderService extends BaseCardRenderService {
     return typeof content === 'string' && content.length > 0 ? content : '未命名概念';
   }
 
-  private renderMarkdown(kramdown: string): string {
-    const rendered = renderReviewMarkdown(kramdown);
-    if (rendered.html) {
-      return rendered.html;
-    }
-
-    const lute = resolveLuteRenderer();
-    if (!lute) {
-      throw new Error('Lute not available');
-    }
-    return lute.Md2BlockDOM(kramdown);
+  private renderMarkdown(kramdown: string, blockId: string): RichContentResult {
+    return this.richContentRenderer.renderMarkdown(kramdown, {
+      sourceId: blockId,
+      sourceKind: 'concept',
+      field: 'content',
+    });
   }
 }

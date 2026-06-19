@@ -3,6 +3,20 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildReviewRendererIdentity } from '../reviewRendererIdentity';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
+
+function richContent(html: string, field = 'front'): RichContentResult {
+  return {
+    html,
+    atoms: [],
+    diagnostics: [],
+    source: {
+      kind: 'concept-definition',
+      field,
+    },
+    renderKind: 'html',
+  };
+}
 
 const conceptDefinitionRendererMocks = vi.hoisted(() => ({
   logger: {
@@ -91,9 +105,9 @@ describe('ConceptDefinitionCardRenderer', () => {
       dependencyBlockIds: ['doc-1', 'concept-1', 'definition-2'],
       conceptName: '中子星',
       conceptBlockId: 'concept-1',
-      definitionHtml: '<p>质量极高的致密恒星残骸</p>',
-      frontHtml: '<p>semantic front</p>',
-      backHtml: '<p>semantic back</p>',
+      definitionContent: richContent('<p>质量极高的致密恒星残骸</p>', 'definition'),
+      frontContent: richContent('<p>semantic front</p>', 'front'),
+      backContent: richContent('<p>semantic back</p>', 'back'),
       directScene: {
         rows: [{
           kind: 'relation',
@@ -162,9 +176,9 @@ describe('ConceptDefinitionCardRenderer', () => {
       dependencyBlockIds: ['doc-1', 'concept-1', 'definition-3'],
       conceptName: '中子星',
       conceptBlockId: 'concept-1',
-      definitionHtml: '<p>质量极高的致密恒星残骸</p>',
-      frontHtml: '<p>semantic front</p>',
-      backHtml: '<p>semantic back</p>',
+      definitionContent: richContent('<p>质量极高的致密恒星残骸</p>', 'definition'),
+      frontContent: richContent('<p>semantic front</p>', 'front'),
+      backContent: richContent('<p>semantic back</p>', 'back'),
       relationArrow: '↔',
       isReverse: false,
     });
@@ -219,9 +233,9 @@ describe('ConceptDefinitionCardRenderer', () => {
       dependencyBlockIds: ['doc-1', 'concept-1', 'definition-facekey'],
       conceptName: '引力透镜',
       conceptBlockId: 'concept-1',
-      definitionHtml: '<p>定义</p>',
-      frontHtml: '<p>Prepared by faceKey</p>',
-      backHtml: '<p>Answer</p>',
+      definitionContent: richContent('<p>定义</p>', 'definition'),
+      frontContent: richContent('<p>Prepared by faceKey</p>', 'front'),
+      backContent: richContent('<p>Answer</p>', 'back'),
       relationArrow: '←',
       isReverse: true,
     };

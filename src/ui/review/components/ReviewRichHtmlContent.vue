@@ -3,20 +3,54 @@
     ref="rootRef"
     class="review-rich-html-content b3-typography"
     :class="{ 'review-rich-html-content--selectable': selectable !== false }"
-    v-html="html"
+    v-html="content.html"
+    @click="handleClick"
   ></div>
 </template>
 
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue';
 import { enhanceRenderedMarkdown } from '@/ui/shared/rich-content';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
+import { routeReviewRichContentClick } from '@/ui/review/shared/reviewRichContentNavigation';
 
 const props = defineProps<{
-  html: string;
+  content: RichContentResult;
   selectable?: boolean;
+  onOpenBlock?: (blockId: string) => void | Promise<void>;
+  onOpenExternal?: (href: string) => void | Promise<void>;
+  onOpenAsset?: (href: string) => void | Promise<void>;
+  onUnsafeTarget?: (href: string) => void;
 }>();
 
 const rootRef = ref<HTMLElement | null>(null);
+
+function handleClick(event: MouseEvent): void {
+  routeReviewRichContentClick(event, {
+    openBlock: props.onOpenBlock,
+    openExternal: props.onOpenExternal,
+    openAsset: props.onOpenAsset,
+    onUnsafeTarget: target => props.onUnsafeTarget?.(target.href || ''),
+  });
+}
+
+function addMediaFailureHandlers(root: HTMLElement): void {
+  root.querySelectorAll<HTMLImageElement | HTMLAudioElement | HTMLVideoElement>('img, audio, video').forEach((element) => {
+    if (element.dataset.siyuanmemoFailureHandler === 'true') {
+      return;
+    }
+    element.dataset.siyuanmemoFailureHandler = 'true';
+    element.addEventListener('error', () => {
+      if (element.nextElementSibling?.classList.contains('review-rich-html-content__media-error')) {
+        return;
+      }
+      const placeholder = document.createElement('span');
+      placeholder.className = 'review-rich-html-content__media-error';
+      placeholder.textContent = element.getAttribute('src') || element.getAttribute('alt') || 'media';
+      element.insertAdjacentElement('afterend', placeholder);
+    });
+  });
+}
 
 async function postRender(): Promise<void> {
   await nextTick();
@@ -24,6 +58,7 @@ async function postRender(): Promise<void> {
     return;
   }
   await enhanceRenderedMarkdown(rootRef.value);
+  addMediaFailureHandlers(rootRef.value);
 }
 
 onMounted(() => {
@@ -31,7 +66,7 @@ onMounted(() => {
 });
 
 watch(
-  () => props.html,
+  () => props.content.html,
   () => {
     void postRender();
   },
@@ -48,8 +83,37 @@ watch(
   user-select: text;
 }
 
+.review-rich-html-content__media-error {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin: 6px 0;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-error) 28%, var(--b3-border-color));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--b3-theme-error) 8%, transparent);
+  color: var(--b3-theme-on-surface-light);
+  font-size: var(--siyuanmemo-review-font-xs, 0.75em);
+  overflow-wrap: anywhere;
+}
+
 .review-rich-html-content :deep(*) {
   user-select: text;
+}
+
+.review-rich-html-content :deep(a[href]),
+.review-rich-html-content :deep([data-type~="a"][data-href]),
+.review-rich-html-content :deep([data-type~="block-ref"][data-id]) {
+  color: var(--b3-theme-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.review-rich-html-content :deep(a[href]:hover),
+.review-rich-html-content :deep([data-type~="a"][data-href]:hover),
+.review-rich-html-content :deep([data-type~="block-ref"][data-id]:hover) {
+  color: var(--b3-theme-primary-light);
 }
 
 .review-rich-html-content :deep(pre) {

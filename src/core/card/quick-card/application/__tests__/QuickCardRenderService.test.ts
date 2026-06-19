@@ -15,10 +15,12 @@ describe('QuickCardRenderService', () => {
     } as any;
 
     service = new QuickCardRenderService(mockRepository);
+    vi.spyOn(service as unknown as { loadBreadcrumbs: (blockId: string) => Promise<unknown[]> }, 'loadBreadcrumbs')
+      .mockResolvedValue([]);
   });
 
-  describe('render', () => {
-    it('should render front face of basic card', async () => {
+  describe('prepareViewModel', () => {
+    it('should prepare front face of basic card as rich content', async () => {
       // Arrange
       const mockCard = new QuickCard({
         id: 'quick-card-123',
@@ -32,16 +34,21 @@ describe('QuickCardRenderService', () => {
       vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
 
       // Act
-      const result = await service.render('123', 'front');
+      const result = await service.prepareViewModel('123', 'front');
 
       // Assert
       expect(result).not.toBeNull();
-      expect(result?.html).toBe('Question');
+      expect(result?.content.html).toBe('Question');
+      expect(result?.content.source).toMatchObject({
+        id: '123:front',
+        kind: 'quick',
+        field: 'front',
+      });
       expect(result?.cardType).toBe('basic');
       expect(result?.cssClasses).toEqual([]);
     });
 
-    it('should render back face of basic card', async () => {
+    it('should prepare back face of basic card as rich content', async () => {
       // Arrange
       const mockCard = new QuickCard({
         id: 'quick-card-123',
@@ -55,11 +62,11 @@ describe('QuickCardRenderService', () => {
       vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
 
       // Act
-      const result = await service.render('123', 'back');
+      const result = await service.prepareViewModel('123', 'back');
 
       // Assert
       expect(result).not.toBeNull();
-      expect(result?.html).toBe('Answer');
+      expect(result?.content.html).toBe('Answer');
       expect(result?.cardType).toBe('basic');
     });
 
@@ -68,7 +75,7 @@ describe('QuickCardRenderService', () => {
       vi.mocked(mockRepository.loadCard).mockResolvedValue(null);
 
       // Act
-      const result = await service.render('nonexistent', 'front');
+      const result = await service.prepareViewModel('nonexistent', 'front');
 
       // Assert
       expect(result).toBeNull();
@@ -88,7 +95,7 @@ describe('QuickCardRenderService', () => {
       vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
 
       // Act
-      const result = await service.render('123', 'front');
+      const result = await service.prepareViewModel('123', 'front');
 
       // Assert
       expect(result).not.toBeNull();
@@ -109,7 +116,7 @@ describe('QuickCardRenderService', () => {
       vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
 
       // Act
-      const result = await service.render('123', 'front');
+      const result = await service.prepareViewModel('123', 'front');
 
       // Assert
       expect(result).not.toBeNull();
@@ -135,66 +142,11 @@ describe('QuickCardRenderService', () => {
       vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
 
       // Act
-      const result = await service.render('123', 'front');
+      const result = await service.prepareViewModel('123', 'front');
 
       // Assert
       expect(result).not.toBeNull();
       expect(result?.metadata).toEqual(metadata);
-    });
-  });
-
-  describe('toggleFace', () => {
-    it('should toggle from front to back', async () => {
-      // Arrange
-      const mockCard = new QuickCard({
-        id: 'quick-card-123',
-        blockId: '123',
-        type: 'basic',
-        frontContent: new CardFace({ html: 'Question', hiddenTypes: [] }),
-        backContent: new CardFace({ html: 'Answer', hiddenTypes: [] }),
-        metadata: { symbol: '>>' },
-      });
-
-      vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
-
-      // Act
-      const result = await service.toggleFace('123', 'front');
-
-      // Assert
-      expect(result).not.toBeNull();
-      expect(result?.html).toBe('Answer');
-    });
-
-    it('should toggle from back to front', async () => {
-      // Arrange
-      const mockCard = new QuickCard({
-        id: 'quick-card-123',
-        blockId: '123',
-        type: 'basic',
-        frontContent: new CardFace({ html: 'Question', hiddenTypes: [] }),
-        backContent: new CardFace({ html: 'Answer', hiddenTypes: [] }),
-        metadata: { symbol: '>>' },
-      });
-
-      vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
-
-      // Act
-      const result = await service.toggleFace('123', 'back');
-
-      // Assert
-      expect(result).not.toBeNull();
-      expect(result?.html).toBe('Question');
-    });
-
-    it('should return null when card not found', async () => {
-      // Arrange
-      vi.mocked(mockRepository.loadCard).mockResolvedValue(null);
-
-      // Act
-      const result = await service.toggleFace('nonexistent', 'front');
-
-      // Assert
-      expect(result).toBeNull();
     });
   });
 
@@ -213,8 +165,8 @@ describe('QuickCardRenderService', () => {
       vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
 
       // Act
-      const frontResult = await service.render('123', 'front');
-      const backResult = await service.render('123', 'back');
+      const frontResult = await service.prepareViewModel('123', 'front');
+      const backResult = await service.prepareViewModel('123', 'back');
 
       // Assert
       expect(frontResult?.cssClasses).toContain('card__block--hideli');
@@ -239,12 +191,12 @@ describe('QuickCardRenderService', () => {
       vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
 
       // Act
-      const result = await service.render('123', 'front');
+      const result = await service.prepareViewModel('123', 'front');
 
       // Assert
       expect(result).not.toBeNull();
       expect(result?.metadata.isXiuyuanTemplate).toBe(true);
-      expect(result?.html).toContain('关于：');
+      expect(result?.content.html).toContain('关于：');
     });
   });
 

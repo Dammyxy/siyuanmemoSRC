@@ -333,7 +333,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
   private buildPersistedBindingAttrs(
     xiuyuan: Xiuyuan,
-    persistedCardType: 'topic' | 'item' | undefined,
     boundXiuyuanId = xiuyuan.getId().getValue(),
   ): Record<string, string> | null {
     const attrs: Record<string, string> = {};
@@ -342,9 +341,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       attrs['custom-xiuyuan-id'] = boundXiuyuanId;
     }
 
-    if (persistedCardType) {
-      attrs[ATTR_CARD_TYPE] = persistedCardType;
-    } else if (this.shouldScrubPersistedCardTypeAttr(xiuyuan)) {
+    if (this.shouldScrubPersistedCardTypeAttr(xiuyuan)) {
       attrs[ATTR_CARD_TYPE] = '';
     }
 
@@ -407,7 +404,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   private traceAutoCard(event: string, payload: Record<string, unknown>): void {
-    logger.info('[AutoCardTrace]', { event, ...payload });
+    logger.debug('[AutoCardTrace]', { event, ...payload });
   }
 
   private summarizeTraceAttrs(attrs: Record<string, string> | null | undefined): TraceAttrsSnapshot {
@@ -579,17 +576,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
     await this.runDeferredSideEffects(transactionalResult.value.deferredSideEffects);
     return ok(transactionalResult.value.summary);
-  }
-
-  private resolvePersistedCardType(xiuyuan: Xiuyuan): 'topic' | 'item' | undefined {
-    if (this.shouldScrubPersistedCardTypeAttr(xiuyuan)) {
-      return undefined;
-    }
-
-    const meta = xiuyuan.getMeta() as XiuyuanMeta | undefined;
-    return meta?.cardType === 'topic' || meta?.cardType === 'item'
-      ? meta.cardType
-      : undefined;
   }
 
   /**
@@ -796,7 +782,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     transaction?: StorageWriteTransaction,
   ): Promise<Result<DeferredRepositorySideEffects>> {
     try {
-      const persistedCardType = this.resolvePersistedCardType(xiuyuan);
       const blockIDs = xiuyuan.getBlockIDs();
       const representativeBlockId = xiuyuan.getRepresentativeBlockId();
       const isDescriptorTemplate = representativeBlockId !== blockIDs[0]?.getValue();
@@ -827,7 +812,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
 
       const currentCardIds = new Set(resolvedCards.map((card) => card.id));
-      const bindingAttrs = this.buildPersistedBindingAttrs(xiuyuan, persistedCardType, xiuyuanId);
+      const bindingAttrs = this.buildPersistedBindingAttrs(xiuyuan, xiuyuanId);
       const existingXiuyuanCards = this.storage.getCardsByXiuyuanId(xiuyuanId);
       const cardsToDelete = existingXiuyuanCards.filter(
         storageCard => !currentCardIds.has(storageCard.id)
@@ -837,7 +822,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         xiuyuanId,
         representativeBlockId,
         isDescriptorTemplate,
-        persistedCardType: persistedCardType ?? null,
+        scrubsDeprecatedCardTypeAttr: bindingAttrs?.[ATTR_CARD_TYPE] === '',
         existedBefore: Boolean(existing),
         existingXiuyuanCardsCount: existingXiuyuanCards.length,
         currentCardCount: cards.length,

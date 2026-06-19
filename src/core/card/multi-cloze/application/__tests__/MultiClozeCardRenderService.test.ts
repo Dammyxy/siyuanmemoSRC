@@ -34,11 +34,11 @@ describe('MultiClozeCardRenderService', () => {
       },
     });
 
-    expect(vm.frontHtml).toBe(
+    expect(vm.frontContent.html).toBe(
       '<rich>**Alpha** <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder" style="--siyuanmemo-multi-cloze-blank-width: 4ch">[...]</span> and <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--context">Gamma</span></rich>',
     );
-    expect(vm.frontHtml).not.toContain('==[...]==');
-    expect(vm.backHtml).toBe(
+    expect(vm.frontContent.html).not.toContain('==[...]==');
+    expect(vm.backContent.html).toBe(
       '<rich>**Alpha** <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">Beta</span> and <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--context">Gamma</span></rich>',
     );
   });
@@ -67,8 +67,8 @@ describe('MultiClozeCardRenderService', () => {
       },
     });
 
-    expect(textVm.frontHtml).toContain('style="--siyuanmemo-multi-cloze-blank-width: 6ch"');
-    expect(complexVm.frontHtml).toContain('style="--siyuanmemo-multi-cloze-blank-width: 12ch"');
+    expect(textVm.frontContent.html).toContain('style="--siyuanmemo-multi-cloze-blank-width: 6ch"');
+    expect(complexVm.frontContent.html).toContain('style="--siyuanmemo-multi-cloze-blank-width: 12ch"');
   });
 
   it('strips trailing block attribute lines from source kramdown before rendering', async () => {
@@ -88,10 +88,10 @@ describe('MultiClozeCardRenderService', () => {
       },
     });
 
-    expect(vm.frontHtml).toBe(
+    expect(vm.frontContent.html).toBe(
       '<rich>Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder" style="--siyuanmemo-multi-cloze-blank-width: 4ch">[...]</span> gamma</rich>',
     );
-    expect(vm.backHtml).toBe(
+    expect(vm.backContent.html).toBe(
       '<rich>Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">Beta</span> gamma</rich>',
     );
   });
@@ -110,12 +110,17 @@ describe('MultiClozeCardRenderService', () => {
       },
     });
 
-    expect(vm.frontHtml).toBe(
-      '<rich>**Danger** unit should have <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder" style="--siyuanmemo-multi-cloze-blank-width: 4ch">[...]</span> conditions and [link](siyuan://blocks/block-1)</rich>',
+    expect(vm.frontContent.html).toBe(
+      '<rich>**Danger** unit should have <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder" style="--siyuanmemo-multi-cloze-blank-width: 4ch">[...]</span> conditions and <a href="siyuan://blocks/block-1">link</a></rich>',
     );
-    expect(vm.backHtml).toBe(
-      '<rich>**Danger** unit should have <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">safe</span> conditions and [link](siyuan://blocks/block-1)</rich>',
+    expect(vm.backContent.html).toBe(
+      '<rich>**Danger** unit should have <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">safe</span> conditions and <a href="siyuan://blocks/block-1">link</a></rich>',
     );
+    expect(vm.frontContent.atoms).toContainEqual(expect.objectContaining({
+      kind: 'siyuan-link',
+      target: 'siyuan://blocks/block-1',
+      label: 'link',
+    }));
   });
 
   it('falls back to stored faces when the source cloze count no longer matches persisted multi-face metadata', async () => {
@@ -132,10 +137,10 @@ describe('MultiClozeCardRenderService', () => {
       },
     });
 
-    expect(vm.frontHtml).toBe(
+    expect(vm.frontContent.html).toBe(
       '<rich>Alpha Beta <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder" style="--siyuanmemo-multi-cloze-blank-width: 5ch">[...]</span></rich>',
     );
-    expect(vm.backHtml).toBe(
+    expect(vm.backContent.html).toBe(
       '<rich>Alpha Beta <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">Gamma</span></rich>',
     );
   });
@@ -156,7 +161,7 @@ describe('MultiClozeCardRenderService', () => {
     });
 
     expect(vm.faceIndex).toBe(1);
-    expect(vm.frontHtml).toContain('Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--context">Beta</span> and <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder"');
-    expect(vm.backHtml).toContain('Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--context">Beta</span> and <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">Gamma</span>');
+    expect(vm.frontContent.html).toContain('Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--context">Beta</span> and <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder"');
+    expect(vm.backContent.html).toContain('Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--context">Beta</span> and <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">Gamma</span>');
   });
 });

@@ -7,7 +7,8 @@
       v-else-if="viewModel && shouldUseDirectDisplay"
       class="concept-definition-card-renderer__direct"
       :breadcrumbs="viewModel.breadcrumbs"
-      :content-html="directContentHtml"
+      :content="directContent"
+      :on-open-block="onOpenBlock"
     />
 
     <div v-else-if="viewModel" class="concept-definition-card-renderer__content">
@@ -15,7 +16,8 @@
       <ReviewRichHtmlContent
         class="concept-definition-card-renderer__html-content"
         :class="showAnswer ? 'concept-definition-card-renderer__back' : 'concept-definition-card-renderer__front'"
-        :html="showAnswer ? viewModel.backHtml : viewModel.frontHtml"
+        :content="showAnswer ? viewModel.backContent : viewModel.frontContent"
+        :on-open-block="onOpenBlock"
       />
     </div>
   </div>
@@ -37,6 +39,7 @@ import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 import { renderCdfDirectScene } from '@/ui/shared/cdf-direct/renderScene';
 import { buildReviewRendererIdentity } from './reviewRendererIdentity';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 
 const FAILURE_CACHE_KEY = '__siyuanmemo_concept_definition_render_failures__';
 
@@ -65,6 +68,7 @@ const props = defineProps<{
   preparedViewModel?: unknown;
   preparedIdentity?: string;
   refreshEpoch?: number;
+  onOpenBlock?: (blockId: string) => void | Promise<void>;
 }>();
 
 const emit = defineEmits<{
@@ -108,6 +112,17 @@ const directContentHtml = computed(() => {
     showAnswer: props.showAnswer === true,
   });
 });
+const directContent = computed<RichContentResult>(() => ({
+  html: directContentHtml.value,
+  atoms: [],
+  diagnostics: [],
+  source: {
+    id: props.blockId,
+    kind: 'concept-definition',
+    field: 'cdf-direct',
+  },
+  renderKind: 'html',
+}));
 
 async function loadViewModel() {
   const seq = ++loadSeq;

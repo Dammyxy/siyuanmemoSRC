@@ -261,7 +261,7 @@ export class TransactionWebSocketService {
             return;
         }
         
-        logger.info('Transaction received, count:', data.length);
+        logger.debug('Transaction received, count:', data.length);
         incrementRuntimePerformanceCounter('daily-editing', 'transactions', data.length);
         const now = Date.now();
         const fanoutPlan = buildTransactionFanoutPlan({

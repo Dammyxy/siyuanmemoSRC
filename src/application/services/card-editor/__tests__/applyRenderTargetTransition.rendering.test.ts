@@ -80,16 +80,16 @@ describe('applyRenderTargetTransition rendering integration', () => {
     const reversePolicy = buildReviewRenderableRenderPolicy(reverse);
 
     expect(forwardVm?.isReverse).toBe(false);
-    expect(forwardVm?.frontHtml).toContain('memory system');
-    expect(forwardVm?.backHtml).toContain('woz');
+    expect(forwardVm?.frontContent.html).toContain('memory system');
+    expect(forwardVm?.backContent.html).toContain('woz');
     expect(forwardPolicy.cacheTokens).toMatchObject({
       faceToken: 'rule:descriptor-forward::face:1',
       ruleId: 'descriptor-forward',
     });
 
     expect(reverseVm?.isReverse).toBe(true);
-    expect(reverseVm?.frontHtml).toContain('woz');
-    expect(reverseVm?.backHtml).toContain('memory system');
+    expect(reverseVm?.frontContent.html).toContain('woz');
+    expect(reverseVm?.backContent.html).toContain('memory system');
     expect(reversePolicy.cacheTokens).toMatchObject({
       faceToken: 'rule:descriptor-reverse::face:1',
       ruleId: 'descriptor-reverse',

@@ -379,17 +379,25 @@ export function createReviewDataObserverRuntime(options: ReviewDataObserverRunti
         return;
       }
 
-      void appendDueCdfCardsByIds(event.cardIds || [], 'external-cdf-repair');
+      const eventCardIds = event.cardIds || [];
+      const eventBlockIds = event.blockIds || [];
+
+      void appendDueCdfCardsByIds(eventCardIds, 'external-cdf-repair');
 
       const { cardId, blockId } = options.getCurrentReference();
       if (!cardId && !blockId) {
         return;
       }
 
-      const matched = (event.cardIds || []).some((id) => {
+      const matchedCard = eventCardIds.some((id) => {
         const normalized = String(id || '').trim();
-        return normalized === cardId || normalized === blockId;
+        return normalized === cardId;
       });
+      const matchedBlock = eventBlockIds.some((id) => {
+        const normalized = String(id || '').trim();
+        return normalized === blockId;
+      });
+      const matched = matchedCard || matchedBlock;
       if (!matched) {
         return;
       }
@@ -398,7 +406,8 @@ export function createReviewDataObserverRuntime(options: ReviewDataObserverRunti
         options.logger?.debug?.('[SiYuanMemo][ReviewView] Skip current card refresh while review advance is pending:', {
           cardId,
           blockId,
-          eventCardIds: event.cardIds || [],
+          eventCardIds,
+          eventBlockIds,
         });
         return;
       }

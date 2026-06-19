@@ -1105,7 +1105,7 @@ export class AutoCardHandler implements ITransactionHandler {
     }
 
     private traceAutoCard(event: string, payload: Record<string, unknown>): void {
-        logger.info('[AutoCardTrace]', { event, ...payload });
+        logger.debug('[AutoCardTrace]', { event, ...payload });
     }
 
     private getActiveRunContext(blockId: string): AutoCardTraceContext | undefined {

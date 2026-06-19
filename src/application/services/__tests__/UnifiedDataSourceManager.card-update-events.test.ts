@@ -69,7 +69,8 @@ describe('UnifiedDataSourceManager card update notifications', () => {
     expect(events).toEqual([
       expect.objectContaining({
         type: 'card-updated',
-        cardIds: [card.id, card.blockId],
+        cardIds: [card.id],
+        blockIds: [card.blockId],
       }),
       expect.objectContaining({
         type: 'queue-changed',
@@ -155,7 +156,8 @@ describe('UnifiedDataSourceManager card update notifications', () => {
     expect(events).toEqual([
       expect.objectContaining({
         type: 'card-updated',
-        cardIds: [after.id, after.blockId],
+        cardIds: [after.id],
+        blockIds: [after.blockId],
       }),
       expect.objectContaining({
         type: 'queue-changed',
@@ -198,7 +200,8 @@ describe('UnifiedDataSourceManager card update notifications', () => {
     expect(events).toEqual([
       expect.objectContaining({
         type: 'card-created',
-        cardIds: [card.id, card.blockId],
+        cardIds: [card.id],
+        blockIds: [card.blockId],
       }),
       expect.objectContaining({
         type: 'queue-changed',

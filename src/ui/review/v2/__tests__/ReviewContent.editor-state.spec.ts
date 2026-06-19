@@ -4,6 +4,7 @@ import { defineComponent, h, onMounted } from 'vue';
 import type { ReviewEditorState } from '../reviewEditorState';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import type { ReviewUIState } from '../types';
+import { ReviewRichContentRenderer } from '@/core/card/common/application/ReviewRichContentRenderer';
 
 const reviewContentMocks = vi.hoisted(() => {
   const instances: Array<{
@@ -681,6 +682,7 @@ function findWarnCall(message: string): unknown[] | undefined {
 
 function createRenderServicesStub(): ReviewRenderServices {
   return {
+    richContentRenderer: new ReviewRichContentRenderer(),
     quickCardRenderService: {
       isQuickCard: (blockId?: string, cardId?: string) => reviewContentQuickCardMocks.isQuickCard(blockId, cardId),
     },
@@ -1275,9 +1277,27 @@ describe('ReviewContent editor state', () => {
           conceptName: 'Concept',
           conceptBlockId: 'concept-block',
           definitionBlockId: 'definition-block',
-          definitionHtml: '',
-          frontHtml: '',
-          backHtml: '',
+          definitionContent: {
+            html: '',
+            atoms: [],
+            diagnostics: [],
+            source: { kind: 'concept-definition', field: 'definition' },
+            renderKind: 'html',
+          },
+          frontContent: {
+            html: '',
+            atoms: [],
+            diagnostics: [],
+            source: { kind: 'concept-definition', field: 'front' },
+            renderKind: 'html',
+          },
+          backContent: {
+            html: '',
+            atoms: [],
+            diagnostics: [],
+            source: { kind: 'concept-definition', field: 'back' },
+            renderKind: 'html',
+          },
           relationArrow: '→',
         },
       },

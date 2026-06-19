@@ -26,7 +26,6 @@ export {
 
 // Application Layer
 export { QuickCardRenderService } from './application/QuickCardRenderService';
-export type { QuickCardRenderResult } from './application/QuickCardRenderService';
 
 // Errors
 export {

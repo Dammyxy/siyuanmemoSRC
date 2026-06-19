@@ -1,9 +1,11 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { XiuyuanCardMeta } from '@/core/xiuyuan/cardMeta';
+import { ReviewRichContentRenderer } from '@/core/card/common/application/ReviewRichContentRenderer';
 import XiuyuanListTemplateCard from '../XiuyuanListTemplateCard.vue';
 
 const getBlockBreadcrumbMock = vi.fn();
+const richContentRenderer = new ReviewRichContentRenderer();
 
 function createMeta(overrides?: Partial<XiuyuanCardMeta>): XiuyuanCardMeta {
   return {
@@ -69,6 +71,7 @@ describe('XiuyuanListTemplateCard', () => {
         showAnswer: false,
         questionBlockId: 'q_1',
         siyuanApi,
+        richContentRenderer,
       },
     });
     await flushPromises();
@@ -96,6 +99,7 @@ describe('XiuyuanListTemplateCard', () => {
         showAnswer: false,
         questionBlockId: 'q_1',
         siyuanApi,
+        richContentRenderer,
       },
     });
     await flushPromises();
@@ -121,6 +125,7 @@ describe('XiuyuanListTemplateCard', () => {
         showAnswer: false,
         questionBlockId: 'q_1',
         siyuanApi: createSiyuanApiMock(),
+        richContentRenderer,
       },
     });
 
@@ -149,6 +154,7 @@ describe('XiuyuanListTemplateCard', () => {
         showAnswer: true,
         questionBlockId: 'q_1',
         siyuanApi,
+        richContentRenderer,
         displayMode: 'direct',
       },
     });
@@ -192,6 +198,7 @@ describe('XiuyuanListTemplateCard', () => {
         showAnswer: false,
         questionBlockId: 'q_1',
         siyuanApi,
+        richContentRenderer,
         displayMode: 'direct',
       },
     });
@@ -222,6 +229,7 @@ describe('XiuyuanListTemplateCard', () => {
         showAnswer: true,
         questionBlockId: 'q_1',
         siyuanApi,
+        richContentRenderer,
         displayMode: 'direct',
       },
     });

@@ -55,9 +55,9 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     });
 
     expect(vm).not.toBeNull();
-    expect(vm!.frontHtml).toContain('特征，卡片');
-    expect(vm!.frontHtml).not.toContain('起源，作者');
-    expect(vm!.backHtml).toContain('被设计为独立单元');
+    expect(vm!.frontContent.html).toContain('特征，卡片');
+    expect(vm!.frontContent.html).not.toContain('起源，作者');
+    expect(vm!.backContent.html).toContain('被设计为独立单元');
     expect(vm!.directScene?.rows).toEqual([
       expect.objectContaining({ kind: 'concept', key: 'concept' }),
       expect.objectContaining({ kind: 'group', key: 'group' }),
@@ -96,10 +96,10 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     });
 
     expect(vm).not.toBeNull();
-    expect(vm!.frontHtml).toContain('特征');
-    expect(vm!.frontHtml).not.toContain('特征，');
-    expect(vm!.frontHtml).not.toContain('起源');
-    expect(vm!.backHtml).toContain('卡片被设计为独立单元');
+    expect(vm!.frontContent.html).toContain('特征');
+    expect(vm!.frontContent.html).not.toContain('特征，');
+    expect(vm!.frontContent.html).not.toContain('起源');
+    expect(vm!.backContent.html).toContain('卡片被设计为独立单元');
   });
 
   it('renders forward fused question for cdf metadata', async () => {
@@ -119,11 +119,11 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     });
 
     expect(vm).not.toBeNull();
-    expect(vm!.frontHtml).toContain('memory system');
-    expect(vm!.frontHtml).toContain('起源，作者');
-    expect(vm!.frontHtml).toContain('？');
-    expect(vm!.frontHtml).not.toContain('是？');
-    expect(vm!.backHtml).toContain('woz');
+    expect(vm!.frontContent.html).toContain('memory system');
+    expect(vm!.frontContent.html).toContain('起源，作者');
+    expect(vm!.frontContent.html).toContain('？');
+    expect(vm!.frontContent.html).not.toContain('是？');
+    expect(vm!.backContent.html).toContain('woz');
     expect(vm!.directScene?.frontMask).toEqual({
       rowKey: 'descriptor',
       segment: 'right',
@@ -151,9 +151,9 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     });
 
     expect(vm).not.toBeNull();
-    expect(vm!.frontHtml).toContain('起源');
-    expect(vm!.frontHtml).not.toContain('起源，');
-    expect(vm!.backHtml).toContain('学校学习');
+    expect(vm!.frontContent.html).toContain('起源');
+    expect(vm!.frontContent.html).not.toContain('起源，');
+    expect(vm!.backContent.html).toContain('学校学习');
   });
 
   it('applies fusion attribute in reverse cards without changing reverse sentence pattern', async () => {
@@ -173,10 +173,10 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     });
 
     expect(vm).not.toBeNull();
-    expect(vm!.frontHtml).toContain('woz');
-    expect(vm!.frontHtml).toContain('是谁的');
-    expect(vm!.frontHtml).toContain('起源，作者');
-    expect(vm!.backHtml).toContain('memory system');
+    expect(vm!.frontContent.html).toContain('woz');
+    expect(vm!.frontContent.html).toContain('是谁的');
+    expect(vm!.frontContent.html).toContain('起源，作者');
+    expect(vm!.backContent.html).toContain('memory system');
     expect(vm!.directScene?.frontMask).toEqual({
       rowKey: 'concept',
       segment: 'whole',
@@ -202,8 +202,8 @@ describe('DescriptorCardRenderService CDF fusion', () => {
 
     expect(vm).not.toBeNull();
     expect(vm!.isReverse).toBe(true);
-    expect(vm!.frontHtml).toContain('woz');
-    expect(vm!.frontHtml).toContain('是谁的');
+    expect(vm!.frontContent.html).toContain('woz');
+    expect(vm!.frontContent.html).toContain('是谁的');
     expect(vm!.directScene?.frontMask).toEqual({
       rowKey: 'concept',
       segment: 'whole',
@@ -224,9 +224,9 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     });
 
     expect(vm).not.toBeNull();
-    expect(vm!.frontHtml).toContain('功能');
-    expect(vm!.backHtml).toContain('生成 ATP');
-    expect(vm!.frontHtml).not.toContain('起源');
+    expect(vm!.frontContent.html).toContain('功能');
+    expect(vm!.backContent.html).toContain('生成 ATP');
+    expect(vm!.frontContent.html).not.toContain('起源');
   });
 
   it('projects raw descriptor relations when no live fusion context or cdf field mapping is available', async () => {
@@ -245,9 +245,9 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm).not.toBeNull();
     expect(vm!.attribute).toBe('前身');
     expect(vm!.description).toBe('恒星');
-    expect(vm!.frontHtml).toContain('前身');
-    expect(vm!.backHtml).toContain('恒星');
-    expect(vm!.frontHtml).not.toContain('defaultAttribute');
+    expect(vm!.frontContent.html).toContain('前身');
+    expect(vm!.backContent.html).toContain('恒星');
+    expect(vm!.frontContent.html).not.toContain('defaultAttribute');
   });
 
   it('falls back to the raw line instead of surfacing the defaultAttribute sentinel', async () => {
@@ -266,10 +266,10 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm).not.toBeNull();
     expect(vm!.attribute).toBe('');
     expect(vm!.description).toBe('保持快速演化');
-    expect(vm!.frontHtml).toContain('保持快速演化');
-    expect(vm!.backHtml).toContain('保持快速演化');
-    expect(vm!.frontHtml).not.toContain('属性');
-    expect(vm!.frontHtml).not.toContain('defaultAttribute');
+    expect(vm!.frontContent.html).toContain('保持快速演化');
+    expect(vm!.backContent.html).toContain('保持快速演化');
+    expect(vm!.frontContent.html).not.toContain('属性');
+    expect(vm!.frontContent.html).not.toContain('defaultAttribute');
     expect(vm!.directScene?.rows).toEqual([
       expect.objectContaining({ kind: 'concept', key: 'concept' }),
       expect.objectContaining({ kind: 'standalone', key: 'descriptor-answer' }),
@@ -315,10 +315,10 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     });
 
     expect(vm).not.toBeNull();
-    expect(vm!.frontHtml).toContain('descriptor-card-question');
-    expect(vm!.frontHtml).toContain('data-rendered="true"');
-    expect(vm!.backHtml).toContain('descriptor-card-answer-content');
-    expect(vm!.frontHtml).not.toContain('font-size: 22px');
-    expect(vm!.backHtml).not.toContain('font-size: 14px');
+    expect(vm!.frontContent.html).toContain('descriptor-card-question');
+    expect(vm!.frontContent.html).toContain('data-rendered="true"');
+    expect(vm!.backContent.html).toContain('descriptor-card-answer-content');
+    expect(vm!.frontContent.html).not.toContain('font-size: 22px');
+    expect(vm!.backContent.html).not.toContain('font-size: 14px');
   });
 });

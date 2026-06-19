@@ -8,6 +8,8 @@
  */
 
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
+import { ReviewRichContentRenderer } from '@/core/card/common/application/ReviewRichContentRenderer';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import type { CardFaceKey } from '@/types/card';
 import { resolveCardRuleDirection } from '@/core/card/cardSemanticLocator';
@@ -46,10 +48,10 @@ export interface DescriptorCardInput {
  */
 export interface DescriptorCardViewModel extends BaseCardViewModel {
   // 正面内容（概念 + 属性名）
-  frontHtml: string;
+  frontContent: RichContentResult;
   
   // 背面内容（属性值）
-  backHtml: string;
+  backContent: RichContentResult;
   directScene?: CdfDirectScene;
   relationArrow: '→' | '←' | '↔';
   isReverse: boolean;
@@ -91,7 +93,8 @@ interface DescriptorDisplayParts {
 export class DescriptorCardRenderService extends BaseCardRenderService {
   constructor(
     private repository: DescriptorCardRepository,
-    private i18n: Record<string, string> = {}
+    private i18n: Record<string, string> = {},
+    private readonly richContentRenderer = new ReviewRichContentRenderer(),
   ) {
     super(); // 调用基类构造函数
   }
@@ -163,8 +166,16 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
           ...card.siblingDescriptors.map((sibling) => sibling.blockId),
           ...breadcrumbs.map((item) => item.id),
         ].filter((value): value is string => typeof value === 'string' && value.length > 0))),
-        frontHtml,
-        backHtml,
+        frontContent: this.richContentRenderer.renderHtml(frontHtml, {
+          id: `${card.blockId}:front`,
+          kind: 'descriptor',
+          field: 'front',
+        }),
+        backContent: this.richContentRenderer.renderHtml(backHtml, {
+          id: `${card.blockId}:back`,
+          kind: 'descriptor',
+          field: 'back',
+        }),
         directScene,
         relationArrow,
         isReverse,

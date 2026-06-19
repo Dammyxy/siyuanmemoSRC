@@ -7,12 +7,13 @@
           <div class="fsrs-review-v2-content__empty-title">{{ t('noDueCard', 'No due cards') }}</div>
         </div>
 
-        <div
+        <ReviewRichHtmlContent
           v-if="content.type === 'html'"
           class="fsrs-review-v2-content__html"
-          v-html="content.data"
-          @click="handleCustomHtmlContentClick"
-        ></div>
+          :content="htmlRichContent"
+          :on-open-block="openRichContentBlock"
+          :on-unsafe-target="handleUnsafeRichContentTarget"
+        />
 
         <!-- Xiuyuan 列表模版卡：自定义渲染 -->
         <div v-else-if="content.isXiuyuanListTemplate && content.xiuyuanMeta" class="fsrs-review-v2-content__xiuyuan">
@@ -22,6 +23,8 @@
             :show-answer="!showAnswer"
             :question-block-id="content.id"
             :siyuan-api="reviewSiyuanApi"
+            :rich-content-renderer="richContentRenderer"
+            :on-open-block="openRichContentBlock"
             :display-mode="resolvedRenderProfile === 'cdf-multiline' ? 'direct' : 'semantic'"
           />
         </div>
@@ -36,6 +39,7 @@
             :prepared-view-model="preparedMultiClozeViewModel"
             :prepared-identity="preparedMultiClozeIdentity"
             :refresh-epoch="specialRendererRefreshEpoch"
+            :on-open-block="openRichContentBlock"
           />
         </div>
 
@@ -65,6 +69,7 @@
             :prepared-view-model="preparedConceptDefinitionViewModel"
             :prepared-identity="preparedConceptDefinitionIdentity"
             :refresh-epoch="specialRendererRefreshEpoch"
+            :on-open-block="openRichContentBlock"
             @loaded="handleConceptDefinitionCardLoaded"
             @error="handleConceptDefinitionCardError"
           />
@@ -82,6 +87,7 @@
             :prepared-view-model="preparedConceptViewModel"
             :prepared-identity="preparedConceptIdentity"
             :refresh-epoch="specialRendererRefreshEpoch"
+            :on-open-block="openRichContentBlock"
             @loaded="handleConceptCardLoaded"
             @error="handleConceptCardError"
           />
@@ -100,6 +106,7 @@
             :prepared-view-model="preparedDescriptorViewModel"
             :prepared-identity="preparedDescriptorIdentity"
             :refresh-epoch="specialRendererRefreshEpoch"
+            :on-open-block="openRichContentBlock"
             @loaded="handleDescriptorCardLoaded"
             @error="handleDescriptorCardError"
           />
@@ -116,6 +123,7 @@
             :prepared-view-model="preparedQuickViewModel"
             :prepared-identity="preparedQuickIdentity"
             :refresh-epoch="specialRendererRefreshEpoch"
+            :on-open-block="openRichContentBlock"
             @loaded="handleQuickCardLoaded"
             @error="handleQuickCardError"
           />
@@ -171,6 +179,7 @@ import QuickCardRenderer from '../components/QuickCardRenderer.vue';
 import DescriptorCardRenderer from '../components/DescriptorCardRenderer.vue';
 import ConceptDefinitionCardRenderer from '../components/ConceptDefinitionCardRenderer.vue';
 import ConceptCardRenderer from '../components/ConceptCardRenderer.vue';
+import ReviewRichHtmlContent from '../components/ReviewRichHtmlContent.vue';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
 import { 
@@ -196,6 +205,7 @@ import {
 import { createLogger } from '@/utils/logger';
 import { resolveRenderProfile } from '@/core/card/render-profile/RenderProfileResolver';
 import type { ReviewRenderableRenderPolicy } from '@/application/adapters/reviewRenderableRenderPolicy';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 
 const props = defineProps<{
   app: siyuan.App;
@@ -251,51 +261,23 @@ function getReviewTabApplicationService(): ReviewContentTabApplicationServiceLik
   return plugin?.getContext?.()?.getTabApplicationService?.();
 }
 
-function resolveSiyuanBlockIdFromHref(href: string): string {
-  const match = /^siyuan:\/\/blocks\/([^/?#]+)/iu.exec(href.trim());
-  return match?.[1]?.trim() ?? '';
-}
-
-function resolveCustomHtmlBlockTarget(target: EventTarget | null): string {
-  if (!(target instanceof Element)) {
-    return '';
-  }
-
-  const element = target.closest('[data-type~="block-ref"][data-id], a[href]');
-  if (!(element instanceof HTMLElement)) {
-    return '';
-  }
-
-  const dataType = element.getAttribute('data-type') || '';
-  if (dataType.split(/\s+/u).includes('block-ref')) {
-    return (element.getAttribute('data-id') || '').trim();
-  }
-
-  if (element instanceof HTMLAnchorElement) {
-    return resolveSiyuanBlockIdFromHref(element.getAttribute('href') || '');
-  }
-
-  return '';
-}
-
-function handleCustomHtmlContentClick(event: MouseEvent): void {
-  const blockId = resolveCustomHtmlBlockTarget(event.target);
-  if (!blockId) {
-    return;
-  }
-
+function openRichContentBlock(blockId: string): void {
   const tabApplicationService = getReviewTabApplicationService();
   if (typeof tabApplicationService?.openBlockTab !== 'function') {
     return;
   }
 
-  event.preventDefault();
-  event.stopPropagation();
   Promise.resolve(tabApplicationService.openBlockTab({ blockId })).catch(error => {
     logger.warn('[ReviewContent] Failed to open custom review link target', {
       blockId,
       error,
     });
+  });
+}
+
+function handleUnsafeRichContentTarget(href: string): void {
+  logger.warn('[ReviewContent] Ignored unsafe rich-content target', {
+    href,
   });
 }
 
@@ -440,6 +422,7 @@ const reviewSiyuanApi = computed(() => getReviewSiyuanApi());
 
 // 快速卡片渲染服务
 const quickCardRenderService = computed(() => resolvedRenderServices.value.quickCardRenderService);
+const richContentRenderer = computed(() => resolvedRenderServices.value.richContentRenderer);
 
 // 描述符卡渲染服务
 const descriptorCardRenderService = computed(() => resolvedRenderServices.value.descriptorCardRenderService);
@@ -447,6 +430,13 @@ const descriptorCardRenderService = computed(() => resolvedRenderServices.value.
 const conceptDefinitionCardRenderService = computed(() => resolvedRenderServices.value.conceptDefinitionCardRenderService);
 const conceptCardRenderService = computed(() => resolvedRenderServices.value.conceptCardRenderService);
 const multiClozeCardRenderService = computed(() => resolvedRenderServices.value.multiClozeCardRenderService);
+const htmlRichContent = computed<RichContentResult>(() => richContentRenderer.value.renderHtml(
+  props.content.type === 'html' ? props.content.data : '',
+  {
+    id: props.content.id,
+    kind: 'raw-html',
+  },
+));
 
 function resolveTypeMarker(card: ReviewUIState['content']['card']): string {
   const marker = card?.meta?.typeMarker;

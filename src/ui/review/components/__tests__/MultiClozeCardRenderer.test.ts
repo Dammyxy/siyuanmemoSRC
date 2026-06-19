@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FSRSCard } from '@/types/card';
 import { buildReviewRendererIdentity } from '../reviewRendererIdentity';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 
 const multiClozeRendererMocks = vi.hoisted(() => ({
   prepareViewModel: vi.fn(),
@@ -16,6 +17,19 @@ vi.mock('@/core/card/multi-cloze/application/MultiClozeCardRenderService', () =>
 }));
 
 import MultiClozeCardRenderer from '../MultiClozeCardRenderer.vue';
+
+function richContent(html: string, field = 'front'): RichContentResult {
+  return {
+    html,
+    atoms: [],
+    diagnostics: [],
+    source: {
+      kind: 'multi-cloze',
+      field,
+    },
+    renderKind: 'html',
+  };
+}
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
@@ -69,8 +83,8 @@ describe('MultiClozeCardRenderer.vue', () => {
     multiClozeRendererMocks.prepareViewModel.mockResolvedValue({
       blockId: 'block-1',
       breadcrumbs: [],
-      frontHtml: '<p>Front</p>',
-      backHtml: '<p>Back</p>',
+      frontContent: richContent('<p>Front</p>', 'front'),
+      backContent: richContent('<p>Back</p>', 'back'),
       faceIndex: 0,
       totalFaces: 1,
       renderMode: 'default',
@@ -88,7 +102,7 @@ describe('MultiClozeCardRenderer.vue', () => {
 
     expect(multiClozeRendererMocks.prepareViewModel).toHaveBeenCalledTimes(1);
     expect(wrapper.find('.multi-cloze-card-renderer--question').exists()).toBe(true);
-    expect(wrapper.find('.multi-cloze-card-renderer__protyle.protyle').exists()).toBe(true);
+    expect(wrapper.find('.review-rich-html-content').exists()).toBe(true);
     expect(wrapper.find('.multi-cloze-card-renderer__body.protyle-content').exists()).toBe(true);
     expect(wrapper.html()).toContain('Front');
     expect(wrapper.html()).not.toContain('Back');
@@ -109,8 +123,8 @@ describe('MultiClozeCardRenderer.vue', () => {
     const preparedViewModel = {
       blockId: 'block-1',
       breadcrumbs: [],
-      frontHtml: '<p>Prepared front</p>',
-      backHtml: '<p>Prepared back</p>',
+      frontContent: richContent('<p>Prepared front</p>', 'front'),
+      backContent: richContent('<p>Prepared back</p>', 'back'),
       faceIndex: 0,
       totalFaces: 1,
       renderMode: 'default',
@@ -146,8 +160,8 @@ describe('MultiClozeCardRenderer.vue', () => {
     const preparedViewModel = {
       blockId: 'block-1',
       breadcrumbs: [],
-      frontHtml: '<p>FaceKey prepared front</p>',
-      backHtml: '<p>FaceKey prepared back</p>',
+      frontContent: richContent('<p>FaceKey prepared front</p>', 'front'),
+      backContent: richContent('<p>FaceKey prepared back</p>', 'back'),
       faceIndex: 2,
       totalFaces: 3,
       renderMode: 'default',
@@ -174,8 +188,8 @@ describe('MultiClozeCardRenderer.vue', () => {
       .mockResolvedValueOnce({
         blockId: 'block-1',
         breadcrumbs: [],
-        frontHtml: '<p>Old front</p>',
-        backHtml: '<p>Old back</p>',
+        frontContent: richContent('<p>Old front</p>', 'front'),
+        backContent: richContent('<p>Old back</p>', 'back'),
         faceIndex: 0,
         totalFaces: 1,
         renderMode: 'default',

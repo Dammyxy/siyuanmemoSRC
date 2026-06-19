@@ -17,8 +17,8 @@ GitHub CLI was unavailable in this environment, so the refresh used the GitHub R
 ### Completion Snapshot
 
 - GitHub closed issues: 22.
-- Open GitHub issues with local completion evidence: 21 issue numbers, consisting of 20 implemented numbers (#71, #72, #73, #65, #60, #56, #64, #63, #61, #57, #55, #54, #52, #21, #20, #19, #16, #59, #47, #46) plus #58 as validation-only coverage.
-- If #58 is counted only as verification rather than implementation, local implemented still-open issue count is 20; total issue numbers covered is 42 implemented/closed plus one validation-only.
+- Open GitHub issues with local completion evidence: 23 issue numbers, consisting of 22 implemented numbers (#71, #72, #73, #65, #60, #56, #64, #63, #61, #57, #55, #54, #52, #21, #20, #19, #16, #59, #47, #46, #30, #22) plus #58 as validation-only coverage.
+- If #58 is counted only as verification rather than implementation, local implemented still-open issue count is 22; total issue numbers covered is 44 implemented/closed plus one validation-only.
 - OpenSpec status confirms these issue-backed changes are complete: `polish-progressive-excerpt-doc-and-source-marks`, `add-review-command-hotkeys-and-doc-scope-review`, `fix-topic-container-shortcut-item-creation`, `fix-multicloze-review-rendering`, `fix-formula-cloze-katex-marker-rendering`, `show-suspended-card-badge-in-browser`, `render-custom-review-surface-links`, `add-concept-review-roam-entry`, `scope-srs-browser-sql-filter-to-card-universe`, `harden-symbol-listener-business-idempotency`, `explain-srs-browser-count-differences`, `add-relative-priority-actions-in-browser`, and `preserve-progressive-excerpt-source-links-and-marks`.
 
 ### Newly Observed Since 2026-05-18
@@ -46,7 +46,7 @@ GitHub CLI was unavailable in this environment, so the refresh used the GitHub R
 ### Decision Notes
 
 - Do not treat GitHub-open status as not implemented. Several implemented local changes still correspond to open GitHub issues.
-- Prefer closing or commenting GitHub issues after user/live smoke confirmation, especially for #71/#72/#73, #65/#60/#56, #64, #63, #61, #57, #55, #54, #52, #21, #20, #19, #16, #59, #47, and #46.
+- Prefer closing or commenting GitHub issues after user/live smoke confirmation, especially for #71/#72/#73, #65/#60/#56, #64, #63, #61, #57, #55, #54, #52, #21, #20, #19, #16, #59, #47, #46, #30, and #22.
 - #71/#72/#73 were implemented together by OpenSpec change `polish-progressive-excerpt-doc-and-source-marks`: generated excerpt document formatting, first visible source reference placement, and multi-block source mark coverage share Progressive / Excerpt ownership.
 - The live excerpt blocker `BLOCK_ATTR_WRITE_FORBIDDEN: custom-fsrs-reading-source-lineage (large-or-high-churn-payload)` was fixed in the same slice by moving rich source semantics into plugin-owned excerpt records and keeping block attrs compact.
 - #58 stays validation-only but now has active regression coverage for first-source-reference placement at the end of the first meaningful excerpt content block.
@@ -60,7 +60,8 @@ GitHub CLI was unavailable in this environment, so the refresh used the GitHub R
 - 2026-06-18 maintainer triage: #36 is paused. "关于卡片调度器" is too broad to auto-pull as the next issue; resume only after the scheduler question is narrowed to a concrete behavior, bug, or implementation slice.
 - 2026-06-18 maintainer triage: #32 is paused. Browser tag search needs a dedicated Browser query/product decision before it is safe to auto-pull again.
 - 2026-06-18 implementation: #15 is completed by OpenSpec change `scope-browser-doc-click-to-doc-tree`. SRS Browser left hierarchy document clicks now resolve the clicked document plus descendant documents through `DocTreeReviewScopeService`, reload through existing Browser `scopeDocIds`, and clear exact `docId` so child document cards are not filtered out. The optional include/exclude child-doc toggle is intentionally not included in this slice.
-- 2026-06-18 implementation: #21 is completed by OpenSpec change `review-insert-position-slider`. Review footer skip actions now keep the primary `跳过` as a one-click action and move later-position insertion into an inline expandable panel with presets, slider, local last-position memory, and quick direct date scheduling. Regression coverage passes in `ReviewActions.spec.ts` and `SkipMenuButton.spec.ts`; live SiYuan smoke is still pending.
+- 2026-06-19 maintainer completion: #21 is completed by OpenSpec change `review-insert-position-slider`. Review footer skip actions now keep the primary `跳过` as a one-click action and move later-position insertion into an inline expandable panel with presets, slider, local last-position memory, and quick direct date scheduling. Follow-up live regressions for date scheduling/no-score removal and stale counter reconciliation were fixed and accepted by maintainer testing.
+- 2026-06-19 maintainer completion: #30 and #22 are completed in the current/newer build. #30's empty Review state no longer leaves the primary action as "显示答案"; #22's Neural Roam surface now shows the document block title. Keep both out of future auto-pulls unless a regression is reported.
 
 ### Later-Batch Grouping
 
@@ -195,12 +196,14 @@ GitHub still reports these issues open, but local OpenSpec completion evidence i
 
 ### Open Issues Covered By Current Implementation
 
-GitHub may still report these issues open, but current active code and regression tests satisfy the requested behavior:
+GitHub may still report these issues open, but current active code, regression tests, or maintainer verification satisfy the requested behavior:
 
 | Issue | Status |
 |---|---|
 | #47 | Implemented: document-tree block menu opens SRS Browser with current document plus descendant document scope through `initialOpenState.scopeDocIds`; live SiYuan smoke still pending. |
-| #21 | Implemented: Review footer skip/later area now uses an inline expandable panel with presets, slider, local last-position memory, and quick direct date scheduling; live SiYuan smoke still pending. |
+| #21 | Completed: Review footer skip/later area now uses an inline expandable panel with presets, slider, local last-position memory, and quick direct date scheduling. Maintainer testing accepted the follow-up date scheduling/no-score removal and stale counter fixes. |
+| #30 | Completed: empty Review state no longer exposes "显示答案" as the primary action; maintainer marked the issue complete. |
+| #22 | Completed: Neural Roam surface now shows the document block title; maintainer marked the issue complete. |
 
 ### Next Batch Grouping
 
@@ -361,7 +364,7 @@ Open terms to sharpen:
 
 ## Later Batch Summary
 
-- Review/UI: #60, #57, #56, #54, #40, #39, #35, #30, #26, #25, #23, #22, #18, #6, #53; #49 is shelved until a Browser UI terminology pass.
+- Review/UI remaining discussion candidates: #40, #39, #35, #26, #25, #23, #18, #6, #53; completed locally: #60, #57, #56, #54, #30, #22; #49 is shelved until a Browser UI terminology pass.
 - Creation/progressive reading: #59, #58, #46, #31, #29, #28
 - Deferred / do not auto-pull unless explicitly named: #36, #32, #49, #48, #42, #41, #38, #13, #10
 - Queue/Browser enhancements: #47, #16, #15, and #21 implemented; #36 and #32 are paused.

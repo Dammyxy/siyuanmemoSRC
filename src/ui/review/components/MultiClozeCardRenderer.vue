@@ -10,9 +10,11 @@
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
 
       <div class="multi-cloze-card-renderer__card">
-        <div class="multi-cloze-card-renderer__protyle protyle">
-          <div class="multi-cloze-card-renderer__body protyle-content" v-html="renderedHtml"></div>
-        </div>
+        <ReviewRichHtmlContent
+          class="multi-cloze-card-renderer__body protyle-content"
+          :content="renderedContent"
+          :on-open-block="onOpenBlock"
+        />
       </div>
     </div>
   </div>
@@ -25,11 +27,13 @@ import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import { MultiClozeCardRenderService } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
 import type { MultiClozeCardViewModel } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 import { renderMathWithKatex } from './mathRender';
 import { buildReviewRendererIdentity } from './reviewRendererIdentity';
+import ReviewRichHtmlContent from './ReviewRichHtmlContent.vue';
 
 const logger = createLogger('MultiClozeCardRenderer');
 
@@ -41,6 +45,7 @@ const props = defineProps<{
   preparedViewModel?: unknown;
   preparedIdentity?: string;
   refreshEpoch?: number;
+  onOpenBlock?: (blockId: string) => void | Promise<void>;
 }>();
 
 const loading = ref(true);
@@ -60,15 +65,30 @@ const renderIdentity = computed(() => {
   return buildReviewRendererIdentity(props.card);
 });
 
-const rawHtml = computed(() => {
-  if (!viewModel.value) return '';
-  return props.showAnswer ? viewModel.value.backHtml : viewModel.value.frontHtml;
+const rawContent = computed<RichContentResult | null>(() => {
+  if (!viewModel.value) return null;
+  return props.showAnswer ? viewModel.value.backContent : viewModel.value.frontContent;
 });
 
-const renderedHtml = computed(() => {
-  return renderMathWithKatex(rawHtml.value, (renderError) => {
-    logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX content:', renderError);
-  });
+const renderedContent = computed<RichContentResult>(() => {
+  const content = rawContent.value;
+  if (!content) {
+    return {
+      html: '',
+      atoms: [],
+      diagnostics: [],
+      source: {
+        kind: 'multi-cloze',
+      },
+      renderKind: 'html',
+    };
+  }
+  return {
+    ...content,
+    html: renderMathWithKatex(content.html, (renderError) => {
+      logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX content:', renderError);
+    }),
+  };
 });
 
 async function loadViewModel() {

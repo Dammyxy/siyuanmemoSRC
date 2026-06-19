@@ -96,6 +96,35 @@ describe('TransactionWebSocketService', () => {
     }), expect.anything());
   });
 
+  it('keeps per-edit transaction receipt logging at debug level', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+    vi.resetModules();
+    const { TransactionWebSocketService: DynamicTransactionWebSocketService } = await import('../TransactionWebSocketService');
+    const { setGlobalLogLevel } = await import('@/utils/logger');
+    setGlobalLogLevel('debug');
+    const dynamicService = new DynamicTransactionWebSocketService({ eventBus } as unknown as FSRSPlugin);
+    const handler: ITransactionHandler = { handle: vi.fn() };
+
+    dynamicService.registerHandler(handler);
+    dynamicService.start();
+    info.mockClear();
+    debug.mockClear();
+    emitTransactions([createTransaction('block-1')]);
+
+    expect(info).not.toHaveBeenCalledWith(
+      '[SiYuanMemo][TransactionWebSocketService]',
+      'Transaction received, count:',
+      1,
+    );
+    expect(debug).toHaveBeenCalledWith(
+      '[SiYuanMemo][TransactionWebSocketService]',
+      'Transaction received, count:',
+      1,
+    );
+    dynamicService.stop();
+  });
+
   it('classifies once and skips handlers whose predicate does not match', () => {
     const skippedHandler: ITransactionHandler = {
       getTransactionConsumerId: () => 'skipped-consumer',

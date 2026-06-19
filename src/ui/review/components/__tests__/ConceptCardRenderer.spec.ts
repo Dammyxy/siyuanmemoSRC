@@ -3,11 +3,25 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
+
+function richContent(html: string): RichContentResult {
+  return {
+    html,
+    atoms: [],
+    diagnostics: [],
+    source: {
+      kind: 'concept',
+      field: 'content',
+    },
+    renderKind: 'html',
+  };
+}
 
 const prepareViewModel = vi.fn(async () => ({
   conceptName: '幂函数',
   conceptBlockId: 'concept-block-1',
-  contentHtml: '<p>指数为定值，以 x 为自变量。</p>',
+  content: richContent('<p>指数为定值，以 x 为自变量。</p>'),
   breadcrumbs: [{ id: 'crumb-1', label: '数学' }],
 }));
 

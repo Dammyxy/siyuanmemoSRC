@@ -69,8 +69,8 @@ describe('ConceptDefinitionCardRenderService', () => {
     const viewModel = await service.prepareViewModel('definition-1', createCardInput());
 
     expect(viewModel.conceptName).toBe('学习');
-    expect(viewModel.frontHtml).toContain('学习');
-    expect(viewModel.backHtml).toContain('<rich>学习是学习者在共同体中逐渐增加参与度的社会过程。</rich>');
+    expect(viewModel.frontContent.html).toContain('学习');
+    expect(viewModel.backContent.html).toContain('<rich>学习是学习者在共同体中逐渐增加参与度的社会过程。</rich>');
     expect(viewModel.directScene?.frontMask).toEqual({
       rowKey: 'concept-definition',
       segment: 'right',

@@ -34,10 +34,10 @@ describe('MultiClozeCardRenderService inline formula mode', () => {
     });
 
     expect(vm.renderMode).toBe('inline-formula-cloze');
-    expect(vm.frontHtml.startsWith('$$')).toBe(true);
-    expect(vm.frontHtml).toContain('\\boxed{\\text{[...]}}');
-    expect(vm.backHtml.startsWith('$$')).toBe(true);
-    expect(vm.backHtml).toContain('{\\color{#166534}P(B|A)}');
+    expect(vm.frontContent.html.startsWith('$$')).toBe(true);
+    expect(vm.frontContent.html).toContain('\\boxed{\\text{[...]}}');
+    expect(vm.backContent.html.startsWith('$$')).toBe(true);
+    expect(vm.backContent.html).toContain('{\\color{#166534}P(B|A)}');
   });
 
   it('renders numbered formula clozes without leaking marker ids into math output', async () => {
@@ -63,14 +63,14 @@ describe('MultiClozeCardRenderService inline formula mode', () => {
       },
     });
 
-    expect(vm.frontHtml).toBe('$$E={\\color{#166534}\\boxed{\\text{[...]}}}+x$$');
-    expect(vm.backHtml).toBe('$$E={\\color{#166534}mc^2}+x$$');
-    expect(vm.frontHtml).not.toContain('\\cloze');
-    expect(vm.frontHtml).not.toContain('#2');
-    expect(vm.frontHtml).not.toContain('c3');
-    expect(vm.backHtml).not.toContain('\\cloze');
-    expect(vm.backHtml).not.toContain('#2');
-    expect(vm.backHtml).not.toContain('c3');
+    expect(vm.frontContent.html).toBe('$$E={\\color{#166534}\\boxed{\\text{[...]}}}+x$$');
+    expect(vm.backContent.html).toBe('$$E={\\color{#166534}mc^2}+x$$');
+    expect(vm.frontContent.html).not.toContain('\\cloze');
+    expect(vm.frontContent.html).not.toContain('#2');
+    expect(vm.frontContent.html).not.toContain('c3');
+    expect(vm.backContent.html).not.toContain('\\cloze');
+    expect(vm.backContent.html).not.toContain('#2');
+    expect(vm.backContent.html).not.toContain('c3');
   });
 
   it('keeps only the current formula fragment hidden while non-current fragments stay visible', async () => {
@@ -91,10 +91,10 @@ describe('MultiClozeCardRenderService inline formula mode', () => {
       },
     });
 
-    expect(vm.frontHtml).toBe('$$P=a+{\\color{#166534}\\boxed{\\text{[...]}}}+c$$');
-    expect(vm.backHtml).toBe('$$P=a+{\\color{#166534}{b}}+c$$');
-    expect(vm.frontHtml).not.toContain('\\cloze');
-    expect(vm.backHtml).not.toContain('\\cloze');
+    expect(vm.frontContent.html).toBe('$$P=a+{\\color{#166534}\\boxed{\\text{[...]}}}+c$$');
+    expect(vm.backContent.html).toBe('$$P=a+{\\color{#166534}{b}}+c$$');
+    expect(vm.frontContent.html).not.toContain('\\cloze');
+    expect(vm.backContent.html).not.toContain('\\cloze');
   });
 
   it('falls back to safe stored faces when source formula cloze syntax is malformed', async () => {
@@ -114,10 +114,10 @@ describe('MultiClozeCardRenderService inline formula mode', () => {
       },
     });
 
-    expect(vm.frontHtml).toBe('$$E={\\color{#166534}\\boxed{\\text{[...]}}}$$');
-    expect(vm.backHtml).toBe('$$E={\\color{#166534}mc^2}$$');
-    expect(vm.frontHtml).not.toContain('\\cloze');
-    expect(vm.backHtml).not.toContain('\\cloze');
+    expect(vm.frontContent.html).toBe('$$E={\\color{#166534}\\boxed{\\text{[...]}}}$$');
+    expect(vm.backContent.html).toBe('$$E={\\color{#166534}mc^2}$$');
+    expect(vm.frontContent.html).not.toContain('\\cloze');
+    expect(vm.backContent.html).not.toContain('\\cloze');
   });
 
   it('strips trailing Siyuan block attrs from inline formula source kramdown', async () => {
@@ -137,11 +137,11 @@ describe('MultiClozeCardRenderService inline formula mode', () => {
       },
     });
 
-    expect(vm.frontHtml).not.toContain('{:');
-    expect(vm.frontHtml).not.toContain('custom-fsrs-card-type');
-    expect(vm.backHtml).not.toContain('{:');
-    expect(vm.backHtml).not.toContain('custom-fsrs-card-type');
-    expect(vm.backHtml).toContain('{\\color{#166534}P(B|A)}');
+    expect(vm.frontContent.html).not.toContain('{:');
+    expect(vm.frontContent.html).not.toContain('custom-fsrs-card-type');
+    expect(vm.backContent.html).not.toContain('{:');
+    expect(vm.backContent.html).not.toContain('custom-fsrs-card-type');
+    expect(vm.backContent.html).toContain('{\\color{#166534}P(B|A)}');
   });
 
   it('keeps stored full-expression faces as the fallback in inline formula mode', async () => {
@@ -159,11 +159,11 @@ describe('MultiClozeCardRenderService inline formula mode', () => {
       },
     });
 
-    expect(vm.frontHtml.startsWith('$$')).toBe(true);
-    expect(vm.frontHtml.endsWith('$$')).toBe(true);
-    expect(vm.backHtml.startsWith('$$')).toBe(true);
-    expect(vm.backHtml.endsWith('$$')).toBe(true);
-    expect(vm.backHtml).toContain('{\\color{#166534}P(B|A)}');
+    expect(vm.frontContent.html.startsWith('$$')).toBe(true);
+    expect(vm.frontContent.html.endsWith('$$')).toBe(true);
+    expect(vm.backContent.html.startsWith('$$')).toBe(true);
+    expect(vm.backContent.html.endsWith('$$')).toBe(true);
+    expect(vm.backContent.html).toContain('{\\color{#166534}P(B|A)}');
   });
 
   it('normalizes raw stored formula cloze faces before math rendering when source is unavailable', async () => {
@@ -181,12 +181,12 @@ describe('MultiClozeCardRenderService inline formula mode', () => {
       },
     });
 
-    expect(vm.frontHtml).toBe('$$E={\\color{#166534}\\boxed{\\text{[...]}}}$$');
-    expect(vm.backHtml).toBe('$$E={\\color{#166534}mc^2}$$');
-    expect(vm.frontHtml).not.toContain('\\cloze');
-    expect(vm.backHtml).not.toContain('\\cloze');
-    expect(vm.frontHtml).not.toContain('#2');
-    expect(vm.backHtml).not.toContain('#2');
+    expect(vm.frontContent.html).toBe('$$E={\\color{#166534}\\boxed{\\text{[...]}}}$$');
+    expect(vm.backContent.html).toBe('$$E={\\color{#166534}mc^2}$$');
+    expect(vm.frontContent.html).not.toContain('\\cloze');
+    expect(vm.backContent.html).not.toContain('\\cloze');
+    expect(vm.frontContent.html).not.toContain('#2');
+    expect(vm.backContent.html).not.toContain('#2');
   });
 
   it('strips trailing Siyuan block attrs from stored inline formula faces when source kramdown is unavailable', async () => {
@@ -204,10 +204,10 @@ describe('MultiClozeCardRenderService inline formula mode', () => {
       },
     });
 
-    expect(vm.frontHtml).not.toContain('{:');
-    expect(vm.backHtml).not.toContain('{:');
-    expect(vm.frontHtml.startsWith('$$')).toBe(true);
-    expect(vm.backHtml.endsWith('$$')).toBe(true);
+    expect(vm.frontContent.html).not.toContain('{:');
+    expect(vm.backContent.html).not.toContain('{:');
+    expect(vm.frontContent.html.startsWith('$$')).toBe(true);
+    expect(vm.backContent.html.endsWith('$$')).toBe(true);
   });
 
   it('repairs stale faceIndex when an inline formula card only has one cloze left', async () => {
@@ -229,7 +229,7 @@ describe('MultiClozeCardRenderService inline formula mode', () => {
 
     expect(vm.faceIndex).toBe(0);
     expect(vm.requestedFaceIndex).toBe(1);
-    expect(vm.frontHtml).toContain('\\boxed{\\text{[...]}}');
-    expect(vm.backHtml).toContain('{\\color{#166534}P(B|A)}');
+    expect(vm.frontContent.html).toContain('\\boxed{\\text{[...]}}');
+    expect(vm.backContent.html).toContain('{\\color{#166534}P(B|A)}');
   });
 });

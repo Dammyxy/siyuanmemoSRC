@@ -9,6 +9,8 @@
  */
 
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
+import { ReviewRichContentRenderer } from '@/core/card/common/application/ReviewRichContentRenderer';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import type { CardFaceKey } from '@/types/card';
 import {
@@ -79,9 +81,9 @@ export interface ConceptDefinitionCardViewModel extends BaseCardViewModel {
   conceptName: string;
   conceptBlockId: string;
   definitionBlockId: string;
-  definitionHtml: string;
-  frontHtml: string;  // 🆕 正面 HTML（问题）
-  backHtml: string;   // 🆕 背面 HTML（答案）
+  definitionContent: RichContentResult;
+  frontContent: RichContentResult;
+  backContent: RichContentResult;
   directScene?: CdfDirectScene;
   relationArrow: '→' | '←' | '↔';
   clozeIndex?: number;
@@ -96,7 +98,8 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
 
   constructor(
     private i18n: Record<string, string> = {},
-    private ports: ConceptDefinitionCardRenderPorts = {}
+    private ports: ConceptDefinitionCardRenderPorts = {},
+    private readonly richContentRenderer = new ReviewRichContentRenderer(),
   ) {
     super();
   }
@@ -238,6 +241,11 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     // 11. 使用 Lute 渲染 Markdown
     const definitionRender = this.renderReviewMarkdown(processedKramdown);
     const definitionHtml = definitionRender.html;
+    const definitionContent = this.richContentRenderer.renderHtml(definitionHtml, {
+      id: definitionBlockId,
+      kind: 'concept-definition',
+      field: 'definition',
+    });
 
     // 12. 使用基类方法加载面包屑
     const breadcrumbs = await this.loadBreadcrumbs(blockId);
@@ -318,9 +326,17 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       conceptName,
       conceptBlockId,
       definitionBlockId,
-      definitionHtml,
-      frontHtml,
-      backHtml,
+      definitionContent,
+      frontContent: this.richContentRenderer.renderHtml(frontHtml, {
+        id: `${blockId}:front`,
+        kind: 'concept-definition',
+        field: 'front',
+      }),
+      backContent: this.richContentRenderer.renderHtml(backHtml, {
+        id: `${blockId}:back`,
+        kind: 'concept-definition',
+        field: 'back',
+      }),
       directScene,
       relationArrow,
       clozeIndex: clozes.length > 0 ? clozeIndex : undefined,

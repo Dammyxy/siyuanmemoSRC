@@ -1,6 +1,20 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import DescriptorCardRenderer from '../DescriptorCardRenderer.vue';
+import type { RichContentResult } from '@/core/card/common/application/richContent';
+
+function richContent(html: string, field = 'front'): RichContentResult {
+  return {
+    html,
+    atoms: [],
+    diagnostics: [],
+    source: {
+      kind: 'descriptor',
+      field,
+    },
+    renderKind: 'html',
+  };
+}
 
 describe('DescriptorCardRenderer', () => {
   it('renders a prepared descriptor view model synchronously without showing loading', async () => {
@@ -8,8 +22,8 @@ describe('DescriptorCardRenderer', () => {
       blockId: 'descriptor-prepared',
       breadcrumbs: [{ id: 'doc-1', label: 'Doc' }],
       dependencyBlockIds: ['doc-1', 'descriptor-prepared'],
-      frontHtml: '<p>prepared front</p>',
-      backHtml: '<p>prepared back</p>',
+      frontContent: richContent('<p>prepared front</p>', 'front'),
+      backContent: richContent('<p>prepared back</p>', 'back'),
       relationArrow: '→',
       isReverse: false,
       attribute: '属性',
@@ -57,8 +71,8 @@ describe('DescriptorCardRenderer', () => {
         blockId: 'descriptor-1',
         breadcrumbs: [{ id: 'doc-1', label: 'Doc' }],
         dependencyBlockIds: ['doc-1', 'concept-1', 'descriptor-1'],
-        frontHtml: '<p>semantic front</p>',
-        backHtml: '<p>semantic back</p>',
+        frontContent: richContent('<p>semantic front</p>', 'front'),
+        backContent: richContent('<p>semantic back</p>', 'back'),
         directScene: {
           rows: [
             {
@@ -145,8 +159,8 @@ describe('DescriptorCardRenderer', () => {
         blockId: 'descriptor-2',
         breadcrumbs: [{ id: 'doc-1', label: 'Doc' }],
         dependencyBlockIds: ['doc-1', 'descriptor-2'],
-        frontHtml: '<p>semantic front</p>',
-        backHtml: '<p>semantic back</p>',
+        frontContent: richContent('<p>semantic front</p>', 'front'),
+        backContent: richContent('<p>semantic back</p>', 'back'),
         directScene: {
           rows: [{
             kind: 'standalone',
@@ -204,8 +218,8 @@ describe('DescriptorCardRenderer', () => {
         blockId: 'descriptor-3',
         breadcrumbs: [{ id: 'doc-1', label: 'Doc' }],
         dependencyBlockIds: ['doc-1', 'descriptor-3'],
-        frontHtml: '<p>semantic front</p>',
-        backHtml: '<p>semantic back</p>',
+        frontContent: richContent('<p>semantic front</p>', 'front'),
+        backContent: richContent('<p>semantic back</p>', 'back'),
         relationArrow: '→',
         isReverse: false,
         attribute: '前身',

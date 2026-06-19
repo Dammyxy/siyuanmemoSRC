@@ -8,8 +8,11 @@ import type { SiyuanBlockAdapter as DescriptorBlockAdapter } from '@/core/card/d
 import { ConceptDefinitionCardRenderService } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 import { ConceptCardRenderService } from '@/core/card/concept/application/ConceptCardRenderService';
 import { MultiClozeCardRenderService } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
+import { ReviewRichContentRenderer } from '@/core/card/common/application/ReviewRichContentRenderer';
+import { SiyuanRichContentAdapter } from '@/core/card/common/infrastructure/SiyuanRichContentAdapter';
 
 export interface ReviewRenderServices {
+  richContentRenderer: ReviewRichContentRenderer;
   quickCardRenderService: QuickCardRenderService;
   descriptorCardRenderService: DescriptorCardRenderService;
   conceptDefinitionCardRenderService: ConceptDefinitionCardRenderService;
@@ -25,21 +28,26 @@ export interface CreateReviewRenderServicesOptions {
 }
 
 export function createReviewRenderServices(options: CreateReviewRenderServicesOptions): ReviewRenderServices {
+  const richContentRenderer = new ReviewRichContentRenderer(new SiyuanRichContentAdapter());
+
   return {
+    richContentRenderer,
     quickCardRenderService: new QuickCardRenderService(
       new QuickCardRepository(
         options.quickBlockAdapter,
         options.cardStorage || null,
       ),
+      richContentRenderer,
     ),
     descriptorCardRenderService: new DescriptorCardRenderService(
       new DescriptorCardRepository(
         options.descriptorBlockAdapter,
       ),
       options.i18n || {},
+      richContentRenderer,
     ),
-    conceptDefinitionCardRenderService: new ConceptDefinitionCardRenderService(options.i18n || {}),
-    conceptCardRenderService: new ConceptCardRenderService(),
-    multiClozeCardRenderService: new MultiClozeCardRenderService(),
+    conceptDefinitionCardRenderService: new ConceptDefinitionCardRenderService(options.i18n || {}, {}, richContentRenderer),
+    conceptCardRenderService: new ConceptCardRenderService(richContentRenderer),
+    multiClozeCardRenderService: new MultiClozeCardRenderService(richContentRenderer),
   };
 }

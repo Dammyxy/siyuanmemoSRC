@@ -207,6 +207,119 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(context.getFollowerCommandClient()).toBeNull();
   });
 
+  it('does not leave backend Worker transport alive when frontend runtime dispose hangs during unload', async () => {
+    vi.useFakeTimers();
+    try {
+      const srsBackendClient = {
+        dispose: vi.fn(),
+        flushReviewTruthBeforeUnload: vi.fn(async () => false),
+      };
+      const srsBackendTransport = {
+        dispose: vi.fn(),
+      };
+      const frontendInstanceRuntime = {
+        dispose: vi.fn(() => new Promise<void>(() => {})),
+        getMode: () => 'writer',
+        getInstanceId: () => 'instance-hanging-dispose',
+      };
+      const runtimePolicy = {
+        flags: {
+          backendWorker: true,
+          writerLeaseGuard: true,
+          autoCardDecisionRelay: true,
+          kernelTransactionIngest: true,
+          privateApi: true,
+          aiBackendRuntime: true,
+        },
+        capabilities: {
+          backendWorkerAvailable: true,
+          writerRelayRuntimeEnabled: true,
+          writerRelayRequiredForBackendWrites: true,
+          reviewFeedbackWriteEnabled: true,
+          autoCardExecuteWriteEnabled: true,
+          autoCardDecisionBackendEnabled: true,
+          kernelTransactionIngestEnabled: true,
+          privateApiReadEnabled: true,
+          privateApiMutationEnabled: true,
+          aiBackendSessionEnabled: true,
+        },
+        behavior: {},
+      };
+      const TestableApplicationContext = ApplicationContext as unknown as new (
+        config: unknown,
+        services: unknown,
+      ) => ApplicationContext;
+      const context = new TestableApplicationContext({
+        plugin: { name: 'test-plugin', app: {} },
+        i18n: {},
+      }, {
+        storageManager: {},
+        unifiedStorageManager: { save: vi.fn() },
+        schedulerRouter: {},
+        rescheduleService: {},
+        unifiedDataSourceManager: {},
+        blockMenuHandler: {},
+        srsBackendClient,
+        srsBackendTransport,
+        frontendInstanceRuntime,
+        backendMigrationRuntimePolicy: runtimePolicy,
+      });
+
+      const disposeCompleted = vi.fn();
+      void context.dispose({ persistStorage: false }).then(disposeCompleted);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.resolve();
+
+      expect(disposeCompleted).toHaveBeenCalledTimes(1);
+      expect(frontendInstanceRuntime.dispose).toHaveBeenCalledTimes(1);
+      expect(srsBackendClient.dispose).toHaveBeenCalledTimes(1);
+      expect(srsBackendTransport.dispose).toHaveBeenCalledTimes(1);
+      expect(context.getSrsBackendClient()).toBeNull();
+      expect(context.getFrontendInstanceRuntime()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('continues disposing later services when one service dispose hangs', async () => {
+    vi.useFakeTimers();
+    try {
+      const disposedAfterHangingService = vi.fn();
+      const TestableApplicationContext = ApplicationContext as unknown as new (
+        config: unknown,
+        services: unknown,
+      ) => ApplicationContext;
+      const context = new TestableApplicationContext({
+        plugin: { name: 'test-plugin', app: {} },
+        i18n: {},
+      }, {
+        storageManager: {},
+        unifiedStorageManager: { save: vi.fn() },
+        schedulerRouter: {
+          dispose: disposedAfterHangingService,
+        },
+        rescheduleService: {},
+        unifiedDataSourceManager: {
+          dispose: vi.fn(() => new Promise<void>(() => {})),
+        },
+        blockMenuHandler: {},
+      });
+
+      const disposeCompleted = vi.fn();
+      void context.dispose({ persistStorage: false }).then(disposeCompleted);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.resolve();
+
+      expect(disposeCompleted).toHaveBeenCalledTimes(1);
+      expect(disposedAfterHangingService).toHaveBeenCalledTimes(1);
+      expect(context.isDisposed()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('routes follower domain sync diagnostics reads through writer relay runtime', async () => {
     const domainSyncStatus = vi.fn(async () => {
       throw new Error('follower must not read local domain sync status');

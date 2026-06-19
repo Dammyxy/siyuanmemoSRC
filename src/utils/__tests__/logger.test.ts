@@ -48,4 +48,18 @@ describe('logger', () => {
 
     expect(warn).toHaveBeenCalledWith('[SiYuanMemo][Unit]', 'owned warning');
   });
+
+  it('suppresses debug trace payloads at the default warning log level', async () => {
+    const debug = vi.fn();
+    console.debug = debug;
+    const { createLogger, setGlobalLogLevel } = await loadLogger();
+    setGlobalLogLevel('warn');
+
+    createLogger('AutoCardHandler').debug('[AutoCardTrace]', {
+      event: 'settledEvaluation.begin',
+      blockId: '20260619151059-9gsaxr7',
+    });
+
+    expect(debug).not.toHaveBeenCalled();
+  });
 });
