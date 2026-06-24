@@ -58,6 +58,49 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
+function createProjectionSnapshotRow(card: FSRSCard, rowId = card.id, queueIndex = 1) {
+  return {
+    id: rowId,
+    fsrsCardId: card.id,
+    blockId: card.blockId,
+    deckId: 'deck-a',
+    rootId: 'doc-a',
+    content: String(card.meta?.content || card.id),
+    fullContent: String(card.meta?.content || card.id),
+    state: card.state,
+    due: card.due,
+    stability: card.stability,
+    difficulty: card.difficulty,
+    retrievability: 1,
+    reps: card.reps,
+    lapses: card.lapses,
+    elapsedDays: card.elapsedDays,
+    scheduledDays: card.scheduledDays,
+    lastReview: card.lastReview,
+    interval: card.scheduledDays,
+    firstReview: null,
+    priority: card.priority,
+    suspended: false,
+    cardType: card.type,
+    queueIndex,
+    tags: [],
+  };
+}
+
+function createProjectionCounters(total: number) {
+  return {
+    queueType: QueueType.RetrievalPractice,
+    policyHash: 'policy-ready',
+    generation: 11,
+    version: 11,
+    remaining: total,
+    due: total,
+    total,
+    buckets: { all: total, item: total, descriptor: 0, topic: 0, concept: 0 },
+    updatedAt: 1_700_000_100_000,
+  };
+}
+
 describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => {
   beforeEach(() => {
     UnifiedDataSourceManager.resetInstance();
@@ -413,6 +456,45 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
         reason: 'rollout-enabled',
       }),
     ]);
+  });
+
+  it('hides locally deleted cards from ready backend projection snapshots after delete events', async () => {
+    const deletedCard = createCard({
+      id: 'deleted-card',
+      blockId: 'deleted-block',
+      meta: { rootId: 'doc-a', deckId: 'deck-a', content: 'deleted projection' },
+    });
+    const activeCard = createCard({
+      id: 'active-card',
+      blockId: 'active-block',
+      meta: { rootId: 'doc-a', deckId: 'deck-a', content: 'active projection' },
+    });
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'ready',
+        policyHash: 'policy-ready',
+        generation: 11,
+        rows: [
+          createProjectionSnapshotRow(deletedCard, 'deleted-row', 1),
+          createProjectionSnapshotRow(activeCard, 'active-row', 2),
+        ],
+        counters: createProjectionCounters(2),
+      })),
+    };
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setAdvancedRouter(createRouterWithBackend(backend));
+
+    await manager.onCardsDeleted([deletedCard.id], [deletedCard.blockId]);
+
+    const snapshot = await manager.readQueueProjectionSnapshot(QueueType.RetrievalPractice);
+    expect(snapshot?.rows.map((row) => row.fsrsCardId)).toEqual([activeCard.id]);
+    expect(snapshot?.counters).toMatchObject({
+      total: 1,
+      remaining: 1,
+      due: 1,
+      buckets: { all: 1, item: 1 },
+    });
   });
 
   it('fails closed when backend projection snapshot read throws', async () => {

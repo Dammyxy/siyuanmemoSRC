@@ -764,12 +764,44 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   async deleteMany(xiuyuans: Xiuyuan[]): Promise<Result<void>> {
     try {
-      for (const xiuyuan of xiuyuans) {
-        const result = await this.delete(xiuyuan);
-        if (!result.ok) {
-          return result;
-        }
+      if (xiuyuans.length === 0) {
+        return ok(undefined);
       }
+
+      const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.deleteMany', async (transaction) => {
+        const rollbackSnapshot = this.cloneStorageSnapshot();
+        const deferredSideEffects = this.createDeferredSideEffects();
+
+        try {
+          for (const xiuyuan of xiuyuans) {
+            const stagedResult = await this.stageDeleteXiuyuanMutation(xiuyuan, transaction);
+            if (!stagedResult.ok) {
+              this.restoreStorageSnapshot(rollbackSnapshot, 'deleteMany', stagedResult.error);
+              return stagedResult;
+            }
+            this.mergeDeferredSideEffects(deferredSideEffects, stagedResult.value);
+          }
+
+          const saveResult = await this.storage.save({ transaction });
+          if (isErr(saveResult)) {
+            const error = saveResult.error || new Error('Failed to persist xiuyuan batch deletion');
+            logger.error('Failed to persist xiuyuan batch deletion:', error);
+            this.restoreStorageSnapshot(rollbackSnapshot, 'deleteMany', error);
+            return err(error);
+          }
+
+          return ok(deferredSideEffects);
+        } catch (error) {
+          this.restoreStorageSnapshot(rollbackSnapshot, 'deleteMany', error);
+          return err(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+
+      if (!transactionalResult.ok) {
+        return transactionalResult;
+      }
+
+      await this.runDeferredSideEffects(transactionalResult.value);
       return ok(undefined);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
@@ -1378,11 +1410,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       if (!templateIDResult.ok) return err(new Error(`Invalid TemplateId: ${data.templateID}`));
 
       const sourceCardIds = this.extractCardIdsFromMeta(data.meta);
-      const fallbackCardDTOs = sourceCardIds.length === 0
-        ? this.resolveCardDTOsByXiuyuanId(data.id, cardDtoReader)
-        : [];
+      const boundCardDTOs = this.resolveCardDTOsByXiuyuanId(data.id, cardDtoReader);
       const preloadedCardDTOs = new Map<string, CardPersistenceDTO>(
-        fallbackCardDTOs.map((dto) => [dto.id, dto]),
+        boundCardDTOs.map((dto) => [dto.id, dto]),
       );
       if (sourceCardIds.length > 0 && !this.hasUsableFaces(data.meta)) {
         for (const cardId of sourceCardIds) {
@@ -1421,14 +1451,15 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
       // 6. 杞崲 Cards锛堜粠 cardIds 鍔犺浇锛?
       const cardsMap = new Map<CardId, Card>();
-      const cardIds = sourceCardIds.length > 0
-        ? sourceCardIds
-        : fallbackCardDTOs.map((dto) => dto.id);
+      const cardIds = Array.from(new Set([
+        ...sourceCardIds,
+        ...boundCardDTOs.map((dto) => dto.id),
+      ]));
       const missingDtoCardIds: string[] = [];
       const resolvedCardIds: string[] = [];
       
       logger.debug(`toDomain: Xiuyuan ${data.id} has ${sourceCardIds.length} cardIds in meta`, {
-        fallbackCardIdCount: sourceCardIds.length === 0 ? cardIds.length : 0,
+        boundCardIdCount: boundCardDTOs.length,
       });
       
       for (const cardId of cardIds) {

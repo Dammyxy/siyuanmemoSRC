@@ -37,9 +37,18 @@
  * ```
  */
 
-import type { DeleteFSRSCardStoragePort } from '@/core/storage/ports';
+import type {
+  CardStorageMutationOptions,
+  CardStorageWriteTransaction,
+  DeleteFSRSCardStoragePort,
+} from '@/core/storage/ports';
 import { ok, err, type Result } from '@/types/result';
-import type { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '@/application/commands/card/DeleteFSRSCardCommand';
+import type {
+  DeleteFSRSCardCommand,
+  DeleteFSRSCardCommandResult,
+  DeleteFSRSCardsCommand,
+  DeleteFSRSCardsCommandResult,
+} from '@/application/commands/card/DeleteFSRSCardCommand';
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import {
   hasNativeHardDeleteAuthorization,
@@ -52,6 +61,7 @@ import { throwOnFailedStorageOperation } from './shared/StorageOperationResult';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DeleteFSRSCardUseCase');
+type BatchCleanupTargetMap = Map<string, Set<string>>;
 
 /**
  * 删除 FSRS 卡片用例
@@ -146,9 +156,75 @@ export class DeleteFSRSCardUseCase {
     }
   }
 
-  private async deleteCardFromStorage(cardId: string): Promise<void> {
+  async executeBatch(command: DeleteFSRSCardsCommand): Promise<Result<DeleteFSRSCardsCommandResult>> {
+    try {
+      if (command.deleteFromRiff === true) {
+        return err(new Error('Batch native Riff delete is unavailable; use explicit single-card hard delete'));
+      }
+
+      const cardIds = this.normalizeCardIds(command.cardIds);
+      if (cardIds.length === 0) {
+        return ok({
+          attemptedCount: 0,
+          deletedCount: 0,
+          deletedCardIds: [],
+          failedCardIds: [],
+        });
+      }
+
+      const cardsToDelete = cardIds
+        .map((cardId) => ({ cardId, card: this.storage.getCard(cardId) }))
+        .filter((entry): entry is { cardId: string; card: NonNullable<ReturnType<DeleteFSRSCardStoragePort['getCard']>> } => {
+          if (!entry.card) {
+            logger.info('Card already absent from local storage:', entry.cardId);
+            return false;
+          }
+          return true;
+        });
+      const alreadyAbsentCardIds = cardIds.filter((cardId) => !cardsToDelete.some((entry) => entry.cardId === cardId));
+      const deletedCardIds: string[] = [...alreadyAbsentCardIds];
+      const failedCardIds: string[] = [];
+      const cleanupTargets: BatchCleanupTargetMap = new Map();
+
+      await this.runBatchStorageMutation(async (transaction) => {
+        for (const { cardId, card } of cardsToDelete) {
+          try {
+            await this.deleteCardFromStorage(cardId, {
+              transaction,
+              suppressAutosave: true,
+            });
+            deletedCardIds.push(cardId);
+            if (card.blockId) {
+              this.addCleanupTarget(cleanupTargets, card.blockId, cardId);
+            }
+          } catch (error) {
+            failedCardIds.push(cardId);
+            logger.warn('Failed to batch delete local FSRS card:', { cardId, error });
+          }
+        }
+      });
+
+      if (deletedCardIds.length > alreadyAbsentCardIds.length) {
+        await this.storage.saveCards();
+      }
+
+      await this.removeCardBlockAttrsBatch(cleanupTargets);
+
+      return ok({
+        attemptedCount: cardIds.length,
+        deletedCount: deletedCardIds.length,
+        deletedCardIds,
+        failedCardIds,
+      });
+    } catch (error) {
+      logger.error('Failed to batch delete FSRS cards:', error);
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private async deleteCardFromStorage(cardId: string, options: CardStorageMutationOptions = {}): Promise<void> {
     if (typeof this.storage.deleteCard === 'function') {
-      const result = await this.storage.deleteCard(cardId);
+      const result = await this.storage.deleteCard(cardId, options);
       throwOnFailedStorageOperation(result, `Failed to delete card: ${cardId}`);
       return;
     }
@@ -162,6 +238,41 @@ export class DeleteFSRSCardUseCase {
     }
 
     throw new Error('No available delete capability on DeleteFSRSCardStoragePort');
+  }
+
+  private async runBatchStorageMutation<T>(
+    operation: (transaction?: CardStorageWriteTransaction) => Promise<T>
+  ): Promise<T> {
+    if (typeof this.storage.runWriteTransaction === 'function') {
+      return this.storage.runWriteTransaction('DeleteFSRSCardUseCase.executeBatch', operation);
+    }
+    return operation(undefined);
+  }
+
+  private normalizeCardIds(cardIds: readonly string[] | undefined): string[] {
+    return Array.from(new Set(
+      (cardIds ?? [])
+        .map((cardId) => String(cardId || '').trim())
+        .filter(Boolean)
+    ));
+  }
+
+  private addCleanupTarget(targets: BatchCleanupTargetMap, blockId: string, cardId: string): void {
+    const normalizedBlockId = String(blockId || '').trim();
+    const normalizedCardId = String(cardId || '').trim();
+    if (!normalizedBlockId || !normalizedCardId) {
+      return;
+    }
+    if (!targets.has(normalizedBlockId)) {
+      targets.set(normalizedBlockId, new Set());
+    }
+    targets.get(normalizedBlockId)!.add(normalizedCardId);
+  }
+
+  private async removeCardBlockAttrsBatch(cleanupTargets: BatchCleanupTargetMap): Promise<void> {
+    for (const [blockId, deletedCardIds] of cleanupTargets.entries()) {
+      await this.removeCardBlockAttrs(blockId, Array.from(deletedCardIds));
+    }
   }
 
   /**

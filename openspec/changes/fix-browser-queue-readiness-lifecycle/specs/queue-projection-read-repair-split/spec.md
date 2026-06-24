@@ -37,3 +37,17 @@ Queue Projection Runtime SHALL expose projection materialization only through ex
 - **WHEN** Browser warmup sees a repairable stale projection state
 - **THEN** it MAY request repair through `BrowserApplicationService.repairQueueReadModel()`
 - **AND** it SHALL NOT call `queue.getCards()` or direct projection materialization from UI code itself
+
+### Requirement: Explicit projection replacement admits only active hydrated rows
+Queue Projection Worker explicit replacement SHALL normalize submitted projection rows against the SQL active card truth before committing derived rows or counters.
+
+#### Scenario: Replacement receives source-missing cards
+- **WHEN** explicit projection replacement receives rows whose card ids include SQL rows marked source-missing or otherwise not returned by exact active-card hydration
+- **THEN** Queue Projection Worker SHALL drop those rows before writing the derived projection
+- **AND** replacement counters SHALL count only admitted active rows
+- **AND** a subsequent snapshot SHALL be `ready` when all admitted rows hydrate freshly
+
+#### Scenario: Replacement receives stale membership rows
+- **WHEN** explicit projection replacement receives rows whose source-card fingerprint, state, or due date no longer matches the hydrated active card
+- **THEN** Queue Projection Worker SHALL drop those stale rows before writing the derived projection
+- **AND** passive snapshot reads SHALL remain strict for any stale rows already stored in the derived cache

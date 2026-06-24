@@ -185,6 +185,120 @@ describe('QueueProjectionRuntime', () => {
     expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
   });
 
+  it('hides locally deleted cards from ready backend projection snapshots and hydration', async () => {
+    const deletedCard = createCard({
+      id: 'deleted-card',
+      blockId: 'deleted-block',
+      meta: { rootId: 'doc-a', deckId: 'deck-a', content: 'deleted projection' },
+    });
+    const activeCard = createCard({
+      id: 'active-card',
+      blockId: 'active-block',
+      meta: { rootId: 'doc-a', deckId: 'deck-a', content: 'active projection' },
+    });
+    const rows = [
+      {
+        id: 'deleted-row',
+        fsrsCardId: deletedCard.id,
+        blockId: deletedCard.blockId,
+        deckId: 'deck-a',
+        rootId: 'doc-a',
+        content: 'deleted projection',
+        fullContent: 'deleted projection',
+        state: deletedCard.state,
+        due: deletedCard.due,
+        stability: deletedCard.stability,
+        difficulty: deletedCard.difficulty,
+        retrievability: 1,
+        reps: deletedCard.reps,
+        lapses: deletedCard.lapses,
+        elapsedDays: deletedCard.elapsedDays,
+        scheduledDays: deletedCard.scheduledDays,
+        lastReview: deletedCard.lastReview,
+        interval: deletedCard.scheduledDays,
+        firstReview: null,
+        priority: deletedCard.priority,
+        suspended: false,
+        cardType: deletedCard.type,
+        queueIndex: 1,
+        tags: [],
+      },
+      {
+        id: 'active-row',
+        fsrsCardId: activeCard.id,
+        blockId: activeCard.blockId,
+        deckId: 'deck-a',
+        rootId: 'doc-a',
+        content: 'active projection',
+        fullContent: 'active projection',
+        state: activeCard.state,
+        due: activeCard.due,
+        stability: activeCard.stability,
+        difficulty: activeCard.difficulty,
+        retrievability: 1,
+        reps: activeCard.reps,
+        lapses: activeCard.lapses,
+        elapsedDays: activeCard.elapsedDays,
+        scheduledDays: activeCard.scheduledDays,
+        lastReview: activeCard.lastReview,
+        interval: activeCard.scheduledDays,
+        firstReview: null,
+        priority: activeCard.priority,
+        suspended: false,
+        cardType: activeCard.type,
+        queueIndex: 2,
+        tags: [],
+      },
+    ];
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'ready',
+        policyHash: 'policy-ready',
+        generation: 11,
+        rows,
+        counters: {
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'policy-ready',
+          generation: 11,
+          version: 11,
+          remaining: 2,
+          due: 2,
+          total: 2,
+          buckets: { all: 2, item: 2, descriptor: 0, topic: 0, concept: 0 },
+          updatedAt: 1_700_000_100_000,
+        },
+      })),
+      queueProjectionRowsByIds: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'ready',
+        policyHash: 'policy-ready',
+        generation: 11,
+        rows,
+        cards: [deletedCard, activeCard],
+        freshness: null,
+        cacheState: 'ready-populated',
+      })),
+    };
+    const { runtime } = createRuntime({ backend });
+
+    runtime.recordLocalCardDeletionProjectionInvalidation([deletedCard.id], [deletedCard.blockId]);
+
+    const snapshot = await runtime.readSnapshot(QueueType.RetrievalPractice);
+    expect(snapshot?.rows.map((row) => row.fsrsCardId)).toEqual(['active-card']);
+    expect(snapshot?.counters).toMatchObject({
+      remaining: 1,
+      due: 1,
+      total: 1,
+      buckets: { all: 1, item: 1 },
+    });
+
+    await expect(runtime.getCardsBySnapshotIds(
+      QueueType.RetrievalPractice,
+      ['deleted-card', 'active-card'],
+    )).resolves.toEqual([activeCard]);
+  });
+
   it('reports missing derived-cache readiness without materializing projection', async () => {
     const card = createCard({
       id: 'missing-cache-card',

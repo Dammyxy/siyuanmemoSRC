@@ -42,6 +42,7 @@ type CardServiceLike = {
   updateFSRSCard: ReturnType<typeof vi.fn>;
   deleteFSRSCard: ReturnType<typeof vi.fn>;
   deleteCards: ReturnType<typeof vi.fn>;
+  batchDeleteFSRSCards: ReturnType<typeof vi.fn>;
   batchUpdateCardsWithoutEvents: ReturnType<typeof vi.fn>;
 };
 
@@ -61,6 +62,15 @@ describe('DataAccessFacade updateCard regression', () => {
       deleteCards: vi.fn().mockResolvedValue({
         ok: true,
         value: {
+          deletedCount: 1,
+          deletedCardIds: ['card-1'],
+          failedCardIds: [],
+        },
+      }),
+      batchDeleteFSRSCards: vi.fn().mockResolvedValue({
+        ok: true,
+        value: {
+          attemptedCount: 1,
           deletedCount: 1,
           deletedCardIds: ['card-1'],
           failedCardIds: [],
@@ -154,9 +164,10 @@ describe('DataAccessFacade updateCard regression', () => {
       reps: 2,
     });
     cardService.getCards.mockResolvedValue({ cards: [], total: 0 });
-    cardService.deleteCards.mockResolvedValueOnce({
+    cardService.batchDeleteFSRSCards.mockResolvedValueOnce({
       ok: true,
       value: {
+        attemptedCount: 1,
         deletedCount: 1,
         deletedCardIds: [deleted.id],
         failedCardIds: [],
@@ -171,5 +182,37 @@ describe('DataAccessFacade updateCard regression', () => {
     await facade.batchDeleteCards([deleted.id]);
 
     await expect(facade.getCards({ blockIds: [deleted.blockId] })).resolves.toEqual([]);
+  });
+
+  it('routes browser batch delete through FSRS local tombstone deletion instead of Xiuyuan batch delete', async () => {
+    const deleted = createCard({
+      id: 'card-batch-delete',
+      blockId: '20260424190358-batchdel',
+      xiuyuanID: '',
+    });
+    cardService.getCards.mockResolvedValue({ cards: [], total: 0 });
+    cardService.batchDeleteFSRSCards.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        attemptedCount: 1,
+        deletedCount: 1,
+        deletedCardIds: [deleted.id],
+        failedCardIds: [],
+      },
+    });
+
+    const result = await facade.batchDeleteCards([deleted.id]);
+
+    expect(cardService.batchDeleteFSRSCards).toHaveBeenCalledWith({
+      cardIds: [deleted.id],
+      deleteFromRiff: false,
+    });
+    expect(cardService.deleteCards).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      attemptedCount: 1,
+      deletedCount: 1,
+      deletedCardIds: [deleted.id],
+      failedCardIds: [],
+    });
   });
 });

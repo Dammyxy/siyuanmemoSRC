@@ -35,6 +35,30 @@ describe('deleteBrowserCards', () => {
     });
   });
 
+  it('passes explicit cardId instead of projection row id to batch delete', async () => {
+    const manager = {
+      batchDeleteCards: vi.fn(async (cardIds: string[]) => ({
+        attemptedCount: cardIds.length,
+        deletedCount: cardIds.length,
+        deletedCardIds: cardIds,
+        failedCardIds: [],
+      })),
+    };
+    const rows = [
+      { id: 'projection-row-1', cardId: 'card-1', blockId: 'block-1' },
+      { id: 'projection-row-2', cardId: 'card-2', blockId: 'block-2' },
+    ];
+
+    const result = await deleteBrowserCards(manager, rows as never[], {
+      scope: 'DataSourceUtilsTest',
+    });
+
+    expect(manager.batchDeleteCards).toHaveBeenCalledWith(['card-1', 'card-2'], {
+      blockIds: ['block-1', 'block-2'],
+    });
+    expect(result.deletedCardIds).toEqual(['card-1', 'card-2']);
+  });
+
   it('routes exact browser card ids through the unified manager delete path', async () => {
     const manager = {
       deleteCard: vi.fn(async (cardId: string) => {

@@ -50,7 +50,8 @@ describe('CardApplicationService', () => {
     } as any;
 
     mockDeleteFSRSCardUseCase = {
-      execute: vi.fn()
+      execute: vi.fn(),
+      executeBatch: vi.fn(),
     } as any;
 
     // 创建服务实例
@@ -173,6 +174,31 @@ describe('CardApplicationService', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toBe(error);
+      }
+    });
+  });
+
+  describe('batchDeleteFSRSCards', () => {
+    it('应该委托给 DeleteFSRSCardUseCase.executeBatch', async () => {
+      const command = {
+        cardIds: ['card-1', 'card-2'],
+        deleteFromRiff: false,
+      };
+
+      vi.mocked(mockDeleteFSRSCardUseCase.executeBatch).mockResolvedValue(ok({
+        attemptedCount: 2,
+        deletedCount: 2,
+        deletedCardIds: ['card-1', 'card-2'],
+        failedCardIds: [],
+      }));
+
+      const result = await service.batchDeleteFSRSCards(command);
+
+      expect(mockDeleteFSRSCardUseCase.executeBatch).toHaveBeenCalledWith(command);
+      expect(mockDeleteFSRSCardUseCase.executeBatch).toHaveBeenCalledTimes(1);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.deletedCount).toBe(2);
       }
     });
   });

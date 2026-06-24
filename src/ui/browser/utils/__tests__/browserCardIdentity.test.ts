@@ -53,6 +53,20 @@ describe('browserCardIdentity', () => {
     expect(resolveBrowserCardActionId(row)).toBe('fsrs-42');
   });
 
+  it('uses explicit cardId before projection row id for browser actions', () => {
+    const row = {
+      ...makeCard({
+        id: 'projection-row-42',
+        fsrsCardId: '',
+        blockId: 'shared-block',
+      }),
+      cardId: 'fsrs-42',
+    } as unknown as BrowserCard;
+
+    expect(resolveBrowserCardStableId(row)).toBe('fsrs-42');
+    expect(resolveBrowserCardActionId(row)).toBe('fsrs-42');
+  });
+
   it('falls back to block id only for stable row identity when card id is missing', () => {
     const row = makeCard({
       id: '',

@@ -1258,6 +1258,7 @@ export class UnifiedDataSourceManager {
 
         const affectedCardIds = this.normalizeEventIds(updatedCards.map((card) => card.id));
         const affectedBlockIds = this.normalizeEventIds(updatedCards.map((card) => card.blockId));
+        this.queueProjectionRuntime.clearLocalCardDeletionProjectionInvalidation(affectedCardIds, affectedBlockIds);
         const timestamp = Date.now();
         this.notifyObservers({
             type: 'card-updated',
@@ -1291,6 +1292,7 @@ export class UnifiedDataSourceManager {
         const affectedQueueTypes = this.invalidateQueuesForCardMutation();
         const affectedCardIds = this.normalizeEventIds(createdCards.map((card) => card.id));
         const affectedBlockIds = this.normalizeEventIds(createdCards.map((card) => card.blockId));
+        this.queueProjectionRuntime.clearLocalCardDeletionProjectionInvalidation(affectedCardIds, affectedBlockIds);
         const timestamp = Date.now();
         this.notifyObservers({
             type: 'card-created',
@@ -1318,6 +1320,7 @@ export class UnifiedDataSourceManager {
             return;
         }
 
+        this.queueProjectionRuntime.recordLocalCardDeletionProjectionInvalidation(affectedCardIds, affectedBlockIds);
         this.invalidateAllQueues();
 
         const timestamp = Date.now();

@@ -33,6 +33,15 @@ export type BrowserCardUniverseBackendClient = Pick<
 export type BrowserCardUniverseReadModuleDeps = {
   backendClient?: BrowserCardUniverseBackendClient | null;
   browserDeckQueryKernel: BrowserDeckQueryKernel;
+  filterLocallyDeletedRows: <TRow extends BrowserCardUniverseIdentityLike>(rows: TRow[], reason: string) => TRow[];
+  filterLocallyDeletedIds: (ids: string[], reason: string) => string[];
+  adjustTotalForLocalDeletion: (
+    total: number,
+    removedPageRows: number,
+    query: BrowserDeckSnapshotQuery,
+    reason: string,
+  ) => number;
+  adjustStatsForLocalDeletion: (stats: BrowserStats) => BrowserStats;
   scheduleSourceExistenceRefreshForCards: (
     cards: Array<{ blockId?: unknown }>,
     options?: { limit?: number },
@@ -43,6 +52,14 @@ export type BrowserCardUniverseReadModuleDeps = {
   reuseBrowserRowProjections: (rows: BrowserCard[], reason: string) => BrowserCard[];
   scheduleSourceExistenceSweep: () => void;
   sourceExistenceBatchSize: number;
+};
+
+export type BrowserCardUniverseIdentityLike = {
+  id?: unknown;
+  cardId?: unknown;
+  fsrsCardId?: unknown;
+  blockId?: unknown;
+  riffCardId?: unknown;
 };
 
 export function toBrowserCardUniverseUnavailable(operation: string, error?: unknown): Error {
@@ -102,12 +119,19 @@ export class BrowserCardUniverseReadModule {
         throw toBrowserCardUniverseUnavailable('browser.aggregate.page', aggregatePage.reason || aggregatePage.status);
       }
       const cards = aggregatePage.rows as FSRSCard[];
-      this.deps.scheduleSourceExistenceRefreshForCards(cards, {
+      const visibleCards = this.deps.filterLocallyDeletedRows(cards, 'aggregate-page');
+      const removedPageRows = cards.length - visibleCards.length;
+      this.deps.scheduleSourceExistenceRefreshForCards(visibleCards, {
         limit: this.deps.sourceExistenceBatchSize,
       });
       return {
-        rows: await this.mapBackendCards(cards, 'aggregate-page'),
-        total: aggregatePage.totalCount ?? cards.length,
+        rows: await this.mapBackendCards(visibleCards, 'aggregate-page'),
+        total: this.deps.adjustTotalForLocalDeletion(
+          aggregatePage.totalCount ?? cards.length,
+          removedPageRows,
+          query,
+          'aggregate-page',
+        ),
       };
     } catch (error) {
       throw toBrowserCardUniverseUnavailable('browser.aggregate.page', error);
@@ -137,7 +161,8 @@ export class BrowserCardUniverseReadModule {
           throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', page.reason || page.status);
         }
         total = page.totalCount ?? total;
-        const browserRows = await this.mapBackendCards(page.rows as FSRSCard[], 'aggregate-snapshot');
+        const visibleCards = this.deps.filterLocallyDeletedRows(page.rows as FSRSCard[], 'aggregate-snapshot');
+        const browserRows = await this.mapBackendCards(visibleCards, 'aggregate-snapshot');
         rows.push(...browserRows.map((row) => ({
           id: resolveBrowserCardStableId(row),
           blockId: String(row.blockId || ''),
@@ -158,7 +183,7 @@ export class BrowserCardUniverseReadModule {
           break;
         }
       }
-      return { rows, total };
+      return { rows, total: rows.length };
     } catch (error) {
       throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', error);
     }
@@ -175,21 +200,28 @@ export class BrowserCardUniverseReadModule {
         startRow: page.startRow,
       });
       const initialCards = initialPage.cards as FSRSCard[];
-      this.deps.scheduleSourceExistenceRefreshForCards(initialCards, {
+      const visibleCards = this.deps.filterLocallyDeletedRows(initialCards, 'deck-page');
+      const removedPageRows = initialCards.length - visibleCards.length;
+      this.deps.scheduleSourceExistenceRefreshForCards(visibleCards, {
         limit: this.deps.sourceExistenceBatchSize,
       });
       const rows = await measureRuntimePerformance(
         'browser',
         'deck-page.map-browser-rows',
-        () => this.deps.browserDeckQueryKernel.getBrowserCardsFromCards(initialCards, { markMissing: false }),
-        { rowCount: initialCards.length },
+        () => this.deps.browserDeckQueryKernel.getBrowserCardsFromCards(visibleCards, { markMissing: false }),
+        { rowCount: visibleCards.length },
       );
       return {
         rows: this.deps.reuseBrowserRowProjections(
           this.deps.markRowsFromKnownSourceExistence(rows),
           'deck-page',
         ),
-        total: initialPage.total,
+        total: this.deps.adjustTotalForLocalDeletion(
+          initialPage.total,
+          removedPageRows,
+          query,
+          'deck-page',
+        ),
         generation: initialPage.generation ?? null,
       };
     } catch (error) {
@@ -201,12 +233,13 @@ export class BrowserCardUniverseReadModule {
     const fullUniverseReason = requireFullUniverseReason(query, 'browser.deck.matchedIds');
     const backend = this.requireBackend('browser.deck.matchedIds');
     try {
-      return await measureRuntimePerformance(
+      const ids = await measureRuntimePerformance(
         'browser',
         'backend.deck-matched-ids',
         () => backend.browserDeckMatchedIds(query),
         { fullUniverseReason },
       );
+      return this.deps.filterLocallyDeletedIds(ids, 'deck-matched-ids');
     } catch (error) {
       throw toBrowserCardUniverseUnavailable('browser.deck.matchedIds', error);
     }
@@ -221,11 +254,12 @@ export class BrowserCardUniverseReadModule {
         () => backend.browserDeckRowsByIds(ids),
         { idCount: ids.length },
       );
+      const visibleCards = this.deps.filterLocallyDeletedRows(cards, 'deck-rows-by-ids');
       const rows = await measureRuntimePerformance(
         'browser',
         'deck-rows-by-ids.map-browser-rows',
-        () => this.deps.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false }),
-        { rowCount: cards.length },
+        () => this.deps.browserDeckQueryKernel.getBrowserCardsFromCards(visibleCards, { markMissing: false }),
+        { rowCount: visibleCards.length },
       );
       return this.deps.reuseBrowserRowProjections(
         this.deps.markRowsFromKnownSourceExistence(rows),
@@ -275,7 +309,7 @@ export class BrowserCardUniverseReadModule {
     try {
       const stats = await measureRuntimePerformance('browser', 'backend.stats', () => backend.browserStats());
       this.deps.scheduleSourceExistenceSweep();
-      return stats;
+      return this.deps.adjustStatsForLocalDeletion(stats);
     } catch (error) {
       throw toBrowserCardUniverseUnavailable('browser.stats', error);
     }

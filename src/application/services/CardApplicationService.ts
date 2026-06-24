@@ -28,7 +28,12 @@ import { DeleteCardCommand } from '../commands/card/DeleteCardCommand';
 import { DeleteCardsCommand, DeleteCardsResult } from '../commands/card/DeleteCardsCommand';
 import { UpdateCardCommand } from '../commands/card/UpdateCardCommand';
 import { UpdateFSRSCardCommand, UpdateFSRSCardCommandResult } from '../commands/card/UpdateFSRSCardCommand';
-import { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '../commands/card/DeleteFSRSCardCommand';
+import {
+  DeleteFSRSCardCommand,
+  DeleteFSRSCardCommandResult,
+  DeleteFSRSCardsCommand,
+  DeleteFSRSCardsCommandResult,
+} from '../commands/card/DeleteFSRSCardCommand';
 import { CreateCardUseCase } from '../usecases/card/CreateCardUseCase';
 import { DeleteCardUseCase } from '../usecases/card/DeleteCardUseCase';
 import { DeleteCardsUseCase } from '../usecases/card/DeleteCardsUseCase';
@@ -397,6 +402,10 @@ export class CardApplicationService {
    */
   async deleteFSRSCard(command: DeleteFSRSCardCommand): Promise<Result<DeleteFSRSCardCommandResult>> {
     return this.deleteFSRSCardUseCase.execute(command);
+  }
+
+  async batchDeleteFSRSCards(command: DeleteFSRSCardsCommand): Promise<Result<DeleteFSRSCardsCommandResult>> {
+    return this.deleteFSRSCardUseCase.executeBatch(command);
   }
   
   // ========================================================================

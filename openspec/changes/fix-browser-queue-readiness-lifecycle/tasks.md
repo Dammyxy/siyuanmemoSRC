@@ -33,3 +33,10 @@
 - [x] 5.3 Pass submitted readiness identity into explicit materialization so FilterGroup and Browser-scoped policy payloads stay canonical.
 - [x] 5.4 Make warmup schedule targeted retries from `retryAfterMs` for non-ready states instead of logging once and stopping.
 - [x] 5.5 Update OpenSpec docs, `ARCHITECTURE.md`, and `docs/DDD_RESCAN_BACKLOG.md`; rerun focused tests, boundary checks, hidden fallback check, diff check, and build.
+
+## 6. Projection Replacement Admission Closure
+
+- [x] 6.1 Add RED Worker QueueProjection Runtime test proving explicit replacement drops source-missing SQL cards instead of poisoning readiness.
+- [x] 6.2 Normalize explicit projection replacement through active SQL card hydration and freshness admission before writing derived rows/counters.
+- [x] 6.3 Keep snapshot freshness strict so corrupt or stale stored projections still return `refreshing` instead of silently serving partial rows.
+- [x] 6.4 Update OpenSpec docs and `docs/DDD_RESCAN_BACKLOG.md`; rerun focused Worker/browser warmup tests, boundary checks, hidden fallback check, diff check, and build.

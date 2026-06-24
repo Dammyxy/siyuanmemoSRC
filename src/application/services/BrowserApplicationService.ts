@@ -5,7 +5,9 @@ import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { QueueType } from '@/types/unified-data-source';
 import type {
   CardFilter,
+  DataChangeEvent,
   FilterGroupQueueSessionSnapshot,
+  IDataSourceObserver,
   IReviewQueue,
   IUnifiedDataSourceManagerFacade,
 } from '@/types/unified-data-source';
@@ -83,7 +85,7 @@ import {
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
-import { BrowserCardUniverseReadModule } from './browser/BrowserCardUniverseReadModule';
+import { BrowserCardUniverseReadModule, type BrowserCardUniverseIdentityLike } from './browser/BrowserCardUniverseReadModule';
 import {
   CdfLiveRelationRefreshService,
   CdfLiveRelationSqlSourceLoader,
@@ -111,6 +113,7 @@ const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
 const logger = createLogger('BrowserApplicationService');
 const SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS = 250;
 const SOURCE_EXISTENCE_STATUS_CACHE_MAX_SIZE = 4096;
+const BROWSER_LOCAL_DELETION_IDENTITY_MAX_SIZE = 4096;
 
 type BrowserApplicationBackendClient = Pick<
   BackendBrowserClientFacet,
@@ -243,6 +246,12 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private sourceExistenceLatestRefreshSeq = 0;
   private sourceExistenceStaleCancellationCount = 0;
   private browserReadModelFacade: BrowserReadModel | null = null;
+  private readonly locallyDeletedBrowserCardIds = new Set<string>();
+  private readonly locallyDeletedBrowserBlockIds = new Set<string>();
+  private readonly locallyDeletedBrowserStatsIdentityIds = new Set<string>();
+  private readonly browserLocalDeletionObserver: IDataSourceObserver = {
+    onDataChanged: (event) => this.handleBrowserLocalDeletionEvent(event),
+  };
   private readonly cdfLiveRelationRefresh: CdfLiveRelationRefreshService | null;
   private readonly cdfLiveRelationWriteRepair: CdfLiveRelationWriteRepairService | null;
 
@@ -303,12 +312,22 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     this.browserCardUniverseReadModule = new BrowserCardUniverseReadModule({
       backendClient: srsBackendClient,
       browserDeckQueryKernel: this.browserDeckQueryKernel,
+      filterLocallyDeletedRows: (rows, reason) => this.filterLocallyDeletedBrowserRows(rows, reason),
+      filterLocallyDeletedIds: (ids, reason) => this.filterLocallyDeletedBrowserIds(ids, reason),
+      adjustTotalForLocalDeletion: (total, removedPageRows, query, reason) => this.adjustBrowserDeckTotalForLocalDeletion(
+        total,
+        removedPageRows,
+        query,
+        reason,
+      ),
+      adjustStatsForLocalDeletion: (stats) => this.adjustBrowserStatsForLocalDeletion(stats),
       scheduleSourceExistenceRefreshForCards: (cards, options) => this.scheduleSourceExistenceRefreshForBackendCards(cards, options),
       markRowsFromKnownSourceExistence: (rows) => this.markRowsFromKnownSourceExistence(rows),
       reuseBrowserRowProjections: (rows, reason) => this.reuseBrowserRowProjections(rows, reason),
       scheduleSourceExistenceSweep: () => this.scheduleSourceExistenceSweepFromBackend(),
       sourceExistenceBatchSize: SOURCE_EXISTENCE_BATCH_SIZE,
     });
+    this.registerBrowserLocalDeletionObserver();
   }
 
   getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
@@ -393,6 +412,190 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       documentCounts: (scope) => this.getBrowserDocumentCounts(scope),
     };
     return this.browserReadModelFacade;
+  }
+
+  private registerBrowserLocalDeletionObserver(): void {
+    if (typeof this.unifiedDataSourceManager?.registerObserver !== 'function') {
+      return;
+    }
+    this.unifiedDataSourceManager.registerObserver(this.browserLocalDeletionObserver);
+  }
+
+  private handleBrowserLocalDeletionEvent(event: DataChangeEvent): void {
+    switch (event.type) {
+      case 'card-deleted':
+        this.recordLocallyDeletedBrowserIdentities(event.cardIds, event.blockIds);
+        break;
+      case 'card-created':
+      case 'card-updated':
+        this.clearLocallyDeletedBrowserIdentities(event.cardIds, event.blockIds);
+        break;
+    }
+  }
+
+  private normalizeBrowserLocalDeletionIds(values: readonly unknown[] | null | undefined): string[] {
+    if (!Array.isArray(values)) {
+      return [];
+    }
+    return Array.from(new Set(
+      values
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    ));
+  }
+
+  private recordLocallyDeletedBrowserIdentities(
+    cardIds: readonly unknown[] | null | undefined,
+    blockIds: readonly unknown[] | null | undefined,
+  ): void {
+    for (const cardId of this.normalizeBrowserLocalDeletionIds(cardIds)) {
+      this.locallyDeletedBrowserCardIds.add(cardId);
+    }
+    for (const blockId of this.normalizeBrowserLocalDeletionIds(blockIds)) {
+      this.locallyDeletedBrowserBlockIds.add(blockId);
+    }
+    this.trimLocallyDeletedBrowserIdentities();
+  }
+
+  private clearLocallyDeletedBrowserIdentities(
+    cardIds: readonly unknown[] | null | undefined,
+    blockIds: readonly unknown[] | null | undefined,
+  ): void {
+    for (const cardId of this.normalizeBrowserLocalDeletionIds(cardIds)) {
+      this.locallyDeletedBrowserCardIds.delete(cardId);
+      this.locallyDeletedBrowserStatsIdentityIds.delete(cardId);
+    }
+    for (const blockId of this.normalizeBrowserLocalDeletionIds(blockIds)) {
+      this.locallyDeletedBrowserBlockIds.delete(blockId);
+      this.locallyDeletedBrowserStatsIdentityIds.delete(blockId);
+    }
+  }
+
+  private trimLocallyDeletedBrowserIdentities(): void {
+    while (
+      this.locallyDeletedBrowserCardIds.size + this.locallyDeletedBrowserBlockIds.size
+      > BROWSER_LOCAL_DELETION_IDENTITY_MAX_SIZE
+    ) {
+      const firstCardId = this.locallyDeletedBrowserCardIds.values().next().value as string | undefined;
+      if (firstCardId) {
+        this.locallyDeletedBrowserCardIds.delete(firstCardId);
+        this.locallyDeletedBrowserStatsIdentityIds.delete(firstCardId);
+        continue;
+      }
+      const firstBlockId = this.locallyDeletedBrowserBlockIds.values().next().value as string | undefined;
+      if (!firstBlockId) {
+        break;
+      }
+      this.locallyDeletedBrowserBlockIds.delete(firstBlockId);
+      this.locallyDeletedBrowserStatsIdentityIds.delete(firstBlockId);
+    }
+  }
+
+  private hasLocallyDeletedBrowserIdentities(): boolean {
+    return this.locallyDeletedBrowserCardIds.size > 0 || this.locallyDeletedBrowserBlockIds.size > 0;
+  }
+
+  private getBrowserCardUniverseCardIdentity(row: BrowserCardUniverseIdentityLike): string {
+    return String(row.fsrsCardId || row.cardId || row.id || row.riffCardId || '').trim();
+  }
+
+  private getBrowserCardUniverseBlockIdentity(row: BrowserCardUniverseIdentityLike): string {
+    return String(row.blockId || '').trim();
+  }
+
+  private isLocallyDeletedBrowserRow(row: BrowserCardUniverseIdentityLike): boolean {
+    const cardId = this.getBrowserCardUniverseCardIdentity(row);
+    if (cardId && this.locallyDeletedBrowserCardIds.has(cardId)) {
+      return true;
+    }
+    const blockId = this.getBrowserCardUniverseBlockIdentity(row);
+    return Boolean(blockId && this.locallyDeletedBrowserBlockIds.has(blockId));
+  }
+
+  private rememberLocallyDeletedBrowserStatsIdentity(row: BrowserCardUniverseIdentityLike): void {
+    const cardId = this.getBrowserCardUniverseCardIdentity(row);
+    const blockId = this.getBrowserCardUniverseBlockIdentity(row);
+    const identity = cardId || blockId;
+    if (identity) {
+      this.locallyDeletedBrowserStatsIdentityIds.add(identity);
+    }
+  }
+
+  private filterLocallyDeletedBrowserRows<TRow extends BrowserCardUniverseIdentityLike>(
+    rows: TRow[],
+    reason: string,
+  ): TRow[] {
+    if (!this.hasLocallyDeletedBrowserIdentities() || rows.length === 0) {
+      return rows;
+    }
+
+    const visibleRows: TRow[] = [];
+    let removed = 0;
+    for (const row of rows) {
+      if (this.isLocallyDeletedBrowserRow(row)) {
+        removed += 1;
+        this.rememberLocallyDeletedBrowserStatsIdentity(row);
+        continue;
+      }
+      visibleRows.push(row);
+    }
+
+    if (removed > 0) {
+      logger.debug('Suppressed locally deleted Browser deck rows', {
+        reason,
+        removed,
+        remaining: visibleRows.length,
+      });
+    }
+
+    return visibleRows;
+  }
+
+  private filterLocallyDeletedBrowserIds(ids: string[], reason: string): string[] {
+    if (!this.hasLocallyDeletedBrowserIdentities() || ids.length === 0) {
+      return ids;
+    }
+
+    const visibleIds = ids.filter((id) => {
+      const normalized = String(id || '').trim();
+      return normalized
+        && !this.locallyDeletedBrowserCardIds.has(normalized)
+        && !this.locallyDeletedBrowserBlockIds.has(normalized);
+    });
+
+    if (visibleIds.length !== ids.length) {
+      logger.debug('Suppressed locally deleted Browser deck ids', {
+        reason,
+        removed: ids.length - visibleIds.length,
+        remaining: visibleIds.length,
+      });
+    }
+
+    return visibleIds;
+  }
+
+  private adjustBrowserDeckTotalForLocalDeletion(
+    total: number,
+    removedPageRows: number,
+    query: BrowserDeckSnapshotQuery,
+    reason: string,
+  ): number {
+    void query;
+    void reason;
+    const normalizedTotal = Math.max(0, Number(total) || 0);
+    const removed = Math.max(0, Number(removedPageRows) || 0);
+    return Math.max(0, normalizedTotal - removed);
+  }
+
+  private adjustBrowserStatsForLocalDeletion(stats: BrowserStats): BrowserStats {
+    const suppressedTotal = this.locallyDeletedBrowserStatsIdentityIds.size;
+    if (suppressedTotal <= 0) {
+      return stats;
+    }
+    return {
+      ...stats,
+      totalCards: Math.max(0, Number(stats.totalCards) - suppressedTotal),
+    };
   }
 
   private async readBrowserPage(

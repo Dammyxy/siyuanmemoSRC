@@ -13,7 +13,7 @@ import type {
   QueueProjectionLiveIdentitySource,
 } from '@/types/queue-projection-live-identity';
 import { normalizeQueueProjectionIdentity } from '@/types/queue-projection-live-identity';
-import type { CardType, FSRSCard } from '@/types/card';
+import { CardType, type FSRSCard } from '@/types/card';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
 import { createDependencyUnavailableError } from '@/core/queue/dependencyErrors';
@@ -149,6 +149,8 @@ export class QueueProjectionRuntime {
   private readonly liveIdentityListeners = new Set<QueueProjectionLiveIdentityListener>();
   private readonly publishedReadyIdentities = new Map<QueueType, string>();
   private readonly materializationInFlight = new Map<string, Promise<BackendQueueProjectionReplaceResult | null>>();
+  private readonly locallyDeletedProjectionCardIds = new Set<string>();
+  private readonly locallyDeletedProjectionBlockIds = new Set<string>();
 
   constructor(private readonly deps: QueueProjectionRuntimeDeps) {
     this.queueProjectionReadiness = new QueueProjectionReadinessService({
@@ -312,11 +314,21 @@ export class QueueProjectionRuntime {
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
           freshness: result.freshness ?? null,
         });
+        if (!this.isCurrentInstanceFollower()) {
+          const repair = await this.tryMaterializeQueueProjection(queueType, backend, {
+            currentPolicyHash: result.policyHash,
+            currentGeneration: result.generation,
+            reason: 'row-hydration-refresh',
+          });
+          if (repair?.status === 'ready') {
+            this.clearQueueProjectionUnavailable(queueType);
+          }
+        }
         return [];
       }
 
       this.clearQueueProjectionUnavailable(queueType);
-      return (result.cards || [])
+      return this.filterLocallyDeletedProjectionCards(result.cards || [])
         .filter((card): card is FSRSCard => (
           Boolean(card)
           && typeof card === 'object'
@@ -411,6 +423,31 @@ export class QueueProjectionRuntime {
       this.emitInvalidatedLiveIdentity(queueType, 'echo-cleared');
     }
     this.materializedProjectionEchoes.clear();
+  }
+
+  recordLocalCardDeletionProjectionInvalidation(cardIds: readonly unknown[], blockIds: readonly unknown[] = []): void {
+    const normalizedCardIds = normalizeStringArray(cardIds);
+    const normalizedBlockIds = normalizeStringArray(blockIds);
+    if (normalizedCardIds.length === 0 && normalizedBlockIds.length === 0) {
+      return;
+    }
+
+    for (const cardId of normalizedCardIds) {
+      this.locallyDeletedProjectionCardIds.add(cardId);
+    }
+    for (const blockId of normalizedBlockIds) {
+      this.locallyDeletedProjectionBlockIds.add(blockId);
+    }
+    this.clearMaterializedProjectionEchoes();
+  }
+
+  clearLocalCardDeletionProjectionInvalidation(cardIds: readonly unknown[], blockIds: readonly unknown[] = []): void {
+    for (const cardId of normalizeStringArray(cardIds)) {
+      this.locallyDeletedProjectionCardIds.delete(cardId);
+    }
+    for (const blockId of normalizeStringArray(blockIds)) {
+      this.locallyDeletedProjectionBlockIds.delete(blockId);
+    }
   }
 
   private async readRawQueueProjectionSnapshot(
@@ -858,27 +895,31 @@ export class QueueProjectionRuntime {
     queueType: QueueType,
     result: BackendQueueProjectionSnapshotResult,
   ): QueueProjectionSnapshot {
+    const rows = (result.rows || []).map((row): QueueSnapshotRow => ({
+      ...row,
+      cardType: row.cardType as CardType | undefined,
+      tags: Array.isArray(row.tags) ? [...row.tags] : [],
+    }));
+    const visibleRows = this.filterLocallyDeletedProjectionRows(rows);
     return {
       queueType,
       policyHash: String(result.policyHash || ''),
       generation: Number(result.generation),
-      rows: (result.rows || []).map((row): QueueSnapshotRow => ({
-        ...row,
-        cardType: row.cardType as CardType | undefined,
-        tags: Array.isArray(row.tags) ? [...row.tags] : [],
-      })),
-      counters: this.toQueueCounterSnapshot(result.counters, result.generation),
+      rows: visibleRows,
+      counters: this.toQueueCounterSnapshot(result.counters, result.generation, visibleRows, rows.length),
     };
   }
 
   private toQueueCounterSnapshot(
     counters: BackendQueueProjectionSnapshotResult['counters'],
     generation: number | null | undefined,
+    visibleRows?: QueueSnapshotRow[],
+    sourceRowCount?: number,
   ): QueueProjectionSnapshot['counters'] {
     if (!counters) {
       return null;
     }
-    return {
+    const snapshot = {
       version: Number(counters.version || counters.generation || generation || 0),
       remaining: Math.max(0, Math.floor(Number(counters.remaining || 0))),
       due: Math.max(0, Math.floor(Number(counters.due || 0))),
@@ -897,6 +938,90 @@ export class QueueProjectionRuntime {
       },
       source: 'reconciled',
     };
+    if (visibleRows && typeof sourceRowCount === 'number' && visibleRows.length < sourceRowCount) {
+      return this.reconcileQueueCounterSnapshotForVisibleRows(snapshot, visibleRows);
+    }
+    return snapshot;
+  }
+
+  private filterLocallyDeletedProjectionRows(rows: QueueSnapshotRow[]): QueueSnapshotRow[] {
+    if (this.locallyDeletedProjectionCardIds.size === 0 && this.locallyDeletedProjectionBlockIds.size === 0) {
+      return rows;
+    }
+    return rows.filter((row) => !this.isLocallyDeletedProjectionIdentity({
+      cardId: row.fsrsCardId || row.id,
+      rowId: row.id,
+      blockId: row.blockId,
+    }));
+  }
+
+  private filterLocallyDeletedProjectionCards(cards: FSRSCard[]): FSRSCard[] {
+    if (this.locallyDeletedProjectionCardIds.size === 0 && this.locallyDeletedProjectionBlockIds.size === 0) {
+      return cards;
+    }
+    return cards.filter((card) => !this.isLocallyDeletedProjectionIdentity({
+      cardId: card.id,
+      rowId: card.riffCardId,
+      blockId: card.blockId,
+    }));
+  }
+
+  private isLocallyDeletedProjectionIdentity(input: { cardId?: unknown; rowId?: unknown; blockId?: unknown }): boolean {
+    const cardId = normalizeNullableString(input.cardId);
+    const rowId = normalizeNullableString(input.rowId);
+    const blockId = normalizeNullableString(input.blockId);
+    return Boolean(
+      (cardId && this.locallyDeletedProjectionCardIds.has(cardId))
+      || (rowId && this.locallyDeletedProjectionCardIds.has(rowId))
+      || (blockId && this.locallyDeletedProjectionBlockIds.has(blockId))
+    );
+  }
+
+  private reconcileQueueCounterSnapshotForVisibleRows(
+    counters: NonNullable<QueueProjectionSnapshot['counters']>,
+    rows: QueueSnapshotRow[],
+  ): NonNullable<QueueProjectionSnapshot['counters']> {
+    const buckets = this.buildCounterBucketsForSnapshotRows(rows);
+    return {
+      ...counters,
+      remaining: Math.min(counters.remaining, rows.length),
+      due: Math.min(counters.due, rows.length),
+      total: rows.length,
+      currentLearningDue: Math.min(counters.currentLearningDue, rows.length),
+      todayReviewDue: Math.min(counters.todayReviewDue, rows.length),
+      allowedNew: Math.min(counters.allowedNew, rows.length),
+      learnAheadAvailable: Math.min(counters.learnAheadAvailable, rows.length),
+      scheduledTotal: Math.min(counters.scheduledTotal, rows.length),
+      buckets,
+    };
+  }
+
+  private buildCounterBucketsForSnapshotRows(rows: QueueSnapshotRow[]): NonNullable<QueueProjectionSnapshot['counters']>['buckets'] {
+    const buckets = {
+      all: rows.length,
+      item: 0,
+      descriptor: 0,
+      topic: 0,
+      concept: 0,
+    };
+    for (const row of rows) {
+      switch (row.cardType) {
+        case CardType.Descriptor:
+          buckets.descriptor += 1;
+          break;
+        case CardType.Topic:
+          buckets.topic += 1;
+          break;
+        case CardType.Concept:
+          buckets.concept += 1;
+          break;
+        case CardType.Item:
+        default:
+          buckets.item += 1;
+          break;
+      }
+    }
+    return buckets;
   }
 
   private cloneQueueProjectionSnapshot(snapshot: QueueProjectionSnapshot): QueueProjectionSnapshot {

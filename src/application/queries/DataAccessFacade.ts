@@ -510,7 +510,10 @@ export class DataAccessFacade implements IDataRouter {
             };
         }
 
-        const result = await this.cardService.deleteCards({ cardIds: normalizedCardIds });
+        const result = await this.cardService.batchDeleteFSRSCards({
+            cardIds: normalizedCardIds,
+            deleteFromRiff: false,
+        });
         if (isErr(result)) {
             throw new Error(`Failed to batch delete cards: ${result.error}`);
         }

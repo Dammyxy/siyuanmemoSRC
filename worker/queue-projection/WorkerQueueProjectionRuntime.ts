@@ -263,13 +263,16 @@ export class WorkerQueueProjectionRuntime {
     }
 
     const updatedAt = Date.now();
-    const rows = normalizeProjectionReplaceRows({
+    const candidateRows = normalizeProjectionReplaceRows({
       queueType,
       policyHash,
       generation,
       rows: request.rows,
       updatedAt,
     });
+    const sourceCards = this.deps.repository.getCardsByExactIds(candidateRows.map((row) => row.cardId));
+    const admitted = admitActiveProjectionReplaceRows(candidateRows, sourceCards);
+    const rows = admitted.rows;
     const counters = buildQueueProjectionCountersFromRows({
       queueType,
       policyHash,
@@ -294,6 +297,12 @@ export class WorkerQueueProjectionRuntime {
           ...metadata,
           reason,
           materializedBy: 'application',
+          projectionAdmission: {
+            sourceRows: admitted.freshness.totalRows,
+            admittedRows: rows.length,
+            droppedMissingRows: admitted.freshness.missingRows,
+            droppedStaleRows: admitted.freshness.staleRows,
+          },
         },
       });
     });
@@ -493,6 +502,27 @@ function buildProjectionSnapshotRows(
     freshness,
     freshnessOk: freshness.staleRows === 0 && freshness.missingRows === 0 && rows.length === projectionRows.length,
   };
+}
+
+function admitActiveProjectionReplaceRows(
+  projectionRows: QueueProjectionRow[],
+  cards: FSRSCard[],
+): {
+  rows: QueueProjectionRow[];
+  freshness: BackendQueueProjectionFreshnessEvidence;
+} {
+  const cardById = new Map(cards.map((card) => [String(card.id || '').trim(), card] as const));
+  const freshness = buildProjectionFreshnessEvidence(projectionRows, cards);
+  const rows = projectionRows
+    .filter((row) => {
+      const card = cardById.get(String(row.cardId || '').trim());
+      return Boolean(card && !isStaleProjectionMembership(row, card));
+    })
+    .map((row, index) => ({
+      ...row,
+      queueIndexHint: index + 1,
+    }));
+  return { rows, freshness };
 }
 
 function isStaleProjectionMembership(row: QueueProjectionRow, card: FSRSCard): boolean {

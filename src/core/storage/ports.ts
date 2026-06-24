@@ -3,7 +3,18 @@ import type { StructuredCardQuery } from '@/types/card-query';
 import type { Result } from '@/types/result';
 import type { SchedulingWriteSource } from '@/core/scheduler/schedulingStateCleanliness';
 
+export interface CardStorageWriteTransaction {
+  readonly token: symbol;
+  readonly label: string;
+}
+
+export interface CardStorageMutationOptions {
+  transaction?: CardStorageWriteTransaction;
+  suppressAutosave?: boolean;
+}
+
 export interface CardStorageUpdateOptions {
+  transaction?: CardStorageWriteTransaction;
   preferIncomingScheduling?: boolean;
   schedulingWriteSource?: SchedulingWriteSource;
   suppressAutosave?: boolean;
@@ -30,7 +41,7 @@ export interface CardWritePort {
    * Legacy and unified storage implementations expose different delete signatures.
    * Consumers should treat this as "fire + await if promise" and normalize externally.
    */
-  deleteCard?(cardId: string): unknown | Promise<unknown>;
+  deleteCard?(cardId: string, options?: CardStorageMutationOptions): unknown | Promise<unknown>;
   removeCard?(cardId: string): boolean;
 }
 
@@ -56,7 +67,12 @@ export interface CardTypeMarkerStoragePort extends CardReadPort, CardWritePort {
 }
 
 export interface DeleteFSRSCardStoragePort extends CardReadPort, CardWritePort {
-  deleteCard?(cardId: string): unknown | Promise<unknown>;
+  runWriteTransaction?<T>(
+    label: string,
+    operation: (transaction: CardStorageWriteTransaction) => Promise<T> | T,
+    transaction?: CardStorageWriteTransaction,
+  ): Promise<T>;
+  deleteCard?(cardId: string, options?: CardStorageMutationOptions): unknown | Promise<unknown>;
   removeCard?(cardId: string): boolean;
 }
 

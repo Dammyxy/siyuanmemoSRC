@@ -4,7 +4,7 @@ import { CardFilterService } from '@/core/card/domain/services/CardFilterService
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import { QueueType } from '@/types/unified-data-source';
+import { QueueType, type DataChangeEvent, type IDataSourceObserver } from '@/types/unified-data-source';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import type { BrowserAdvancedSqlQuerySourcePort } from '@/application/ports/BrowserAdvancedSqlQuerySourcePort';
@@ -541,6 +541,7 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
         cards: [card],
         generation: 42,
       })),
+      browserSourceExistenceRefreshCandidates: vi.fn(async () => []),
       browserSourceExistenceApplySweepHost: vi.fn(async () => ({
         checked: 0,
         updated: 0,
@@ -579,6 +580,112 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
       startRow: 0,
       endRow: 20,
     });
+  });
+
+  it('suppresses locally deleted deck cards while backend browser universe is stale', async () => {
+    const deletedCard = buildCard({
+      id: 'deleted-card',
+      blockId: 'deleted-block',
+      meta: { content: 'deleted row', rootId: 'doc-read-model' },
+    });
+    const activeCard = buildCard({
+      id: 'active-card',
+      blockId: 'active-block',
+      meta: { content: 'active row', rootId: 'doc-read-model' },
+    });
+    const backendCards = [deletedCard, activeCard];
+    const backendClient = {
+      browserDeckPage: vi.fn(async () => ({
+        total: 2,
+        cards: backendCards,
+        generation: 9,
+      })),
+      browserDeckMatchedIds: vi.fn(async () => ['deleted-card', 'active-card']),
+      browserDeckRowsByIds: vi.fn(async (ids: string[]) => backendCards.filter((card) => ids.includes(card.id))),
+      browserStats: vi.fn(async () => ({
+        totalCards: 2,
+        dueCards: 0,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 2,
+        suspendedCards: 0,
+        lostCards: 0,
+      })),
+      browserSourceExistenceRefreshCandidates: vi.fn(async () => []),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 0,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['deleted-block', true],
+        ['active-block', true],
+      ])),
+    };
+    let observer: IDataSourceObserver | null = null;
+    const manager = {
+      registerObserver: vi.fn((next: IDataSourceObserver) => {
+        observer = next;
+      }),
+      unregisterObserver: vi.fn(),
+    };
+    const service = createService(backendClient, {}, manager);
+
+    expect(manager.registerObserver).toHaveBeenCalled();
+    const deletedEvent: DataChangeEvent = {
+      type: 'card-deleted',
+      cardIds: ['deleted-card'],
+      blockIds: ['deleted-block'],
+      timestamp: 1,
+    };
+    observer!.onDataChanged(deletedEvent);
+
+    const page = await service.getBrowserReadModel().page({
+      source: 'deck',
+      query: { preset: 'all' },
+    }, {
+      startRow: 0,
+      endRow: 20,
+    });
+    const matchedIds = await service.getBrowserReadModel().matchedIds({
+      source: 'deck',
+      query: { preset: 'all' },
+    });
+    const hydratedRows = await service.getBrowserReadModel().rowsByIds(
+      ['deleted-card', 'active-card'],
+      { source: 'deck' },
+    );
+    const stats = await service.getStats();
+
+    expect(page).toMatchObject({
+      status: 'ready',
+      total: 1,
+    });
+    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['active-card']);
+    expect(matchedIds).toEqual(['active-card']);
+    expect(hydratedRows.map((row) => row.fsrsCardId)).toEqual(['active-card']);
+    expect(stats.totalCards).toBe(1);
+
+    observer!.onDataChanged({
+      type: 'card-created',
+      cardIds: ['deleted-card'],
+      blockIds: ['deleted-block'],
+      timestamp: 2,
+    });
+
+    const restoredPage = await service.getBrowserReadModel().page({
+      source: 'deck',
+      query: { preset: 'all' },
+    }, {
+      startRow: 0,
+      endRow: 20,
+    });
+    const restoredStats = await service.getStats();
+
+    expect(restoredPage.total).toBe(2);
+    expect(restoredPage.rows.map((row) => row.fsrsCardId)).toEqual(['deleted-card', 'active-card']);
+    expect(restoredStats.totalCards).toBe(2);
   });
 
   it('resolves action targets from explicit rowsByIds path', async () => {

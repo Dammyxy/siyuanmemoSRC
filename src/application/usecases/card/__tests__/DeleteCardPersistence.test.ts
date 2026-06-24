@@ -12,6 +12,8 @@ import { CardCreationService } from '@/core/xiuyuan/domain/services/CardCreation
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import { DeleteCardUseCase } from '../DeleteCardUseCase';
 import { DeleteCardsUseCase } from '../DeleteCardsUseCase';
+import { UnifiedStorageManager, type UnifiedCardStore } from '@/core/storage/UnifiedStorageManager';
+import { XiuyuanRepository } from '@/core/xiuyuan/infrastructure/XiuyuanRepository';
 
 function must<T>(result: { ok: true; value: T } | { ok: false; error: unknown }): T {
   if (!result.ok) {
@@ -20,8 +22,11 @@ function must<T>(result: { ok: true; value: T } | { ok: false; error: unknown })
   return result.value;
 }
 
-function createXiuyuanWithCards(faceCount = 1): { xiuyuan: Xiuyuan; cardIds: string[]; blockId: string } {
-  const blockId = '20260308010101-cardblk';
+function createXiuyuanWithCards(
+  faceCount = 1,
+  blockId = '20260308010101-cardblk',
+  meta?: Record<string, unknown>
+): { xiuyuan: Xiuyuan; cardIds: string[]; blockId: string } {
   const xiuyuan = must(
     Xiuyuan.create({
       blockIDs: [must(BlockId.create(blockId))],
@@ -34,8 +39,9 @@ function createXiuyuanWithCards(faceCount = 1): { xiuyuan: Xiuyuan; cardIds: str
             questionBlockId: blockId,
             answerBlockId: blockId,
           })
-        )
+          )
       ),
+      ...(meta ? { meta } : {}),
     })
   );
 
@@ -59,6 +65,50 @@ function createDeletionApiMock(): CardDeletionSiyuanPort {
   };
 }
 
+function createEmptyStore(): UnifiedCardStore {
+  return {
+    version: 2,
+    xiuyuans: {},
+    cards: {},
+    cardDTOs: {},
+    deletedCardDTOs: {},
+    deletedXiuyuans: {},
+    riffBlacklist: [],
+    riffSyncState: {},
+  };
+}
+
+function createPersistedRepositoryHarness(): {
+  repository: XiuyuanRepository;
+  storage: UnifiedStorageManager;
+  resetSaveCount: () => void;
+  getSaveCount: () => number;
+  getPersistedStore: () => UnifiedCardStore;
+} {
+  const storage = new UnifiedStorageManager();
+  const repository = new XiuyuanRepository(storage);
+  let saveCount = 0;
+  let persistedStore = createEmptyStore();
+
+  storage.setPersistenceCallbacks(
+    async (store) => {
+      saveCount += 1;
+      persistedStore = JSON.parse(JSON.stringify(store)) as UnifiedCardStore;
+    },
+    async () => persistedStore,
+  );
+
+  return {
+    repository,
+    storage,
+    resetSaveCount: () => {
+      saveCount = 0;
+    },
+    getSaveCount: () => saveCount,
+    getPersistedStore: () => persistedStore,
+  };
+}
+
 function createRepoMock(xiuyuan: Xiuyuan, cardIds: string[]): IXiuyuanRepository {
   const xiuyuanId = xiuyuan.getId().getValue();
   return {
@@ -67,8 +117,8 @@ function createRepoMock(xiuyuan: Xiuyuan, cardIds: string[]): IXiuyuanRepository
     findByBlockId: vi.fn(),
     findAll: vi.fn().mockResolvedValue(ok([xiuyuan])),
     delete: vi.fn().mockResolvedValue(ok(undefined)),
-    saveMany: vi.fn(),
-    deleteMany: vi.fn(),
+    saveMany: vi.fn().mockResolvedValue(ok(undefined)),
+    deleteMany: vi.fn().mockResolvedValue(ok(undefined)),
     getXiuyuanIdByCardId: vi.fn((cardId: string) => (cardIds.includes(cardId) ? xiuyuanId : undefined)),
   } as unknown as IXiuyuanRepository;
 }
@@ -142,7 +192,162 @@ describe('Delete card persistence', () => {
       return;
     }
     expect(result.value.deletedCount).toBe(2);
-    expect(repo.delete).toHaveBeenCalledTimes(1);
+    expect(repo.deleteMany).toHaveBeenCalledTimes(1);
     expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('DeleteCardsUseCase persists multi-Xiuyuan tombstone deletion in one save', async () => {
+    const first = createXiuyuanWithCards(1, '20260308010101-batcha1', { ownership: 'riff-managed' });
+    const second = createXiuyuanWithCards(1, '20260308010101-batchb2', { ownership: 'riff-managed' });
+    const { repository, resetSaveCount, getSaveCount, getPersistedStore } = createPersistedRepositoryHarness();
+    const seedResult = await repository.saveMany([first.xiuyuan, second.xiuyuan]);
+    expect(seedResult.ok).toBe(true);
+    resetSaveCount();
+
+    const deletionTracker: IDeletionTracker = {
+      markAsDeleted: vi.fn(),
+      markManyAsDeleted: vi.fn(),
+      isRecentlyDeleted: vi.fn().mockReturnValue(false),
+      clear: vi.fn(),
+    };
+
+    const useCase = new DeleteCardsUseCase(
+      repository,
+      new CardDeletionService(),
+      new EventBus(),
+      deletionTracker,
+      { siyuanApi: createDeletionApiMock() }
+    );
+
+    const result = await useCase.execute({
+      cardIds: [first.cardIds[0], second.cardIds[0]],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toMatchObject({
+      deletedCount: 2,
+      failedCardIds: [],
+    });
+    expect(getSaveCount()).toBe(1);
+    expect(getPersistedStore().deletedCardDTOs?.[first.cardIds[0]]).toBeDefined();
+    expect(getPersistedStore().deletedCardDTOs?.[second.cardIds[0]]).toBeDefined();
+    expect(deletionTracker.markManyAsDeleted).toHaveBeenCalledWith([first.blockId, second.blockId]);
+  });
+
+  it('DeleteCardsUseCase persists multi-Xiuyuan partial deletion in one save', async () => {
+    const first = createXiuyuanWithCards(2, '20260308010101-partia1', { ownership: 'riff-managed' });
+    const second = createXiuyuanWithCards(2, '20260308010101-partib2', { ownership: 'riff-managed' });
+    const { repository, resetSaveCount, getSaveCount, getPersistedStore } = createPersistedRepositoryHarness();
+    const seedResult = await repository.saveMany([first.xiuyuan, second.xiuyuan]);
+    expect(seedResult.ok).toBe(true);
+    resetSaveCount();
+
+    const deletionTracker: IDeletionTracker = {
+      markAsDeleted: vi.fn(),
+      markManyAsDeleted: vi.fn(),
+      isRecentlyDeleted: vi.fn().mockReturnValue(false),
+      clear: vi.fn(),
+    };
+
+    const useCase = new DeleteCardsUseCase(
+      repository,
+      new CardDeletionService(),
+      new EventBus(),
+      deletionTracker,
+      { siyuanApi: createDeletionApiMock() }
+    );
+
+    const result = await useCase.execute({
+      cardIds: [first.cardIds[0], second.cardIds[0]],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toMatchObject({
+      deletedCount: 2,
+      failedCardIds: [],
+    });
+    expect(getSaveCount()).toBe(1);
+    expect(getPersistedStore().deletedCardDTOs?.[first.cardIds[0]]).toBeDefined();
+    expect(getPersistedStore().deletedCardDTOs?.[second.cardIds[0]]).toBeDefined();
+    expect(getPersistedStore().cardDTOs?.[first.cardIds[1]]).toBeDefined();
+    expect(getPersistedStore().cardDTOs?.[second.cardIds[1]]).toBeDefined();
+  });
+
+  it('DeleteCardsUseCase repairs a missing Xiuyuan binding before batch delete', async () => {
+    const { xiuyuan, cardIds } = createXiuyuanWithCards(1, '20260308010101-repair1', {
+      ownership: 'riff-managed',
+    });
+    const { repository, storage, resetSaveCount, getSaveCount, getPersistedStore } =
+      createPersistedRepositoryHarness();
+    const seedResult = await repository.saveMany([xiuyuan]);
+    expect(seedResult.ok).toBe(true);
+    resetSaveCount();
+
+    const xiuyuanId = xiuyuan.getId().getValue();
+    const storageState = storage as unknown as {
+      cardDTOs: Map<string, Record<string, unknown>>;
+      xiuyuans: Map<string, Record<string, unknown>>;
+    };
+    const persistedCard = storageState.cardDTOs.get(cardIds[0]);
+    expect(persistedCard).toBeDefined();
+    if (!persistedCard) {
+      return;
+    }
+    storageState.cardDTOs.set(cardIds[0], {
+      ...persistedCard,
+      xiuyuanID: undefined,
+      meta: {
+        ...(persistedCard.meta || {}),
+        xiuyuanID: undefined,
+      },
+    });
+
+    const persistedXiuyuan = storageState.xiuyuans.get(xiuyuanId);
+    expect(persistedXiuyuan).toBeDefined();
+    if (!persistedXiuyuan) {
+      return;
+    }
+    storageState.xiuyuans.set(xiuyuanId, {
+      ...persistedXiuyuan,
+      meta: {
+        ...(persistedXiuyuan.meta || {}),
+        cardIds: [],
+      },
+    });
+
+    const deletionTracker: IDeletionTracker = {
+      markAsDeleted: vi.fn(),
+      markManyAsDeleted: vi.fn(),
+      isRecentlyDeleted: vi.fn().mockReturnValue(false),
+      clear: vi.fn(),
+    };
+
+    const useCase = new DeleteCardsUseCase(
+      repository,
+      new CardDeletionService(),
+      new EventBus(),
+      deletionTracker,
+      { siyuanApi: createDeletionApiMock() }
+    );
+
+    const result = await useCase.execute({ cardIds });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toMatchObject({
+      deletedCount: 1,
+      failedCardIds: [],
+    });
+    expect(getSaveCount()).toBe(1);
+    expect(getPersistedStore().deletedCardDTOs?.[cardIds[0]]).toBeDefined();
+    expect(getPersistedStore().cardDTOs?.[cardIds[0]]).toBeUndefined();
   });
 });

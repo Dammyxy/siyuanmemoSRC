@@ -45,13 +45,25 @@ import type { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
-import { persistXiuyuanAfterCardDeletion } from './shared/PersistXiuyuanAfterCardDeletion';
 import { warmupXiuyuanCardIndex } from './shared/WarmupXiuyuanCardIndex';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DeleteCardsUseCase');
 
 type CleanupTargetMap = Map<string, Set<string>>;
+
+type DeletionPersistPlanItem = {
+  xiuyuan: Xiuyuan;
+  deletedCardIds: string[];
+  cleanupTargets: CleanupTargetMap;
+  mode: 'save' | 'delete';
+};
+
+type DeletionPersistResult = {
+  deletedCardIds: string[];
+  failedCardIds: string[];
+  cleanupTargets: CleanupTargetMap;
+};
 
 export class DeleteCardsUseCase {
   private readonly siyuanApi: CardDeletionSiyuanPort;
@@ -90,6 +102,7 @@ export class DeleteCardsUseCase {
     const deletedCardIds: string[] = [];
     const failedCardIds: string[] = [];
     const cleanupTargets: CleanupTargetMap = new Map();
+    const persistPlan: DeletionPersistPlanItem[] = [];
 
     // 2. 按 xiuyuanId 分组卡片（单一路径：依赖索引）
     const { groups: xiuyuanGroups, unresolvedCardIds } = this.groupCardsByXiuyuan(cardIds);
@@ -122,24 +135,25 @@ export class DeleteCardsUseCase {
 
       // 3.3 批量删除该 Xiuyuan 下的所有卡片
       const deleteResult = await this.deleteCardsFromXiuyuan(xiuyuan, cardIdsInGroup);
-      deletedCardIds.push(...deleteResult.deleted);
       failedCardIds.push(...deleteResult.failed);
 
-      // 3.4 持久化更新后的 Xiuyuan（每个 Xiuyuan 只保存一次）
-      const saveResult = await persistXiuyuanAfterCardDeletion(this.xiuyuanRepo, xiuyuan);
-      if (isErr(saveResult)) {
-        logger.error(`[DeleteCardsUseCase] ❌ 保存 Xiuyuan 失败: ${xiuyuanIdStr}`, saveResult.error);
-        // 已删除的卡片标记为失败
-        failedCardIds.push(...deleteResult.deleted);
-        deletedCardIds.splice(deletedCardIds.length - deleteResult.deleted.length, deleteResult.deleted.length);
+      if (deleteResult.deleted.length === 0) {
+        xiuyuan.clearDomainEvents();
         continue;
       }
 
-      this.mergeCleanupTargets(cleanupTargets, deleteResult.cleanupTargets);
-
-      // 批量删除统一通过 batch 事件向外同步，避免重复触发逐卡 Riff 删除。
-      xiuyuan.clearDomainEvents();
+      persistPlan.push({
+        xiuyuan,
+        deletedCardIds: deleteResult.deleted,
+        cleanupTargets: deleteResult.cleanupTargets,
+        mode: xiuyuan.getCards().length === 0 ? 'delete' : 'save',
+      });
     }
+
+    const persistResult = await this.persistDeletedXiuyuans(persistPlan);
+    deletedCardIds.push(...persistResult.deletedCardIds);
+    failedCardIds.push(...persistResult.failedCardIds);
+    this.mergeCleanupTargets(cleanupTargets, persistResult.cleanupTargets);
 
     // 4. 批量清理块属性
     const blockIdsToClean = Array.from(cleanupTargets.keys());
@@ -167,6 +181,56 @@ export class DeleteCardsUseCase {
 
     logger.info(`[DeleteCardsUseCase] ✅ 批量删除完成: 成功 ${result.deletedCount}, 失败 ${failedCardIds.length}`);
     return ok(result);
+  }
+
+  private async persistDeletedXiuyuans(items: DeletionPersistPlanItem[]): Promise<DeletionPersistResult> {
+    const result: DeletionPersistResult = {
+      deletedCardIds: [],
+      failedCardIds: [],
+      cleanupTargets: new Map(),
+    };
+    if (items.length === 0) {
+      return result;
+    }
+
+    const saveItems = items.filter((item) => item.mode === 'save');
+    const deleteItems = items.filter((item) => item.mode === 'delete');
+    logger.info('[DeleteCardsUseCase] 💾 批量持久化删除结果', {
+      saveXiuyuanCount: saveItems.length,
+      deleteXiuyuanCount: deleteItems.length,
+    });
+
+    await this.persistPlanGroup(saveItems, 'save', result);
+    await this.persistPlanGroup(deleteItems, 'delete', result);
+    return result;
+  }
+
+  private async persistPlanGroup(
+    items: DeletionPersistPlanItem[],
+    mode: DeletionPersistPlanItem['mode'],
+    result: DeletionPersistResult,
+  ): Promise<void> {
+    if (items.length === 0) {
+      return;
+    }
+
+    const persistResult = mode === 'save'
+      ? await this.xiuyuanRepo.saveMany(items.map((item) => item.xiuyuan))
+      : await this.xiuyuanRepo.deleteMany(items.map((item) => item.xiuyuan));
+
+    if (isErr(persistResult)) {
+      logger.error(`[DeleteCardsUseCase] ❌ 批量${mode === 'save' ? '保存' : '删除'} Xiuyuan 失败`, persistResult.error);
+      result.failedCardIds.push(...items.flatMap((item) => item.deletedCardIds));
+      return;
+    }
+
+    for (const item of items) {
+      result.deletedCardIds.push(...item.deletedCardIds);
+      this.mergeCleanupTargets(result.cleanupTargets, item.cleanupTargets);
+
+      // 批量删除统一通过 batch 事件向外同步，避免重复触发逐卡 Riff 删除。
+      item.xiuyuan.clearDomainEvents();
+    }
   }
 
   /**

@@ -74,6 +74,19 @@ export interface DeleteFSRSCardCommand {
 }
 
 /**
+ * 批量删除 FSRS 卡片命令。
+ *
+ * 当前批量路径只支持本地 tombstone；native Riff hard-delete 必须走显式单卡授权路径。
+ */
+export interface DeleteFSRSCardsCommand {
+  /** 卡片 ID 列表 */
+  cardIds: string[];
+
+  /** 批量路径只允许本地删除。 */
+  deleteFromRiff?: false;
+}
+
+/**
  * 删除 FSRS 卡片命令结果
  */
 export interface DeleteFSRSCardCommandResult {
@@ -91,4 +104,14 @@ export interface DeleteFSRSCardCommandResult {
    * 只有当 deleteFromRiff=true 时才有值。
    */
   deletedFromRiff?: boolean;
+}
+
+/**
+ * 批量删除 FSRS 卡片结果。
+ */
+export interface DeleteFSRSCardsCommandResult {
+  attemptedCount: number;
+  deletedCount: number;
+  deletedCardIds: string[];
+  failedCardIds: string[];
 }

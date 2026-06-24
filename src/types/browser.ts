@@ -50,6 +50,7 @@ export interface BrowserCardMeta extends Record<string, unknown> {
 
 export interface BrowserCard {
   id: string;
+  cardId?: string;
   fsrsCardId?: string;
   blockId: string;
   deckId: string;
@@ -531,12 +532,12 @@ export function matchesParsedQuery(card: BrowserCard, parsed: ParsedBrowserQuery
   return true;
 }
 
-type BrowserCardIdentityLike = Pick<BrowserCard, 'id' | 'blockId' | 'fsrsCardId'>;
+type BrowserCardIdentityLike = Pick<BrowserCard, 'id' | 'blockId' | 'cardId' | 'fsrsCardId'>;
 
 export function resolveBrowserCardActionId(
   card: BrowserCardIdentityLike | null | undefined,
 ): string {
-  return String(card?.fsrsCardId || card?.id || '').trim();
+  return String(card?.fsrsCardId || card?.cardId || card?.id || '').trim();
 }
 
 export function resolveBrowserCardStableId(

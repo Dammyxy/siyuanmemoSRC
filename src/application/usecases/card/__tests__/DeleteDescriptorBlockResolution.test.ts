@@ -54,8 +54,8 @@ function createRepositoryMock(xiuyuan: Xiuyuan, cardId: string) {
     findByBlockId: vi.fn(),
     findAll: vi.fn().mockResolvedValue(ok([xiuyuan])),
     delete: vi.fn().mockResolvedValue(ok(undefined)),
-    saveMany: vi.fn(),
-    deleteMany: vi.fn(),
+    saveMany: vi.fn().mockResolvedValue(ok(undefined)),
+    deleteMany: vi.fn().mockResolvedValue(ok(undefined)),
     getXiuyuanIdByCardId: vi.fn((value: string) => (value === cardId ? xiuyuanId : undefined)),
   } as unknown as IXiuyuanRepository;
 }

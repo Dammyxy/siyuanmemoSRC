@@ -488,6 +488,77 @@ describe('WorkerQueueProjectionRuntime', () => {
     expect(snapshot.rows.map((row) => row.fsrsCardId)).toEqual([exactCardId]);
   });
 
+  it('normalizes explicit replacement to active SQL rows so source-missing cards cannot poison readiness', async () => {
+    const queueType = QueueType.IncrementalLearning;
+    const policyHash = 'policy-active-replace';
+    const generation = 15;
+    const now = 1_700_000_000_000;
+    const activeCard = createCard({
+      id: 'card-active-source',
+      blockId: 'block-active-source',
+      due: now,
+    });
+    const missingSourceCard = createCard({
+      id: 'card-missing-source',
+      blockId: 'block-missing-source',
+      due: now,
+    });
+    const projection = buildOrderedQueueProjectionRows({
+      queueType,
+      cards: [activeCard, missingSourceCard],
+      now,
+      policyHash,
+      sourceGeneration: generation,
+      updatedAt: now,
+      membershipReason: 'rotation',
+    });
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const storage = new SqlUnifiedStorageRepository(database);
+    storage.upsertCards([activeCard, missingSourceCard]);
+    database.run(
+      'UPDATE cards SET source_exists = 0, source_checked_at = ?, source_missing_at = ? WHERE id = ?',
+      [now, now, missingSourceCard.id],
+    );
+    const queueProjection = new SqlQueueProjectionRepository(database);
+    const runtime = new WorkerQueueProjectionRuntime({
+      repository: storage,
+      queueProjection,
+      runtime: {
+        runTransaction: vi.fn(async (_name, callback) => callback()),
+      },
+    });
+
+    const replace = await runtime.replace({
+      queueType,
+      policyHash,
+      generation,
+      rows: projection.rows,
+      reason: 'explicit-repair',
+    });
+    const snapshot = await runtime.snapshot({ queueType });
+
+    expect(replace).toMatchObject({
+      status: 'ready',
+      rows: 1,
+      counters: expect.objectContaining({
+        total: 1,
+        remaining: 1,
+      }),
+    });
+    expect(snapshot).toMatchObject({
+      status: 'ready',
+      policyHash,
+      generation,
+      cacheState: 'ready-populated',
+      counters: expect.objectContaining({
+        total: 1,
+        remaining: 1,
+      }),
+    });
+    expect(snapshot.rows.map((row) => row.fsrsCardId)).toEqual([activeCard.id]);
+  });
+
   it('returns refreshing when row freshness proves stale projection membership', async () => {
     const queueType = QueueType.RetrievalPractice;
     const policyHash = 'policy-stale';
