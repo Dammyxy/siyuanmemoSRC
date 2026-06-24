@@ -1,5 +1,5 @@
 import type { EventHandler } from '@/core/shared/domain/events/EventBus';
-import type { CardCreatedEvent, CardDeletedEvent } from '@/core/xiuyuan/domain/events';
+import type { CardCreatedEvent, CardDeletedEvent, CardsCreatedEvent } from '@/core/xiuyuan/domain/events';
 import type { CardsDeletedEvent } from '@/core/xiuyuan/domain/events/CardsDeletedEvent';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
@@ -8,6 +8,7 @@ import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
+import { incrementRuntimePerformanceCounter } from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('ReviewScopeCardCreationSyncService');
 
@@ -31,6 +32,7 @@ function asStringArray(values: readonly unknown[] | undefined): string[] {
 
 export class ReviewScopeCardCreationSyncService {
   private readonly handleCardCreated: EventHandler<CardCreatedEvent>;
+  private readonly handleCardsCreated: EventHandler<CardsCreatedEvent>;
   private readonly handleCardDeleted: EventHandler<CardDeletedEvent>;
   private readonly handleCardsDeleted: EventHandler<CardsDeletedEvent>;
   private disposed = false;
@@ -46,6 +48,9 @@ export class ReviewScopeCardCreationSyncService {
     this.handleCardCreated = async (event) => {
       await this.syncCreatedCard(event);
     };
+    this.handleCardsCreated = async (event) => {
+      await this.syncCreatedCards(event);
+    };
     this.handleCardDeleted = async (event) => {
       await this.syncDeletedCard(event);
     };
@@ -54,6 +59,7 @@ export class ReviewScopeCardCreationSyncService {
     };
 
     this.eventBus.subscribe('CardCreated', this.handleCardCreated);
+    this.eventBus.subscribe('CardsCreated', this.handleCardsCreated);
     this.eventBus.subscribe('CardDeleted', this.handleCardDeleted);
     this.eventBus.subscribe('CardsDeleted', this.handleCardsDeleted);
   }
@@ -67,6 +73,7 @@ export class ReviewScopeCardCreationSyncService {
 
     this.disposed = true;
     this.eventBus.unsubscribe('CardCreated', this.handleCardCreated);
+    this.eventBus.unsubscribe('CardsCreated', this.handleCardsCreated);
     this.eventBus.unsubscribe('CardDeleted', this.handleCardDeleted);
     this.eventBus.unsubscribe('CardsDeleted', this.handleCardsDeleted);
   }
@@ -92,9 +99,59 @@ export class ReviewScopeCardCreationSyncService {
       }
 
       await this.unifiedDataSourceManager.onCardCreated(syncedCard);
+      incrementRuntimePerformanceCounter('review-sync', 'card-created-events', 1);
     } catch (error) {
       logger.error('[ReviewScopeCardCreationSyncService] Failed to sync created card into review scope:', {
         cardId,
+        error,
+      });
+    }
+  }
+
+  private async syncCreatedCards(event: CardsCreatedEvent): Promise<void> {
+    const cardIds = asStringArray(event.cardIds);
+    const blockIds = asStringArray(event.blockIds);
+    if (cardIds.length === 0 && blockIds.length === 0) {
+      return;
+    }
+
+    try {
+      const blockScopedCards = blockIds.length > 0
+        ? (await this.cardService.getCards({ filter: { blockIds } })).cards
+        : [];
+      const cardsById = new Map(blockScopedCards.map((card) => [card.id, card]));
+      const fetchedCards: FSRSCard[] = [];
+      for (const cardId of cardIds) {
+        let persistedCard = cardsById.get(cardId) ?? null;
+        if (!persistedCard) {
+          const result = await this.cardService.getCard({ cardId });
+          persistedCard = result.card ?? null;
+        }
+        if (!persistedCard) {
+          logger.warn('[ReviewScopeCardCreationSyncService] Created card not found after batch event:', { cardId });
+          continue;
+        }
+        fetchedCards.push(persistedCard);
+      }
+
+      const syncedCards = await this.ensureCardRootIds(fetchedCards);
+
+      for (const syncedCard of syncedCards) {
+        const rootId = this.extractCardRootId(syncedCard);
+        if (rootId) {
+          this.docTreeReviewScopeService.registerCardRootId(syncedCard.blockId, rootId);
+        }
+      }
+
+      if (syncedCards.length > 0) {
+        await this.unifiedDataSourceManager.onCardsCreated(syncedCards);
+      }
+      incrementRuntimePerformanceCounter('review-sync', 'cards-created-events', 1);
+      incrementRuntimePerformanceCounter('review-sync', 'cards-created-count', syncedCards.length);
+      incrementRuntimePerformanceCounter('review-sync', 'cards-created-queue-refreshes', syncedCards.length > 0 ? 1 : 0);
+    } catch (error) {
+      logger.error('[ReviewScopeCardCreationSyncService] Failed to sync batch created cards into review scope:', {
+        cardIds,
         error,
       });
     }
@@ -180,6 +237,70 @@ export class ReviewScopeCardCreationSyncService {
     }
 
     return nextCard;
+  }
+
+  private async ensureCardRootIds(cards: FSRSCard[]): Promise<FSRSCard[]> {
+    const proposals: Array<{ original: FSRSCard; next: FSRSCard }> = [];
+
+    for (const card of cards) {
+      const existingRootId = this.extractCardRootId(card);
+      if (existingRootId) {
+        proposals.push({ original: card, next: card });
+        continue;
+      }
+
+      const resolvedRootId = await this.resolveRootId(card.blockId);
+      if (!resolvedRootId) {
+        proposals.push({ original: card, next: card });
+        continue;
+      }
+
+      proposals.push({
+        original: card,
+        next: {
+          ...card,
+          meta: {
+            ...(card.meta || {}),
+            rootId: resolvedRootId,
+          },
+        },
+      });
+    }
+
+    const cardsToPersist = proposals
+      .filter((proposal) => proposal.next !== proposal.original)
+      .map((proposal) => proposal.next);
+
+    if (cardsToPersist.length === 0) {
+      return proposals.map((proposal) => proposal.next);
+    }
+
+    incrementRuntimePerformanceCounter('review-sync', 'root-id-batch-update-calls', 1);
+    incrementRuntimePerformanceCounter('review-sync', 'root-id-batch-update-cards', cardsToPersist.length);
+
+    const updateResult = await this.cardService.batchUpdateCardsWithoutEvents(cardsToPersist);
+    if (!updateResult.ok) {
+      logger.warn('[ReviewScopeCardCreationSyncService] Failed to persist resolved rootIds for created cards:', {
+        cardIds: cardsToPersist.map((card) => card.id),
+        error: updateResult.error,
+      });
+      return proposals.map((proposal) => proposal.original);
+    }
+
+    const updatedIds = new Set(updateResult.value.updatedCardIds);
+    const partiallyFailed = updateResult.value.failedCount > 0 || updateResult.value.updatedCount !== cardsToPersist.length;
+    if (partiallyFailed) {
+      logger.warn('[ReviewScopeCardCreationSyncService] Created card rootId persistence was incomplete:', {
+        attemptedCount: cardsToPersist.length,
+        result: updateResult.value,
+      });
+    }
+
+    return proposals.map((proposal) => (
+      proposal.next === proposal.original || updatedIds.has(proposal.next.id)
+        ? proposal.next
+        : proposal.original
+    ));
   }
 
   private async resolveRootId(blockId: string): Promise<string> {

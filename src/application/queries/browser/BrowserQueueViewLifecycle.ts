@@ -21,7 +21,6 @@ import {
 } from '@/types/queue-projection-live-identity';
 import type {
   QueueProjectionReadiness,
-  QueueProjectionReadinessRequest,
 } from '../../../../packages/contracts/src/backend-rpc';
 
 export type BrowserQueueViewLifecycleLogger = {
@@ -69,6 +68,8 @@ export type BrowserQueueViewPrepareReadyResult = {
   projectionIdentity: QueueProjectionIdentity | null;
   queueId: BrowserQueueId;
   queueType: QueueType | null;
+  readiness: QueueProjectionReadiness | null;
+  readinessStatus: 'not-required' | 'not-checked' | 'ready';
   requestGeneration: number;
 };
 
@@ -175,73 +176,8 @@ export function planQueueProjectionLiveIdentityForBrowserQueueView(
   return decision;
 }
 
-function buildReadinessRequest(
-  request: BrowserQueueViewPrepareRequest,
-  queueType: QueueType,
-): QueueProjectionReadinessRequest {
-  return {
-    queueType,
-    preset: request.currentPreset,
-    searchText: request.searchText,
-    docId: request.activeDocId,
-    scopeDocIds: request.activeScopeDocIds,
-    cardType: String(request.cardType),
-    source: 'browser',
-  };
-}
-
 function shouldBypassProjectionReadiness(queueType: QueueType | null): boolean {
   return queueType === QueueType.NeuralRoam;
-}
-
-function toNonReadyResult(
-  requestGeneration: number,
-  queueId: BrowserQueueId | string,
-  queueType: QueueType | null,
-  readiness: QueueProjectionReadiness | null,
-  fallbackReason: string,
-): BrowserQueueViewPrepareNonReadyResult {
-  if (!readiness) {
-    return {
-      status: 'unavailable',
-      queueId,
-      queueType,
-      reason: fallbackReason,
-      requestGeneration,
-    };
-  }
-  if (readiness.status === 'refreshing') {
-    return {
-      status: readiness.cause === 'projection_stale' ? 'repair-required' : 'preparing',
-      queueId,
-      queueType,
-      reason: readiness.cause,
-      requestGeneration,
-      retryAfterMs: readiness.retryAfterMs,
-      readiness,
-    };
-  }
-  return {
-    status: readiness.cause === 'projection_stale' ? 'repair-required' : 'unavailable',
-    queueId,
-    queueType,
-    reason: readiness.reason,
-    requestGeneration,
-    retryAfterMs: readiness.retryAfterMs,
-    readiness,
-  };
-}
-
-function toProjectionIdentity(
-  queueType: QueueType,
-  readiness: Extract<QueueProjectionReadiness, { status: 'ready' }>,
-): QueueProjectionIdentity {
-  return {
-    queueId: String(readiness.queueId || queueType),
-    queueType,
-    policyId: readiness.policyId,
-    generation: readiness.generation,
-  };
 }
 
 export function createBrowserQueueViewLifecycle(deps: BrowserQueueViewLifecycleDeps) {
@@ -290,7 +226,6 @@ export function createBrowserQueueViewLifecycle(deps: BrowserQueueViewLifecycleD
       };
     }
 
-    let readiness: QueueProjectionReadiness | null = null;
     if (!shouldBypassProjectionReadiness(queueType)) {
       const browserAppService = request.browserAppService;
       if (!browserAppService?.ensureQueueReadModelReady) {
@@ -302,25 +237,6 @@ export function createBrowserQueueViewLifecycle(deps: BrowserQueueViewLifecycleD
           requestGeneration,
           retryAfterMs: 300,
         };
-      }
-      readiness = await browserAppService.ensureQueueReadModelReady(buildReadinessRequest(request, queueType));
-      if (!isCurrentPrepareGeneration(requestGeneration)) {
-        return {
-          status: 'stale',
-          queueId: canonicalQueueId,
-          queueType,
-          requestGeneration,
-          currentGeneration: prepareGeneration,
-        };
-      }
-      if (readiness.status !== 'ready') {
-        return toNonReadyResult(
-          requestGeneration,
-          canonicalQueueId,
-          queueType,
-          readiness,
-          `Browser queue read model is unavailable for ${queueType}`,
-        );
       }
     }
 
@@ -335,6 +251,15 @@ export function createBrowserQueueViewLifecycle(deps: BrowserQueueViewLifecycleD
       plugin: request.plugin,
       searchText: request.searchText,
     });
+    if (!isCurrentPrepareGeneration(requestGeneration)) {
+      return {
+        status: 'stale',
+        queueId: canonicalQueueId,
+        queueType,
+        requestGeneration,
+        currentGeneration: prepareGeneration,
+      };
+    }
     if (!datasource) {
       return {
         status: 'unavailable',
@@ -345,9 +270,7 @@ export function createBrowserQueueViewLifecycle(deps: BrowserQueueViewLifecycleD
       };
     }
 
-    currentProjectionIdentity = readiness?.status === 'ready'
-      ? toProjectionIdentity(queueType, readiness)
-      : null;
+    currentProjectionIdentity = null;
 
     return {
       status: 'ready',
@@ -356,6 +279,8 @@ export function createBrowserQueueViewLifecycle(deps: BrowserQueueViewLifecycleD
       projectionIdentity: currentProjectionIdentity,
       queueId: canonicalQueueId,
       queueType,
+      readiness: null,
+      readinessStatus: shouldBypassProjectionReadiness(queueType) ? 'not-required' : 'not-checked',
       requestGeneration,
     };
   }
@@ -406,7 +331,7 @@ export type BrowserQueueViewLifecycle = ReturnType<typeof createBrowserQueueView
 export function mapQueueViewPrepareStatusToCountsRequest(
   result: BrowserQueueViewPrepareResult,
 ): BrowserQueueCountsRequest | null {
-  if (result.status !== 'ready' || !result.queueType) {
+  if (result.status !== 'ready' || !result.queueType || !result.projectionIdentity) {
     return null;
   }
   return {

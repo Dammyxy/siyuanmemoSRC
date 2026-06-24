@@ -2,6 +2,8 @@ import type { SrsBackendTransport } from '@/application/clients/SrsBackendClient
 import BackendWorker from '../../../worker/bootstrap/backend-worker.entry.ts?worker&inline';
 import type {
   BackendAutoCardExecuteRequest,
+  BackendAutoCardExecuteBatchRequest,
+  BackendAutoCardExecuteBatchResult,
   BackendAutoCardExecuteResult,
   BackendProgressiveCommandExecuteRequest,
   BackendProgressiveCommandExecuteResult,
@@ -75,6 +77,7 @@ export interface BrowserSrsBackendWorkerHostEffects {
     request: BackendXiuyuanRiffReadAuditRequest,
   ) => Promise<BackendXiuyuanRiffReadAuditResult>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
+  executeAutoCardBatch?: (request: BackendAutoCardExecuteBatchRequest) => Promise<BackendAutoCardExecuteBatchResult>;
   executeProgressiveCommand?: (
     request: BackendProgressiveCommandExecuteRequest,
   ) => Promise<BackendProgressiveCommandExecuteResult>;
@@ -527,6 +530,11 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('autocard.execute host effect unavailable');
         }
         return this.options.hostEffects.executeAutoCard(effect.request);
+      case 'autocard.executeBatch':
+        if (!this.options.hostEffects.executeAutoCardBatch) {
+          throw unavailable('autocard.executeBatch host effect unavailable');
+        }
+        return this.options.hostEffects.executeAutoCardBatch(effect.request);
       case 'progressive.command.execute':
         if (!this.options.hostEffects.executeProgressiveCommand) {
           throw unavailable('progressive.command.execute host effect unavailable');

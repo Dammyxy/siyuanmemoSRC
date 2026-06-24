@@ -56,6 +56,7 @@ export const BACKEND_RPC_METHODS = [
   'kernel.transaction.requeue',
   'autocard.decision.resolve',
   'autocard.execute',
+  'autocard.executeBatch',
   'review.feedback',
   'review.truth.flush',
   'review.truth.backfill',
@@ -181,6 +182,7 @@ export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD['kernel.transaction.requeue'],
   BACKEND_AUTOCARD_RPC_METHOD_CONTRACT_BY_METHOD['autocard.decision.resolve'],
   BACKEND_AUTOCARD_RPC_METHOD_CONTRACT_BY_METHOD['autocard.execute'],
+  BACKEND_AUTOCARD_RPC_METHOD_CONTRACT_BY_METHOD['autocard.executeBatch'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.feedback'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.flush'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.backfill'],
@@ -3734,6 +3736,14 @@ export interface BackendAutoCardExecuteRequest {
   envelope: BackendAutoCardExecuteEnvelope;
 }
 
+export interface BackendAutoCardExecuteBatchItem {
+  envelope: BackendAutoCardExecuteEnvelope;
+}
+
+export interface BackendAutoCardExecuteBatchRequest {
+  items: BackendAutoCardExecuteBatchItem[];
+}
+
 export interface BackendAutoCardExecuteResult {
   candidateId?: string;
   decisionEventId?: string;
@@ -3744,11 +3754,19 @@ export interface BackendAutoCardExecuteResult {
   skipped: number;
 }
 
+export interface BackendAutoCardExecuteBatchResult {
+  executed: boolean;
+  created: number;
+  skipped: number;
+  failed?: number;
+}
+
 export interface BackendKernelTransactionIngestRequest {
   source?: 'kernel-sidecar' | 'ws-main';
   transactions?: unknown[];
   receivedAt?: number;
   idempotencyKey?: string;
+  enabledActionTypes?: BackendKernelTransactionActionType[];
   provenanceSnapshot?: {
     capturedAt?: number;
     entries?: Array<{
@@ -3760,6 +3778,11 @@ export interface BackendKernelTransactionIngestRequest {
     }>;
   };
 }
+
+export type BackendKernelTransactionActionType =
+  | 'native-riff-remove'
+  | 'native-riff-upsert'
+  | 'auto-card-candidates';
 
 export interface BackendKernelTransactionIngestResult {
   accepted: number;
@@ -3777,17 +3800,17 @@ export interface BackendKernelTransactionActionBase {
 }
 
 export interface BackendKernelTransactionRemoveAction extends BackendKernelTransactionActionBase {
-  type: 'native-riff-remove';
+  type: Extract<BackendKernelTransactionActionType, 'native-riff-remove'>;
   blockIds: string[];
 }
 
 export interface BackendKernelTransactionUpsertAction extends BackendKernelTransactionActionBase {
-  type: 'native-riff-upsert';
+  type: Extract<BackendKernelTransactionActionType, 'native-riff-upsert'>;
   blockIds: string[];
 }
 
 export interface BackendKernelTransactionAutoCardAction extends BackendKernelTransactionActionBase {
-  type: 'auto-card-candidates';
+  type: Extract<BackendKernelTransactionActionType, 'auto-card-candidates'>;
   operations: Array<{
     action: 'insert' | 'update' | 'delete';
     blockId: string;

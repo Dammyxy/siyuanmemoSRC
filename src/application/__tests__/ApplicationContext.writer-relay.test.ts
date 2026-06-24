@@ -43,6 +43,28 @@ describe('ApplicationContext writer relay command dispatch', () => {
     })).toBe(true);
   });
 
+  it('limits kernel transaction ingest actions to native Riff when quick-card listener is disabled', () => {
+    expect((ApplicationContext as unknown as {
+      resolveKernelTransactionIngestActionTypes: (input: {
+        quickCardEnabled: boolean;
+        nativeRiffSyncEnabled: boolean;
+      }) => string[];
+    }).resolveKernelTransactionIngestActionTypes({
+      quickCardEnabled: false,
+      nativeRiffSyncEnabled: true,
+    })).toEqual(['native-riff-remove', 'native-riff-upsert']);
+
+    expect((ApplicationContext as unknown as {
+      resolveKernelTransactionIngestActionTypes: (input: {
+        quickCardEnabled: boolean;
+        nativeRiffSyncEnabled: boolean;
+      }) => string[];
+    }).resolveKernelTransactionIngestActionTypes({
+      quickCardEnabled: true,
+      nativeRiffSyncEnabled: true,
+    })).toEqual(['native-riff-remove', 'native-riff-upsert', 'auto-card-candidates']);
+  });
+
   it('keeps the default writer lease TTL when no override env is configured', () => {
     const key = 'VITE_SIYUANMEMO_KERNEL_WRITER_LEASE_TTL_MS';
     const previous = process.env[key];

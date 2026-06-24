@@ -152,6 +152,7 @@ function createRuntimeBundleOptions() {
       resolveNeuralRoamNodePriority: vi.fn(() => 0),
     } as never,
     executeAutoCard: vi.fn(),
+    executeAutoCardBatch: vi.fn(),
     executeWriterRelayCommand: vi.fn(async () => ({ ok: true })),
     kernelSidecarClient: {} as never,
     createBlockExistenceSiyuanPort: () => ({
@@ -235,5 +236,21 @@ describe('createApplicationBackendRuntimeBundle', () => {
         { id: 'block-b', content: 'B' },
       ],
     });
+  });
+
+  it('passes AutoCard batch execution host effect into the backend worker transport', async () => {
+    runtimeBundleMocks.backendClients.length = 0;
+    runtimeBundleMocks.frontendRuntimes.length = 0;
+    runtimeBundleMocks.transports.length = 0;
+    const options = createRuntimeBundleOptions();
+
+    await createApplicationBackendRuntimeBundle(options);
+
+    const transportOptions = runtimeBundleMocks.transports[0].options as {
+      hostEffects: {
+        executeAutoCardBatch?: (request: unknown) => Promise<unknown>;
+      };
+    };
+    expect(transportOptions.hostEffects.executeAutoCardBatch).toBe(options.executeAutoCardBatch);
   });
 });

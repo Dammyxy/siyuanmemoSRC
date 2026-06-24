@@ -1,6 +1,8 @@
 import type {
   BackendAutoCardDecisionResolveRequest,
   BackendAutoCardDecisionResolveResult,
+  BackendAutoCardExecuteBatchRequest,
+  BackendAutoCardExecuteBatchResult,
   BackendAutoCardExecuteRequest,
   BackendAutoCardExecuteResult,
   BackendRpcHandlerAdapter,
@@ -25,6 +27,9 @@ export interface BackendAutoCardRpcRuntime {
   executeAutoCard?(
     request: BackendAutoCardExecuteRequest,
   ): Promise<BackendAutoCardExecuteResult> | BackendAutoCardExecuteResult;
+  executeAutoCardBatch?(
+    request: BackendAutoCardExecuteBatchRequest,
+  ): Promise<BackendAutoCardExecuteBatchResult> | BackendAutoCardExecuteBatchResult;
 }
 
 export interface BackendAutoCardRpcHandlerContext extends BackendRpcHandlerContext {
@@ -73,6 +78,40 @@ const BACKEND_AUTOCARD_RPC_HANDLER_ADAPTERS: {
       }
       try {
         const result = await context.autoCard.executeAutoCard(named);
+        context.autoCard.database.recordAutoCardExecuteOutcome({
+          status: result.executed ? 'created' : result.skipped > 0 ? 'skipped' : 'no-op',
+          created: result.created,
+          skipped: result.skipped,
+        });
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error || '');
+        context.autoCard.database.recordAutoCardExecuteOutcome({
+          status: message.startsWith('BACKEND_UNAVAILABLE:') ? 'unavailable' : 'failed',
+        });
+        throw error;
+      }
+    },
+  },
+  'autocard.executeBatch': {
+    method: 'autocard.executeBatch',
+    family: 'autocard',
+    async handle(params, context): Promise<BackendAutoCardExecuteBatchResult> {
+      const named = readRequiredNamedParams<BackendAutoCardExecuteBatchRequest>(
+        params,
+        'autocard.executeBatch requires named params with items',
+      );
+      if (!Array.isArray(named.items)) {
+        throw new Error('INVALID_REQUEST: autocard.executeBatch requires named params with items');
+      }
+      if (typeof context.autoCard.executeAutoCardBatch !== 'function') {
+        context.autoCard.database.recordAutoCardExecuteOutcome({
+          status: 'unavailable',
+        });
+        throw new Error('SrsBackendWorker autocard.executeBatch unavailable: execute callback is not configured');
+      }
+      try {
+        const result = await context.autoCard.executeAutoCardBatch(named);
         context.autoCard.database.recordAutoCardExecuteOutcome({
           status: result.executed ? 'created' : result.skipped > 0 ? 'skipped' : 'no-op',
           created: result.created,

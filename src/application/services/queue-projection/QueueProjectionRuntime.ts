@@ -126,14 +126,6 @@ const QUEUE_PROJECTION_READABLE_TYPES = new Set<QueueType>([
   QueueType.NeuralRoam,
 ]);
 
-const QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES = new Set<QueueType>([
-  QueueType.RetrievalPractice,
-  QueueType.IncrementalLearning,
-  QueueType.FinalDrill,
-  QueueType.FilterGroup,
-]);
-const QUEUE_PROJECTION_MATERIALIZATION_SHORT_AWAIT_MS = 300;
-
 const DEFAULT_QUEUE_PROJECTION_ROLLOUT_STATES: Record<QueueType, QueueProjectionRolloutState> = {
   [QueueType.RetrievalPractice]: 'backend-projection',
   [QueueType.IncrementalLearning]: 'backend-projection',
@@ -193,83 +185,13 @@ export class QueueProjectionRuntime {
     }
     if (readiness.status === 'refreshing') {
       const currentDiagnostic = this.queueProjectionUnavailableDiagnostics.get(queueType);
-      const currentGeneration = this.resolveReadinessMaterializationGeneration(queueType);
       this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
         unavailableReason: readiness.cause,
         backendStatus: currentDiagnostic?.backendStatus ?? readiness.status,
         policyHash: currentDiagnostic?.policyHash ?? readiness.policyId,
-        generation: currentGeneration > 0 ? currentGeneration : currentDiagnostic?.generation ?? null,
+        generation: currentDiagnostic?.generation ?? null,
         freshness: currentDiagnostic?.freshness ?? null,
       });
-      if (this.shouldMaterializeDuringReadiness(queueType, readiness)) {
-        const backend = this.deps.getBackendClient();
-        if (!this.canSubmitQueueProjectionReplace(backend)) {
-          const cause = this.isCurrentInstanceFollower()
-            ? 'writer_unavailable'
-            : 'backend_unavailable';
-          this.recordQueueProjectionUnavailable(queueType, 'projection-unavailable', {
-            unavailableReason: cause,
-            backendStatus: 'unavailable',
-            policyHash: readiness.policyId,
-            generation: null,
-            freshness: currentDiagnostic?.freshness ?? null,
-          });
-          return {
-            status: 'unavailable',
-            queueId: queueType,
-            policyId: readiness.policyId,
-            cause,
-            reason: `queue projection materialization unavailable for ${queueType}`,
-            recoverable: true,
-            retryAfterMs: 300,
-          };
-        }
-        try {
-          const result = await this.awaitMaterializationShortWindow(this.tryMaterializeQueueProjection(queueType, backend, {
-            currentPolicyHash: readiness.policyId,
-            currentGeneration,
-            reason: readiness.cause,
-            readinessRequest: {
-              ...request,
-              queueType,
-            },
-          }));
-          if (result && result.status === 'ready') {
-            this.clearQueueProjectionUnavailable(queueType);
-            return {
-              status: 'ready',
-              queueId: queueType,
-              policyId: result.policyHash,
-              generation: result.generation,
-            };
-          }
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          const cause = this.isCurrentInstanceFollower()
-            ? 'writer_unavailable'
-            : 'materialization_failed';
-          this.deps.logger.warn('Queue projection materialization failed during readiness', {
-            queueType,
-            cause,
-            reason,
-          });
-          this.recordQueueProjectionUnavailable(queueType, 'projection-unavailable', {
-            unavailableReason: cause,
-            backendStatus: 'unavailable',
-            policyHash: readiness.policyId,
-            generation: null,
-          });
-          return {
-            status: 'unavailable',
-            queueId: queueType,
-            policyId: readiness.policyId,
-            cause,
-            reason,
-            recoverable: true,
-            retryAfterMs: 300,
-          };
-        }
-      }
       return readiness;
     }
 
@@ -323,24 +245,6 @@ export class QueueProjectionRuntime {
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
           freshness: result.freshness ?? null,
         });
-        if (options.forceRefresh && QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES.has(queueType)) {
-          const materialized = await this.tryMaterializeQueueProjection(queueType, backend, {
-            currentPolicyHash: result.policyHash,
-            currentGeneration: result.generation,
-            reason: 'forced-snapshot-refresh',
-          });
-          if (materialized?.status === 'ready') {
-            const echo = this.getMaterializedProjectionEcho(
-              queueType,
-              materialized.policyHash,
-              materialized.generation,
-            );
-            if (echo) {
-              this.clearQueueProjectionUnavailable(queueType);
-              return this.cloneQueueProjectionSnapshot(echo.snapshot);
-            }
-          }
-        }
         return null;
       }
 
@@ -408,20 +312,6 @@ export class QueueProjectionRuntime {
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
           freshness: result.freshness ?? null,
         });
-        if (QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES.has(queueType)) {
-          const materialized = await this.tryMaterializeQueueProjection(queueType, backend, {
-            currentPolicyHash: result.policyHash,
-            currentGeneration: result.generation,
-            reason: 'row-hydration-refresh',
-          });
-          if (materialized?.status === 'ready') {
-            this.clearQueueProjectionUnavailable(queueType);
-            const echoedCards = this.getMaterializedProjectionEchoCards(queueType, orderedIds);
-            if (echoedCards) {
-              return echoedCards;
-            }
-          }
-        }
         return [];
       }
 
@@ -454,10 +344,24 @@ export class QueueProjectionRuntime {
   async materialize(
     queueType: QueueType,
     queueOverride?: Pick<IReviewQueue, 'getCards'> | null,
+    options: {
+      readinessRequest?: QueueProjectionReadinessRequest | null;
+      reason?: string | null;
+    } = {},
   ): Promise<BackendQueueProjectionReplaceResult | null> {
+    const readinessRequest = options.readinessRequest
+      ? {
+        ...options.readinessRequest,
+        queueType,
+      }
+      : null;
     return this.tryMaterializeQueueProjection(queueType, this.deps.getBackendClient(), {
+      currentPolicyHash: readinessRequest
+        ? this.queueProjectionReadiness.buildPolicyId(readinessRequest)
+        : undefined,
       queueOverride,
-      reason: 'explicit-repair',
+      reason: options.reason ?? 'explicit-repair',
+      readinessRequest,
     });
   }
 
@@ -763,42 +667,6 @@ export class QueueProjectionRuntime {
     return runtime?.getMode?.() === 'follower';
   }
 
-  private awaitMaterializationShortWindow(
-    materialization: Promise<BackendQueueProjectionReplaceResult | null>,
-  ): Promise<BackendQueueProjectionReplaceResult | null> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const timeout = setTimeout(() => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        resolve(null);
-      }, QUEUE_PROJECTION_MATERIALIZATION_SHORT_AWAIT_MS);
-      materialization.then((result) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timeout);
-        resolve(result);
-      }, (error) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timeout);
-        reject(error);
-      });
-    });
-  }
-
-  private resolveReadinessMaterializationGeneration(queueType: QueueType): number {
-    const diagnostic = this.queueProjectionUnavailableDiagnostics.get(queueType);
-    const generation = Number(diagnostic?.generation);
-    return Number.isInteger(generation) && generation > 0 ? generation : 0;
-  }
-
   private resolveReadinessSnapshotUnavailableReason(
     status: unknown,
     freshness?: BackendQueueProjectionFreshnessEvidence | null,
@@ -843,20 +711,6 @@ export class QueueProjectionRuntime {
       );
     }
     return Boolean(backend && typeof backend.queueProjectionReplace === 'function');
-  }
-
-  private shouldMaterializeDuringReadiness(
-    queueType: QueueType,
-    readiness: QueueProjectionReadiness,
-  ): boolean {
-    return readiness.status === 'refreshing'
-      && QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES.has(queueType)
-      && (
-        readiness.cause === 'materialization_in_progress'
-        || readiness.cause === 'projection_unavailable'
-        || readiness.cause === 'missing_derived_cache'
-        || readiness.cause === 'projection_stale'
-      );
   }
 
   private cacheMaterializedProjectionEcho(

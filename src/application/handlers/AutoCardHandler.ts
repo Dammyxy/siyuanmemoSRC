@@ -31,7 +31,11 @@ import {
     parseBasicDirectionContent,
 } from '@/core/card/post-creation/rules/rule-utils';
 import { PostCreationConflictMediator } from '@/application/services/PostCreationConflictMediator';
-import { DocumentPostCreationScanService } from '@/application/services/DocumentPostCreationScanService';
+import {
+    DocumentPostCreationScanService,
+    type DocumentSymbolCardBatchPlan,
+    type DocumentSymbolCardPlanCandidate,
+} from '@/application/services/DocumentPostCreationScanService';
 import {
     resolveProgressiveSourceContext,
     type ProgressiveSourceContext,
@@ -42,6 +46,8 @@ import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/C
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import type {
     BackendAutoCardExecuteEnvelope,
+    BackendAutoCardExecuteBatchRequest,
+    BackendAutoCardExecuteBatchResult,
     BackendAutoCardExecuteRequest,
     BackendAutoCardExecuteResult,
     BackendAutoCardDecisionProjection,
@@ -53,6 +59,7 @@ import {
     type AutoCardExecutionResult,
     type AutoCardExecutionSource,
 } from './AutoCardExecutionRuntime';
+import type { XiuyuanBatchCreationResult } from '@/application/usecases/xiuyuan/CreateXiuyuanFromBlocksUseCase';
 import {
     AutoCardDecisionRelayRuntime,
     type AutoCardDecisionBackendClient,
@@ -115,6 +122,7 @@ type XiuyuanCreateResult = Result<{
 
 type XiuyuanApplicationServiceLike = {
     createFromBlocks: (command: CreateXiuyuanFromBlocksCommand) => Promise<XiuyuanCreateResult>;
+    createFromBlocksBatch?: (commands: CreateXiuyuanFromBlocksCommand[]) => Promise<Result<XiuyuanBatchCreationResult>>;
     createTemplate: (template: Record<string, unknown>) => Promise<Result<void>>;
 };
 
@@ -811,6 +819,67 @@ export class AutoCardHandler implements ITransactionHandler {
         return workerResult.executed;
     }
 
+    private async executeAutoCardEnvelopeBatch(
+        envelopes: AutoCardExecutionEnvelope[],
+    ): Promise<AutoCardExecutionResult> {
+        return measureRuntimePerformance(
+            'autocard',
+            'execute-envelope-batch.worker-or-relay',
+            () => this.executeRelayRuntime.executeBatch(envelopes),
+            { envelopeCount: envelopes.length },
+        );
+    }
+
+    private toDocumentScanExecutionEnvelope(
+        candidate: DocumentSymbolCardPlanCandidate,
+        docRootId: string,
+    ): AutoCardExecutionEnvelope {
+        return {
+            kind: 'planner-decision',
+            blockId: candidate.blockId,
+            content: candidate.structural ? candidate.content : candidate.normalizedContent,
+            decision: candidate.decision,
+            source: 'doc-oneclick-scan',
+            docRootId,
+        };
+    }
+
+    private async executeDocumentScanBatchPlan(
+        plan: DocumentSymbolCardBatchPlan,
+        docRootId: string,
+    ): Promise<AutoCardDocumentScanResult> {
+        const summary: AutoCardDocumentScanResult = { ...plan.summary };
+        incrementRuntimePerformanceCounter('autocard', 'doc-scan-candidates', plan.candidates.length);
+        if (plan.candidates.length === 0) {
+            incrementRuntimePerformanceCounter('autocard', 'doc-scan-created', summary.created);
+            incrementRuntimePerformanceCounter('autocard', 'doc-scan-skipped', summary.skipped);
+            incrementRuntimePerformanceCounter('autocard', 'doc-scan-failed', summary.failed);
+            incrementRuntimePerformanceCounter('autocard', 'doc-scan-conflicted', summary.conflicted);
+            return summary;
+        }
+
+        try {
+            const batchResult = await this.executeAutoCardEnvelopeBatch(
+                plan.candidates.map((candidate) => this.toDocumentScanExecutionEnvelope(candidate, docRootId)),
+            );
+            summary.created += Math.max(0, Math.floor(Number(batchResult.created || 0)));
+            summary.skipped += Math.max(0, Math.floor(Number(batchResult.skipped || 0)));
+            summary.failed += Math.max(0, Math.floor(Number(batchResult.failed || 0)));
+        } catch (error) {
+            summary.failed += plan.candidates.length;
+            logger.error('[AutoCard] Document scan batch execute failed:', {
+                rootId: docRootId,
+                candidateCount: plan.candidates.length,
+                error,
+            });
+        }
+        incrementRuntimePerformanceCounter('autocard', 'doc-scan-created', summary.created);
+        incrementRuntimePerformanceCounter('autocard', 'doc-scan-skipped', summary.skipped);
+        incrementRuntimePerformanceCounter('autocard', 'doc-scan-failed', summary.failed);
+        incrementRuntimePerformanceCounter('autocard', 'doc-scan-conflicted', summary.conflicted);
+        return summary;
+    }
+
     private resolveExecutionOwnership(input: {
         kind: AutoCardExecutionEnvelope['kind'];
     }): {
@@ -840,6 +909,129 @@ export class AutoCardHandler implements ITransactionHandler {
             executed: result.executed,
             created: result.created,
             skipped: result.skipped,
+        };
+    }
+
+    async executeBatchFromBackend(
+        request: BackendAutoCardExecuteBatchRequest,
+    ): Promise<BackendAutoCardExecuteBatchResult> {
+        if (!request || typeof request !== 'object' || !Array.isArray(request.items)) {
+            throw new Error('autocard.executeBatch requires named params with items');
+        }
+        const validatedItems = request.items.map((item) => {
+            if (!item?.envelope || typeof item.envelope !== 'object') {
+                throw new Error('autocard.executeBatch item requires envelope');
+            }
+            return item;
+        });
+        const batchCompatible = validatedItems.map((item) => ({
+            item,
+            command: this.tryBuildDocScanQuickBasicBatchCommand(item.envelope),
+        }));
+
+        let created = 0;
+        let skipped = 0;
+        let failed = 0;
+        const commands = batchCompatible
+            .map((entry) => entry.command)
+            .filter((command): command is CreateXiuyuanFromBlocksCommand => Boolean(command));
+        if (commands.length > 0) {
+            try {
+                const batchResult = await this.executeDocScanQuickBasicXiuyuanBatch(commands);
+                created += batchResult.created;
+                skipped += batchResult.skipped;
+                failed += batchResult.failed;
+            } catch (error) {
+                failed += commands.length;
+                logger.error('[AutoCard] Failed to execute doc scan quick-basic Xiuyuan batch:', error);
+            }
+        }
+
+        for (const entry of batchCompatible) {
+            if (entry.command) {
+                continue;
+            }
+            try {
+                const localEnvelope = this.fromBackendExecuteEnvelope(entry.item.envelope);
+                const result = await measureRuntimePerformance(
+                    'autocard',
+                    'execute-batch.backend-local-item',
+                    () => this.executionRuntime.executeLocalWithResult(localEnvelope),
+                    { envelopeKind: localEnvelope.kind },
+                );
+                created += Math.max(0, Math.floor(Number(result.created || 0)));
+                skipped += Math.max(0, Math.floor(Number(result.skipped || 0)));
+            } catch (error) {
+                failed += 1;
+                logger.error('[AutoCard] Failed to execute batch item from backend:', error);
+            }
+        }
+        return {
+            executed: created > 0,
+            created,
+            skipped,
+            failed,
+        };
+    }
+
+    private tryBuildDocScanQuickBasicBatchCommand(
+        envelope: BackendAutoCardExecuteEnvelope,
+    ): CreateXiuyuanFromBlocksCommand | null {
+        if (envelope.kind !== 'planner-decision') {
+            return null;
+        }
+        if (envelope.source !== 'doc-oneclick-scan') {
+            return null;
+        }
+        const decision = this.toCreationDecision(envelope.decision);
+        if (decision.executorKind !== 'quick-basic') {
+            return null;
+        }
+        const parsed = parseBasicDirectionContent(envelope.content);
+        if (!parsed) {
+            return null;
+        }
+        const backClozes = ClozeDetector.extractClozes(parsed.answer);
+        if (backClozes.length > 0) {
+            return null;
+        }
+        const templateId = parsed.direction === 'both'
+            ? 'builtin-bidirectional-single'
+            : 'builtin-quick-card';
+        return {
+            blockIds: [envelope.blockId],
+            templateId,
+            fieldMapping: { content: envelope.blockId },
+            deckId: this.riffApi.BUILTIN_DECK_ID,
+            cardType: this.normalizeTopicItemCardType(decision.cardType),
+            source: 'doc-oneclick-scan',
+            duplicatePolicy: 'error',
+            creationRuleId: decision.id,
+            creationMode: decision.mode,
+            ...(decision.renderProfile ? { renderProfile: decision.renderProfile } : {}),
+        };
+    }
+
+    private async executeDocScanQuickBasicXiuyuanBatch(
+        commands: CreateXiuyuanFromBlocksCommand[],
+    ): Promise<{ created: number; skipped: number; failed: number }> {
+        const xiuyuanAppService = await this.requireXiuyuanApplicationService();
+        if (typeof xiuyuanAppService.createFromBlocksBatch !== 'function') {
+            throw new Error('[AutoCard] XiuyuanApplicationService batch creation is unavailable');
+        }
+        const result = await measureRuntimePerformance(
+            'autocard',
+            'xiuyuan.create-from-blocks-batch',
+            () => xiuyuanAppService.createFromBlocksBatch!(commands),
+            { commandCount: commands.length, source: 'doc-oneclick-scan' },
+        );
+        if (isErr(result)) {
+            throw new Error(`Failed to create symbol card batch: ${this.getErrorMessage(result.error)}`);
+        }
+        return {
+            created: result.value.createdCount,
+            skipped: result.value.skippedCount,
+            failed: result.value.failedCount,
         };
     }
 
@@ -1323,121 +1515,124 @@ export class AutoCardHandler implements ITransactionHandler {
     }
 
     public async scanDocumentByRootId(rootId: string): Promise<AutoCardDocumentScanResult> {
-        const requestedRootId = rootId.trim();
-        const resolvedRootId = await this.resolveDocumentRootId(requestedRootId);
-        const normalizedRootId = resolvedRootId || requestedRootId;
-        const emptyResult: AutoCardDocumentScanResult = {
-            rootId: normalizedRootId,
-            scanned: 0,
-            created: 0,
-            skipped: 0,
-            failed: 0,
-            conflicted: 0,
-            consumed: 0,
-        };
+        return measureRuntimePerformance('autocard', 'doc-scan.total', async () => {
+            const requestedRootId = rootId.trim();
+            const resolvedRootId = await this.resolveDocumentRootId(requestedRootId);
+            const normalizedRootId = resolvedRootId || requestedRootId;
+            const emptyResult: AutoCardDocumentScanResult = {
+                rootId: normalizedRootId,
+                scanned: 0,
+                created: 0,
+                skipped: 0,
+                failed: 0,
+                conflicted: 0,
+                consumed: 0,
+            };
 
-        if (!normalizedRootId) {
-            return emptyResult;
-        }
-
-        const backendClient = this.getSrsBackendClientOptional();
-        const docScanQuickCardSettings: QuickCardSettings = {
-            enabled: true,
-            enabledSymbols: {
-                basic: true,
-                concept: true,
-                descriptor: true,
-                cloze: true,
-                multiLine: true,
-            },
-            topicDerivation: {
-                enabled: true,
-                storageMode: 'workbench',
-            },
-        };
-
-        const scanner = new DocumentPostCreationScanService(
-            {
-                getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
-            },
-            this.hostBlockQuery,
-            {
-                executeSingleBlockDecision: async ({ blockId, content, decision }) => {
-                    return this.executeAutoCardEnvelope({
-                        kind: 'planner-decision',
-                        blockId,
-                        content,
-                        decision,
-                        source: 'doc-oneclick-scan',
-                        docRootId: normalizedRootId,
-                    });
-                },
-                executeStructuralDecision: async ({ blockId, content, decision }) => {
-                    return this.executeAutoCardEnvelope({
-                        kind: 'planner-decision',
-                        blockId,
-                        content,
-                        decision,
-                        source: 'doc-oneclick-scan',
-                        docRootId: normalizedRootId,
-                    });
-                },
-            },
-            {
-                planner: this.postCreationPlanner,
-                conflictMediator: this.conflictMediator,
-                resolveCardType: async ({ blockId, blockType, content }) => (
-                    this.resolveDetectedCardType(blockId, blockType, content)
-                ),
-                resolveStructuralDecision: backendClient ? async ({ blockId, blockType, content, resolvedCardType }) => {
-                    const decisionCoreResult = await this.resolveAutoCardDecisionCore({
-                        blockId,
-                        content,
-                        blockType,
-                        resolvedCardType: resolvedCardType === 'topic' ? 'topic' : 'item',
-                        source: 'doc-oneclick-scan',
-                        ruleScope: 'structural',
-                        quickCardSettings: docScanQuickCardSettings,
-                        sourceContext: null,
-                    });
-                    return {
-                        matchedRuleIds: decisionCoreResult.matchedRuleIds,
-                        enabledDecisions: decisionCoreResult.enabledDecisions,
-                        selectedDecision: decisionCoreResult.selectedDecision,
-                        conflicted: decisionCoreResult.conflicted,
-                    };
-                } : undefined,
-                resolveSingleBlockDecision: async ({ blockId, blockType, content, resolvedCardType }) => {
-                    const decisionCoreResult = await this.resolveAutoCardDecisionCore({
-                        blockId,
-                        content,
-                        blockType,
-                        resolvedCardType: resolvedCardType === 'topic' ? 'topic' : 'item',
-                        source: 'doc-oneclick-scan',
-                        ruleScope: 'single-block',
-                        quickCardSettings: docScanQuickCardSettings,
-                        sourceContext: null,
-                    });
-                    return {
-                        matchedRuleIds: decisionCoreResult.matchedRuleIds,
-                        enabledDecisions: decisionCoreResult.enabledDecisions,
-                        selectedDecision: decisionCoreResult.selectedDecision,
-                        conflicted: decisionCoreResult.conflicted,
-                    };
-                },
+            if (!normalizedRootId) {
+                return emptyResult;
             }
-        );
 
-        const summary = await scanner.scanByRootId(normalizedRootId);
-        return {
-            rootId: summary.rootId,
-            scanned: summary.scanned,
-            created: summary.created,
-            skipped: summary.skipped,
-            failed: summary.failed,
-            conflicted: summary.conflicted,
-            consumed: summary.consumed,
-        };
+            const backendClient = this.getSrsBackendClientOptional();
+            const docScanQuickCardSettings: QuickCardSettings = {
+                enabled: true,
+                enabledSymbols: {
+                    basic: true,
+                    concept: true,
+                    descriptor: true,
+                    cloze: true,
+                    multiLine: true,
+                },
+                topicDerivation: {
+                    enabled: true,
+                    storageMode: 'workbench',
+                },
+            };
+
+            const scanner = new DocumentPostCreationScanService(
+                {
+                    getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
+                },
+                this.hostBlockQuery,
+                {
+                    executeSingleBlockDecision: async ({ blockId, content, decision }) => {
+                        return this.executeAutoCardEnvelope({
+                            kind: 'planner-decision',
+                            blockId,
+                            content,
+                            decision,
+                            source: 'doc-oneclick-scan',
+                            docRootId: normalizedRootId,
+                        });
+                    },
+                    executeStructuralDecision: async ({ blockId, content, decision }) => {
+                        return this.executeAutoCardEnvelope({
+                            kind: 'planner-decision',
+                            blockId,
+                            content,
+                            decision,
+                            source: 'doc-oneclick-scan',
+                            docRootId: normalizedRootId,
+                        });
+                    },
+                },
+                {
+                    planner: this.postCreationPlanner,
+                    conflictMediator: this.conflictMediator,
+                    resolveCardType: async ({ blockId, blockType, content }) => (
+                        this.resolveDetectedCardType(blockId, blockType, content)
+                    ),
+                    resolveStructuralDecision: backendClient ? async ({ blockId, blockType, content, resolvedCardType }) => {
+                        const decisionCoreResult = await this.resolveAutoCardDecisionCore({
+                            blockId,
+                            content,
+                            blockType,
+                            resolvedCardType: resolvedCardType === 'topic' ? 'topic' : 'item',
+                            source: 'doc-oneclick-scan',
+                            ruleScope: 'structural',
+                            quickCardSettings: docScanQuickCardSettings,
+                            sourceContext: null,
+                        });
+                        return {
+                            matchedRuleIds: decisionCoreResult.matchedRuleIds,
+                            enabledDecisions: decisionCoreResult.enabledDecisions,
+                            selectedDecision: decisionCoreResult.selectedDecision,
+                            conflicted: decisionCoreResult.conflicted,
+                        };
+                    } : undefined,
+                    resolveSingleBlockDecision: async ({ blockId, blockType, content, resolvedCardType }) => {
+                        const decisionCoreResult = await this.resolveAutoCardDecisionCore({
+                            blockId,
+                            content,
+                            blockType,
+                            resolvedCardType: resolvedCardType === 'topic' ? 'topic' : 'item',
+                            source: 'doc-oneclick-scan',
+                            ruleScope: 'single-block',
+                            quickCardSettings: docScanQuickCardSettings,
+                            sourceContext: null,
+                        });
+                        return {
+                            matchedRuleIds: decisionCoreResult.matchedRuleIds,
+                            enabledDecisions: decisionCoreResult.enabledDecisions,
+                            selectedDecision: decisionCoreResult.selectedDecision,
+                            conflicted: decisionCoreResult.conflicted,
+                        };
+                    },
+                }
+            );
+
+            const plan = await scanner.planByRootId(normalizedRootId);
+            const summary = await this.executeDocumentScanBatchPlan(plan, normalizedRootId);
+            return {
+                rootId: summary.rootId,
+                scanned: summary.scanned,
+                created: summary.created,
+                skipped: summary.skipped,
+                failed: summary.failed,
+                conflicted: summary.conflicted,
+                consumed: summary.consumed,
+            };
+        }, { requestedRootId: rootId.trim() });
     }
     
     // Check a block for quick symbols and create all matched cards in one pass.

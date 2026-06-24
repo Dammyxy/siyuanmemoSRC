@@ -41,10 +41,18 @@ import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { createLogger } from '@/utils/logger';
 import { isDefinitionTemplate, isDescriptorTemplate } from './shared/DescriptorTemplateStrategy';
 import {
+  finalizeXiuyuanCreationBatch,
   finalizeXiuyuanCreation,
   toXiuyuanCreationPayload,
   type XiuyuanCreationPayload,
 } from './shared/FinalizeXiuyuanCreation';
+
+export interface XiuyuanBatchCreationResult {
+  payloads: XiuyuanCreationPayload[];
+  createdCount: number;
+  skippedCount: number;
+  failedCount: number;
+}
 
 const logger = createLogger('CreateXiuyuanFromBlocksUseCase');
 
@@ -90,6 +98,21 @@ function summarizeTraceAttrs(attrs: Record<string, string> | null | undefined): 
   };
 }
 
+type PreparedXiuyuanCreation = {
+  kind: 'new';
+  xiuyuan: Xiuyuan;
+  source?: string;
+  riff: {
+    deckId?: string;
+    blockIds: string[];
+    source: string;
+    context?: Record<string, unknown>;
+  };
+} | {
+  kind: 'existing';
+  payload: XiuyuanCreationPayload;
+};
+
 /**
  * 浠庡潡鍒涘缓 Xiuyuan 鐢ㄤ緥
  * 
@@ -122,7 +145,86 @@ export class CreateXiuyuanFromBlocksUseCase {
    */
   async execute(command: CreateXiuyuanFromBlocksCommand): Promise<Result<XiuyuanCreationPayload>> {
     try {
-      const duplicatePolicy = command.duplicatePolicy ?? 'error';
+      const preparedResult = await this.prepareCreation(command);
+      if (isErr(preparedResult)) {
+        return preparedResult as Result<XiuyuanCreationPayload>;
+      }
+      const prepared = preparedResult.value;
+      if (prepared.kind === 'existing') {
+        return ok(prepared.payload);
+      }
+      const { xiuyuan, riff } = prepared;
+
+      return finalizeXiuyuanCreation({
+        xiuyuan,
+        xiuyuanRepository: this.xiuyuanRepository,
+        eventBus: this.eventBus,
+        logger,
+        siyuanApi: this.siyuanApi,
+        riff,
+      });
+    } catch (error) {
+      logger.error('Failed:', error);
+      return err(this.toError(error, 'CreateXiuyuanFromBlocksUseCase failed'));
+    }
+  }
+
+  async executeBatch(commands: CreateXiuyuanFromBlocksCommand[]): Promise<Result<XiuyuanBatchCreationResult>> {
+    try {
+      const preparedItems: PreparedXiuyuanCreation[] = [];
+      let skippedCount = 0;
+      let failedCount = 0;
+      for (const command of commands) {
+        const preparedResult = await this.prepareCreation(command);
+        if (isErr(preparedResult)) {
+          failedCount += 1;
+          logger.warn('Batch item failed during preparation:', {
+            error: preparedResult.error,
+            source: command.source ?? null,
+            templateId: command.templateId,
+            blockIds: command.blockIds,
+          });
+          continue;
+        }
+        if (preparedResult.value.kind === 'existing') {
+          skippedCount += 1;
+        }
+        preparedItems.push(preparedResult.value);
+      }
+
+      const newItems = preparedItems.filter((item): item is Extract<PreparedXiuyuanCreation, { kind: 'new' }> => item.kind === 'new');
+      const finalizedNewItems = await finalizeXiuyuanCreationBatch({
+        items: newItems,
+        xiuyuanRepository: this.xiuyuanRepository,
+        eventBus: this.eventBus,
+        logger,
+        siyuanApi: this.siyuanApi,
+      });
+      if (isErr(finalizedNewItems)) {
+        return finalizedNewItems;
+      }
+
+      let nextNewPayloadIndex = 0;
+      const payloads = preparedItems.map((item) => {
+        if (item.kind === 'existing') {
+          return item.payload;
+        }
+        return finalizedNewItems.value[nextNewPayloadIndex++];
+      });
+      return ok({
+        payloads,
+        createdCount: newItems.length,
+        skippedCount,
+        failedCount,
+      });
+    } catch (error) {
+      logger.error('Batch failed:', error);
+      return err(this.toError(error, 'CreateXiuyuanFromBlocksUseCase batch failed'));
+    }
+  }
+
+  private async prepareCreation(command: CreateXiuyuanFromBlocksCommand): Promise<Result<PreparedXiuyuanCreation>> {
+    const duplicatePolicy = command.duplicatePolicy ?? 'error';
 
       // 1. 在任何副作用前先计算代表块与稳定 XiuyuanId
       let blockToCheck = command.blockIds[0];
@@ -192,7 +294,10 @@ export class CreateXiuyuanFromBlocksUseCase {
             computedXiuyuanId: xiuyuanIdResult.value.getValue(),
             source: command.source ?? null,
           });
-          return ok(toXiuyuanCreationPayload(existingXiuyuanResult.value));
+          return ok({
+            kind: 'existing',
+            payload: toXiuyuanCreationPayload(existingXiuyuanResult.value),
+          });
         }
 
         logger.info(`Xiuyuan already exists for representative block ${representativeBlockId}: ${xiuyuanIdResult.value.getValue()}`);
@@ -410,12 +515,10 @@ export class CreateXiuyuanFromBlocksUseCase {
         logger.debug('Concept-descriptor template, adding descriptor block to Riff:', blockIdToAddToRiff);
       }
 
-      return finalizeXiuyuanCreation({
+      return ok({
+        kind: 'new',
         xiuyuan,
-        xiuyuanRepository: this.xiuyuanRepository,
-        eventBus: this.eventBus,
-        logger,
-        siyuanApi: this.siyuanApi,
+        source: command.source,
         riff: {
           deckId: command.deckId,
           blockIds: [blockIdToAddToRiff],
@@ -425,10 +528,6 @@ export class CreateXiuyuanFromBlocksUseCase {
           },
         },
       });
-    } catch (error) {
-      logger.error('Failed:', error);
-      return err(this.toError(error, 'CreateXiuyuanFromBlocksUseCase failed'));
-    }
   }
 
   private toError(error: unknown, defaultMessage: string): Error {

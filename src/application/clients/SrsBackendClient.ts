@@ -1,6 +1,8 @@
 import type {
   BackendAutoCardExecuteRequest,
   BackendAutoCardExecuteResult,
+  BackendAutoCardExecuteBatchRequest,
+  BackendAutoCardExecuteBatchResult,
   BackendDbLoadRequest,
   BackendBrowserAggregateFocusRequest,
   BackendBrowserAggregateFocusResult,
@@ -636,6 +638,12 @@ export class SrsBackendClient {
     request: BackendAutoCardExecuteRequest,
   ): Promise<BackendAutoCardExecuteResult> {
     return this.integrationClient.executeAutoCard(request);
+  }
+
+  async executeAutoCardBatch(
+    request: BackendAutoCardExecuteBatchRequest,
+  ): Promise<BackendAutoCardExecuteBatchResult> {
+    return this.integrationClient.executeAutoCardBatch(request);
   }
 
   private scheduleReviewTruthFlushAfterFeedback(result: BackendReviewFeedbackResult): void {

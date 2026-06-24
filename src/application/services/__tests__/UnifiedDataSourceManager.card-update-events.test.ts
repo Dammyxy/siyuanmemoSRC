@@ -218,6 +218,50 @@ describe('UnifiedDataSourceManager card update notifications', () => {
     ]);
   });
 
+  it('coalesces multiple created cards into one queue refresh pass', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    const router: IDataRouter = {
+      getCard: vi.fn(),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      deleteCard: vi.fn(async () => {}),
+      getAvailableQueueTypes: vi.fn(() => []),
+    } as unknown as IDataRouter;
+    manager.setAdvancedRouter(router);
+
+    const events: DataChangeEvent[] = [];
+    const observer: IDataSourceObserver = {
+      onDataChanged: (event) => {
+        events.push(event);
+      },
+    };
+    manager.registerObserver(observer);
+
+    const cards = [createCard(), { ...createCard(), id: 'card-2', blockId: 'block-2' }];
+    await manager.onCardsCreated(cards);
+    await flushMicrotasks();
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'card-created',
+        cardIds: ['card-1', 'card-2'],
+        blockIds: ['block-1', 'block-2'],
+      }),
+      expect.objectContaining({
+        type: 'queue-changed',
+        queueType: QueueType.RetrievalPractice,
+      }),
+      expect.objectContaining({
+        type: 'queue-changed',
+        queueType: QueueType.IncrementalLearning,
+      }),
+      expect.objectContaining({
+        type: 'queue-changed',
+        queueType: QueueType.FilterGroup,
+      }),
+    ]);
+  });
+
   it('emits card-deleted and queue-changed for all queues after card deletion sync', async () => {
     const manager = UnifiedDataSourceManager.getInstance();
     const router: IDataRouter = {

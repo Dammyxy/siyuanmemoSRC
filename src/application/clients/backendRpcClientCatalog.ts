@@ -68,6 +68,7 @@ export const SRS_BACKEND_CLIENT_METHOD_CATALOG = [
   { clientMethod: 'requeueKernelTransactions', rpcMethod: 'kernel.transaction.requeue' },
   { clientMethod: 'resolveAutoCardDecision', rpcMethod: 'autocard.decision.resolve' },
   { clientMethod: 'executeAutoCard', rpcMethod: 'autocard.execute' },
+  { clientMethod: 'executeAutoCardBatch', rpcMethod: 'autocard.executeBatch' },
 ].map((entry) => ({
   ...entry,
   family: BACKEND_RPC_METHOD_CONTRACT_BY_METHOD[entry.rpcMethod].family,

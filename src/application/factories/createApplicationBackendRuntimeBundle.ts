@@ -74,6 +74,7 @@ export interface CreateApplicationBackendRuntimeBundleOptions {
   fileService: FileService;
   unifiedDataSourceManager: UnifiedDataSourceManager;
   executeAutoCard: NonNullable<BrowserSrsBackendWorkerHostEffects['executeAutoCard']>;
+  executeAutoCardBatch?: BrowserSrsBackendWorkerHostEffects['executeAutoCardBatch'];
   executeProgressiveCommand?: BrowserSrsBackendWorkerHostEffects['executeProgressiveCommand'];
   executeTopicDerivedCommand?: BrowserSrsBackendWorkerHostEffects['executeTopicDerivedCommand'];
   executeReviewRiffFeedback?: BrowserSrsBackendWorkerHostEffects['executeReviewRiffFeedback'];
@@ -185,6 +186,7 @@ export async function createApplicationBackendRuntimeBundle(
             resolveNeuralGraphQuery: (request) => neuralRoamGraphQuery.query(request),
             readXiuyuanRiffFacts: (request) => readXiuyuanRiffFactsViaApprovedAdapter(request),
             executeAutoCard: options.executeAutoCard,
+            executeAutoCardBatch: options.executeAutoCardBatch,
             executeProgressiveCommand: options.executeProgressiveCommand,
             executeTopicDerivedCommand: options.executeTopicDerivedCommand,
             executeReviewRiffFeedback: options.executeReviewRiffFeedback,

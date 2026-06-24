@@ -2285,6 +2285,80 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('keeps successful kernel transaction ingest relay out of info diagnostics', async () => {
+    const info = vi.fn();
+    const writerTakeCommand = vi.fn()
+      .mockResolvedValueOnce({
+        command: {
+          commandId: 'cmd-ingest',
+          requesterInstanceId: 'follower-1',
+          method: 'kernel.transaction.ingest',
+          params: {
+            source: 'ws-main',
+            transactions: [{ doOperations: [{ action: 'update', id: 'block-1' }] }],
+          },
+          requestedAt: 1,
+        },
+        now: 2,
+      })
+      .mockResolvedValue({
+        command: null,
+        now: 3,
+      });
+    const writerCommandHandler = vi.fn(async () => ({
+      accepted: 1,
+      queued: 1,
+      receivedAt: 1,
+      duplicate: false,
+      queueLength: 1,
+      maxQueueLength: 256,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-a',
+          acquiredAt: 1,
+          expiresAt: 2,
+          lastHeartbeatAt: 1,
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+      writerTakeCommand,
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      relayPollIntervalMs: 250,
+      writerCommandHandler,
+      logger: {
+        info,
+        warn: vi.fn(),
+        error: vi.fn(),
+      },
+    });
+
+    await runtime.start();
+    await new Promise((resolve) => setTimeout(resolve, 320));
+
+    expect(writerCommandHandler).toHaveBeenCalledWith(expect.objectContaining({
+      commandId: 'cmd-ingest',
+      method: 'kernel.transaction.ingest',
+    }));
+    expect(info).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] relay command taken',
+      expect.objectContaining({ commandId: 'cmd-ingest' }),
+    );
+    expect(info).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] relay command completed',
+      expect.objectContaining({ commandId: 'cmd-ingest' }),
+    );
+    await runtime.dispose();
+  });
+
   it('yields relay drain after budget while preserving writer command order', async () => {
     const nowValues = [0, 2, 3, 3, 3, 3];
     vi.spyOn(performance, 'now').mockImplementation(() => nowValues.shift() ?? 3);

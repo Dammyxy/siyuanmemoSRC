@@ -275,8 +275,7 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.loading.value).toBe(false);
   });
 
-  it('reports preparing queue lifecycle without attaching local fallback rows', async () => {
-    vi.useFakeTimers();
+  it('attaches queue datasource while readiness refreshes without local fallback rows', async () => {
     const browserAppService = createBrowserAppService({
       ensureQueueReadModelReady: vi.fn(async () => ({
         status: 'refreshing',
@@ -310,21 +309,20 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(deps.currentDataSource.value).toBeNull();
-    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(false);
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
-    expect(deps.scheduleQueueProjectionWarmup).not.toHaveBeenCalled();
+    expect(deps.scheduleQueueProjectionWarmup).toHaveBeenCalledWith('browser-open');
     expect(deps.onQueueViewLifecycleState).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'preparing',
-      reason: 'materialization_in_progress',
-      retryAfterMs: 300,
+      status: 'ready',
+      readinessStatus: 'not-checked',
+      projectionIdentity: null,
     }));
-    expect(deps.rows.value).toEqual([]);
-    expect(deps.rowsForFocus.value).toEqual([]);
-    expect(deps.allRows.value).toEqual([]);
-    expect(deps.totalRowCount.value).toBe(0);
-    vi.useRealTimers();
+    expect(deps.rows.value).toEqual([{ id: 'existing', blockId: 'existing' } as BrowserCard]);
+    expect(deps.rowsForFocus.value).toEqual([{ id: 'focus', blockId: 'focus' } as BrowserCard]);
+    expect(deps.allRows.value).toEqual([{ id: 'all', blockId: 'all' } as BrowserCard]);
+    expect(deps.totalRowCount.value).toBe(1);
   });
 
   it('does not start queue-view retry polling when readiness would still be refreshing', async () => {
@@ -354,14 +352,14 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(deps.currentDataSource.value).toBeNull();
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
     await vi.advanceTimersByTimeAsync(10);
 
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
-    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(false);
     expect(deps.onQueueViewLifecycleState).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'preparing',
-      retryAfterMs: 10,
+      status: 'ready',
+      readinessStatus: 'not-checked',
     }));
     vi.useRealTimers();
   });
@@ -392,14 +390,14 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(deps.currentDataSource.value).toBeNull();
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
     await vi.advanceTimersByTimeAsync(299);
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
 
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
-    expect(deps.currentDataSource.value).toBeNull();
-    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(false);
     vi.useRealTimers();
   });
 
@@ -500,14 +498,14 @@ describe('browserLoadDataRuntime', () => {
     await runtime.loadData(false, { origin: 'queue-sync' });
     await vi.advanceTimersByTimeAsync(10);
 
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(2);
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
-    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
-    expect(deps.currentDataSource.value).toBeNull();
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(2);
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
     vi.useRealTimers();
   });
 
-  it('maps terminal projection unavailable to an explicit error state', async () => {
+  it('does not synchronously query terminal projection readiness during queue open', async () => {
     const browserAppService = createBrowserAppService({
       ensureQueueReadModelReady: vi.fn(async () => ({
         status: 'unavailable',
@@ -534,13 +532,14 @@ describe('browserLoadDataRuntime', () => {
     await runtime.loadData();
 
     expect(deps.pushErrMsg).not.toHaveBeenCalled();
-    expect(deps.currentDataSource.value).toBeNull();
-    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
-    expect(deps.rows.value).toEqual([]);
-    expect(deps.totalRowCount.value).toBe(0);
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(false);
+    expect(deps.rows.value).toEqual([{ id: 'existing', blockId: 'existing' } as BrowserCard]);
+    expect(deps.totalRowCount.value).toBe(1);
     expect(deps.onQueueViewLifecycleState).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'unavailable',
-      reason: 'bad contract',
+      status: 'ready',
+      readinessStatus: 'not-checked',
     }));
   });
 

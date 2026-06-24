@@ -511,7 +511,12 @@ export class MenuManager {
         handler = tempHandler;
       }
 
-      const summary = await handler.scanDocumentByRootId(docId);
+      const summary = tempHandler
+        ? await this.context.runWithAutoCardBackendExecutionHandler(
+          tempHandler,
+          () => tempHandler.scanDocumentByRootId(docId),
+        )
+        : await handler.scanDocumentByRootId(docId);
       const baseMessage = (this.i18n?.oneClickSymbolCardsDone
         || '符号制卡完成：扫描 {scanned} 个块，新增 {created}，跳过 {skipped}，失败 {failed}。')
         .replace('{scanned}', String(summary.scanned))

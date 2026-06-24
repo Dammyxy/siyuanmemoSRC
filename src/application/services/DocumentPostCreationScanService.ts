@@ -45,6 +45,24 @@ export interface DocumentPostCreationScanResult {
   consumed: number;
 }
 
+export interface DocumentSymbolCardPlanCandidate {
+  blockId: string;
+  blockType: string;
+  content: string;
+  normalizedContent: string;
+  decision: CreationDecision;
+  executorKind: CreationDecision['executorKind'];
+  structural: boolean;
+  consumed: boolean;
+  conflicted: boolean;
+}
+
+export interface DocumentSymbolCardBatchPlan {
+  rootId: string;
+  summary: DocumentPostCreationScanResult;
+  candidates: DocumentSymbolCardPlanCandidate[];
+}
+
 function normalizeInlineSymbolContent(content: string): string {
   return selectPreferredInlineSymbolLine(content);
 }
@@ -107,6 +125,11 @@ export class DocumentPostCreationScanService {
   private readonly promptPort?: ConflictPromptPort;
 
   async scanByRootId(rootId: string): Promise<DocumentPostCreationScanResult> {
+    const plan = await this.planByRootId(rootId);
+    return this.executePlan(plan);
+  }
+
+  async planByRootId(rootId: string): Promise<DocumentSymbolCardBatchPlan> {
     const normalizedRootId = rootId.trim();
     const summary: DocumentPostCreationScanResult = {
       rootId: normalizedRootId,
@@ -117,9 +140,10 @@ export class DocumentPostCreationScanService {
       conflicted: 0,
       consumed: 0,
     };
+    const candidates: DocumentSymbolCardPlanCandidate[] = [];
 
     if (!normalizedRootId) {
-      return summary;
+      return { rootId: normalizedRootId, summary, candidates };
     }
 
     const rows = await this.blockQuery.listBlocksByRoot(
@@ -145,7 +169,7 @@ export class DocumentPostCreationScanService {
 
     summary.scanned = blockRows.length;
     if (blockRows.length === 0) {
-      return summary;
+      return { rootId: normalizedRootId, summary, candidates };
     }
 
     const consumedBlockIds = new Set<string>();
@@ -174,6 +198,7 @@ export class DocumentPostCreationScanService {
             : undefined;
           let selectedDecision: CreationDecision | null = null;
           let conflicted = false;
+          let hadStructuralCandidate = false;
 
           if (this.resolveStructuralDecision) {
             const resolved = await this.resolveStructuralDecision({
@@ -184,6 +209,10 @@ export class DocumentPostCreationScanService {
             });
             selectedDecision = resolved.selectedDecision || null;
             conflicted = resolved.conflicted === true;
+            hadStructuralCandidate = Boolean(selectedDecision)
+              || conflicted
+              || (resolved.matchedRuleIds?.length ?? 0) > 0
+              || (resolved.enabledDecisions?.length ?? 0) > 0;
           } else {
             const plan = this.planner.plan({
               blockId: row.id,
@@ -200,6 +229,7 @@ export class DocumentPostCreationScanService {
             if (structuralDecisions.length === 0) {
               continue;
             }
+            hadStructuralCandidate = true;
 
             const structuralPlan = {
               ...plan,
@@ -226,23 +256,25 @@ export class DocumentPostCreationScanService {
             summary.conflicted += 1;
           }
 
-          consumedBlockIds.add(row.id);
-
           if (!selectedDecision) {
-            summary.skipped += 1;
+            if (hadStructuralCandidate) {
+              summary.skipped += 1;
+            }
             continue;
           }
 
-          const created = await this.executor.executeStructuralDecision({
+          consumedBlockIds.add(row.id);
+          candidates.push({
             blockId: row.id,
+            blockType: row.type,
             content,
+            normalizedContent,
             decision: selectedDecision,
+            executorKind: selectedDecision.executorKind,
+            structural: true,
+            consumed: true,
+            conflicted,
           });
-          if (created) {
-            summary.created += 1;
-          } else {
-            summary.skipped += 1;
-          }
         } catch (error) {
           summary.failed += 1;
           logger.error('[DocumentPostCreationScan] Structural pass failed:', {
@@ -334,17 +366,17 @@ export class DocumentPostCreationScanService {
           continue;
         }
 
-        const created = await this.executor.executeSingleBlockDecision({
+        candidates.push({
           blockId: row.id,
-          content: normalizedContent,
+          blockType: row.type,
+          content,
+          normalizedContent,
           decision: selectedDecision,
+          executorKind: selectedDecision.executorKind,
+          structural: false,
+          consumed: false,
+          conflicted,
         });
-        if (created) {
-          summary.created += 1;
-          consumedBlockIds.add(row.id);
-        } else {
-          summary.skipped += 1;
-        }
       } catch (error) {
         summary.failed += 1;
         logger.error('[DocumentPostCreationScan] Single-block pass failed:', {
@@ -355,6 +387,41 @@ export class DocumentPostCreationScanService {
     }
 
     summary.consumed = consumedBlockIds.size;
+    return { rootId: normalizedRootId, summary, candidates };
+  }
+
+  private async executePlan(plan: DocumentSymbolCardBatchPlan): Promise<DocumentPostCreationScanResult> {
+    const summary: DocumentPostCreationScanResult = { ...plan.summary };
+    for (const candidate of plan.candidates) {
+      try {
+        const created = candidate.structural
+          ? await this.executor.executeStructuralDecision({
+            blockId: candidate.blockId,
+            content: candidate.content,
+            decision: candidate.decision,
+          })
+          : await this.executor.executeSingleBlockDecision({
+            blockId: candidate.blockId,
+            content: candidate.normalizedContent,
+            decision: candidate.decision,
+          });
+        if (created) {
+          summary.created += 1;
+          if (!candidate.structural) {
+            summary.consumed += 1;
+          }
+        } else {
+          summary.skipped += 1;
+        }
+      } catch (error) {
+        summary.failed += 1;
+        logger.error('[DocumentPostCreationScan] Candidate execution failed:', {
+          blockId: candidate.blockId,
+          executorKind: candidate.executorKind,
+          error,
+        });
+      }
+    }
     return summary;
   }
 }

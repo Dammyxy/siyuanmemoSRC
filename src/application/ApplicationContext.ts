@@ -188,6 +188,7 @@ import type {
   BackendDomainSyncConflictSourceCleanupRequest,
   BackendDomainSyncConflictSourceCleanupResult,
   BackendSyncConflictMergeResult,
+  BackendKernelTransactionActionType,
 } from '../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('ApplicationContext');
@@ -349,6 +350,8 @@ export class ApplicationContext {
   private transactionWebSocketService?: TransactionWebSocketService;
   private readonly transactionProvenanceRegistry = new TransactionProvenanceRegistry();
   private autoCardHandler?: AutoCardHandler;
+  private readonly autoCardBackendExecutionHandlerScopes: Array<{ handler: AutoCardHandler }> = [];
+  private autoCardBackendExecutionDepth = 0;
   private kernelTransactionIngestHandler?: KernelTransactionIngestHandler;
   private kernelTransactionActionPump?: KernelTransactionActionPump;
   private nativeRiffSyncTriggerHandler?: NativeRiffSyncTriggerHandler;
@@ -1465,11 +1468,21 @@ export class ApplicationContext {
         if (!contextRef) {
           throw new Error('SrsBackendWorker autocard.execute unavailable: application context is not ready');
         }
-        const autoCardHandler = contextRef.getAutoCardHandler();
+        const autoCardHandler = contextRef.getAutoCardBackendExecutionHandler();
         if (!autoCardHandler) {
           throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
         }
-        return autoCardHandler.executeEnvelopeFromBackend(request);
+        return contextRef.runAutoCardBackendExecution(() => autoCardHandler.executeEnvelopeFromBackend(request));
+      },
+      executeAutoCardBatch: async (request) => {
+        if (!contextRef) {
+          throw new Error('SrsBackendWorker autocard.executeBatch unavailable: application context is not ready');
+        }
+        const autoCardHandler = contextRef.getAutoCardBackendExecutionHandler();
+        if (!autoCardHandler) {
+          throw new Error('SrsBackendWorker autocard.executeBatch unavailable: auto-card handler is not active');
+        }
+        return contextRef.runAutoCardBackendExecution(() => autoCardHandler.executeBatchFromBackend(request));
       },
       executeProgressiveCommand: async (request) => {
         if (!contextRef) {
@@ -1794,6 +1807,20 @@ export class ApplicationContext {
       && (input.quickCardEnabled || input.nativeRiffSyncEnabled);
   }
 
+  private static resolveKernelTransactionIngestActionTypes(input: {
+    quickCardEnabled: boolean;
+    nativeRiffSyncEnabled: boolean;
+  }): BackendKernelTransactionActionType[] {
+    const actionTypes: BackendKernelTransactionActionType[] = [];
+    if (input.nativeRiffSyncEnabled) {
+      actionTypes.push('native-riff-remove', 'native-riff-upsert');
+    }
+    if (input.quickCardEnabled) {
+      actionTypes.push('auto-card-candidates');
+    }
+    return actionTypes;
+  }
+
   private static readEnvValue(key: string, lowercase = true): string {
     const viteEnv = typeof import.meta !== 'undefined'
       && import.meta.env
@@ -1999,6 +2026,10 @@ export class ApplicationContext {
       quickCardEnabled,
       nativeRiffSyncEnabled,
     });
+    const kernelTransactionIngestActionTypes = ApplicationContext.resolveKernelTransactionIngestActionTypes({
+      quickCardEnabled,
+      nativeRiffSyncEnabled,
+    });
     const shouldEnable = quickCardEnabled
       || nativeRiffSyncEnabled
       || reviewSourceBlockRefreshEnabled
@@ -2104,6 +2135,7 @@ export class ApplicationContext {
         this.followerCommandClient,
         {
           writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
+          enabledActionTypes: kernelTransactionIngestActionTypes,
           onIngested: () => this.kernelTransactionActionPump?.notifyActivity('ws-ingest'),
           provenanceRegistry: this.transactionProvenanceRegistry,
         },
@@ -2122,6 +2154,7 @@ export class ApplicationContext {
           {
             writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
             onWriterUnavailable: dispatchKernelTransactionWriterUnavailableEvent,
+            deferNativeRiffUpsertWhile: () => this.isAutoCardBackendExecutionInProgress(),
           },
         ),
         { writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites },
@@ -2159,6 +2192,44 @@ export class ApplicationContext {
 
   getAutoCardHandler(): AutoCardHandler | undefined {
     return this.autoCardHandler;
+  }
+
+  async runWithAutoCardBackendExecutionHandler<T>(
+    handler: AutoCardHandler,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    this.ensureNotDisposed();
+    const scope = { handler };
+    this.autoCardBackendExecutionHandlerScopes.push(scope);
+    try {
+      return await task();
+    } finally {
+      const index = this.autoCardBackendExecutionHandlerScopes.lastIndexOf(scope);
+      if (index >= 0) {
+        this.autoCardBackendExecutionHandlerScopes.splice(index, 1);
+      }
+    }
+  }
+
+  private getAutoCardBackendExecutionHandler(): AutoCardHandler | undefined {
+    const scopes = this.autoCardBackendExecutionHandlerScopes;
+    return scopes.length > 0
+      ? scopes[scopes.length - 1].handler
+      : this.autoCardHandler;
+  }
+
+  private async runAutoCardBackendExecution<T>(task: () => Promise<T>): Promise<T> {
+    this.autoCardBackendExecutionDepth += 1;
+    try {
+      return await task();
+    } finally {
+      this.autoCardBackendExecutionDepth = Math.max(0, this.autoCardBackendExecutionDepth - 1);
+    }
+  }
+
+  private isAutoCardBackendExecutionInProgress(): boolean {
+    return this.autoCardBackendExecutionDepth > 0
+      || this.autoCardBackendExecutionHandlerScopes.length > 0;
   }
 
   async createAutoCardHandler(): Promise<AutoCardHandler> {

@@ -1,6 +1,8 @@
 import type {
   BackendAutoCardDecisionResolveRequest,
   BackendAutoCardDecisionResolveResult,
+  BackendAutoCardExecuteBatchRequest,
+  BackendAutoCardExecuteBatchResult,
   BackendAutoCardExecuteRequest,
   BackendAutoCardExecuteResult,
   BackendDomainSyncConflictSourceCleanupCandidatesResult,
@@ -76,6 +78,7 @@ export interface BackendIntegrationClientFacet {
   ): Promise<BackendTopicDerivedCommandExecuteResult<TResult>>;
   resolveAutoCardDecision(request: BackendAutoCardDecisionResolveRequest): Promise<BackendAutoCardDecisionResolveResult>;
   executeAutoCard(request: BackendAutoCardExecuteRequest): Promise<BackendAutoCardExecuteResult>;
+  executeAutoCardBatch(request: BackendAutoCardExecuteBatchRequest): Promise<BackendAutoCardExecuteBatchResult>;
 }
 
 export class BackendIntegrationRpcClient implements BackendIntegrationClientFacet {
@@ -196,5 +199,9 @@ export class BackendIntegrationRpcClient implements BackendIntegrationClientFace
 
   executeAutoCard(request: BackendAutoCardExecuteRequest): Promise<BackendAutoCardExecuteResult> {
     return this.rpcCaller.call<BackendAutoCardExecuteResult>('autocard.execute', request);
+  }
+
+  executeAutoCardBatch(request: BackendAutoCardExecuteBatchRequest): Promise<BackendAutoCardExecuteBatchResult> {
+    return this.rpcCaller.call<BackendAutoCardExecuteBatchResult>('autocard.executeBatch', request);
   }
 }

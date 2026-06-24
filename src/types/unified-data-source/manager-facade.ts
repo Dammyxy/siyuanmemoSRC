@@ -32,6 +32,7 @@ export interface IUnifiedDataSourceManagerFacade {
   batchUpdateCards?(cards: FSRSCard[], options?: CardMutationOptions): Promise<BatchCardMutationResult>;
   deleteCard?(cardId: string): Promise<void>;
   batchDeleteCards?(cardIds: string[], options?: { blockIds?: string[] }): Promise<BatchCardDeleteResult>;
+  onCardsCreated?(cards: FSRSCard[]): Promise<void>;
   onCardsDeleted?(cardIds: string[], blockIds?: string[]): Promise<void>;
   getQueue(type: QueueType): IReviewQueue;
   batchAddToQueue?(type: QueueType, cards: QueueBulkAddInput[], source?: QueueAddSource): Promise<QueueBulkMutationResult>;

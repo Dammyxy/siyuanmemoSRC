@@ -1103,6 +1103,16 @@ describe('SrsBackendClient', () => {
                 skipped: 0,
               },
             };
+          case 'autocard.executeBatch':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                executed: true,
+                created: 2,
+                skipped: 0,
+              },
+            };
           case 'review.feedback':
             return { jsonrpc: '2.0', id: request.id, error: { code: 'BACKEND_UNAVAILABLE', message: 'review not ready' } };
           case 'sync.conflict.merge':
@@ -1410,6 +1420,31 @@ describe('SrsBackendClient', () => {
       created: 1,
       skipped: 0,
     });
+    await expect(client.executeAutoCardBatch({
+      items: [{
+        envelope: {
+          kind: 'planner-decision',
+          blockId: 'block-1',
+          content: 'Q >> A',
+          decision: {
+            id: 'BasicDirectionRule',
+            family: 'basic',
+            templateId: 'builtin-quick-card',
+            cardType: 'item',
+            mode: 'single',
+            executorKind: 'quick-basic',
+            priority: 50,
+            direction: 'forward',
+          },
+          source: 'doc-oneclick-scan',
+          docRootId: 'doc-1',
+        },
+      }],
+    })).resolves.toEqual({
+      executed: true,
+      created: 2,
+      skipped: 0,
+    });
     await expect(client.reviewFeedback({
       cardId: 'card-1',
       rating: 3,
@@ -1534,6 +1569,7 @@ describe('SrsBackendClient', () => {
       'kernel.transaction.requeue',
       'autocard.decision.resolve',
       'autocard.execute',
+      'autocard.executeBatch',
       'review.feedback',
       'sync.conflict.merge',
       'sync.reviewDivergence.audit',
@@ -1566,27 +1602,48 @@ describe('SrsBackendClient', () => {
       },
     }]);
     expect(requests[16].params).toEqual([{
+      items: [{
+        envelope: {
+          kind: 'planner-decision',
+          blockId: 'block-1',
+          content: 'Q >> A',
+          decision: {
+            id: 'BasicDirectionRule',
+            family: 'basic',
+            templateId: 'builtin-quick-card',
+            cardType: 'item',
+            mode: 'single',
+            executorKind: 'quick-basic',
+            priority: 50,
+            direction: 'forward',
+          },
+          source: 'doc-oneclick-scan',
+          docRootId: 'doc-1',
+        },
+      }],
+    }]);
+    expect(requests[17].params).toEqual([{
       cardId: 'card-1',
       rating: 3,
       queueType: 'incremental-learning',
       queueMode: 'formal',
       commitPolicy: 'write-schedule',
     }]);
-    expect(requests[17].params).toEqual([{
+    expect(requests[18].params).toEqual([{
       mergedAt: 1,
       sources: [{ sourceId: 'conflict-a', bytes: new Uint8Array([1, 2, 3]) }],
     }]);
-    expect(requests[18].params).toEqual([{
+    expect(requests[19].params).toEqual([{
       cardIds: ['card-1'],
       limit: 5,
     }]);
-    expect(requests[23].params).toEqual([{
+    expect(requests[24].params).toEqual([{
       rebuildId: 'rebuild-a',
       families: ['review-event-indexes'],
       deviceId: 'device-a',
       generationId: 'generation-a',
     }]);
-    expect(requests[24].params).toEqual([{
+    expect(requests[25].params).toEqual([{
       queueType: 'neural-roam',
       sessionId: 'session-neural-1',
       currentItem: {

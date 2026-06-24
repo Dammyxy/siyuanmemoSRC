@@ -7,6 +7,8 @@ import {
 import { QueueType } from '@/types/unified-data-source';
 import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
 
+type BrowserQueueViewLifecycleForTest = ReturnType<typeof createBrowserQueueViewLifecycle>;
+
 function createDatasource(id = 'retrieval'): ICardDataSource {
   return {
     id,
@@ -61,7 +63,7 @@ describe('BrowserQueueViewLifecycle', () => {
     expect(resolveQueueTypeForBrowserQueueView('', QueueType.FinalDrill)).toBeNull();
   });
 
-  it('attaches ready queue datasource with projection identity behind lifecycle', async () => {
+  it('attaches queue datasource without synchronously checking readiness', async () => {
     const { browserAppService, createDataSource, lifecycle } = createLifecycle([{
       status: 'ready',
       queueId: QueueType.RetrievalPractice,
@@ -71,59 +73,31 @@ describe('BrowserQueueViewLifecycle', () => {
 
     const result = await lifecycle.prepareQueueView(createRequest({ browserAppService }));
 
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
-      queueType: QueueType.RetrievalPractice,
-      source: 'browser',
-    }));
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(createDataSource).toHaveBeenCalledTimes(1);
     expect(result.status).toBe('ready');
     expect(result.status === 'ready' ? result.datasource.id : null).toBe('retrieval');
-    expect(result.status === 'ready' ? result.projectionIdentity : null).toEqual({
-      queueId: QueueType.RetrievalPractice,
-      queueType: QueueType.RetrievalPractice,
-      policyId: 'policy-a',
-      generation: 3,
-    });
+    expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
+    expect(result.status === 'ready' ? result.readinessStatus : null).toBe('not-checked');
   });
 
-  it('calls readiness through the BrowserApplicationService instance so method context is preserved', async () => {
+  it('fails closed when Browser read-model readiness service is missing', async () => {
     const createDataSource = vi.fn(() => createDatasource());
     const lifecycle = createBrowserQueueViewLifecycle({
       createDataSource,
       logger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn() },
     });
-    const service = {
-      unifiedDataSourceManager: { ready: true },
-      async ensureQueueReadModelReady(request: { queueType: QueueType }) {
-        if (!this.unifiedDataSourceManager.ready) {
-          throw new Error('lost browser application service context');
-        }
-        return {
-          status: 'ready' as const,
-          queueId: request.queueType,
-          policyId: 'policy-bound-service',
-          generation: 9,
-        };
-      },
-    };
 
-    const result = await lifecycle.prepareQueueView(createRequest({ browserAppService: service }));
+    const result = await lifecycle.prepareQueueView(createRequest({ browserAppService: {} }));
 
-    expect(result.status).toBe('ready');
-    expect(createDataSource).toHaveBeenCalledTimes(1);
-    expect(result.status === 'ready' ? result.projectionIdentity : null).toEqual({
-      queueId: QueueType.RetrievalPractice,
-      queueType: QueueType.RetrievalPractice,
-      policyId: 'policy-bound-service',
-      generation: 9,
-    });
+    expect(result.status).toBe('unavailable');
+    expect(createDataSource).not.toHaveBeenCalled();
   });
 
   it.each([
-    ['preparing', { status: 'refreshing', cause: 'materialization_in_progress', retryAfterMs: 111 }],
-    ['repair-required', { status: 'refreshing', cause: 'projection_stale', retryAfterMs: 222 }],
-    ['unavailable', { status: 'unavailable', cause: 'backend_unavailable', reason: 'backend down', recoverable: true }],
-  ] as const)('reports %s readiness without creating local fallback datasource', async (expectedStatus, readiness) => {
+    ['materialization_in_progress', { status: 'refreshing', cause: 'materialization_in_progress', retryAfterMs: 111 }],
+    ['projection_stale', { status: 'refreshing', cause: 'projection_stale', retryAfterMs: 222 }],
+  ] as const)('attaches queue datasource while %s readiness refreshes', async (_label, readiness) => {
     const { browserAppService, createDataSource, lifecycle } = createLifecycle([{
       queueId: QueueType.RetrievalPractice,
       policyId: 'policy-a',
@@ -132,40 +106,52 @@ describe('BrowserQueueViewLifecycle', () => {
 
     const result = await lifecycle.prepareQueueView(createRequest({ browserAppService }));
 
-    expect(result.status).toBe(expectedStatus);
-    expect(createDataSource).not.toHaveBeenCalled();
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
+    expect(createDataSource).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('ready');
+    expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
+    expect(result.status === 'ready' ? result.readiness : null).toBeNull();
+    expect(result.status === 'ready' ? result.readinessStatus : null).toBe('not-checked');
+  });
+
+  it('reports terminal datasource setup failures without creating local fallback datasource', async () => {
+    const createDataSource = vi.fn(() => null);
+    const lifecycle = createBrowserQueueViewLifecycle({
+      createDataSource,
+      logger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn() },
+    });
+
+    const result = await lifecycle.prepareQueueView(createRequest({
+      browserAppService: { ensureQueueReadModelReady: vi.fn() },
+    }));
+
+    expect(result.status).toBe('unavailable');
+    expect(createDataSource).toHaveBeenCalledTimes(1);
   });
 
   it('rejects older queue prepare result after newer queue selection wins', async () => {
-    let resolveOld!: (value: any) => void;
-    const oldReadiness = new Promise((resolve) => {
-      resolveOld = resolve;
+    const { browserAppService } = createLifecycle([]);
+    let localLifecycle!: BrowserQueueViewLifecycleForTest;
+    const slowCreateDataSource = vi.fn((request) => {
+      if (request.activeQueueId === 'retrieval') {
+        localLifecycle.resetQueueView();
+      }
+      return createDatasource(request.activeQueueId);
     });
-    const { browserAppService, lifecycle } = createLifecycle([]);
-    browserAppService.ensureQueueReadModelReady
-      .mockReturnValueOnce(oldReadiness as never)
-      .mockResolvedValueOnce({
-        status: 'ready',
-        queueId: QueueType.IncrementalLearning,
-        policyId: 'policy-b',
-        generation: 7,
-      } as never);
+    localLifecycle = createBrowserQueueViewLifecycle({
+      createDataSource: slowCreateDataSource,
+      logger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn() },
+    });
 
-    const oldResult = lifecycle.prepareQueueView(createRequest({ browserAppService, activeQueueId: 'retrieval' }));
-    const nextResult = await lifecycle.prepareQueueView(createRequest({
+    const oldResult = await localLifecycle.prepareQueueView(createRequest({ browserAppService, activeQueueId: 'retrieval' }));
+    const nextResult = await localLifecycle.prepareQueueView(createRequest({
       activeQueueId: 'incremental-learning',
       browserAppService,
       currentQueueType: QueueType.IncrementalLearning,
     }));
-    resolveOld({
-      status: 'ready',
-      queueId: QueueType.RetrievalPractice,
-      policyId: 'policy-a',
-      generation: 1,
-    });
 
     expect(nextResult.status).toBe('ready');
-    await expect(oldResult).resolves.toMatchObject({
+    expect(oldResult).toMatchObject({
       status: 'stale',
       queueId: 'retrieval',
     });

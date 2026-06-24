@@ -49,6 +49,7 @@ import {
 import { RebindDescriptorConceptUseCase } from '../usecases/xiuyuan/RebindDescriptorConceptUseCase';
 import type { ListTemplateCardsCreationPayload } from '../usecases/xiuyuan/CreateListTemplateCardsUseCase';
 import type { XiuyuanCreationPayload } from '../usecases/xiuyuan/shared/FinalizeXiuyuanCreation';
+import type { XiuyuanBatchCreationResult } from '../usecases/xiuyuan/CreateXiuyuanFromBlocksUseCase';
 
 /**
  * Xiuyuan 应用服务
@@ -141,6 +142,10 @@ export class XiuyuanApplicationService {
    */
   async createFromBlocks(command: CreateXiuyuanFromBlocksCommand): Promise<Result<XiuyuanCreationPayload>> {
     return this.createXiuyuanFromBlocksUseCase.execute(command);
+  }
+
+  async createFromBlocksBatch(commands: CreateXiuyuanFromBlocksCommand[]): Promise<Result<XiuyuanBatchCreationResult>> {
+    return this.createXiuyuanFromBlocksUseCase.executeBatch(commands);
   }
 
   /**

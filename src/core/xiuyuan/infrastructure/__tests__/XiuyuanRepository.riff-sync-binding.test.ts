@@ -5,6 +5,11 @@ import { Xiuyuan } from '../../domain/Xiuyuan';
 import { BlockId } from '../../domain/BlockId';
 import { TemplateId } from '../../domain/TemplateId';
 import { CardFace } from '../../domain/CardFace';
+import {
+  clearRuntimePerformanceDiagnostics,
+  getRuntimePerformanceDiagnosticsReport,
+  setRuntimePerformanceDiagnosticsEnabled,
+} from '@/utils/runtimePerformanceDiagnostics';
 
 const { getBlockAttrsMock, setBlockAttrsMock } = vi.hoisted(() => ({
   getBlockAttrsMock: vi.fn(),
@@ -183,6 +188,24 @@ describe('XiuyuanRepository managed riff binding attrs', () => {
       '20260102000003-item001',
       { 'custom-xiuyuan-id': xiuyuan.getId().getValue() }
     );
+  });
+
+  it('records attrs side-effect diagnostics for ordinary xiuyuan binding writes', async () => {
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+    try {
+      const repository = new XiuyuanRepository(createStorageMock() as any);
+      const xiuyuan = createOrdinaryItemXiuyuan();
+
+      const result = await repository.save(xiuyuan);
+
+      expect(result.ok).toBe(true);
+      const report = getRuntimePerformanceDiagnosticsReport();
+      expect(report.counters['autocard.attrs-side-effect-calls']).toBe(1);
+      expect(report.counters['autocard.attrs-side-effect-blocks']).toBe(1);
+    } finally {
+      clearRuntimePerformanceDiagnostics();
+      setRuntimePerformanceDiagnosticsEnabled(false, { reset: false });
+    }
   });
 
   it('skips representative attr writes when persisted binding attrs are already current', async () => {

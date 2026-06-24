@@ -244,6 +244,44 @@ describe('WorkerKernelTransactionRuntime', () => {
     });
   });
 
+  it('filters auto-card candidate actions when ingest only enables native Riff actions', async () => {
+    const { runtime } = createRuntime();
+
+    await runtime.ingestKernelTransactions({
+      source: 'ws-main',
+      idempotencyKey: 'native-only-key',
+      enabledActionTypes: ['native-riff-remove', 'native-riff-upsert'],
+      transactions: [{
+        doOperations: [
+          { action: 'addFlashcards', blockIDs: ['block-riff-only'] },
+          {
+            action: 'update',
+            id: 'block-marker-disabled',
+            data: { new: { content: 'question >> answer' } },
+          },
+        ],
+      }],
+    });
+
+    await expect(runtime.dequeueKernelTransactionActions(8)).resolves.toMatchObject({
+      actions: [
+        {
+          type: 'native-riff-upsert',
+          blockIds: ['block-riff-only'],
+          source: 'ws-main',
+          receivedAt: expect.any(Number),
+          idempotencyKey: 'native-only-key',
+        },
+      ],
+      remaining: 0,
+    });
+    expect(runtime.getStatus()).toMatchObject({
+      actionEnqueuedTotal: 1,
+      upsertActionQueuedTotal: 1,
+      autoCardActionQueuedTotal: 0,
+    });
+  });
+
   it('recomputes the shared fan-out plan from raw transactions and provenance snapshots', async () => {
     const { runtime } = createRuntime();
     const transactions = [{

@@ -1,6 +1,8 @@
 import {
   type BackendAutoCardExecuteRequest,
   type BackendAutoCardExecuteResult,
+  type BackendAutoCardExecuteBatchRequest,
+  type BackendAutoCardExecuteBatchResult,
   type BackendNeuralGraphQueryRequest,
   type BackendNeuralGraphQueryResult,
   type BackendReviewRiffFeedbackExecuteRequest,
@@ -67,6 +69,7 @@ interface BackendKernelDependencies {
     request: BackendNeuralGraphQueryRequest,
   ) => Promise<BackendNeuralGraphQueryResult>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
+  executeAutoCardBatch?: (request: BackendAutoCardExecuteBatchRequest) => Promise<BackendAutoCardExecuteBatchResult>;
   readXiuyuanRiffFacts?: (
     request: BackendXiuyuanRiffReadAuditRequest,
   ) => Promise<BackendXiuyuanRiffReadAuditResult>;
@@ -231,6 +234,7 @@ export class BackendKernel {
       autoCard: {
         database: this.deps.database,
         executeAutoCard: this.deps.executeAutoCard,
+        executeAutoCardBatch: this.deps.executeAutoCardBatch,
       },
       review: this.reviewRuntime,
       reviewFeedbackTiming: {

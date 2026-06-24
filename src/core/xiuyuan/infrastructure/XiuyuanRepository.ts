@@ -66,6 +66,7 @@ import {
 } from '../../storage/stability/logicalKeys';
 import { createLogger } from '@/utils/logger';
 import type { CardPersistenceDTO } from '../../../infrastructure/persistence/dto/CardPersistenceDTO';
+import { incrementRuntimePerformanceCounter } from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('XiuyuanRepository');
 const CARD_ID_DEBUG_SAMPLE_LIMIT = 5;
@@ -905,6 +906,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
         try {
           await setBlockAttrs(descriptorBlockId, bindingAttrs);
+          incrementRuntimePerformanceCounter('autocard', 'attrs-side-effect-calls', 1);
+          incrementRuntimePerformanceCounter('autocard', 'attrs-side-effect-blocks', 1);
           const attrsAfterWrite = await this.readTraceAttrs(descriptorBlockId);
           this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
             xiuyuanId,
@@ -959,6 +962,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
       try {
         await setBlockAttrs(representativeBlockId, bindingAttrs);
+        incrementRuntimePerformanceCounter('autocard', 'attrs-side-effect-calls', 1);
+        incrementRuntimePerformanceCounter('autocard', 'attrs-side-effect-blocks', 1);
         const attrsAfterWrite = await this.readTraceAttrs(representativeBlockId);
         this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
           xiuyuanId,
@@ -1015,14 +1020,16 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       if (!this.isManagedRiffXiuyuan(xiuyuan) && blockIDs.length > 0) {
         const representativeBlockId = blockIDs[0]!.getValue();
         sideEffects.afterPersist.push(async () => {
-          try {
-            await setBlockAttrs(representativeBlockId, {
-              'custom-xiuyuan-id': '',
-            });
-          } catch (error) {
-            logger.warn('Failed to clear block attributes:', error);
-          }
+      try {
+        await setBlockAttrs(representativeBlockId, {
+          'custom-xiuyuan-id': '',
         });
+        incrementRuntimePerformanceCounter('autocard', 'attrs-side-effect-calls', 1);
+        incrementRuntimePerformanceCounter('autocard', 'attrs-side-effect-blocks', 1);
+      } catch (error) {
+        logger.warn('Failed to clear block attributes:', error);
+      }
+    });
       }
 
       sideEffects.eventXiuyuans.push(xiuyuan);

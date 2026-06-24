@@ -1,13 +1,18 @@
 const KERNEL_TRANSACTION_DEQUEUE_METHOD = 'kernel.transaction.dequeue';
+const KERNEL_TRANSACTION_INGEST_METHOD = 'kernel.transaction.ingest';
 
 export function shouldLogRelayCommandSubmitted(method: string): boolean {
-  return method !== KERNEL_TRANSACTION_DEQUEUE_METHOD;
+  return method !== KERNEL_TRANSACTION_DEQUEUE_METHOD
+    && method !== KERNEL_TRANSACTION_INGEST_METHOD;
 }
 
 export function getRelayCompletionExtraDiagnostics(
   method: string,
   result: unknown,
 ): Record<string, unknown> | null {
+  if (method === KERNEL_TRANSACTION_INGEST_METHOD) {
+    return null;
+  }
   if (method !== KERNEL_TRANSACTION_DEQUEUE_METHOD) {
     return {};
   }

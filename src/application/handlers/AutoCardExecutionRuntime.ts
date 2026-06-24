@@ -35,6 +35,7 @@ export interface AutoCardExecutionResult {
   executed: boolean;
   created: number;
   skipped: number;
+  failed?: number;
 }
 
 interface AutoCardExecutionRuntimeDeps {
@@ -68,6 +69,7 @@ export class AutoCardExecutionRuntime {
         executed: backendResult.executed === true,
         created: Math.max(0, Math.floor(Number(backendResult.created || 0))),
         skipped: Math.max(0, Math.floor(Number(backendResult.skipped || 0))),
+        failed: Math.max(0, Math.floor(Number(backendResult.failed || 0))) || undefined,
       };
     }
     return this.executeLocalWithResult(envelope);

@@ -1,5 +1,6 @@
 import type {
   BackendAutoCardExecuteRequest,
+  BackendAutoCardExecuteBatchRequest,
   BackendReviewRiffFeedbackExecuteRequest,
   BackendProgressiveCommandExecuteRequest,
   BackendTopicDerivedCommandExecuteRequest,
@@ -26,6 +27,7 @@ export type BackendWorkerHostEffect =
   | { kind: 'siyuan.neuralGraph.query'; request: BackendNeuralGraphQueryRequest }
   | { kind: 'siyuan.riff.readAudit'; request: BackendXiuyuanRiffReadAuditRequest }
   | { kind: 'autocard.execute'; request: BackendAutoCardExecuteRequest }
+  | { kind: 'autocard.executeBatch'; request: BackendAutoCardExecuteBatchRequest }
   | { kind: 'progressive.command.execute'; request: BackendProgressiveCommandExecuteRequest }
   | { kind: 'topic-derived.command.execute'; request: BackendTopicDerivedCommandExecuteRequest }
   | { kind: 'review.riffFeedback.execute'; request: BackendReviewRiffFeedbackExecuteRequest };

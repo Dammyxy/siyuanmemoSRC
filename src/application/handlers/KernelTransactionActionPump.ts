@@ -48,6 +48,7 @@ interface KernelTransactionActionPumpOptions {
   emptyPollBackoffMaxMs?: number;
   writerRelayRequired?: boolean;
   onWriterUnavailable?: (detail: KernelTransactionWriterUnavailableDetail) => void;
+  deferNativeRiffUpsertWhile?: () => boolean;
 }
 
 type AutoCardActionType = 'insert' | 'update' | 'delete';
@@ -94,6 +95,7 @@ export class KernelTransactionActionPump {
   private readonly emptyPollBackoffMaxMs: number;
   private readonly writerRelayRequired: boolean;
   private readonly onWriterUnavailable?: (detail: KernelTransactionWriterUnavailableDetail) => void;
+  private readonly deferNativeRiffUpsertWhile?: () => boolean;
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private pollingInFlight = false;
   private emptyPollStreak = 0;
@@ -125,6 +127,7 @@ export class KernelTransactionActionPump {
     this.emptyPollBackoffMaxMs = Math.max(this.pollIntervalMs, Math.floor(options.emptyPollBackoffMaxMs ?? 2_000));
     this.writerRelayRequired = options.writerRelayRequired === true;
     this.onWriterUnavailable = options.onWriterUnavailable;
+    this.deferNativeRiffUpsertWhile = options.deferNativeRiffUpsertWhile;
   }
 
   start(): void {
@@ -610,6 +613,12 @@ export class KernelTransactionActionPump {
     }
     const now = Date.now();
     if (now < this.nextUpsertAt) {
+      this.scheduleDeferredUpsert();
+      return;
+    }
+    if (this.deferNativeRiffUpsertWhile?.() === true) {
+      incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-native-riff-upsert-deferred');
+      this.nextUpsertAt = Date.now() + this.upsertCooldownMs;
       this.scheduleDeferredUpsert();
       return;
     }

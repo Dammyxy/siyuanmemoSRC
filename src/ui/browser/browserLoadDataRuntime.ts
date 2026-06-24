@@ -235,8 +235,6 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
           return;
         }
 
-        flushPendingHiddenLiveIdentityEvent();
-
         const activeQueueId = deps.activeQueueId.value;
         const queueView = await measureRuntimePerformance('browser', 'load-data.prepare-queue-view', () => queueViewLifecycle.prepareQueueView(
           {
@@ -262,6 +260,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
           return;
         }
 
+        flushPendingHiddenLiveIdentityEvent();
         deps.onQueueViewLifecycleState?.(queueView);
 
         if (queueView.status !== 'ready') {

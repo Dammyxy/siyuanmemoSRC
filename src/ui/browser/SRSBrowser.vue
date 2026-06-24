@@ -3538,6 +3538,14 @@ const browserQueueProjectionWarmupRuntime = createBrowserQueueProjectionWarmupRu
   currentPreset,
   logger,
   onQueueReady: (status) => {
+    if (normalizeBrowserQueueId(activeQueueId.value) === status.queueId) {
+      browserQueueViewLifecycle.setProjectionIdentity({
+        queueId: status.queueId,
+        queueType: status.queueType,
+        policyId: status.policyId,
+        generation: status.generation,
+      });
+    }
     void refreshQueueCounts({
       forceRefresh: true,
       affectedQueueTypes: [status.queueType],

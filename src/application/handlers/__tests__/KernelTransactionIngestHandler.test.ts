@@ -25,6 +25,42 @@ function createPlainContentTransaction(id: string): Transaction {
   };
 }
 
+function createMarkerTransaction(id: string): Transaction {
+  return {
+    doOperations: [{
+      action: 'update',
+      id,
+      data: {
+        new: {
+          content: 'question >> answer',
+        },
+      },
+    }],
+    undoOperations: null,
+  };
+}
+
+function createNativeRiffAndMarkerTransaction(id: string): Transaction {
+  return {
+    doOperations: [
+      {
+        action: 'addFlashcards',
+        blockIDs: [id],
+      },
+      {
+        action: 'update',
+        id: `${id}-marker`,
+        data: {
+          new: {
+            content: 'prompt >> response',
+          },
+        },
+      },
+    ],
+    undoOperations: null,
+  };
+}
+
 describe('KernelTransactionIngestHandler', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -88,6 +124,67 @@ describe('KernelTransactionIngestHandler', () => {
     await Promise.resolve();
 
     expect(ingestKernelTransactions).not.toHaveBeenCalled();
+
+    handler.dispose();
+  });
+
+  it('skips auto-card-only marker batches when auto-card ingest actions are disabled', async () => {
+    const ingestKernelTransactions = vi.fn(async () => ({
+      accepted: 1,
+      queued: 1,
+      receivedAt: Date.now(),
+      duplicate: false,
+      queueLength: 1,
+      maxQueueLength: 256,
+    }));
+    const transaction = createMarkerTransaction('block-marker-only');
+    const classification = classifyTransactionBatch([transaction]);
+    const handler = new KernelTransactionIngestHandler(
+      { ingestKernelTransactions },
+      null,
+      null,
+      {
+        batchDebounceMs: 20,
+        enabledActionTypes: ['native-riff-remove', 'native-riff-upsert'],
+      },
+    );
+
+    expect(handler.shouldHandleTransactionBatch(classification)).toBe(false);
+    handler.handle([transaction], classification);
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+
+    expect(ingestKernelTransactions).not.toHaveBeenCalled();
+
+    handler.dispose();
+  });
+
+  it('passes enabled kernel transaction action types to backend ingest', async () => {
+    const ingestKernelTransactions = vi.fn(async () => ({
+      accepted: 1,
+      queued: 1,
+      receivedAt: Date.now(),
+      duplicate: false,
+      queueLength: 1,
+      maxQueueLength: 256,
+    }));
+    const handler = new KernelTransactionIngestHandler(
+      { ingestKernelTransactions },
+      null,
+      null,
+      {
+        batchDebounceMs: 20,
+        enabledActionTypes: ['native-riff-remove', 'native-riff-upsert'],
+      },
+    );
+
+    handler.handle([createNativeRiffAndMarkerTransaction('block-native-riff')]);
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+
+    expect(ingestKernelTransactions).toHaveBeenCalledWith(expect.objectContaining({
+      enabledActionTypes: ['native-riff-remove', 'native-riff-upsert'],
+    }));
 
     handler.dispose();
   });

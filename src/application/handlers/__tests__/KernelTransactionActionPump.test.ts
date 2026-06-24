@@ -100,6 +100,51 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('defers native-riff-upsert while AutoCard backend execution is active', async () => {
+    let autoCardBackendExecutionActive = true;
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [{
+        type: 'native-riff-upsert' as const,
+        blockIds: ['block-autocard-created'],
+        source: 'ws-main' as const,
+        receivedAt: 2,
+        idempotencyKey: 'autocard-created-upsert',
+      }],
+      remaining: 0,
+    }));
+    const handleNativeRiffUpsert = vi.fn(async () => ({ success: true }));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => ({ handleNativeRiffUpsert }),
+      () => undefined,
+      {
+        pollIntervalMs: 250,
+        maxActionsPerPoll: 4,
+        upsertCooldownMs: 300,
+        deferNativeRiffUpsertWhile: () => autoCardBackendExecutionActive,
+      },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    await flushDeferredUpsertTimer();
+
+    expect(handleNativeRiffUpsert).not.toHaveBeenCalled();
+
+    autoCardBackendExecutionActive = false;
+    await vi.advanceTimersByTimeAsync(300);
+    await Promise.resolve();
+
+    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
+    expect(handleNativeRiffUpsert).toHaveBeenCalledWith(['block-autocard-created']);
+
+    await pump.dispose();
+  });
+
   it('does not keep pollOnce in flight while native-riff-upsert is still running', async () => {
     let resolveUpsert: (() => void) | null = null;
     const dequeueKernelTransactions = vi.fn()

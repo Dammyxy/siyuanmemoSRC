@@ -6,6 +6,7 @@ import type { Transaction } from '@/core/infrastructure/websocket/transaction-ty
 import { createLogger } from '@/utils/logger';
 import type {
   BackendKernelTransactionAction,
+  BackendKernelTransactionActionType,
   BackendKernelTransactionDequeueResult,
   BackendKernelTransactionIngestRequest,
   BackendKernelTransactionIngestResult,
@@ -13,6 +14,11 @@ import type {
 } from '../../packages/contracts/src/backend-rpc';
 
 type KernelTransactionSource = 'kernel-sidecar' | 'ws-main';
+const ALL_KERNEL_TRANSACTION_ACTION_TYPES: readonly BackendKernelTransactionActionType[] = [
+  'native-riff-remove',
+  'native-riff-upsert',
+  'auto-card-candidates',
+];
 
 type KernelTransactionIngestEntry = {
   source: KernelTransactionSource;
@@ -182,6 +188,7 @@ export class WorkerKernelTransactionRuntime {
     const transactions = (Array.isArray(request.transactions) ? request.transactions : [])
       .filter((transaction) => transaction != null && typeof transaction === 'object');
     const provenanceSnapshot = normalizeTransactionProvenanceSnapshot(request.provenanceSnapshot);
+    const enabledActionTypes = normalizeEnabledKernelTransactionActionTypes(request.enabledActionTypes);
     const idempotencyKey = this.resolveKernelTransactionIdempotencyKey({
       source,
       transactions,
@@ -234,6 +241,7 @@ export class WorkerKernelTransactionRuntime {
       provenanceSnapshot,
       receivedAt,
       idempotencyKey,
+      enabledActionTypes,
     });
     if (this.kernelTransactionActions.length + actions.length > this.maxKernelActionQueueLength) {
       this.kernelRejectedTotal += transactions.length;
@@ -670,6 +678,7 @@ function collectKernelTransactionActions(input: {
   provenanceSnapshot?: TransactionProvenanceSnapshot;
   receivedAt: number;
   idempotencyKey: string;
+  enabledActionTypes: ReadonlySet<BackendKernelTransactionActionType> | null;
 }): BackendKernelTransactionAction[] {
   const actions: BackendKernelTransactionAction[] = [];
   const plan = buildTransactionFanoutPlan({
@@ -677,7 +686,10 @@ function collectKernelTransactionActions(input: {
     provenance: input.provenanceSnapshot,
     now: input.receivedAt,
   });
-  if (plan.nativeRiff.removeBlockIds.length > 0) {
+  if (
+    isKernelTransactionActionEnabled(input.enabledActionTypes, 'native-riff-remove')
+    && plan.nativeRiff.removeBlockIds.length > 0
+  ) {
     actions.push({
       type: 'native-riff-remove',
       blockIds: plan.nativeRiff.removeBlockIds,
@@ -686,7 +698,10 @@ function collectKernelTransactionActions(input: {
       idempotencyKey: input.idempotencyKey,
     });
   }
-  if (plan.nativeRiff.upsertBlockIds.length > 0) {
+  if (
+    isKernelTransactionActionEnabled(input.enabledActionTypes, 'native-riff-upsert')
+    && plan.nativeRiff.upsertBlockIds.length > 0
+  ) {
     actions.push({
       type: 'native-riff-upsert',
       blockIds: plan.nativeRiff.upsertBlockIds,
@@ -695,26 +710,51 @@ function collectKernelTransactionActions(input: {
       idempotencyKey: input.idempotencyKey,
     });
   }
-  const autoCardOperations = coalesceAutoCardOperationList([
-    ...plan.autoCard.candidateOperations.map((operation) => ({
-      action: operation.action,
-      blockId: operation.blockId,
-    })),
-    ...plan.autoCard.cancelBlockIds.map((blockId) => ({
-      action: 'delete' as const,
-      blockId,
-    })),
-  ]);
-  if (autoCardOperations.length > 0) {
-    actions.push({
-      type: 'auto-card-candidates',
-      operations: autoCardOperations,
-      source: input.source,
-      receivedAt: input.receivedAt,
-      idempotencyKey: input.idempotencyKey,
-    });
+  if (isKernelTransactionActionEnabled(input.enabledActionTypes, 'auto-card-candidates')) {
+    const autoCardOperations = coalesceAutoCardOperationList([
+      ...plan.autoCard.candidateOperations.map((operation) => ({
+        action: operation.action,
+        blockId: operation.blockId,
+      })),
+      ...plan.autoCard.cancelBlockIds.map((blockId) => ({
+        action: 'delete' as const,
+        blockId,
+      })),
+    ]);
+    if (autoCardOperations.length > 0) {
+      actions.push({
+        type: 'auto-card-candidates',
+        operations: autoCardOperations,
+        source: input.source,
+        receivedAt: input.receivedAt,
+        idempotencyKey: input.idempotencyKey,
+      });
+    }
   }
   return actions;
+}
+
+function normalizeEnabledKernelTransactionActionTypes(
+  values: BackendKernelTransactionIngestRequest['enabledActionTypes'],
+): ReadonlySet<BackendKernelTransactionActionType> | null {
+  if (!Array.isArray(values)) {
+    return null;
+  }
+  const allowed = new Set<BackendKernelTransactionActionType>(ALL_KERNEL_TRANSACTION_ACTION_TYPES);
+  const enabled = new Set<BackendKernelTransactionActionType>();
+  for (const value of values) {
+    if (allowed.has(value)) {
+      enabled.add(value);
+    }
+  }
+  return enabled;
+}
+
+function isKernelTransactionActionEnabled(
+  enabledActionTypes: ReadonlySet<BackendKernelTransactionActionType> | null,
+  type: BackendKernelTransactionActionType,
+): boolean {
+  return !enabledActionTypes || enabledActionTypes.has(type);
 }
 
 function normalizeTransactionProvenanceSnapshot(value: unknown): TransactionProvenanceSnapshot | undefined {

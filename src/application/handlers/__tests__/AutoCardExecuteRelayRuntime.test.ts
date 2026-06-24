@@ -35,11 +35,11 @@ function executionEnvelope(): AutoCardExecutionEnvelope {
   };
 }
 
-function backendEnvelope(): BackendAutoCardExecuteEnvelope {
+function backendEnvelope(blockId = 'block-1', content = 'Alpha <> Beta'): BackendAutoCardExecuteEnvelope {
   return {
     kind: 'planner-decision',
-    blockId: 'block-1',
-    content: 'Alpha <> Beta',
+    blockId,
+    content,
     decision: {
       id: 'BasicDirectionRule',
       family: 'basic',
@@ -56,6 +56,7 @@ function backendEnvelope(): BackendAutoCardExecuteEnvelope {
 
 function createRuntime(input?: {
   executeAutoCard?: (request: unknown) => Promise<unknown>;
+  executeAutoCardBatch?: (request: unknown) => Promise<unknown>;
   submitAndWait?: <TResult>(request: {
     instanceId: string;
     method: string;
@@ -71,6 +72,11 @@ function createRuntime(input?: {
     created: 1.9,
     skipped: -1,
   })));
+  const executeAutoCardBatch = vi.fn(input?.executeAutoCardBatch ?? (async () => ({
+    executed: true,
+    created: 2.9,
+    skipped: -1,
+  })));
   const submitAndWait = input?.submitAndWait === undefined
     ? vi.fn(async () => ({
       executed: true,
@@ -82,18 +88,22 @@ function createRuntime(input?: {
   const tracePolicyDecision = vi.fn(input?.tracePolicyDecision ?? (() => undefined));
   const relayState = input?.relayState ?? { mode: 'writer' as const };
   const runtime = new AutoCardExecuteRelayRuntime({
-    getBackendClient: () => ({ executeAutoCard } as never),
+    getBackendClient: () => ({ executeAutoCard, executeAutoCardBatch } as never),
     getRuntimePolicy: () => releasePolicy(),
     getRelayRuntimeState: () => typeof relayState === 'function' ? relayState() : relayState,
     getFrontendRelayRuntime: () => ({ ensureWritable }),
     getFollowerCommandClient: () => submitAndWait ? ({ submitAndWait }) : null,
     tracePolicyDecision,
-    toBackendExecuteEnvelope: () => backendEnvelope(),
+    toBackendExecuteEnvelope: (envelope) => backendEnvelope(
+      envelope.kind === 'planner-decision' ? envelope.blockId : 'topic-derived',
+      envelope.kind === 'planner-decision' ? envelope.content : '',
+    ),
   });
 
   return {
     runtime,
     executeAutoCard,
+    executeAutoCardBatch,
     submitAndWait,
     ensureWritable,
     tracePolicyDecision,
@@ -114,6 +124,34 @@ describe('AutoCardExecuteRelayRuntime', () => {
     expect(ensureWritable).toHaveBeenCalledTimes(1);
     expect(executeAutoCard).toHaveBeenCalledWith({
       envelope: backendEnvelope(),
+    });
+  });
+
+  it('executes writer-mode document scan batches through one backend worker call', async () => {
+    const { runtime, executeAutoCard, executeAutoCardBatch, ensureWritable } = createRuntime();
+    const secondEnvelope: AutoCardExecutionEnvelope = {
+      ...executionEnvelope(),
+      blockId: 'block-2',
+      content: 'Gamma >> Delta',
+    };
+
+    const result = await (runtime as any).executeBatch([
+      executionEnvelope(),
+      secondEnvelope,
+    ]);
+
+    expect(result).toEqual({
+      executed: true,
+      created: 2,
+      skipped: 0,
+    });
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(executeAutoCard).not.toHaveBeenCalled();
+    expect(executeAutoCardBatch).toHaveBeenCalledWith({
+      items: [
+        { envelope: backendEnvelope() },
+        { envelope: backendEnvelope('block-2', 'Gamma >> Delta') },
+      ],
     });
   });
 

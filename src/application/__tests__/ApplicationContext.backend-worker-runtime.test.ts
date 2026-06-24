@@ -207,6 +207,73 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(context.getFollowerCommandClient()).toBeNull();
   });
 
+  it('scopes temporary AutoCard backend execution handlers for one-click scans', async () => {
+    const runtimePolicy = {
+      flags: {
+        backendWorker: true,
+        writerLeaseGuard: true,
+        autoCardDecisionRelay: true,
+        kernelTransactionIngest: true,
+        privateApi: true,
+        aiBackendRuntime: true,
+      },
+      capabilities: {
+        backendWorkerAvailable: true,
+        writerRelayRuntimeEnabled: true,
+        writerRelayRequiredForBackendWrites: true,
+        reviewFeedbackWriteEnabled: true,
+        autoCardExecuteWriteEnabled: true,
+        autoCardDecisionBackendEnabled: true,
+        kernelTransactionIngestEnabled: true,
+        privateApiReadEnabled: true,
+        privateApiMutationEnabled: true,
+        aiBackendSessionEnabled: true,
+      },
+      behavior: {},
+    };
+    const TestableApplicationContext = ApplicationContext as unknown as new (
+      config: unknown,
+      services: unknown,
+    ) => ApplicationContext;
+    const context = new TestableApplicationContext({
+      plugin: { name: 'test-plugin', app: {} },
+      i18n: {},
+    }, {
+      storageManager: {},
+      unifiedStorageManager: { save: vi.fn() },
+      schedulerRouter: {},
+      rescheduleService: {},
+      unifiedDataSourceManager: {},
+      blockMenuHandler: {},
+      kernelSidecarClient: { marker: 'kernel-sidecar-client' },
+      backendMigrationRuntimePolicy: runtimePolicy,
+    });
+    const activeHandler = { name: 'active-handler' } as never;
+    const tempHandler = { name: 'temp-handler' } as never;
+    (context as unknown as { autoCardHandler?: unknown }).autoCardHandler = activeHandler;
+
+    let handlerDuringScope: unknown;
+    await context.runWithAutoCardBackendExecutionHandler(tempHandler, async () => {
+      handlerDuringScope = (context as unknown as {
+        getAutoCardBackendExecutionHandler: () => unknown;
+      }).getAutoCardBackendExecutionHandler();
+    });
+
+    expect(handlerDuringScope).toBe(tempHandler);
+    expect((context as unknown as {
+      getAutoCardBackendExecutionHandler: () => unknown;
+    }).getAutoCardBackendExecutionHandler()).toBe(activeHandler);
+  });
+
+  it('defers native Riff upsert sync while AutoCard backend execution is active', () => {
+    const contextSource = readApplicationContextSource();
+
+    expect(contextSource).toContain('runAutoCardBackendExecution(() => autoCardHandler.executeEnvelopeFromBackend(request))');
+    expect(contextSource).toContain('runAutoCardBackendExecution(() => autoCardHandler.executeBatchFromBackend(request))');
+    expect(contextSource).toContain('deferNativeRiffUpsertWhile: () => this.isAutoCardBackendExecutionInProgress()');
+    expect(contextSource).toContain('this.autoCardBackendExecutionDepth > 0');
+  });
+
   it('does not leave backend Worker transport alive when frontend runtime dispose hangs during unload', async () => {
     vi.useFakeTimers();
     try {

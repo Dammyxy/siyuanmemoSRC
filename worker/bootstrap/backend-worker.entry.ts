@@ -1,5 +1,6 @@
 import {
   BACKEND_RPC_VERSION,
+  type BackendAutoCardExecuteBatchResult,
   type BackendAutoCardExecuteResult,
   type BackendNeuralGraphQueryRequest,
   type BackendNeuralGraphQueryResult,
@@ -295,6 +296,10 @@ const backendKernel = new BackendKernel({
   }),
   executeAutoCard: (request) => requestHostEffect<BackendAutoCardExecuteResult>({
     kind: 'autocard.execute',
+    request,
+  }),
+  executeAutoCardBatch: (request) => requestHostEffect<BackendAutoCardExecuteBatchResult>({
+    kind: 'autocard.executeBatch',
     request,
   }),
   executeProgressiveCommand: (request: BackendProgressiveCommandExecuteRequest) => requestHostEffect<BackendProgressiveCommandExecuteResult>({

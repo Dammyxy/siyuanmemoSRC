@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
-import { CardCreatedEvent, CardDeletedEvent } from '@/core/xiuyuan/domain/events';
+import { CardCreatedEvent, CardsCreatedEvent, CardDeletedEvent } from '@/core/xiuyuan/domain/events';
 import { CardsDeletedEvent } from '@/core/xiuyuan/domain/events/CardsDeletedEvent';
 import type { FSRSCard } from '@/types/card';
 import { ReviewScopeCardCreationSyncService } from '../ReviewScopeCardCreationSyncService';
@@ -122,6 +122,70 @@ describe('ReviewScopeCardCreationSyncService', () => {
     expect(cardService.batchUpdateCardsWithoutEvents).not.toHaveBeenCalled();
     expect(docTreeReviewScopeService.registerCardRootId).not.toHaveBeenCalled();
     expect(unifiedDataSourceManager.onCardCreated).toHaveBeenCalledWith(originalCard);
+
+    await service.dispose();
+  });
+
+  it('coalesces batch created cards into one rootId repair and one review sync pass', async () => {
+    const first = createCard({ id: 'card-1', blockId: 'block-1' });
+    const second = createCard({ id: 'card-2', blockId: 'block-2' });
+    const cardService = {
+      getCards: vi.fn(async () => ({ cards: [first, second] })),
+      getCard: vi.fn(),
+      batchUpdateCardsWithoutEvents: vi.fn(async () => ({
+        ok: true as const,
+        value: {
+          updatedCount: 2,
+          failedCount: 0,
+          updatedCardIds: ['card-1', 'card-2'],
+          failedCardIds: [],
+        },
+      })),
+    };
+    const unifiedDataSourceManager = {
+      onCardCreated: vi.fn(async () => undefined),
+      onCardsCreated: vi.fn(async () => undefined),
+    };
+    const docTreeReviewScopeService = {
+      registerCardRootId: vi.fn(),
+    };
+    const siyuanApi = {
+      sql: vi.fn(async (sql: string) => {
+        if (sql.includes("block-1")) {
+          return [{ id: 'block-1', root_id: 'doc-1', type: 'p' }];
+        }
+        return [{ id: 'block-2', root_id: 'doc-2', type: 'p' }];
+      }),
+    };
+
+    const service = new ReviewScopeCardCreationSyncService(
+      eventBus,
+      cardService as any,
+      unifiedDataSourceManager as any,
+      docTreeReviewScopeService as any,
+      { siyuanApi: siyuanApi as any },
+    );
+
+    await eventBus.publish(new CardsCreatedEvent(
+      'cards-created:xy-1',
+      ['card-1', 'card-2'],
+      ['block-1', 'block-2'],
+      ['xy-1', 'xy-2'],
+      'doc-oneclick-scan',
+    ));
+
+    expect(cardService.getCards).toHaveBeenCalledWith({ filter: { blockIds: ['block-1', 'block-2'] } });
+    expect(cardService.batchUpdateCardsWithoutEvents).toHaveBeenCalledTimes(1);
+    expect(cardService.batchUpdateCardsWithoutEvents).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'card-1', meta: expect.objectContaining({ rootId: 'doc-1' }) }),
+      expect.objectContaining({ id: 'card-2', meta: expect.objectContaining({ rootId: 'doc-2' }) }),
+    ]);
+    expect(docTreeReviewScopeService.registerCardRootId).toHaveBeenCalledWith('block-1', 'doc-1');
+    expect(docTreeReviewScopeService.registerCardRootId).toHaveBeenCalledWith('block-2', 'doc-2');
+    expect(unifiedDataSourceManager.onCardsCreated).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'card-1', meta: expect.objectContaining({ rootId: 'doc-1' }) }),
+      expect.objectContaining({ id: 'card-2', meta: expect.objectContaining({ rootId: 'doc-2' }) }),
+    ]);
 
     await service.dispose();
   });

@@ -1,4 +1,5 @@
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
+import type { BackendKernelTransactionActionType } from '../../../packages/contracts/src/backend-rpc';
 import { createLogger } from '@/utils/logger';
 import type { ITransactionHandler, Transaction } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import {
@@ -13,6 +14,11 @@ import {
 import { incrementRuntimePerformanceCounter } from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('KernelTransactionIngestHandler');
+const ALL_KERNEL_TRANSACTION_ACTION_TYPES: readonly BackendKernelTransactionActionType[] = [
+  'native-riff-remove',
+  'native-riff-upsert',
+  'auto-card-candidates',
+];
 
 type FrontendRuntimeLike = {
   getMode: () => 'writer' | 'follower';
@@ -33,6 +39,7 @@ interface KernelTransactionIngestHandlerOptions {
   relayTimeoutMs?: number;
   maxAttempts?: number;
   writerRelayRequired?: boolean;
+  enabledActionTypes?: BackendKernelTransactionActionType[];
   onIngested?: () => void;
   provenanceRegistry?: {
     createSnapshot(now?: number): TransactionProvenanceSnapshot;
@@ -75,6 +82,8 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   private readonly relayTimeoutMs: number;
   private readonly maxAttempts: number;
   private readonly writerRelayRequired: boolean;
+  private readonly enabledActionTypes: BackendKernelTransactionActionType[] | null;
+  private readonly enabledActionTypeSet: ReadonlySet<BackendKernelTransactionActionType> | null;
   private readonly onIngested: (() => void) | undefined;
   private readonly provenanceRegistry: KernelTransactionIngestHandlerOptions['provenanceRegistry'];
   private readonly pendingTransactions: Transaction[] = [];
@@ -92,6 +101,8 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
     this.relayTimeoutMs = Math.max(1_000, Math.floor(options.relayTimeoutMs ?? 15_000));
     this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
     this.writerRelayRequired = options.writerRelayRequired === true;
+    this.enabledActionTypes = normalizeEnabledActionTypes(options.enabledActionTypes);
+    this.enabledActionTypeSet = this.enabledActionTypes ? new Set(this.enabledActionTypes) : null;
     this.onIngested = options.onIngested;
     this.provenanceRegistry = options.provenanceRegistry;
   }
@@ -101,14 +112,29 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   }
 
   shouldHandleTransactionBatch(classification: TransactionClassification, fanoutPlan?: TransactionFanoutPlan): boolean {
-    return fanoutPlan
-      ? shouldDispatchKernelTransactionIngestFromFanoutPlan(fanoutPlan)
-      : (
-        classification.autoCard.candidateOperations.length > 0
-        || classification.autoCard.cancelBlockIds.length > 0
-        || classification.nativeRiff.hasSignal
-        || classification.documentTree.hasHint
-      );
+    if (!this.enabledActionTypeSet) {
+      return fanoutPlan
+        ? shouldDispatchKernelTransactionIngestFromFanoutPlan(fanoutPlan)
+        : (
+          classification.autoCard.candidateOperations.length > 0
+          || classification.autoCard.cancelBlockIds.length > 0
+          || classification.nativeRiff.hasSignal
+          || classification.documentTree.hasHint
+        );
+    }
+
+    const autoCardEnabled = this.isActionTypeEnabled('auto-card-candidates');
+    const nativeRiffEnabled = this.isActionTypeEnabled('native-riff-remove')
+      || this.isActionTypeEnabled('native-riff-upsert');
+    if (fanoutPlan) {
+      return (autoCardEnabled && fanoutPlan.autoCard.shouldDispatch)
+        || (nativeRiffEnabled && fanoutPlan.nativeRiff.shouldDispatch);
+    }
+    return (autoCardEnabled && (
+      classification.autoCard.candidateOperations.length > 0
+      || classification.autoCard.cancelBlockIds.length > 0
+    ))
+      || (nativeRiffEnabled && classification.nativeRiff.hasSignal);
   }
 
   handle(
@@ -203,6 +229,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
       transactions: batch.transactions,
       receivedAt: batch.receivedAt,
       idempotencyKey: batch.idempotencyKey,
+      ...(this.enabledActionTypes ? { enabledActionTypes: this.enabledActionTypes } : {}),
       provenanceSnapshot: this.provenanceRegistry?.createSnapshot(batch.receivedAt),
     };
 
@@ -232,4 +259,27 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   private async sleep(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
+
+  private isActionTypeEnabled(type: BackendKernelTransactionActionType): boolean {
+    return !this.enabledActionTypeSet || this.enabledActionTypeSet.has(type);
+  }
+}
+
+function normalizeEnabledActionTypes(
+  values: readonly BackendKernelTransactionActionType[] | undefined,
+): BackendKernelTransactionActionType[] | null {
+  if (!Array.isArray(values)) {
+    return null;
+  }
+  const allowed = new Set<BackendKernelTransactionActionType>(ALL_KERNEL_TRANSACTION_ACTION_TYPES);
+  const seen = new Set<BackendKernelTransactionActionType>();
+  const normalized: BackendKernelTransactionActionType[] = [];
+  for (const value of values) {
+    if (!allowed.has(value) || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
 }

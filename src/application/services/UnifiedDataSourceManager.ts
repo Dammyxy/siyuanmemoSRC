@@ -49,6 +49,7 @@ import type {
     QueuePersistencePort,
 } from '@/core/queue/domain/ports';
 import { createLogger } from '@/utils/logger';
+import { incrementRuntimePerformanceCounter } from '@/utils/runtimePerformanceDiagnostics';
 import type { HyperspaceSettings } from '@/types/settings';
 import type {
     BackendNeuralRoamAdvanceRequest,
@@ -1066,6 +1067,7 @@ export class UnifiedDataSourceManager {
             ...event,
             timestamp: event.timestamp || Date.now(),
         };
+        incrementRuntimePerformanceCounter('review-sync', 'observer-notifications', 1);
 
         const key = this.getObserverEventKey(normalized);
         const existing = this.pendingObserverEvents.get(key);
@@ -1273,10 +1275,18 @@ export class UnifiedDataSourceManager {
      * 处理“卡片已创建并持久化完成”后的统一数据流。
      */
     public async onCardCreated(card: FSRSCard): Promise<void> {
-        const affectedQueueTypes = this.invalidateQueuesForCardMutation();
+        await this.onCardsCreated([card]);
+    }
 
-        const affectedCardIds = this.normalizeEventIds([card.id]);
-        const affectedBlockIds = this.normalizeEventIds([card.blockId]);
+    public async onCardsCreated(cards: FSRSCard[]): Promise<void> {
+        const createdCards = this.normalizeCards(cards);
+        if (createdCards.length === 0) {
+            return;
+        }
+
+        const affectedQueueTypes = this.invalidateQueuesForCardMutation();
+        const affectedCardIds = this.normalizeEventIds(createdCards.map((card) => card.id));
+        const affectedBlockIds = this.normalizeEventIds(createdCards.map((card) => card.blockId));
         const timestamp = Date.now();
         this.notifyObservers({
             type: 'card-created',
@@ -1620,6 +1630,7 @@ export class UnifiedDataSourceManager {
     public invalidateQueue(type: QueueType): void {
         this.queueInstances.delete(type);
         this.queueProjectionRuntime.clearMaterializedProjectionEcho(type);
+        incrementRuntimePerformanceCounter('review-sync', 'queue-invalidation-calls', 1);
         logger.debug(`Queue cache invalidated: ${type}`);
     }
 

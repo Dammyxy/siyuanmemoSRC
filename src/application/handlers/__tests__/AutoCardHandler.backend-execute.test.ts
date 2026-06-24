@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveBackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
+import {
+  clearRuntimePerformanceDiagnostics,
+  getRuntimePerformanceDiagnosticsReport,
+  installRuntimePerformanceDiagnosticsGlobal,
+} from '@/utils/runtimePerformanceDiagnostics';
 
 const autoCardPolicyLoggerMocks = vi.hoisted(() => ({
   info: vi.fn(),
@@ -34,6 +39,7 @@ function createHandler(input?: {
   backendClientError?: Error;
   backendClient?: {
     executeAutoCard?: (request: unknown) => Promise<unknown>;
+    executeAutoCardBatch?: (request: unknown) => Promise<unknown>;
     resolveAutoCardDecision?: (request: unknown) => Promise<unknown>;
   } | null;
   relayRuntimeError?: Error;
@@ -42,6 +48,9 @@ function createHandler(input?: {
     getInstanceId: () => string;
     ensureWritable?: () => Promise<void>;
   } | null;
+  hostBlockQuery?: Record<string, unknown>;
+  getBlockKramdown?: (blockId: string) => Promise<{ kramdown: string }>;
+  xiuyuanApplicationService?: Record<string, unknown>;
   followerClientError?: Error;
   followerClient?: {
     submitAndWait: <TResult>(request: {
@@ -95,6 +104,25 @@ function createHandler(input?: {
         detectCardType: async () => 'item',
       }),
       getTopicDerivedItemService: () => topicDerivedItemService,
+      getXiuyuanApplicationService: async () => input?.xiuyuanApplicationService ?? ({
+        createFromBlocks: vi.fn(async () => ({
+          ok: true,
+          value: {
+            xiuyuan: { id: 'xiuyuan-single' },
+            cards: [{ id: 'card-single' }],
+          },
+        })),
+        createFromBlocksBatch: vi.fn(async () => ({
+          ok: true,
+          value: {
+            payloads: [],
+            createdCount: 0,
+            skippedCount: 0,
+            failedCount: 0,
+          },
+        })),
+        createTemplate: vi.fn(async () => ({ ok: true, value: undefined })),
+      }),
       getSrsBackendClient: () => {
         if (input?.backendClientError) {
           throw input.backendClientError;
@@ -120,7 +148,7 @@ function createHandler(input?: {
 
   const handler = new AutoCardHandler(plugin as never, {
     siyuanApi: {
-      getBlockKramdown: vi.fn(async () => ({ kramdown: '' })),
+      getBlockKramdown: vi.fn(input?.getBlockKramdown ?? (async () => ({ kramdown: '' }))),
       sql: vi.fn(async () => []),
       getBlockAttrs: vi.fn(async () => ({})),
       pushMsg: vi.fn(async () => undefined),
@@ -132,6 +160,7 @@ function createHandler(input?: {
       BUILTIN_DECK_ID: 'builtin-deck',
       addRiffCards: vi.fn(async () => ({ name: 'builtin-deck', size: 0 })),
     } as never,
+    hostBlockQuery: input?.hostBlockQuery as never,
   });
 
   return {
@@ -459,6 +488,520 @@ describe('AutoCardHandler backend execute routing', () => {
     expect(submitAndWait).toHaveBeenCalledTimes(2);
     expect(executeAutoCard).not.toHaveBeenCalled();
     expect(resolveAutoCardDecision).not.toHaveBeenCalled();
+  });
+
+  it('routes one-click document scans through one backend batch execute call', async () => {
+    installRuntimePerformanceDiagnosticsGlobal();
+    const runtimePerformance = globalThis.siyuanMemoRuntimePerformance;
+    runtimePerformance?.enable?.();
+    const executeAutoCard = vi.fn(async () => ({
+      executed: true,
+      created: 1,
+      skipped: 0,
+    }));
+    const executeAutoCardBatch = vi.fn(async () => ({
+      executed: true,
+      created: 2,
+      skipped: 0,
+    }));
+    const resolveAutoCardDecision = vi.fn(async (request: { blockId: string }) => ({
+      candidateId: `candidate-${request.blockId}`,
+      decisionEventId: `decision-${request.blockId}`,
+      status: 'selected',
+      unavailableClass: null,
+      matchedRuleIds: ['BasicDirectionRule'],
+      enabledDecisions: [],
+      filteredDecisions: [],
+      selectedDecision: {
+        id: 'BasicDirectionRule',
+        family: 'basic',
+        templateId: 'builtin-quick-card',
+        cardType: 'item',
+        mode: 'single',
+        executorKind: 'quick-basic',
+        priority: 50,
+        direction: 'forward',
+      },
+      conflicted: false,
+      strategyUsed: 'semantic-first',
+      markOnlyClozeCandidate: false,
+      shouldUseTopicDerivation: false,
+    }));
+    const hostBlockQuery = {
+      getDocumentRootId: vi.fn(async () => 'doc-root-1'),
+      listBlocksByRoot: vi.fn(async () => [
+        { id: 'block-1', type: 'p' },
+        { id: 'block-2', type: 'p' },
+      ]),
+      listParentIdsWithParagraphChild: vi.fn(async () => new Set<string>()),
+    };
+    const ensureWritable = vi.fn(async () => undefined);
+    const { handler } = createHandler({
+      backendClient: { executeAutoCard, executeAutoCardBatch, resolveAutoCardDecision },
+      relayRuntime: {
+        getMode: () => 'writer',
+        getInstanceId: () => 'writer-doc-scan-1',
+        ensureWritable,
+      },
+      runtimePolicy: createReleasePolicy(),
+      hostBlockQuery,
+      getBlockKramdown: async (blockId) => ({
+        kramdown: blockId === 'block-1' ? 'Alpha >> Beta' : 'Gamma >> Delta',
+      }),
+    });
+
+    const summary = await handler.scanDocumentByRootId('doc-root-1');
+
+    expect(summary).toMatchObject({
+      rootId: 'doc-root-1',
+      scanned: 2,
+      created: 2,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(resolveAutoCardDecision).toHaveBeenCalledTimes(2);
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(executeAutoCard).not.toHaveBeenCalled();
+    expect(executeAutoCardBatch).toHaveBeenCalledTimes(1);
+    expect(executeAutoCardBatch).toHaveBeenCalledWith({
+      items: [
+        expect.objectContaining({
+          envelope: expect.objectContaining({
+            kind: 'planner-decision',
+            blockId: 'block-1',
+            content: 'Alpha >> Beta',
+            source: 'doc-oneclick-scan',
+            docRootId: 'doc-root-1',
+          }),
+        }),
+        expect.objectContaining({
+          envelope: expect.objectContaining({
+            kind: 'planner-decision',
+            blockId: 'block-2',
+            content: 'Gamma >> Delta',
+            source: 'doc-oneclick-scan',
+            docRootId: 'doc-root-1',
+          }),
+        }),
+      ],
+    });
+    const report = getRuntimePerformanceDiagnosticsReport();
+    expect(report.counters['autocard.doc-scan-candidates']).toBe(2);
+    expect(report.counters['autocard.doc-scan-created']).toBe(2);
+    expect(report.counters['autocard.doc-scan-skipped']).toBe(0);
+    expect(report.counters['autocard.doc-scan-failed']).toBe(0);
+    expect(report.events.some((event) => event.path === 'autocard' && event.operation === 'doc-scan.total')).toBe(true);
+    expect(report.events.some((event) => event.path === 'autocard' && event.operation === 'execute-envelope-batch.worker-or-relay')).toBe(true);
+    runtimePerformance?.disable?.();
+    clearRuntimePerformanceDiagnostics();
+  });
+
+  it('does not count backend structural no-match as skipped before document scan batch execution', async () => {
+    const executeAutoCard = vi.fn(async () => ({
+      executed: true,
+      created: 1,
+      skipped: 0,
+    }));
+    const executeAutoCardBatch = vi.fn(async (request: { items: unknown[] }) => ({
+      executed: false,
+      created: 0,
+      skipped: request.items.length,
+      failed: 0,
+    }));
+    const resolveAutoCardDecision = vi.fn(async (request: { ruleScope?: string }) => ({
+      candidateId: 'candidate-doc-scan',
+      decisionEventId: 'decision-doc-scan',
+      status: request.ruleScope === 'structural' ? 'skipped' : 'selected',
+      unavailableClass: null,
+      matchedRuleIds: request.ruleScope === 'structural' ? [] : ['BasicDirectionRule'],
+      enabledDecisions: [],
+      filteredDecisions: [],
+      selectedDecision: request.ruleScope === 'structural' ? null : {
+        id: 'BasicDirectionRule',
+        family: 'basic',
+        templateId: 'builtin-quick-card',
+        cardType: 'item',
+        mode: 'single',
+        executorKind: 'quick-basic',
+        priority: 50,
+        direction: 'forward',
+      },
+      conflicted: false,
+      strategyUsed: 'semantic-first',
+      markOnlyClozeCandidate: false,
+      shouldUseTopicDerivation: false,
+    }));
+    const hostBlockQuery = {
+      getDocumentRootId: vi.fn(async () => 'doc-root-1'),
+      listBlocksByRoot: vi.fn(async () => [
+        { id: 'list-item-1', type: 'i' },
+        { id: 'list-item-2', type: 'i' },
+        { id: 'paragraph-1', type: 'p' },
+        { id: 'paragraph-2', type: 'p' },
+      ]),
+      listParentIdsWithParagraphChild: vi.fn(async () => new Set<string>()),
+    };
+    const { handler } = createHandler({
+      backendClient: { executeAutoCard, executeAutoCardBatch, resolveAutoCardDecision },
+      relayRuntime: {
+        getMode: () => 'writer',
+        getInstanceId: () => 'writer-doc-scan-2',
+        ensureWritable: vi.fn(async () => undefined),
+      },
+      runtimePolicy: createReleasePolicy(),
+      hostBlockQuery,
+      getBlockKramdown: async (blockId) => ({
+        kramdown: `${blockId} >> Answer`,
+      }),
+    });
+
+    const summary = await handler.scanDocumentByRootId('doc-root-1');
+
+    expect(summary).toMatchObject({
+      rootId: 'doc-root-1',
+      scanned: 4,
+      created: 0,
+      skipped: 4,
+      failed: 0,
+      conflicted: 0,
+      consumed: 0,
+    });
+    expect(resolveAutoCardDecision).toHaveBeenCalledTimes(6);
+    expect(executeAutoCardBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('executes backend document scan quick-basic batches through Xiuyuan batch creation', async () => {
+    const createFromBlocks = vi.fn(async () => ({
+      ok: true,
+      value: {
+        xiuyuan: { id: 'xiuyuan-single' },
+        cards: [{ id: 'card-single' }],
+      },
+    }));
+    const createFromBlocksBatch = vi.fn(async (commands: unknown[]) => ({
+      ok: true,
+      value: {
+        payloads: commands.map((_, index) => ({
+          xiuyuan: { id: `xiuyuan-${index + 1}` },
+          cards: [{ id: `card-${index + 1}` }],
+        })),
+        createdCount: commands.length,
+        skippedCount: 0,
+        failedCount: 0,
+      },
+    }));
+    const { handler } = createHandler({
+      xiuyuanApplicationService: {
+        createFromBlocks,
+        createFromBlocksBatch,
+        createTemplate: vi.fn(async () => ({ ok: true, value: undefined })),
+      },
+    });
+
+    const result = await handler.executeBatchFromBackend({
+      items: [
+        {
+          envelope: {
+            kind: 'planner-decision',
+            blockId: 'block-1',
+            content: 'Alpha >> Beta',
+            source: 'doc-oneclick-scan',
+            docRootId: 'doc-root-1',
+            decision: {
+              id: 'BasicDirectionRule',
+              family: 'basic',
+              templateId: 'builtin-quick-card',
+              cardType: 'item',
+              mode: 'single',
+              executorKind: 'quick-basic',
+              priority: 50,
+              direction: 'forward',
+            },
+          },
+        },
+        {
+          envelope: {
+            kind: 'planner-decision',
+            blockId: 'block-2',
+            content: 'Gamma >> Delta',
+            source: 'doc-oneclick-scan',
+            docRootId: 'doc-root-1',
+            decision: {
+              id: 'BasicDirectionRule',
+              family: 'basic',
+              templateId: 'builtin-quick-card',
+              cardType: 'topic',
+              mode: 'single',
+              executorKind: 'quick-basic',
+              priority: 50,
+              direction: 'forward',
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      executed: true,
+      created: 2,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(createFromBlocks).not.toHaveBeenCalled();
+    expect(createFromBlocksBatch).toHaveBeenCalledTimes(1);
+    expect(createFromBlocksBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        blockIds: ['block-1'],
+        templateId: 'builtin-quick-card',
+        fieldMapping: { content: 'block-1' },
+        deckId: 'builtin-deck',
+        cardType: 'item',
+        source: 'doc-oneclick-scan',
+        duplicatePolicy: 'error',
+        creationRuleId: 'BasicDirectionRule',
+        creationMode: 'single',
+      }),
+      expect.objectContaining({
+        blockIds: ['block-2'],
+        templateId: 'builtin-quick-card',
+        fieldMapping: { content: 'block-2' },
+        deckId: 'builtin-deck',
+        cardType: 'topic',
+        source: 'doc-oneclick-scan',
+        duplicatePolicy: 'error',
+        creationRuleId: 'BasicDirectionRule',
+        creationMode: 'single',
+      }),
+    ]);
+  });
+
+  it('batches mixed one-click basic directions including bidirectional symbols', async () => {
+    const createFromBlocks = vi.fn(async () => ({
+      ok: true,
+      value: {
+        xiuyuan: { id: 'xiuyuan-single' },
+        cards: [{ id: 'card-single' }],
+      },
+    }));
+    const createFromBlocksBatch = vi.fn(async (commands: unknown[]) => ({
+      ok: true,
+      value: {
+        payloads: commands.map((_, index) => ({
+          xiuyuan: { id: `xiuyuan-${index + 1}` },
+          cards: [{ id: `card-${index + 1}` }],
+        })),
+        createdCount: commands.length,
+        skippedCount: 0,
+        failedCount: 0,
+      },
+    }));
+    const { handler } = createHandler({
+      xiuyuanApplicationService: {
+        createFromBlocks,
+        createFromBlocksBatch,
+        createTemplate: vi.fn(async () => ({ ok: true, value: undefined })),
+      },
+    });
+
+    const result = await handler.executeBatchFromBackend({
+      items: [
+        {
+          envelope: {
+            kind: 'planner-decision',
+            blockId: 'block-1',
+            content: '1>>2',
+            source: 'doc-oneclick-scan',
+            docRootId: 'doc-root-1',
+            decision: {
+              id: 'BasicDirectionRule',
+              family: 'basic',
+              templateId: 'builtin-quick-card',
+              cardType: 'item',
+              mode: 'single',
+              executorKind: 'quick-basic',
+              priority: 50,
+              direction: 'forward',
+            },
+          },
+        },
+        {
+          envelope: {
+            kind: 'planner-decision',
+            blockId: 'block-2',
+            content: '3<>4',
+            source: 'doc-oneclick-scan',
+            docRootId: 'doc-root-1',
+            decision: {
+              id: 'BasicDirectionRule',
+              family: 'basic',
+              templateId: 'builtin-bidirectional-single',
+              cardType: 'item',
+              mode: 'multi-face',
+              executorKind: 'quick-basic',
+              priority: 50,
+              direction: 'both',
+            },
+          },
+        },
+        {
+          envelope: {
+            kind: 'planner-decision',
+            blockId: 'block-3',
+            content: '5<<6',
+            source: 'doc-oneclick-scan',
+            docRootId: 'doc-root-1',
+            decision: {
+              id: 'BasicDirectionRule',
+              family: 'basic',
+              templateId: 'builtin-quick-card',
+              cardType: 'item',
+              mode: 'single',
+              executorKind: 'quick-basic',
+              priority: 50,
+              direction: 'backward',
+            },
+          },
+        },
+        {
+          envelope: {
+            kind: 'planner-decision',
+            blockId: 'block-4',
+            content: '7>>8',
+            source: 'doc-oneclick-scan',
+            docRootId: 'doc-root-1',
+            decision: {
+              id: 'BasicDirectionRule',
+              family: 'basic',
+              templateId: 'builtin-quick-card',
+              cardType: 'item',
+              mode: 'single',
+              executorKind: 'quick-basic',
+              priority: 50,
+              direction: 'forward',
+            },
+          },
+        },
+        {
+          envelope: {
+            kind: 'planner-decision',
+            blockId: 'block-5',
+            content: '9<>10',
+            source: 'doc-oneclick-scan',
+            docRootId: 'doc-root-1',
+            decision: {
+              id: 'BasicDirectionRule',
+              family: 'basic',
+              templateId: 'builtin-bidirectional-single',
+              cardType: 'item',
+              mode: 'multi-face',
+              executorKind: 'quick-basic',
+              priority: 50,
+              direction: 'both',
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      executed: true,
+      created: 5,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(createFromBlocks).not.toHaveBeenCalled();
+    expect(createFromBlocksBatch).toHaveBeenCalledTimes(1);
+    expect(createFromBlocksBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        blockIds: ['block-1'],
+        templateId: 'builtin-quick-card',
+        fieldMapping: { content: 'block-1' },
+      }),
+      expect.objectContaining({
+        blockIds: ['block-2'],
+        templateId: 'builtin-bidirectional-single',
+        fieldMapping: { content: 'block-2' },
+      }),
+      expect.objectContaining({
+        blockIds: ['block-3'],
+        templateId: 'builtin-quick-card',
+        fieldMapping: { content: 'block-3' },
+      }),
+      expect.objectContaining({
+        blockIds: ['block-4'],
+        templateId: 'builtin-quick-card',
+        fieldMapping: { content: 'block-4' },
+      }),
+      expect.objectContaining({
+        blockIds: ['block-5'],
+        templateId: 'builtin-bidirectional-single',
+        fieldMapping: { content: 'block-5' },
+      }),
+    ]);
+  });
+
+  it('keeps batch failure counts visible when Xiuyuan batch creation reports failures', async () => {
+    const createFromBlocks = vi.fn(async () => ({
+      ok: true,
+      value: {
+        xiuyuan: { id: 'xiuyuan-single' },
+        cards: [{ id: 'card-single' }],
+      },
+    }));
+    const createFromBlocksBatch = vi.fn(async () => ({
+      ok: true,
+      value: {
+        payloads: [
+          {
+            xiuyuan: { id: 'xiuyuan-1' },
+            cards: [{ id: 'card-1' }],
+          },
+        ],
+        createdCount: 1,
+        skippedCount: 0,
+        failedCount: 1,
+      },
+    }));
+    const { handler } = createHandler({
+      xiuyuanApplicationService: {
+        createFromBlocks,
+        createFromBlocksBatch,
+        createTemplate: vi.fn(async () => ({ ok: true, value: undefined })),
+      },
+    });
+
+    const result = await handler.executeBatchFromBackend({
+      items: [
+        {
+          envelope: {
+            kind: 'planner-decision',
+            blockId: 'block-1',
+            content: 'Alpha >> Beta',
+            source: 'doc-oneclick-scan',
+            docRootId: 'doc-root-1',
+            decision: {
+              id: 'BasicDirectionRule',
+              family: 'basic',
+              templateId: 'builtin-quick-card',
+              cardType: 'item',
+              mode: 'single',
+              executorKind: 'quick-basic',
+              priority: 50,
+              direction: 'forward',
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      executed: true,
+      created: 1,
+      skipped: 0,
+      failed: 1,
+    });
+    expect(createFromBlocks).not.toHaveBeenCalled();
+    expect(createFromBlocksBatch).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed when ApplicationContext lookup throws instead of continuing with absent dependencies', async () => {

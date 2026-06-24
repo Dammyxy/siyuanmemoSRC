@@ -121,9 +121,7 @@ describe('QueueProjectionRuntime', () => {
     });
   });
 
-  it('materializes invalidated retrieval projection during readiness instead of leaving it refreshing', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(7);
+  it('reports invalidated retrieval readiness without materializing projection', async () => {
     const card = createCard({
       id: 'retrieval-card',
       blockId: 'retrieval-block',
@@ -172,32 +170,22 @@ describe('QueueProjectionRuntime', () => {
       queueCards: [card],
     });
 
-    try {
-      await expect(runtime.ensureReady({
-        queueType: QueueType.RetrievalPractice,
-        preset: 'all',
-        cardType: 'all',
-        source: 'browser',
-      })).resolves.toMatchObject({
-        status: 'ready',
-        queueId: QueueType.RetrievalPractice,
-        generation: 8,
-      });
+    await expect(runtime.ensureReady({
+      queueType: QueueType.RetrievalPractice,
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    })).resolves.toMatchObject({
+      status: 'refreshing',
+      queueId: QueueType.RetrievalPractice,
+      cause: 'materialization_in_progress',
+    });
 
-      expect(queue.getCards).toHaveBeenCalledTimes(1);
-      expect(backend.queueProjectionReplace).toHaveBeenCalledTimes(1);
-      expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
-        queueType: QueueType.RetrievalPractice,
-        policyHash: 'queue-projection:{"cardType":"all","docId":null,"preset":"all","queueType":"retrieval-practice","scopeDocIds":[],"searchText":null,"source":"browser"}',
-        generation: 8,
-        reason: 'materialization_in_progress',
-      }));
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(queue.getCards).not.toHaveBeenCalled();
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
   });
 
-  it('materializes missing derived-cache projection during readiness and reports rebuild cause', async () => {
+  it('reports missing derived-cache readiness without materializing projection', async () => {
     const card = createCard({
       id: 'missing-cache-card',
       blockId: 'missing-cache-block',
@@ -244,26 +232,24 @@ describe('QueueProjectionRuntime', () => {
       cardType: 'all',
       source: 'browser',
     })).resolves.toMatchObject({
-      status: 'ready',
+      status: 'refreshing',
       queueId: QueueType.RetrievalPractice,
-      generation: 1,
+      cause: 'missing_derived_cache',
     });
 
-    expect(queue.getCards).toHaveBeenCalledTimes(1);
-    expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
-      queueType: QueueType.RetrievalPractice,
-      generation: 1,
-      reason: 'missing_derived_cache',
-    }));
+    expect(queue.getCards).not.toHaveBeenCalled();
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
     expect(runtime.getRolloutDiagnostics(QueueType.RetrievalPractice)).toEqual([
       expect.objectContaining({
         queueType: QueueType.RetrievalPractice,
-        state: 'backend-projection',
+        state: 'projection-unavailable',
+        reason: 'refresh-required',
+        unavailableReason: 'missing_derived_cache',
       }),
     ]);
   });
 
-  it('returns unavailable when missing derived-cache rebuild cannot be submitted', async () => {
+  it('does not require replace backend for passive missing derived-cache readiness', async () => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({
         queueType: QueueType.RetrievalPractice,
@@ -281,30 +267,23 @@ describe('QueueProjectionRuntime', () => {
       queueType: QueueType.RetrievalPractice,
       source: 'browser',
     })).resolves.toMatchObject({
-      status: 'unavailable',
+      status: 'refreshing',
       queueId: QueueType.RetrievalPractice,
-      cause: 'backend_unavailable',
-      recoverable: true,
+      cause: 'missing_derived_cache',
     });
     expect(runtime.getRolloutDiagnostics(QueueType.RetrievalPractice)).toEqual([
       expect.objectContaining({
         state: 'projection-unavailable',
-        reason: 'projection-unavailable',
-        unavailableReason: 'backend_unavailable',
-        backendStatus: 'unavailable',
+        reason: 'refresh-required',
+        unavailableReason: 'missing_derived_cache',
+        backendStatus: 'refreshing',
       }),
     ]);
   });
 
-  it('dedupes overlapping readiness materialization for the same queue policy', async () => {
-    vi.useFakeTimers();
-    const card = createCard({
-      id: 'dedup-card',
-      blockId: 'dedup-block',
-    });
-    let resolveCards: (cards: FSRSCard[]) => void = () => undefined;
+  it('does not start overlapping readiness materialization for the same queue policy', async () => {
     const queueGetCards = vi.fn(() => new Promise<FSRSCard[]>((resolve) => {
-      resolveCards = resolve;
+      resolve([createCard({ id: 'dedup-card', blockId: 'dedup-block' })]);
     }));
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({
@@ -339,47 +318,35 @@ describe('QueueProjectionRuntime', () => {
       queueGetCards,
     });
 
-    try {
-      const first = runtime.ensureReady({
-        queueType: QueueType.RetrievalPractice,
-        preset: 'all',
-        cardType: 'all',
-        source: 'browser',
-      });
-      const second = runtime.ensureReady({
-        queueType: QueueType.RetrievalPractice,
-        preset: 'all',
-        cardType: 'all',
-        source: 'browser',
-      });
+    const first = runtime.ensureReady({
+      queueType: QueueType.RetrievalPractice,
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    });
+    const second = runtime.ensureReady({
+      queueType: QueueType.RetrievalPractice,
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    });
 
-      await vi.advanceTimersByTimeAsync(300);
-      await expect(Promise.all([first, second])).resolves.toEqual([
-        expect.objectContaining({
-          status: 'refreshing',
-          queueId: QueueType.RetrievalPractice,
-        }),
-        expect.objectContaining({
-          status: 'refreshing',
-          queueId: QueueType.RetrievalPractice,
-        }),
-      ]);
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({
+        status: 'refreshing',
+        queueId: QueueType.RetrievalPractice,
+      }),
+      expect.objectContaining({
+        status: 'refreshing',
+        queueId: QueueType.RetrievalPractice,
+      }),
+    ]);
 
-      expect(queueGetCards).toHaveBeenCalledTimes(1);
-      resolveCards([card]);
-      await vi.runAllTimersAsync();
-      expect(backend.queueProjectionReplace).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(queueGetCards).not.toHaveBeenCalled();
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
   });
 
-  it('dedupes sequential slow readiness materialization retries for the same queue policy', async () => {
-    vi.useFakeTimers();
-    const card = createCard({
-      id: 'slow-incremental-card',
-      blockId: 'slow-incremental-block',
-    });
+  it('does not start sequential slow readiness materialization retries for the same queue policy', async () => {
     const pendingResolvers: Array<(cards: FSRSCard[]) => void> = [];
     const queueGetCards = vi.fn(() => new Promise<FSRSCard[]>((resolve) => {
       pendingResolvers.push(resolve);
@@ -417,42 +384,34 @@ describe('QueueProjectionRuntime', () => {
       queueGetCards,
     });
 
-    try {
-      const first = runtime.ensureReady({
-        queueType: QueueType.IncrementalLearning,
-        preset: 'all',
-        cardType: 'all',
-        source: 'browser',
-      });
-      await vi.advanceTimersByTimeAsync(300);
-      await expect(first).resolves.toMatchObject({
-        status: 'refreshing',
-        queueId: QueueType.IncrementalLearning,
-      });
+    const first = runtime.ensureReady({
+      queueType: QueueType.IncrementalLearning,
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    });
+    await expect(first).resolves.toMatchObject({
+      status: 'refreshing',
+      queueId: QueueType.IncrementalLearning,
+    });
 
-      const second = runtime.ensureReady({
-        queueType: QueueType.IncrementalLearning,
-        preset: 'all',
-        cardType: 'all',
-        source: 'browser',
-      });
-      await vi.advanceTimersByTimeAsync(300);
-      await expect(second).resolves.toMatchObject({
-        status: 'refreshing',
-        queueId: QueueType.IncrementalLearning,
-      });
+    const second = runtime.ensureReady({
+      queueType: QueueType.IncrementalLearning,
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    });
+    await expect(second).resolves.toMatchObject({
+      status: 'refreshing',
+      queueId: QueueType.IncrementalLearning,
+    });
 
-      expect(queueGetCards).toHaveBeenCalledTimes(1);
-      expect(pendingResolvers).toHaveLength(1);
-      pendingResolvers[0]?.([card]);
-      await vi.runAllTimersAsync();
-      expect(backend.queueProjectionReplace).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(queueGetCards).not.toHaveBeenCalled();
+    expect(pendingResolvers).toHaveLength(0);
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
   });
 
-  it('materializes invalidated filter-group projection during readiness instead of leaving browser load stuck', async () => {
+  it('reports invalidated filter-group readiness without materializing projection', async () => {
     const card = createCard({
       id: 'filter-card',
       blockId: 'filter-block',
@@ -498,18 +457,13 @@ describe('QueueProjectionRuntime', () => {
       cardType: 'all',
       source: 'browser',
     })).resolves.toMatchObject({
-      status: 'ready',
+      status: 'refreshing',
       queueId: QueueType.FilterGroup,
+      cause: 'materialization_in_progress',
     });
 
-    expect(queue.getCards).toHaveBeenCalledTimes(1);
-    expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
-      queueType: QueueType.FilterGroup,
-      policyHash: expect.stringContaining('"queueType":"filter-group"'),
-      generation: expect.any(Number),
-      reason: 'materialization_in_progress',
-    }));
-    expect(backend.queueProjectionReplace.mock.calls[0]?.[0].policyHash).toContain('"filterHash":null');
+    expect(queue.getCards).not.toHaveBeenCalled();
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
   });
 
   it('preserves submitted FilterGroup identity in materialized projection policy and row metadata', async () => {
@@ -542,7 +496,8 @@ describe('QueueProjectionRuntime', () => {
       queueCards: [manualCard],
     });
 
-    await expect(runtime.ensureReady({
+    await expect(runtime.materialize(QueueType.FilterGroup, null, {
+      readinessRequest: {
       queueType: QueueType.FilterGroup,
       source: 'browser',
       filterHash: 'filter-hash-a',
@@ -552,9 +507,10 @@ describe('QueueProjectionRuntime', () => {
       transferSessionId: 'transfer-a',
       sessionId: 'session-a',
       commitPolicy: 'write-schedule',
+      },
     })).resolves.toMatchObject({
       status: 'ready',
-      queueId: QueueType.FilterGroup,
+      queueType: QueueType.FilterGroup,
     });
 
     const replaceRequest = backend.queueProjectionReplace.mock.calls[0]?.[0];
@@ -572,9 +528,7 @@ describe('QueueProjectionRuntime', () => {
     });
   });
 
-  it('materializes invalidated projection during forced snapshot reads for queue counters', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(9);
+  it('does not materialize invalidated projection during forced snapshot reads for queue counters', async () => {
     const card = createCard({
       id: 'incremental-card',
       blockId: 'incremental-block',
@@ -609,25 +563,15 @@ describe('QueueProjectionRuntime', () => {
         },
       })),
     };
-    const { runtime } = createRuntime({
+    const { queue, runtime } = createRuntime({
       backend,
       queueCards: [card],
     });
 
-    try {
-      await expect(runtime.readSnapshot(QueueType.IncrementalLearning, { forceRefresh: true }))
-        .resolves.toMatchObject({
-          queueType: QueueType.IncrementalLearning,
-          counters: expect.objectContaining({
-            remaining: 1,
-            total: 1,
-          }),
-          rows: [expect.objectContaining({ fsrsCardId: 'incremental-card' })],
-        });
-      expect(backend.queueProjectionReplace).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
+    await expect(runtime.readSnapshot(QueueType.IncrementalLearning, { forceRefresh: true }))
+      .resolves.toBeNull();
+    expect(queue.getCards).not.toHaveBeenCalled();
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
   });
 
   it('does not emit local repair identity events for non-ready projections', async () => {
@@ -816,7 +760,7 @@ describe('QueueProjectionRuntime', () => {
       .rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
   });
 
-  it('repairs stale row hydration through writer relay on follower windows', async () => {
+  it('does not repair stale row hydration through writer relay on follower windows', async () => {
     const card = createCard({
       id: 'relay-card',
       blockId: 'relay-block',
@@ -864,19 +808,10 @@ describe('QueueProjectionRuntime', () => {
     });
 
     await expect(runtime.getCardsBySnapshotIds(QueueType.FilterGroup, ['relay-card']))
-      .resolves.toEqual([expect.objectContaining({ id: 'relay-card' })]);
-    expect(queue.getCards).toHaveBeenCalledTimes(1);
+      .resolves.toEqual([]);
+    expect(queue.getCards).not.toHaveBeenCalled();
     expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
-    expect(follower.submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
-      instanceId: 'follower-a',
-      method: 'queue.projection.replace',
-      params: expect.objectContaining({
-        queueType: QueueType.FilterGroup,
-        policyHash: 'policy-stale',
-        generation: 5,
-        reason: 'row-hydration-refresh',
-      }),
-    }));
+    expect(follower.submitAndWait).not.toHaveBeenCalled();
   });
 
   it('relays explicit priority-source projection materialization from follower windows', async () => {

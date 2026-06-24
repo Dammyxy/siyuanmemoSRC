@@ -97,6 +97,56 @@ describe('FollowerCommandClient', () => {
     );
   });
 
+  it('keeps successful kernel transaction ingest relay out of info diagnostics', async () => {
+    const info = vi.fn();
+    const writerSubmitCommand = vi.fn(async () => ({
+      commandId: 'cmd-ingest',
+      ownerInstanceId: 'writer-1',
+      status: 'queued',
+      now: 1,
+    }));
+    const writerGetCommandResult = vi.fn(async () => ({
+      commandId: 'cmd-ingest',
+      status: 'completed',
+      ownerInstanceId: 'writer-1',
+      result: {
+        accepted: 1,
+        queued: 1,
+        receivedAt: 1,
+        duplicate: false,
+        queueLength: 1,
+        maxQueueLength: 256,
+      },
+      completedAt: 2,
+      now: 2,
+    }));
+    const client = new FollowerCommandClient({
+      writerSubmitCommand,
+      writerGetCommandResult,
+    } as unknown as KernelSidecarClient, {
+      info,
+      warn: vi.fn(),
+    });
+
+    await client.submitAndWait({
+      instanceId: 'follower-1',
+      method: 'kernel.transaction.ingest',
+      params: {
+        source: 'ws-main',
+        transactions: [{ doOperations: [{ action: 'update', id: 'block-1' }] }],
+      },
+    }, 2_000);
+
+    expect(info).not.toHaveBeenCalledWith(
+      '[FollowerCommandClient] relay command submitted',
+      expect.objectContaining({ commandId: 'cmd-ingest' }),
+    );
+    expect(info).not.toHaveBeenCalledWith(
+      '[FollowerCommandClient] relay command completed',
+      expect.objectContaining({ commandId: 'cmd-ingest' }),
+    );
+  });
+
   it('emits completed diagnostics for kernel transaction dequeue when actions exist', async () => {
     const info = vi.fn();
     const writerSubmitCommand = vi.fn(async () => ({

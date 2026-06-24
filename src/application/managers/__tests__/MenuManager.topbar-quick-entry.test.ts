@@ -56,6 +56,7 @@ function createFixture(options?: {
     }),
     getAutoCardHandler: vi.fn().mockReturnValue(null),
     createAutoCardHandler: vi.fn().mockResolvedValue(tempAutoCardHandler),
+    runWithAutoCardBackendExecutionHandler: vi.fn(async (_handler, task) => task()),
     getUnifiedDataSourceManager: vi.fn().mockReturnValue({
       getDayStartHour: vi.fn(() => 4),
     }),
@@ -132,6 +133,10 @@ describe('MenuManager top bar quick entry actions', () => {
 
     expect(context.getAutoCardHandler).toHaveBeenCalledTimes(1);
     expect(context.createAutoCardHandler).toHaveBeenCalledTimes(1);
+    expect(context.runWithAutoCardBackendExecutionHandler).toHaveBeenCalledWith(
+      tempAutoCardHandler,
+      expect.any(Function),
+    );
     expect(tempAutoCardHandler.scanDocumentByRootId).toHaveBeenCalledWith('doc-1');
     expect(tempAutoCardHandler.dispose).toHaveBeenCalledTimes(1);
   });
@@ -146,6 +151,7 @@ describe('MenuManager top bar quick entry actions', () => {
     await menuManager.runOneClickSymbolCardCreationByDocId('doc-1');
 
     expect(context.createAutoCardHandler).not.toHaveBeenCalled();
+    expect(context.runWithAutoCardBackendExecutionHandler).not.toHaveBeenCalled();
     expect(activeAutoCardHandler.scanDocumentByRootId).toHaveBeenCalledWith('doc-1');
     expect(tempAutoCardHandler.dispose).not.toHaveBeenCalled();
   });
