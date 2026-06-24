@@ -130,6 +130,84 @@ describe('BrowserApplicationService queue query path', () => {
     });
   });
 
+  it('routes explicit Browser queue read-model repair through queue projection materialization', async () => {
+    const manager = {
+      getQueue: vi.fn(() => ({})),
+      materializeQueueProjection: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        policyHash: 'policy-retrieval',
+        generation: 9,
+        status: 'ready',
+        rows: 2,
+        counters: {
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'policy-retrieval',
+          generation: 9,
+          version: 1,
+          remaining: 2,
+          due: 2,
+          total: 2,
+          buckets: { all: 2, item: 2, descriptor: 0 },
+          updatedAt: 1,
+        },
+      })),
+    } as never;
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(() => []),
+        getAllCards: vi.fn(() => []),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      manager,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
+    );
+
+    await expect(service.repairQueueReadModel({
+      queueType: 'retrieval',
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    })).resolves.toBe(true);
+
+    expect(manager.materializeQueueProjection).toHaveBeenCalledWith(
+      QueueType.RetrievalPractice,
+      null,
+      {
+        readinessRequest: {
+          queueType: QueueType.RetrievalPractice,
+          preset: 'all',
+          cardType: 'all',
+          source: 'browser',
+        },
+        reason: 'browser-warmup-repair',
+      },
+    );
+  });
+
   it('enriches submitted FilterGroup readiness with committed queue projection identity', async () => {
     const readiness = {
       status: 'refreshing',

@@ -22,12 +22,24 @@ Browser queue lifecycle SHALL treat Queue Projection Readiness as diagnostics an
 - **WHEN** Queue Projection Readiness or a live identity event reports a newer ready projection identity for the active queue
 - **THEN** Browser lifecycle SHALL record the newer projection identity for stale-read rejection and future count refresh decisions
 
-### Requirement: Browser queue lifecycle does not repair projections from UI
+### Requirement: Browser warmup explicitly repairs recoverable stale projections
+Browser queue projection warmup SHALL request application-owned repair when passive readiness reports a recoverable stale or missing derived projection, without blocking datasource attachment.
+
+#### Scenario: Warmup repairs stale projection
+- **WHEN** Browser open schedules queue projection warmup and readiness returns `refreshing` with cause `projection_stale`
+- **THEN** Browser warmup SHALL request `repairQueueReadModel` through the Browser application service
+- **AND** Browser SHALL recheck the affected queue through live identity or targeted retry before declaring the queue ready
+
+#### Scenario: Warmup retries non-ready readiness
+- **WHEN** Browser warmup records a non-ready readiness state with `retryAfterMs`
+- **THEN** Browser SHALL schedule a targeted recheck for the affected queue instead of stopping after one diagnostic log
+
+### Requirement: Browser queue lifecycle does not repair projections while attaching from UI
 Browser UI and Browser lifecycle modules MUST NOT materialize queue projections, run local queue scans as fallback, or call lower-level queue repair APIs while attaching a queue datasource.
 
 #### Scenario: Projection is stale during queue open
 - **WHEN** Queue Projection Readiness indicates `projection_stale`
-- **THEN** Browser SHALL attach the queue datasource through the normal read model path and SHALL NOT call local queue fallback or projection materialization from UI code
+- **THEN** Browser SHALL attach the queue datasource through the normal read model path and SHALL NOT call local queue fallback or lower-level projection materialization from UI code
 
 #### Scenario: Terminal projection owner failure
 - **WHEN** the declared Browser read-model service is missing or returns an unrecoverable unavailable result before datasource creation is possible

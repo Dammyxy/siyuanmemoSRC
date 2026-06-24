@@ -10,14 +10,14 @@ There is a second ownership problem beneath that symptom: Browser open already s
 
 - Make Browser queue datasource attachment independent from projection readiness warmup so first screen work can continue while projections refresh.
 - Keep Browser lifecycle as the owner of queue identity, datasource attach, projection identity metadata, live identity reactions, and count-refresh hints.
-- Keep background warmup bounded and diagnostic-only for non-ready projection states.
+- Keep background warmup bounded, diagnostic-first, and command-oriented only when readiness explicitly reports a repairable stale/missing projection.
 - Split Queue Projection passive read/readiness from explicit repair/materialization so heavy `queue.getCards()` work does not run as an incidental Browser-open read side effect.
 - Add regression tests at the Browser lifecycle/load-data seam and QueueProjection Runtime seam.
 
 **Non-Goals:**
 
 - No local queue fallback rows when projection reads are unavailable.
-- No UI SQL fallback or direct UI projection repair.
+- No UI SQL fallback, local queue fallback, or direct UI projection runtime repair.
 - No Review queue membership, scheduler, feedback commit, writer relay, backend worker protocol, or NeuralRoam advance redesign.
 - No broad visual Browser redesign.
 
@@ -31,8 +31,8 @@ There is a second ownership problem beneath that symptom: Browser open already s
   - Rationale: the UI still needs explicit status for toasts, counters, and diagnostics, but the lifecycle module should not clear the grid solely because background readiness is not yet `ready`.
   - Alternative considered: remove readiness from lifecycle entirely. Rejected because live identity and count refresh still need one Browser-owned place to reason about projection identity.
 
-- Warmup remains a background Browser runtime, but readiness ownership is not duplicated.
-  - Rationale: `browserQueueProjectionWarmupRuntime` should schedule bounded readiness probes and record readiness states; `BrowserQueueViewLifecycle` should own active queue attach and stale identity decisions.
+- Warmup remains a background Browser runtime, but now owns the repair/retry orchestration that passive readiness intentionally no longer performs.
+  - Rationale: `browserQueueProjectionWarmupRuntime` should schedule bounded readiness probes, record readiness states, request `BrowserApplicationService.repairQueueReadModel()` for `projection_stale` / `missing_derived_cache`, and rely on live identity events or `retryAfterMs` for targeted rechecks. `BrowserQueueViewLifecycle` should still own active queue attach and stale identity decisions.
   - Alternative considered: merge all warmup into load-data. Rejected because warmup also reacts to live identity events and inactive sidebar queues.
 
 - QueueProjection Runtime exposes read-only readiness for passive callers and explicit repair for materialization.
@@ -47,7 +47,7 @@ There is a second ownership problem beneath that symptom: Browser open already s
 
 - Active queue grid may attach before rows are available -> row fetch and count refresh must continue to surface explicit non-ready diagnostics rather than silently showing local fallback data.
 - Existing tests expect non-ready readiness to block datasource creation -> update them to the new Browser-open contract and add separate tests proving no local fallback repair is invoked.
-- Removing implicit materialization from passive reads can make stale projections stay refreshing until an explicit repair is triggered -> keep warmup diagnostics and explicit repair entry points visible for follow-up repair scheduling.
+- Removing implicit materialization from passive reads can make stale projections stay refreshing until an explicit repair is triggered -> Browser warmup now triggers the application repair command and targeted retry instead of relying on passive reads.
 - QueueProjection Runtime has several passive-looking methods that currently materialize -> refactor one vertical slice at a time and keep targeted tests green after each split.
 
 ## Migration Plan
@@ -56,4 +56,5 @@ There is a second ownership problem beneath that symptom: Browser open already s
 2. Update `BrowserQueueViewLifecycle.prepareQueueView()` to create datasource without awaiting readiness as a first-screen gate; capture ready identities opportunistically when already available.
 3. Route lifecycle state/count-refresh hints so background warmup and passive queue counts remain non-blocking.
 4. Introduce read-only QueueProjection Runtime readiness/read methods and move existing materialization calls behind explicit repair paths.
-5. Sync `ARCHITECTURE.md` and `docs/DDD_RESCAN_BACKLOG.md`; run focused Browser/Queue tests, boundary checks, and build.
+5. Add Browser warmup repair orchestration through `BrowserApplicationService.repairQueueReadModel()` and `UnifiedDataSourceManager.materializeQueueProjection(...)`.
+6. Sync `ARCHITECTURE.md` and `docs/DDD_RESCAN_BACKLOG.md`; run focused Browser/Queue tests, boundary checks, and build.

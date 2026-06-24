@@ -29,6 +29,11 @@ Queue Projection Runtime SHALL expose projection materialization only through ex
 - **WHEN** an explicit repair path requests projection materialization for a supported queue type
 - **THEN** Queue Projection Runtime SHALL build rows from the queue domain and submit projection replacement through the writer/backend path
 
-#### Scenario: Passive Browser open cannot trigger repair
-- **WHEN** Browser open, warmup, or count refresh checks projection readiness
+#### Scenario: Passive Browser reads cannot trigger repair
+- **WHEN** Browser open, count refresh, or passive readiness checks projection readiness
 - **THEN** those passive reads SHALL NOT enter the explicit repair/materialization path
+
+#### Scenario: Browser warmup uses application repair command
+- **WHEN** Browser warmup sees a repairable stale projection state
+- **THEN** it MAY request repair through `BrowserApplicationService.repairQueueReadModel()`
+- **AND** it SHALL NOT call `queue.getCards()` or direct projection materialization from UI code itself

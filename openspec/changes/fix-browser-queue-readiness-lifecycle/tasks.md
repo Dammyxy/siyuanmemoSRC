@@ -21,7 +21,15 @@
 
 ## 4. Documentation And Validation
 
-- [ ] 4.1 Update `ARCHITECTURE.md` with Browser queue datasource attach, background warmup, and QueueProjection read/repair ownership.
-- [ ] 4.2 Append `docs/DDD_RESCAN_BACKLOG.md` task delta with fixed/deferred Browser/QueueProjection debt.
-- [ ] 4.3 Run focused Browser lifecycle/load-data/warmup and QueueProjection Runtime tests.
-- [ ] 4.4 Run `openspec validate fix-browser-queue-readiness-lifecycle --strict`, `pnpm run check:boundaries`, `node scripts/check-hidden-fallbacks.cjs`, `git diff --check`, and `pnpm build`.
+- [x] 4.1 Update `ARCHITECTURE.md` with Browser queue datasource attach, background warmup, and QueueProjection read/repair ownership.
+- [x] 4.2 Append `docs/DDD_RESCAN_BACKLOG.md` task delta with fixed/deferred Browser/QueueProjection debt.
+- [x] 4.3 Run focused Browser lifecycle/load-data/warmup and QueueProjection Runtime tests.
+- [x] 4.4 Run `openspec validate fix-browser-queue-readiness-lifecycle --strict`, `pnpm run check:boundaries`, `node scripts/check-hidden-fallbacks.cjs`, `git diff --check`, and `pnpm build`.
+
+## 5. Browser Warmup Repair Closure
+
+- [x] 5.1 Add RED Browser warmup test proving `projection_stale` readiness requests application-owned repair and rechecks through live identity.
+- [x] 5.2 Add `BrowserApplicationService.repairQueueReadModel()` and route it through `UnifiedDataSourceManager.materializeQueueProjection(...)`.
+- [x] 5.3 Pass submitted readiness identity into explicit materialization so FilterGroup and Browser-scoped policy payloads stay canonical.
+- [x] 5.4 Make warmup schedule targeted retries from `retryAfterMs` for non-ready states instead of logging once and stopping.
+- [x] 5.5 Update OpenSpec docs, `ARCHITECTURE.md`, and `docs/DDD_RESCAN_BACKLOG.md`; rerun focused tests, boundary checks, hidden fallback check, diff check, and build.

@@ -750,6 +750,26 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
   }
 
+  async repairQueueReadModel(request: QueueProjectionReadinessRequest): Promise<boolean> {
+    const queueType = resolveQueueTypeForBrowserQueueId(resolveBrowserQueueIdForQueueType(request.queueType as QueueType) ?? request.queueType);
+    if (!queueType || !this.unifiedDataSourceManager) {
+      return false;
+    }
+    if (typeof this.unifiedDataSourceManager.materializeQueueProjection !== 'function') {
+      return false;
+    }
+
+    const result = await this.unifiedDataSourceManager.materializeQueueProjection(
+      queueType,
+      null,
+      {
+        readinessRequest: this.buildSubmittedQueueProjectionReadinessRequest(queueType, request),
+        reason: 'browser-warmup-repair',
+      },
+    );
+    return result?.status === 'ready';
+  }
+
   private buildSubmittedQueueProjectionReadinessRequest(
     queueType: QueueType,
     request: QueueProjectionReadinessRequest,

@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-24 (Round 633)
+Last update: 2026-06-24 (Round 635)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-24 - Browser queue warmup explicit repair
+
+- Task: Fix the live follow-up where Browser open logs `projection_stale` readiness once, then queue rows/counts never recover.
+- Touched slice: Browser + QueueProjection repair seam in `src/ui/browser/browserQueueProjectionWarmupRuntime.ts`, `src/application/interfaces/IBrowserApplicationService.ts`, `src/application/services/BrowserApplicationService.ts`, `src/application/services/UnifiedDataSourceManager.ts`, `src/types/unified-data-source/manager-facade.ts`, focused tests, OpenSpec artifacts, and `ARCHITECTURE.md`.
+- Debt fixed now: Browser warmup now treats `projection_stale` / `missing_derived_cache` as repairable diagnostics and requests `BrowserApplicationService.repairQueueReadModel()` instead of stopping after one log. The application repair command delegates to `UnifiedDataSourceManager.materializeQueueProjection(...)` with the submitted readiness identity and `browser-warmup-repair` reason, so FilterGroup/session policy payloads stay canonical. Non-ready readiness states with `retryAfterMs` now schedule targeted rechecks. Passive `ensureQueueReadModelReady()`, queue reads, count reads, `QueueProjectionRuntime.ensureReady()`, `readSnapshot()`, and row hydration remain read-only.
+- Debt deferred: Live SiYuan Browser smoke was not run in this CLI pass, and no new user-facing repair toast/progress UI was added.
+- Why deferred: The failing behavior is the missing application repair/retry scheduler, which is covered by focused unit tests. Live smoke requires a reloaded SiYuan renderer and real projection state; UI progress copy would be product work beyond the stuck queue recovery path.
+- Next safe step: Reload SiYuanMemo, open Browser directly to `incremental-learning`, and confirm logs progress from `Queue projection warmup readiness { status: 'refreshing', cause: 'projection_stale' }` to `Queue projection warmup repair requested`, `queue.projection.replace` / materialized identity, then ready rows/counts.
+- Validation: Red/green `pnpm exec vitest run src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts --reporter=dot`; focused regression `pnpm exec vitest run src/application/queries/browser/__tests__/BrowserQueueViewLifecycle.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts --reporter=dot` (5 files / 61 tests passed); `openspec validate fix-browser-queue-readiness-lifecycle --strict`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
+
+### 2026-06-24 - Browser queue readiness lifecycle split
+
+- Task: Fix Browser/progressive-learning queue open getting stuck while Queue Projection Readiness stays `refreshing`, under OpenSpec change `fix-browser-queue-readiness-lifecycle`.
+- Touched slice: Browser + QueueProjection read path in `src/application/queries/browser/BrowserQueueViewLifecycle.ts`, `src/ui/browser/browserLoadDataRuntime.ts`, `src/ui/browser/SRSBrowser.vue`, `src/application/services/queue-projection/QueueProjectionRuntime.ts`, focused Browser/QueueProjection tests, OpenSpec artifacts, and `ARCHITECTURE.md`.
+- Debt fixed now: Browser Queue View Lifecycle now treats valid queue identity + datasource creation as the attach gate, not synchronous projection readiness. Browser load-data keeps queue datasource attachment independent from background warmup, hidden live identity replay no longer erases a freshly prepared queue identity, and active-queue warmup ready events update lifecycle projection identity for scoped count refresh. QueueProjection Runtime passive `ensureReady()`, `readSnapshot({ forceRefresh: true })`, and row hydration no longer call `queue.getCards()` or `queue.projection.replace`; projection rebuild is confined to explicit `materialize()` repair paths.
+- Debt deferred: No live SiYuan Browser smoke was run in this initial split pass; explicit repair scheduling was closed by the same-day Browser queue warmup repair delta above.
+- Why deferred: This split fixed the blocking first-screen contract and read/repair seam without adding local queue fallback, UI SQL fallback, or hidden projection repair. The later warmup repair delta added the explicit application command scheduler after live logs proved stale projections were not being repaired.
+- Next safe step: Reload SiYuanMemo, open Browser directly to `incremental-learning`, and confirm the grid datasource attaches immediately while the warmup repair delta above drives projection repair to ready rows/counts.
+- Validation: Focused `pnpm exec vitest run src/application/queries/browser/__tests__/BrowserQueueViewLifecycle.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts --reporter=dot` (4 files / 54 tests passed); `openspec validate fix-browser-queue-readiness-lifecycle --strict`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check` (only LF/CRLF warnings for edited markdown/tasks files); `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy JS API warnings).
 
 ### 2026-06-24 - Kernel transaction ingest action filtering
 

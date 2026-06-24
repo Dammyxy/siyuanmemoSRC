@@ -137,6 +137,70 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     vi.useRealTimers();
   });
 
+  it('repairs stale projection-backed queues during warmup and rechecks readiness', async () => {
+    vi.useFakeTimers();
+    let runtime: ReturnType<typeof createBrowserQueueProjectionWarmupRuntime>;
+    const ensureQueueReadModelReady = vi.fn(async (request) => (
+      ensureQueueReadModelReady.mock.calls.length === 1
+        ? {
+          status: 'refreshing',
+          queueId: request.queueType,
+          policyId: `policy-${request.queueType}`,
+          cause: 'projection_stale',
+          retryAfterMs: 300,
+        }
+        : {
+          status: 'ready',
+          queueId: request.queueType,
+          policyId: `policy-${request.queueType}`,
+          generation: 9,
+        }
+    ));
+    const repairQueueReadModel = vi.fn(async () => {
+      runtime.handleLiveIdentityEvent({
+        type: 'queue-projection-live-identity',
+        queueId: QueueType.RetrievalPractice,
+        queueType: QueueType.RetrievalPractice,
+        policyId: 'policy-retrieval-practice',
+        generation: 9,
+        reason: 'materialized',
+        source: 'runtime',
+        timestamp: 1,
+      });
+      return true;
+    });
+    const onQueueReady = vi.fn();
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      browserAppService: ref({ ensureQueueReadModelReady, repairQueueReadModel }),
+      onQueueReady,
+    });
+    runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.schedule('browser-open', 0, ['retrieval']);
+    await vi.runOnlyPendingTimersAsync();
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(repairQueueReadModel).toHaveBeenCalledTimes(1);
+    expect(repairQueueReadModel).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.RetrievalPractice,
+      source: 'browser',
+    }));
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(2);
+    expect(runtime.getStatus('retrieval')).toMatchObject({
+      status: 'ready',
+      queueId: 'retrieval',
+      queueType: QueueType.RetrievalPractice,
+      generation: 9,
+    });
+    expect(onQueueReady).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ready',
+      queueType: QueueType.RetrievalPractice,
+      generation: 9,
+    }));
+    vi.useRealTimers();
+  });
+
   it('rewarms only the affected queue after materialized identity events', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({

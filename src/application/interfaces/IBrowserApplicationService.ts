@@ -150,6 +150,12 @@ export interface IBrowserApplicationService {
    * queue projection readiness.
    */
   ensureQueueReadModelReady?(request: QueueProjectionReadinessRequest): Promise<QueueProjectionReadiness>;
+
+  /**
+   * Explicit repair command for Browser queue read model projections.
+   * Passive readiness/read paths must stay read-only.
+   */
+  repairQueueReadModel?(request: QueueProjectionReadinessRequest): Promise<boolean>;
   
   /**
    * 获取到期卡片数量

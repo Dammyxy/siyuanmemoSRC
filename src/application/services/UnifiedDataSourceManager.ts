@@ -740,8 +740,12 @@ export class UnifiedDataSourceManager {
     public async materializeQueueProjection(
         queueType: QueueType,
         queueOverride?: Pick<IReviewQueue, 'getCards'> | null,
+        options: {
+            readinessRequest?: QueueProjectionReadinessRequest | null;
+            reason?: string | null;
+        } = {},
     ): Promise<BackendQueueProjectionReplaceResult | null> {
-        return this.queueProjectionRuntime.materialize(queueType, queueOverride);
+        return this.queueProjectionRuntime.materialize(queueType, queueOverride, options);
     }
 
     public getQueueProjectionRolloutDiagnostics(queueType?: QueueType): QueueProjectionRolloutDiagnostic[] {

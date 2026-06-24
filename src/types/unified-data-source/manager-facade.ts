@@ -3,6 +3,7 @@ import type {
   BackendNeuralRoamCommandResult,
   BackendNeuralRoamViewStateRequest,
   BackendNeuralRoamViewStateResult,
+  BackendQueueProjectionReplaceResult,
 } from '../../../packages/contracts/src/backend-rpc';
 import type { QueueProjectionLiveIdentityListener } from '@/types/queue-projection-live-identity';
 import type { FSRSCard } from '@/types/card';
@@ -39,6 +40,14 @@ export interface IUnifiedDataSourceManagerFacade {
   batchRemoveFromQueue?(type: QueueType, cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult>;
   getQueueProjectionRolloutDiagnostics?(queueType?: QueueType): QueueProjectionRolloutDiagnostic[];
   ensureQueueProjectionReady?(request: QueueProjectionReadinessRequest): Promise<QueueProjectionReadiness>;
+  materializeQueueProjection?(
+    queueType: QueueType,
+    queueOverride?: Pick<IReviewQueue, 'getCards'> | null,
+    options?: {
+      readinessRequest?: QueueProjectionReadinessRequest | null;
+      reason?: string | null;
+    },
+  ): Promise<BackendQueueProjectionReplaceResult | null>;
   readQueueProjectionSnapshot?(queueType: QueueType, options?: { forceRefresh?: boolean }): Promise<QueueProjectionSnapshot | null>;
   getQueueProjectionCardsBySnapshotIds?(queueType: QueueType, ids: string[], options?: { forceRefresh?: boolean }): Promise<FSRSCard[]>;
   subscribeQueueProjectionLiveIdentityEvents?(listener: QueueProjectionLiveIdentityListener): () => void;

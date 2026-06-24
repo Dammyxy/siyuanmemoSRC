@@ -69,6 +69,7 @@ const BROWSER_OPEN_WARMUP_QUEUE_IDS: BrowserQueueId[] = [
   'final-drill',
   'filter-group',
 ];
+const REPAIRABLE_WARMUP_CAUSES = new Set(['projection_stale', 'missing_derived_cache']);
 
 function isWarmableQueue(queueType: QueueType | null): queueType is QueueType {
   return Boolean(queueType && queueType !== QueueType.NeuralRoam);
@@ -116,6 +117,21 @@ function normalizeReadinessStatus(
     retryAfterMs: readiness.retryAfterMs,
     warmedAt,
   };
+}
+
+function canRepairWarmupStatus(status: BrowserQueueProjectionWarmupStatus): boolean {
+  return status.status !== 'ready' && REPAIRABLE_WARMUP_CAUSES.has(status.cause);
+}
+
+function resolveRetryDelayMs(status: BrowserQueueProjectionWarmupStatus): number | null {
+  if (status.status === 'ready') {
+    return null;
+  }
+  const retryAfterMs = Number(status.retryAfterMs);
+  if (!Number.isFinite(retryAfterMs)) {
+    return null;
+  }
+  return Math.max(DEFAULT_WARMUP_DEBOUNCE_MS, Math.floor(retryAfterMs));
 }
 
 function buildWarmupRequest(
@@ -210,6 +226,48 @@ export function createBrowserQueueProjectionWarmupRuntime(
               error,
             });
           });
+          continue;
+        }
+        if (canRepairWarmupStatus(status) && typeof service.repairQueueReadModel === 'function') {
+          try {
+            const repaired = await measureRuntimePerformance(
+              'browser',
+              'queue-projection.warmup.repair',
+              () => service.repairQueueReadModel!(request),
+              {
+                queueId,
+                queueType,
+                reason,
+                cause: status.cause,
+              },
+            );
+            deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection warmup repair requested', {
+              queueId,
+              queueType,
+              reason,
+              cause: status.cause,
+              repaired,
+            });
+            if (!repaired) {
+              const retryDelayMs = resolveRetryDelayMs(status);
+              if (retryDelayMs != null) {
+                scheduleTargeted(`warmup-retry:${status.cause}`, retryDelayMs, [queueId]);
+              }
+            }
+            continue;
+          } catch (repairError) {
+            deps.logger.warn?.('[SiYuanMemo][SRSBrowser] Queue projection warmup repair failed', {
+              queueId,
+              queueType,
+              reason,
+              cause: status.cause,
+              error: repairError instanceof Error ? repairError.message : String(repairError),
+            });
+          }
+        }
+        const retryDelayMs = resolveRetryDelayMs(status);
+        if (retryDelayMs != null) {
+          scheduleTargeted(`warmup-retry:${status.cause}`, retryDelayMs, [queueId]);
         }
       } catch (error) {
         if (seq !== generation) return;
