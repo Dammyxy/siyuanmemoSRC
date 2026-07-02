@@ -9,9 +9,9 @@ Last update: 2026-07-03 (Round 647)
 - Task: Apply `retire-legacy-migration-runtime` so legacy unified-card import is "migrate once, then delete".
 - Touched slice: Worker SQL startup/truth bootstrap in `worker/db/SqliteDatabaseService.ts`, passive receipt helper in `worker/truth/LegacyUnifiedCardsMigrationReceipt.ts`, runtime MessagePack audit, storage contracts/tests, `ARCHITECTURE.md`, and OpenSpec task ledger.
 - Debt fixed now: Deleted legacy unified-card source detector/import runtime and tests, removed startup decode/import/divergence handling for `unified-cards.msgpack`, removed retired importer allowlist exceptions, kept migration receipt as passive evidence only, and removed stale `LEGACY_DIVERGENCE_DETECTED` from storage error contracts.
-- Debt deferred: Plugin-owned AI Workbench UI retirement remains a separate product-surface cut.
-- Why deferred: AI Workbench retirement crosses visible UI, service wiring, capture/history storage, and Agent/MCP capability docs; mixing it into storage migration deletion would widen blast radius.
-- Next safe step: Create/apply a separate AI Workbench UI retirement change after this storage cut is validated and archived.
+- Debt deferred: None for AI Workbench; existing `retire-plugin-owned-ai-workbench` already completed and active docs now describe Agent/MCP-only AI ownership.
+- Why deferred: Not applicable.
+- Next safe step: Archive/close completed OpenSpec changes after review; no new AI Workbench retirement change is needed.
 - Validation: `pnpm exec vitest run packages/contracts/src/__tests__/backend-rpc.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts worker/truth/__tests__/LegacyUnifiedCardsMigrationReceipt.test.ts scripts/__tests__/check-no-runtime-msgpack.test.ts --reporter=dot`; `node scripts/check-no-runtime-msgpack.cjs`; `openspec validate retire-legacy-migration-runtime --strict`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; `git diff --check`（passed with existing LF/CRLF warnings only）.
 
 ### 2026-07-03 - Progressive Topic/Excerpt product wording pass
@@ -21,7 +21,7 @@ Last update: 2026-07-03 (Round 647)
 - Debt fixed now: Settings no longer presents the incremental-reading slice as "Excerpt & Sync"; Topic-created card storage is described as "Topic 下新卡" / "New Cards Under Topic" under Incremental Reading, avoiding the unclear "派生" product wording while keeping existing runtime contracts intact.
 - Debt deferred: Runtime service names, backend RPC family names, and persisted `quickCard.topicDerivation` settings keys still use Topic-derived terminology.
 - Why deferred: Those names are active contracts and storage/RPC identifiers; renaming them would be broad schema/API churn, not a safe razor cut.
-- Next safe step: Create a follow-up change to remove one-time migration runtimes after migration receipt coverage, then create a separate change to retire plugin-owned AI Workbench UI in favor of host Agent/MCP `memo_*` tools.
+- Next safe step: Archive/close completed OpenSpec changes after review; legacy migration runtime and plugin-owned AI Workbench retirement are both already implemented.
 - Validation: `pnpm exec vitest run src/ui/settings/__tests__/SettingsPanel.test.ts src/ui/settings/__tests__/settingsPanelViewModel.test.ts --reporter=dot` passed (2 files / 19 tests); focused grep confirmed the visible settings slice now uses Incremental Reading / Topic-new-card wording instead of the old Excerpt & Sync / Item Storage copy; `git diff --check` passed with LF/CRLF warnings only.
 
 ### 2026-07-03 - Legacy migration and AI Workbench razor candidates
@@ -29,9 +29,9 @@ Last update: 2026-07-03 (Round 647)
 - Task: Record confirmed follow-up scope after product-boundary review.
 - Touched slice: Debt ledger only.
 - Debt fixed now: Confirmed that legacy migration code should be treated as "migrate once, then delete" rather than permanent runtime compatibility, and that plugin-owned AI Workbench UI should be retired in favor of host SiYuan Agent/MCP calling bounded `memo_*` tools.
-- Debt deferred: AI Workbench UI retirement is not mixed into this wording pass.
-- Why deferred: AI Workbench retirement touches visible UI, service wiring, history/capture storage, and docs.
-- Next safe step: Propose a separate OpenSpec change for AI Workbench UI retirement and Agent/MCP capability docs.
+- Debt deferred: None for AI Workbench; `retire-plugin-owned-ai-workbench` already retired the visible UI and plugin AI runtime.
+- Why deferred: Not applicable.
+- Next safe step: Archive/close completed OpenSpec changes after review; do not create a duplicate AI Workbench retirement change.
 - Validation: Grep trace covered Topic/Excerpt ownership, Browser/Review parity, legacy migration candidates, and Agent/MCP `memo_*` tool seams; this entry is debt-ledger only.
 
 ### 2026-07-02 - retire AI Arena and hide SRS algorithm arena

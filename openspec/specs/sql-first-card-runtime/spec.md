@@ -1,5 +1,8 @@
-## ADDED Requirements
+# sql-first-card-runtime Specification
 
+## Purpose
+Defines SQL-first card runtime ownership, rebuildability, and unavailable/fail-closed behavior for Browser, Queue, Review, NeuralRoam, Xiuyuan, and legacy-storage retirement.
+## Requirements
 ### Requirement: SQL-first Browser card universe reads
 The system SHALL expose Browser deck pages, matched card IDs, row hydration by ID, Browser stats, and source-existence status from the SQL card universe when SQL persistence is available.
 
@@ -87,16 +90,23 @@ The system SHALL provide a SQL-first Xiuyuan persistence adapter for repository 
 - **THEN** the aggregate SHALL preserve faces, card IDs, template ID, block IDs, ownership metadata, and scheduling links expected by ADR-004
 
 ### Requirement: Legacy snapshot storage is restricted to migration and recovery
-The system SHALL restrict binary snapshot and legacy storage reads to explicit migration, recovery, compatibility, or not-yet-migrated paths and SHALL keep active SQL-first hot paths free of hidden legacy fallback.
+The system SHALL NOT use binary snapshot or legacy unified-card storage as an active startup, recovery, Browser, Queue, NeuralRoam, Review mutation, truth import, or projection rebuild data source after the one-time migration cutover has been retired.
 
 #### Scenario: Active SQL-first path cannot silently read binary snapshot
-- **WHEN** an active SQL-first Browser, Queue, NeuralRoam, or Review mutation path encounters SQL unavailability
+- **WHEN** an active SQL-first Browser, Queue, NeuralRoam, or Review mutation path encounters SQL or truth unavailability
 - **THEN** the system SHALL return explicit unavailable diagnostics instead of silently reading `unified-cards.msgpack`
 
-#### Scenario: Migration path can read legacy snapshot
-- **WHEN** startup or explicit migration imports data from legacy binary storage
-- **THEN** the system MAY read legacy snapshot data and SHALL identify the read as migration or recovery behavior in code and tests
+#### Scenario: Startup after migration retirement cannot import legacy snapshot
+- **WHEN** backend startup finds no usable MessagePack truth or SQL projection after the migration-retirement build
+- **THEN** the system SHALL fail closed with an explicit migration-required or storage-unavailable diagnostic and MUST NOT decode `unified-cards.msgpack`
 
+#### Scenario: Historical migration evidence remains passive
+- **WHEN** migration receipts or diagnostics from an older build exist
+- **THEN** the system MAY read them only as passive evidence and MUST NOT use them to trigger legacy source reads or record imports
+
+#### Scenario: Runtime MessagePack allowlist excludes retired importers
+- **WHEN** runtime MessagePack access is audited
+- **THEN** legacy unified-card source detection and import runtime files SHALL NOT remain allowlisted as active MessagePack readers
 ### Requirement: SQL-first optimization is backed by runtime profile evidence
 The system SHALL require real-database Runtime SQL profile evidence before adding indexes, replacing active read Interfaces, or retiring old compatibility paths for SQL-first card runtime surfaces.
 

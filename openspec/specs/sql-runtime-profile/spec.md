@@ -1,4 +1,9 @@
-## ADDED Requirements
+# sql-runtime-profile Specification
+
+## Purpose
+Defines the read-only Runtime SQL profile used to measure active SQL-first Browser, Queue Projection, Review feedback, and Xiuyuan surfaces before adding indexes or replacing runtime interfaces.
+
+## Requirements
 
 ### Requirement: Runtime SQL profile covers active SQL-first surfaces
 The system SHALL provide a diagnostic Runtime SQL profile that measures Browser deck reads, Queue Projection reads, Review feedback transaction cost, and Xiuyuan SQL lookup cost from a supplied SQLite database.
