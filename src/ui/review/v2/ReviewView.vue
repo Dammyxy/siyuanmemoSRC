@@ -43,10 +43,6 @@
           @route-menu="handleNeuralRoamRouteMenu"
         />
 
-        <div v-if="reviewArenaHint" class="fsrs-review-v2__arena-hint">
-          {{ reviewArenaHint }}
-        </div>
-
         <div
           v-if="reviewWriterUnavailableNotice"
           class="fsrs-review-v2__writer-recovery"
@@ -406,7 +402,6 @@ import {
 } from '@/types/unified-data-source';
 import type { NeuralRoamRouteListItem } from '@/core/queue/neural/routes';
 import type { FSRSCard } from '@/types/card';
-import type { SrsArenaRecommendation } from '@/types/arena';
 import type { ReviewTabRuntimeState } from '@/types/review-tab';
 import { isTopicLikeCard } from './reviewCardSemantics';
 import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } from './reviewDialogEscape';
@@ -527,9 +522,6 @@ import type { ReviewApplicationService } from '@/application/services/ReviewAppl
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import { prepareReviewPresentation } from './reviewPresentationPreparer';
-import {
-  createReviewArenaRuntime,
-} from './reviewArenaCommands';
 import { createReviewCardActionRuntime, type ReviewCardPeerInfo } from './reviewCardActionCommands';
 import {
   createReviewCurrentContentEditorRuntime,
@@ -644,15 +636,6 @@ type ReviewPluginContextLike = {
   getCardService?: () => CardApplicationService | undefined;
   getCardEditorService?: () => CardEditorApplicationService | undefined;
   getBrowserService?: () => Pick<IBrowserApplicationService, 'setFilterGroupFilter' | 'rebuildFilterGroupQueue'> | undefined;
-  getArenaKernelService?: () => {
-    buildSrsRecommendation?: (
-      card: FSRSCard,
-      currentSchedulerType?: 'fsrs-v6' | 'a-factor-v2' | null,
-      now?: number,
-      options?: { ratingBasis?: number; schedulingContext?: QueueReviewSchedulingContext | null },
-    ) => Promise<SrsArenaRecommendation | null>;
-    recordSrsReview?: (input: { card: FSRSCard; rating: number; currentSchedulerType?: 'fsrs-v6' | 'a-factor-v2' | null; schedulingContext?: QueueReviewSchedulingContext | null }) => Promise<unknown>;
-  } | undefined;
   getSchedulerRouter?: () => {
     getSchedulerType?: (card: FSRSCard) => 'fsrs-v6' | 'a-factor-v2';
   } | undefined;
@@ -967,23 +950,8 @@ const reviewSourceRefreshHostRuntime = createReviewSourceRefreshHostRuntime({
   getTransactionService: getReviewTransactionWebSocketService,
   getContentExpose: () => contentRef.value,
   getContentSnapshot: () => state.value.content,
-  onDependencyChanged: () => {
-    reviewArenaHint.value = null;
-  },
+  onDependencyChanged: () => undefined,
 });
-const reviewArenaRuntime = createReviewArenaRuntime({
-  t,
-  i18n: props.i18n || {},
-  logger,
-  showMessage: notifyReviewMessage,
-  createDialog: createVueDialog,
-  getCurrentCard: () => state.value.content.card as FSRSCard | null,
-  getArenaKernelService,
-  getReviewService,
-  getSchedulerTypeForCard,
-  resolveSchedulingContext: resolveCurrentReviewSchedulingContext,
-});
-const reviewArenaHint = reviewArenaRuntime.hint;
 const reviewStructuredTouchedFieldIdsBySourceTarget = new Map<string, Set<string>>();
 const reviewStructuredConflictResolutionsBySourceTarget = new Map<string, Map<string, {
   resolution: ReviewEditableTargetConflictResolution;
@@ -1163,12 +1131,6 @@ function getNeuralRoamEntryActionService() {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
   return contextFromProps?.getNeuralRoamEntryActionService?.() || contextFromWindow?.getNeuralRoamEntryActionService?.() || null;
-}
-
-function getArenaKernelService() {
-  const contextFromProps = getPluginContext(props.plugin);
-  const contextFromWindow = getWindowPlugin()?.getContext?.();
-  return contextFromProps?.getArenaKernelService?.() || contextFromWindow?.getArenaKernelService?.() || null;
 }
 
 function getSchedulerTypeForCard(card: FSRSCard | null | undefined): 'fsrs-v6' | 'a-factor-v2' | null {
@@ -1457,7 +1419,6 @@ onUnmounted(() => {
     window.clearTimeout(initialTabSurfaceRefreshTimer);
     initialTabSurfaceRefreshTimer = null;
   }
-  reviewArenaRuntime.destroyConflictDialog();
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener removed');
 });
 
@@ -1492,7 +1453,7 @@ const effectiveInitialShowAnswer = props.initialShowAnswer === true
   : props.reviewState?.showAnswer === true;
 
 async function handleReviewArenaFeedback(payload: { cardId: string; rating: number; item: ActiveReviewItem | null }): Promise<void> {
-  await reviewArenaRuntime.handleFeedback(payload);
+  void payload;
 }
 
 async function ensureReviewDomainSyncSafeForAction(input: {
@@ -5125,17 +5086,6 @@ watch(
   overflow: hidden; /* 防止整体滚动，只允许 ReviewContent 滚动 */
 }
 
-.fsrs-review-v2__arena-hint {
-  margin: 8px 16px 0;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 26%, var(--b3-border-color) 74%);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 62%, var(--b3-theme-background) 38%);
-  color: var(--b3-theme-on-surface);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 .fsrs-review-v2__temporary-view {
   display: flex;
   align-items: center;
@@ -5327,7 +5277,6 @@ watch(
   grid-column: 1 / -1;
 }
 
-.fsrs-review-v2--mobile .fsrs-review-v2__arena-hint,
 .fsrs-review-v2--mobile .fsrs-review-v2__temporary-view,
 .fsrs-review-v2--mobile .fsrs-review-v2__writer-recovery,
 .fsrs-review-v2--mobile .fsrs-review-v2__cdf-interruption {

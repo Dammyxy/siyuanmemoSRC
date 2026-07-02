@@ -61,7 +61,7 @@ export function buildSettingsTabs(t: SettingsI18nLookup): SettingsTabDefinition[
     { key: 'learning', label: t('settingsStudyTab', '学习与调度'), icon: '#iconSettings', section: 'primary' },
     { key: 'review', label: t('settingsReviewQueueTab', '复习与队列'), icon: '#iconSettings', section: 'primary' },
     { key: 'card', label: t('settingsCardTab', '制卡'), icon: '#iconSettings', section: 'primary' },
-    { key: 'capture-sync', label: t('settingsCaptureSyncTab', '摘录与同步'), icon: '#iconSettings', section: 'primary' },
+    { key: 'capture-sync', label: t('settingsCaptureSyncTab', '渐进阅读'), icon: '#iconSettings', section: 'primary' },
     { key: 'neural', label: t('settingsNeuralTab', '神经漫游'), icon: '#iconSettings', section: 'primary' },
     { key: 'maintenance', label: t('settingsMaintenanceTab', '维护'), icon: '#iconSettings', section: 'secondary' },
     { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo', section: 'secondary' },

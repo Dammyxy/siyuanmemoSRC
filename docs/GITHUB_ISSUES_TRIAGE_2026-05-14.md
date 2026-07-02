@@ -258,7 +258,7 @@ When selecting the next local issue batch, skip these issues unless the user exp
 | Issue | Status | Skip reason |
 |---|---|---|
 | #38 | Deferred | Keep original Topic/excerpt by default; source removal/hiding needs a separate destructive-policy decision. |
-| #10 | Discussion only | This is a product question about Progressive Reading vocabulary, not an implementation request. |
+| #10 | Discussion only | This is a product question about Incremental Reading vocabulary, not an implementation request. |
 | #48 | Deferred | Global symbol scan broadens AutoCard listener/write ownership. |
 | #13 | Deferred | Document-wide super-block one-click card creation broadens batch creation scope. |
 | #41 | Deferred | Missing-source repair belongs to Browser/repair workflow, not current excerpt preservation work. |
@@ -365,6 +365,6 @@ Open terms to sharpen:
 ## Later Batch Summary
 
 - Review/UI remaining discussion candidates: #40, #39, #35, #26, #25, #23, #18, #6, #53; completed locally: #60, #57, #56, #54, #30, #22; #49 is shelved until a Browser UI terminology pass.
-- Creation/progressive reading: #59, #58, #46, #31, #29, #28
+- Creation/incremental reading: #59, #58, #46, #31, #29, #28
 - Deferred / do not auto-pull unless explicitly named: #36, #32, #49, #48, #42, #41, #38, #13, #10
 - Queue/Browser enhancements: #47, #16, #15, and #21 implemented; #36 and #32 are paused.

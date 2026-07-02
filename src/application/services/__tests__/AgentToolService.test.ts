@@ -263,5 +263,17 @@ describe('AgentToolService', () => {
       status: 'unsupported-operation',
       error: { code: 'UNSUPPORTED_OPERATION' },
     });
+
+    await expect(service.execute({
+      tool: 'memo_ui',
+      args: {
+        action: 'open',
+        target: 'arena',
+      },
+    })).resolves.toMatchObject({
+      ok: false,
+      status: 'unsupported-operation',
+      error: { code: 'UNSUPPORTED_OPERATION' },
+    });
   });
 });

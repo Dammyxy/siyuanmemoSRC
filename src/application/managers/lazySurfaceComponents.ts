@@ -15,11 +15,6 @@ export const loadSettingsPanelComponent = cacheComponentLoader(async () => {
   return module.SettingsPanel as Component;
 });
 
-export const loadArenaManagerDialogComponent = cacheComponentLoader(async () => {
-  const module = await import('@/ui/arena/ArenaManagerDialog.vue');
-  return module.default as Component;
-});
-
 export const loadSrsBrowserComponent = cacheComponentLoader(async () => {
   const module = await import('@/ui/browser/SRSBrowser.vue');
   return module.default as Component;

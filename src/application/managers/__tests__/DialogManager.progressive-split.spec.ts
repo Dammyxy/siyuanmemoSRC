@@ -288,7 +288,7 @@ describe('DialogManager progressive split dialog', () => {
     expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith('Split 失败：boom');
   });
 
-  it('cancels from config mode without calling the progressive reading service', async () => {
+  it('cancels from config mode without calling the incremental reading service', async () => {
     const { dialogManager, splitDocument, siyuanApi } = createDialogManager();
 
     await dialogManager.openProgressiveSplitDialog('doc-1', 'linear');

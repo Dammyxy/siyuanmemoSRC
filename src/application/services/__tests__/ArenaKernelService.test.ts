@@ -5,7 +5,6 @@ import { CardState, CardType, Rating, type FSRSCard } from '@/types/card';
 import type { SrsTransparencyEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import {
   DEFAULT_ARENA_SETTINGS,
-  buildArenaPoolKey,
   type AIStrategyPackDefinition,
   type ArenaCardAttributionRecord,
   type ArenaMatchRecord,
@@ -229,7 +228,7 @@ function createKernel(
 }
 
 describe('ArenaKernelService', () => {
-  it('keeps default-disabled Arena from selecting packs or writing SRS data', async () => {
+  it('keeps AI Arena retired while preserving internal SRS diagnostics', async () => {
     const settings = clone(DEFAULT_ARENA_SETTINGS);
     const { service, store } = createKernel(settings);
 
@@ -253,14 +252,15 @@ describe('ArenaKernelService', () => {
 
     expect(service.isEnabled()).toBe(false);
     expect(selection).toBeNull();
-    expect(recommendation).toBeNull();
-    expect(reviewResult).toBeNull();
-    expect(store.data.matches).toEqual([]);
-    expect(store.data.scores).toEqual([]);
+    expect(recommendation?.poolKey).toBe('srs::item');
+    expect(recommendation?.writeEnabled).toBe(false);
+    expect(reviewResult?.poolKey).toBe('srs::item');
+    expect(store.data.matches.filter((match) => match.domain === 'ai')).toEqual([]);
+    expect(store.data.matches.filter((match) => match.domain === 'srs')).toHaveLength(1);
     expect(store.data.attributions).toEqual([]);
   });
 
-  it('stops writing Arena events after the global switch is turned off', async () => {
+  it('does not write retired AI Arena events even when legacy settings enabled it', async () => {
     const settings = createEnabledArenaSettings();
     settings.ai.strategyPacks = [
       createPack({ id: 'pack-a', title: 'Pack A' }),
@@ -292,16 +292,16 @@ describe('ArenaKernelService', () => {
       currentSchedulerType: 'fsrs-v6',
     });
 
-    expect(selection).not.toBeNull();
+    expect(selection).toBeNull();
     expect(service.isEnabled()).toBe(false);
-    expect(store.data.matches).toHaveLength(matchCountAfterExposure);
+    expect(matchCountAfterExposure).toBe(0);
     expect(store.data.attributions).toEqual([]);
-    expect(store.data.matches.filter((match) => match.domain === 'srs')).toEqual([]);
-    expect(recommendation).toBeNull();
-    expect(reviewResult).toBeNull();
+    expect(store.data.matches.filter((match) => match.domain === 'ai')).toEqual([]);
+    expect(recommendation?.poolKey).toBe('srs::item');
+    expect(reviewResult?.poolKey).toBe('srs::item');
   });
 
-  it('routes AI pools by scenario and honors pinned, retired, and ineligible strategy packs', async () => {
+  it('does not select retired AI strategy packs from any scenario pool', async () => {
     const settings = createEnabledArenaSettings();
     settings.ai.strategyPacks = [
       createPack({ id: 'pack-a', title: 'Eligible A' }),
@@ -321,12 +321,10 @@ describe('ArenaKernelService', () => {
       sessionId: 'session-1',
     });
 
-    expect(selection?.pack.id).toBe('pack-b');
-    expect(selection?.challengers.map((pack) => pack.id)).toEqual(['pack-a']);
-    expect(selection?.weights).toEqual({ 'pack-b': 1 });
+    expect(selection).toBeNull();
   });
 
-  it('weights LLM judge feedback below direct user behavior', async () => {
+  it('ignores retired AI judge and direct behavior scoring', async () => {
     const settings = createEnabledArenaSettings();
     settings.ai.strategyPacks = [
       createPack({ id: 'pack-a', title: 'Pack A' }),
@@ -343,17 +341,12 @@ describe('ArenaKernelService', () => {
     await service.recordAIEvent({ selection, eventType: 'judge', qualityLabel: 'strong' });
     await service.recordAIEvent({ selection, eventType: 'manual-bad' });
 
-    const snapshot = await store.getLatestScoreSnapshot('ai', selection!.pool.key);
-    expect(snapshot?.entries[0]).toMatchObject({
-      contestantId: 'pack-a',
-      score: -2.3,
-      sampleCount: 2,
-      winCount: 1,
-      lossCount: 1,
-    });
+    expect(selection).toBeNull();
+    expect(await store.getLatestScoreSnapshot('ai', 'ai::standalone-dialog::candidate-card-generation::note')).toBeNull();
+    expect(store.data.matches.filter((match) => match.domain === 'ai')).toEqual([]);
   });
 
-  it('batches AI create event, score update, and card attributions into one store commit', async () => {
+  it('does not write retired AI create events or delayed attributions', async () => {
     const settings = createEnabledArenaSettings();
     settings.ai.strategyPacks = [
       createPack({ id: 'pack-a', title: 'Pack A' }),
@@ -374,22 +367,12 @@ describe('ArenaKernelService', () => {
       cardIds: ['card-created-1', 'card-created-2'],
     });
 
-    expect(commitBatchSpy).toHaveBeenCalledTimes(1);
-    expect(commitBatchSpy.mock.calls[0]?.[0]).toMatchObject({
-      matches: [expect.objectContaining({ domain: 'ai' })],
-      scoreSnapshots: [expect.objectContaining({ domain: 'ai' })],
-      attributions: [
-        expect.objectContaining({ cardId: 'card-created-1' }),
-        expect.objectContaining({ cardId: 'card-created-2' }),
-      ],
-    });
-    expect(store.data.attributions.map((entry) => entry.cardId).sort()).toEqual([
-      'card-created-1',
-      'card-created-2',
-    ]);
+    expect(selection).toBeNull();
+    expect(commitBatchSpy).not.toHaveBeenCalled();
+    expect(store.data.attributions).toEqual([]);
   });
 
-  it('creates challenge packs from the current pool without crossing scenarios', async () => {
+  it('does not create retired AI challenge packs', async () => {
     const settings = createEnabledArenaSettings();
     settings.ai.strategyPacks = [
       createPack({
@@ -400,23 +383,14 @@ describe('ArenaKernelService', () => {
       }),
     ];
     const { service, getSettings } = createKernel(settings);
-    const poolKey = buildArenaPoolKey({
-      surface: 'standalone-dialog',
-      scenarioId: 'candidate-card-generation',
-      targetKind: 'note',
-      skillId: 'concept-coach',
-      tabId: 'self-test-cards',
-    });
 
-    const challenger = await service.generateChallengePack(poolKey);
+    const challenger = await service.generateChallengePack('ai::standalone-dialog::candidate-card-generation::note::concept-coach::self-test-cards');
 
-    expect(challenger?.source).toBe('user');
-    expect(challenger?.state).toBe('active');
-    expect(challenger?.eligibleScenarios).toEqual(['candidate-card-generation']);
-    expect(getSettings().ai.strategyPacks.map((pack) => pack.id)).toContain(challenger?.id);
+    expect(challenger).toBeNull();
+    expect(getSettings().ai.strategyPacks.map((pack) => pack.id)).toEqual(['pack-a']);
   });
 
-  it('tracks delayed card attribution from AI creation into later SRS review feedback', async () => {
+  it('does not track delayed attribution from retired AI creation into SRS review feedback', async () => {
     const settings = createEnabledArenaSettings();
     settings.ai.strategyPacks = [
       createPack({ id: 'pack-a', title: 'Pack A' }),
@@ -444,17 +418,9 @@ describe('ArenaKernelService', () => {
 
     const attribution = await store.getAttribution('card-created');
     const delayedMatch = store.data.matches.find((match) => match.ai?.metadata?.source === 'delayed-review-attribution');
-    expect(attribution).toMatchObject({
-      cardId: 'card-created',
-      sourcePackId: 'pack-a',
-      reviewCount: 1,
-      lastOutcome: 'negative',
-    });
-    expect(delayedMatch?.ai).toMatchObject({
-      packId: 'pack-a',
-      eventType: 'judge',
-      scoreDelta: -1.4,
-    });
+    expect(selection).toBeNull();
+    expect(attribution).toBeNull();
+    expect(delayedMatch).toBeUndefined();
   });
 
   it('builds advisory-only SRS recommendations with the registered FSRS baseline', async () => {
@@ -563,15 +529,16 @@ describe('ArenaKernelService', () => {
     });
   });
 
-  it('does not let learning evidence activate Arena or mutate SRS Arena review writes', async () => {
+  it('keeps learning evidence advisory inside internal SRS diagnostics', async () => {
     const disabledSettings = clone(DEFAULT_ARENA_SETTINGS);
     const disabledReader = { readRecentReviewLogs: vi.fn(async () => []) };
     const disabled = createKernel(disabledSettings, createMemoryArenaStore(), vi.fn(() => 0), disabledReader);
 
     const disabledRecommendation = await disabled.service.buildSrsRecommendation(buildCard(), 'fsrs-v6', NOW);
 
-    expect(disabledRecommendation).toBeNull();
-    expect(disabledReader.readRecentReviewLogs).not.toHaveBeenCalled();
+    expect(disabledRecommendation?.poolKey).toBe('srs::item');
+    expect(disabledRecommendation?.writeEnabled).toBe(false);
+    expect(disabledReader.readRecentReviewLogs).toHaveBeenCalledWith({ cardId: 'card-1', now: NOW });
 
     const settings = createEnabledArenaSettings();
     settings.srs.contestantIds = ['fsrs-v6'];

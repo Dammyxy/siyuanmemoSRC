@@ -250,14 +250,7 @@ describe('settings normalization', () => {
     expect(normalized.settings.scheduler).toEqual(originalScheduler);
     expect(normalized.settings.arena.defaultOffMigrationVersion).toBe(ARENA_DEFAULT_OFF_MIGRATION_VERSION);
     expect(normalized.settings.arena.enabled).toBe(false);
-    expect(Object.keys(normalized.settings.arena.ai.scenarios).sort()).toEqual([
-      'candidate-card-generation',
-      'card-prompt-rewrite',
-      'concept-expression-coach',
-      'descriptor-augmentation',
-      'note-refinement',
-      'topic-auto-card',
-    ]);
+    expect(normalized.settings.arena.ai.scenarios).toEqual({});
     expect(normalized.settings.arena.srs.contestantSetVersion).toBe(SRS_ARENA_CONTESTANT_SET_VERSION);
     expect(normalized.settings.arena.srs.contestantIds).toEqual(['fsrs-v6']);
   });
@@ -297,15 +290,23 @@ describe('settings normalization', () => {
     expect(normalized.settings.arena.enabled).toBe(false);
   });
 
-  it('keeps Arena enabled after the default-off migration has already run', () => {
+  it('keeps Arena retired even after the default-off migration has already run', () => {
     const current = cloneSettings();
     current.arena.defaultOffMigrationVersion = ARENA_DEFAULT_OFF_MIGRATION_VERSION;
     current.arena.enabled = true;
+    current.arena.ai.enabled = true;
+    current.arena.manager.activeDomain = 'ai';
 
     const normalized = normalizePluginSettings(current);
 
     expect(normalized.settings.arena.defaultOffMigrationVersion).toBe(ARENA_DEFAULT_OFF_MIGRATION_VERSION);
-    expect(normalized.settings.arena.enabled).toBe(true);
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.arena.enabled).toBe(false);
+    expect(normalized.settings.arena.ai.enabled).toBe(false);
+    expect(normalized.settings.arena.ai.surfaces).toEqual([]);
+    expect(normalized.settings.arena.ai.scenarios).toEqual({});
+    expect(normalized.settings.arena.ai.strategyPacks).toEqual([]);
+    expect(normalized.settings.arena.manager.activeDomain).toBe('srs');
   });
 
   it('is idempotent after first normalization', () => {

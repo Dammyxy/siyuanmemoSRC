@@ -36,7 +36,7 @@ export const ATTR_TOPIC_INTERVAL = `${ATTR_PREFIX}topic-interval`;
 export const ATTR_TOPIC_REPS = `${ATTR_PREFIX}topic-reps`;
 export const ATTR_TOPIC_STATE = `${ATTR_PREFIX}topic-state`;
 
-// Progressive reading attrs (canonical write path uses reading-*, legacy progressive-* stays readable)
+// Incremental reading attrs (canonical write path uses reading-*, legacy progressive-* stays readable)
 export const ATTR_PROGRESSIVE_KIND = `${ATTR_PREFIX}reading-kind`;
 export const ATTR_PROGRESSIVE_SESSION_ID = `${ATTR_PREFIX}reading-session-id`;
 export const ATTR_PROGRESSIVE_MODE = `${ATTR_PREFIX}reading-mode`;

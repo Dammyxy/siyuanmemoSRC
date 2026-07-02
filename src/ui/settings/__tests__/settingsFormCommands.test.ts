@@ -16,13 +16,6 @@ function createInputEvent(value: string): Event {
   return { target: input } as unknown as Event;
 }
 
-function createCheckboxEvent(checked: boolean): Event {
-  const input = document.createElement('input');
-  input.type = 'checkbox';
-  input.checked = checked;
-  return { target: input } as unknown as Event;
-}
-
 function createCommands() {
   const settings = ref(createDefaultSettingsFormState());
   const queueSettings = ref(createDefaultQueueSettings());
@@ -51,22 +44,16 @@ function createCommands() {
 }
 
 describe('settingsFormCommands', () => {
-  it('normalizes scheduler step inputs and arena write checkbox state', () => {
-    const { arenaSettings, commands, schedulerConfig } = createCommands();
+  it('normalizes scheduler step inputs', () => {
+    const { commands, schedulerConfig } = createCommands();
 
     commands.handleSrsV2LearningStepsChange(createInputEvent('2, bad, 1440'));
     commands.handleSrsV2RelearningStepsChange(createInputEvent('bad'));
-    commands.handleArenaSrsWriteEnabledChange(createCheckboxEvent(true));
 
     expect(schedulerConfig.value.srsV2.learningStepsMinutes).toEqual([2, 1440]);
     expect(schedulerConfig.value.srsV2.relearningStepsMinutes).toEqual(
       DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes,
     );
-    expect(arenaSettings.value.srs.advisoryOnly).toBe(false);
-
-    commands.handleArenaSrsWriteEnabledChange(createCheckboxEvent(false));
-
-    expect(arenaSettings.value.srs.advisoryOnly).toBe(true);
   });
 
   it('clamps numeric form values and logs day-start changes', () => {

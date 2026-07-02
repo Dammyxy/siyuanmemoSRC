@@ -516,10 +516,10 @@ export const DEFAULT_ARENA_SETTINGS: ArenaSettings = {
   defaultOffMigrationVersion: ARENA_DEFAULT_OFF_MIGRATION_VERSION,
   enabled: false,
   ai: {
-    enabled: true,
-    surfaces: ['standalone-dialog', 'review-dialog-sidecar', 'review-tab-companion'],
-    scenarios: DEFAULT_ARENA_SCENARIOS,
-    strategyPacks: DEFAULT_ARENA_PACKS,
+    enabled: false,
+    surfaces: [],
+    scenarios: {} as AIArenaScenarioRegistry,
+    strategyPacks: [],
     explorationRate: 0.12,
     challenge: {
       minSamples: 4,
@@ -539,7 +539,7 @@ export const DEFAULT_ARENA_SETTINGS: ArenaSettings = {
     minimumReviewsForConfidence: 10,
   },
   manager: {
-    activeDomain: 'ai',
+    activeDomain: 'srs',
     selectedPoolKey: null,
     selectedScenarioId: 'all',
     showOnlyActive: true,
@@ -728,12 +728,12 @@ export function normalizeArenaSettings(value: unknown): ArenaSettings {
     : DEFAULT_ARENA_SETTINGS.srs.targetKinds;
   return {
     defaultOffMigrationVersion: ARENA_DEFAULT_OFF_MIGRATION_VERSION,
-    enabled: hasDefaultOffMigration && source.enabled === true,
+    enabled: false,
     ai: {
-      enabled: ai.enabled !== false,
-      surfaces: surfaces.length > 0 ? surfaces : DEFAULT_ARENA_SETTINGS.ai.surfaces,
-      scenarios: normalizeScenarioRegistry(ai.scenarios),
-      strategyPacks: normalizeStrategyPacks(ai.strategyPacks),
+      enabled: false,
+      surfaces: [],
+      scenarios: {} as AIArenaScenarioRegistry,
+      strategyPacks: [],
       explorationRate: Math.min(0.5, Math.max(0, Number(ai.explorationRate) || DEFAULT_ARENA_SETTINGS.ai.explorationRate)),
       challenge: {
         minSamples: Math.max(1, Math.floor(Number(ai.challenge?.minSamples) || DEFAULT_ARENA_SETTINGS.ai.challenge.minSamples)),
@@ -753,10 +753,10 @@ export function normalizeArenaSettings(value: unknown): ArenaSettings {
       minimumReviewsForConfidence: Math.max(1, Math.floor(Number(srs.minimumReviewsForConfidence) || DEFAULT_ARENA_SETTINGS.srs.minimumReviewsForConfidence)),
     },
     manager: {
-      activeDomain: manager.activeDomain === 'srs' ? 'srs' : 'ai',
-      selectedPoolKey: normalizeString(manager.selectedPoolKey) || null,
-      selectedScenarioId: isAIArenaScenarioId(manager.selectedScenarioId) ? manager.selectedScenarioId : 'all',
-      showOnlyActive: manager.showOnlyActive !== false,
+      activeDomain: 'srs',
+      selectedPoolKey: null,
+      selectedScenarioId: 'all',
+      showOnlyActive: true,
     },
   };
 }

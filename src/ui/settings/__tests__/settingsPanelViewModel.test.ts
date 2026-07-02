@@ -15,7 +15,7 @@ const labels: Record<string, string> = {
   settingsStudyTab: 'Learning & Scheduling',
   settingsReviewQueueTab: 'Review & Queue',
   settingsCardTab: 'Card Creation',
-  settingsCaptureSyncTab: 'Excerpt & Sync',
+  settingsCaptureSyncTab: 'Incremental Reading',
   settingsNeuralTab: 'Neural Roam',
   settingsMaintenanceTab: 'Maintenance',
   settingsAboutTab: 'About',
@@ -60,7 +60,7 @@ describe('settingsPanelViewModel', () => {
       'Learning & Scheduling',
       'Review & Queue',
       'Card Creation',
-      'Excerpt & Sync',
+      'Incremental Reading',
       'Neural Roam',
     ]);
     expect(viewModel.secondaryTabs.map((tab) => tab.label)).toEqual(['Maintenance', 'About']);

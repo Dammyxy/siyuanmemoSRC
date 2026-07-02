@@ -165,17 +165,6 @@ export class MenuManager {
       ),
     });
 
-    if (this.isArenaEnabled()) {
-      menu.addItem({
-        icon: 'iconSparkles',
-        label: this.i18n?.arenaManagerTitle || 'Arena Manager',
-        click: this.wrapTopBarMenuAction(
-          this.i18n?.arenaManagerTitle || 'Arena Manager',
-          () => this.openArenaManager(),
-        ),
-      });
-    }
-
     menu.addSeparator();
 
     menu.addItem({
@@ -430,17 +419,6 @@ export class MenuManager {
     }
   }
 
-  private openArenaManager(): void | Promise<void> {
-    if (!this.isArenaEnabled()) {
-      return;
-    }
-    return this.dialogManager.openArenaManagerDialog();
-  }
-
-  private isArenaEnabled(): boolean {
-    return this.context.getArenaKernelService().isEnabled();
-  }
-  
   /**
    * 打开设置对话框
    * 

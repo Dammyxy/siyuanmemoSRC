@@ -21,16 +21,21 @@ const HOTSPOT_COVERAGE: Record<string, CoveragePattern[]> = {
       pattern: /returns typed unavailable when the native Riff read proxy is absent/,
     },
   ],
-  'progressive reading': [
+  'incremental reading': [
     {
       label: 'happy path creates nested excerpt topic with native Riff sync',
       file: 'src/application/services/__tests__/ProgressiveReadingService.test.ts',
       pattern: /creates nested excerpt topics inside excerpt docs with parent lineage and native Riff sync/,
     },
     {
-      label: 'native Riff failure rolls back excerpt artifacts',
+      label: 'native Riff unavailable keeps local excerpt artifacts',
       file: 'src/application/services/__tests__/ProgressiveReadingService.test.ts',
-      pattern: /rolls back new excerpt artifacts when native Riff registration fails/,
+      pattern: /keeps split piece documents and local cards when native Riff is unavailable/,
+    },
+    {
+      label: 'excerpt foreground path skips native Riff registration',
+      file: 'src/application/services/__tests__/ProgressiveReadingService.test.ts',
+      pattern: /does not put native Riff registration on the excerpt foreground path/,
     },
   ],
   'topic-derived item': [
@@ -45,9 +50,14 @@ const HOTSPOT_COVERAGE: Record<string, CoveragePattern[]> = {
       pattern: /fails explicitly when topic derivation storage mode settings cannot be read/,
     },
     {
-      label: 'native Riff failure rolls back derived item artifacts',
+      label: 'native Riff unavailable keeps topic-derived artifacts',
       file: 'src/application/services/__tests__/TopicDerivedItemService.test.ts',
-      pattern: /rolls back the new child doc and local card when native Riff sync fails/,
+      pattern: /keeps the new child doc and local card when native Riff is unavailable/,
+    },
+    {
+      label: 'ordinary topic-derived items do not require native Riff',
+      file: 'src/application/services/__tests__/TopicDerivedItemService.test.ts',
+      pattern: /creates ordinary topic-derived items without a native Riff adapter/,
     },
   ],
   'browser aggregate': [

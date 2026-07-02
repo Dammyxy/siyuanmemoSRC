@@ -32,7 +32,7 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         settingsStudyTab: 'Learning & Scheduling',
         settingsReviewQueueTab: 'Review & Queue',
         settingsCardTab: 'Card Creation',
-        settingsCaptureSyncTab: 'Excerpt & Sync',
+        settingsCaptureSyncTab: 'Incremental Reading',
         settingsNeuralTab: 'Neural Roam',
         settingsMaintenanceTab: 'Maintenance',
         settingsAboutTab: 'About',
@@ -68,7 +68,7 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         hyperspaceEnableDocumentTree: 'Enable document tree conduction',
         hyperspaceMaxLayersPerRepetition: 'Layers per repetition',
         hyperspaceElementLinkPriority: 'Block-link weight',
-        progressiveReadingSettingsTitle: 'Progressive Reading',
+        progressiveReadingSettingsTitle: 'Incremental Reading',
         progressiveAltXExcerptEnabled: 'Enable excerpt shortcut (default ⌥⇧X)',
         progressiveSourceMarkingEnabled: 'Mark source text after excerpt',
         reviewOpenInNewTabByDefault: 'Open review in a new tab by default',
@@ -92,13 +92,13 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         progressiveStorageTargetBlockHint: 'Library mode accepts a target document block ID.',
         progressiveStorageTargetBlockIgnoredSourceChildHint: 'Target block ID is ignored in source-document mode.',
         progressiveStorageTargetBlockIgnoredHint: 'Target block ID is ignored in Daily Note mode.',
-        topicDerivationTitle: 'Item Storage',
+        topicDerivationTitle: 'New Cards Under Topic',
         topicDerivationEnabled: 'Enable symbol-based continuation inside existing Topics',
         topicDerivationEnabledHint: 'Only affects the symbol card listener flow and not manual Item creation with ⌥⇧Z.',
-        topicDerivationStorageMode: 'Item storage',
+        topicDerivationStorageMode: 'New cards under Topic',
         topicDerivationStorageWorkbench: 'Workbench document (default)',
         topicDerivationStorageSourceChild: 'Direct child under source document',
-        topicDerivationStorageModeHint: 'Applies to Item derivation inside existing Topics, including ⌥⇧Z and symbol continuation.',
+        topicDerivationStorageModeHint: 'This is the Incremental Reading storage policy for new cards created under an existing Topic.',
         edit: 'Edit',
         duplicate: 'Duplicate',
         delete: 'Delete',
@@ -148,7 +148,7 @@ describe('SettingsPanel', () => {
       'Learning & Scheduling',
       'Review & Queue',
       'Card Creation',
-      'Excerpt & Sync',
+      'Incremental Reading',
       'Neural Roam',
       'Maintenance',
       'About',
@@ -371,7 +371,7 @@ describe('SettingsPanel', () => {
     expect(payload.quickCard.topicDerivation.enabled).toBe(false);
   });
 
-  it('shows item storage controls in capture-sync storage even when symbol card listening is disabled', async () => {
+  it('shows Topic new-card storage controls in Incremental Reading storage even when symbol card listening is disabled', async () => {
     const wrapper = mountPanel('capture-sync', {
       quickCardSettings: {
         ...DEFAULT_SETTINGS.quickCard,
@@ -381,12 +381,12 @@ describe('SettingsPanel', () => {
     await wrapper.vm.$nextTick();
 
     await clickSubtab(wrapper, 'Storage');
-    expect(wrapper.text()).toContain('Item Storage');
-    expect(wrapper.text()).toContain('Item storage');
+    expect(wrapper.text()).toContain('New Cards Under Topic');
+    expect(wrapper.text()).toContain('New cards under Topic');
     expect(wrapper.text()).not.toContain('Symbol card listening is currently disabled.');
 
     const formItems = wrapper.findAll('.form-item');
-    const topicStorageModeItem = formItems.find((item) => item.text().includes('Item storage'));
+    const topicStorageModeItem = formItems.find((item) => item.text().includes('New cards under Topic'));
     const topicStorageModeSelect = topicStorageModeItem?.find('select');
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
 
@@ -401,11 +401,11 @@ describe('SettingsPanel', () => {
     expect(payload.quickCard.topicDerivation.storageMode).toBe('source-child');
   });
 
-  it('saves excerpt storage, item storage, and conflict strategy from the excerpt tab', async () => {
+  it('saves excerpt storage, Topic new-card storage, and conflict strategy from the Incremental Reading tab', async () => {
     const wrapper = mountPanel('capture-sync');
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.text()).toContain('Progressive Reading');
+    expect(wrapper.text()).toContain('Incremental Reading');
     expect(wrapper.text()).toContain('Enable excerpt shortcut');
     expect(wrapper.text()).toContain('Mark source text after excerpt');
     expect(wrapper.text()).toContain('⌥⇧X');
@@ -422,7 +422,7 @@ describe('SettingsPanel', () => {
     const notebookSelect = notebookItem?.find('select');
     const targetBlockItem = formItems.find((item) => item.text().includes('Target block ID'));
     const targetBlockInput = targetBlockItem?.find('input[type="text"]');
-    const topicStorageModeItem = formItems.find((item) => item.text().includes('Item storage'));
+    const topicStorageModeItem = formItems.find((item) => item.text().includes('New cards under Topic'));
     const topicStorageModeSelect = topicStorageModeItem?.find('select');
     const conflictItem = formItems.find((item) => item.text().includes('冲突策略'));
     const conflictSelect = conflictItem?.find('select');
@@ -514,7 +514,7 @@ describe('SettingsPanel', () => {
       'Learning & Scheduling',
       'Review & Queue',
       'Card Creation',
-      'Excerpt & Sync',
+      'Incremental Reading',
       'Neural Roam',
       'Maintenance',
       'About',

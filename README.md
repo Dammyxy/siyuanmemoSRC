@@ -14,7 +14,7 @@ Usage:
 
 ### V0.2.1 (2026-04-28)
 - Added AI explanation, AI card creation, AI Workbench, general chat, user Skills, tool calls and approvals, and session history. These can be configured in settings and opened from the upper-right corner of the review interface.
-- Added Excerpt and progressive reading: document split, `Alt+X` excerpting, Topic excerpts, continuing cloze card creation under Topics, excerpt records, source lineage, and Excerpts and Sync settings.
+- Added Excerpt and incremental reading: document split, `Alt+X` excerpting, Topic excerpts, continuing cloze card creation under Topics, excerpt records, source lineage, and Incremental Reading settings.
 - Reworked the SRS v2 scheduler: six-queue commit semantics, learning/relearning steps, new-card/review limits, FilterGroup preview-only behavior, and independent FinalDrill drill logs.
 - Improved the review experience: review entry points, tab/dialog/split-screen restoration, queue switching, loop prevention, reduced card-switch flicker, card-switch preloading, formula cloze stability, and special-card renderer stability.
 - Improved queues and the SRS Browser: FilterGroup, Retrieval Practice, Incremental Learning, manual adds, precise same-block multi-card review, SQL search filtering to real cards, and context menus after SQL search.

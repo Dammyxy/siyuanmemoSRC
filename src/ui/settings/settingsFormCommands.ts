@@ -38,10 +38,6 @@ function readInputValue(event: Event): string {
   return event.target instanceof HTMLInputElement ? event.target.value : '';
 }
 
-function readInputChecked(event: Event): boolean {
-  return event.target instanceof HTMLInputElement ? event.target.checked : false;
-}
-
 export function useSettingsFormCommands(input: SettingsFormCommandsInput) {
   function resetSettings(): void {
     input.settings.value = createDefaultSettingsFormState();
@@ -62,10 +58,6 @@ export function useSettingsFormCommands(input: SettingsFormCommandsInput) {
       readInputValue(event),
       DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes,
     );
-  }
-
-  function handleArenaSrsWriteEnabledChange(event: Event): void {
-    input.arenaSettings.value.srs.advisoryOnly = !readInputChecked(event);
   }
 
   function handleDayStartHourChange(): void {
@@ -100,7 +92,6 @@ export function useSettingsFormCommands(input: SettingsFormCommandsInput) {
     resetSettings,
     handleSrsV2LearningStepsChange,
     handleSrsV2RelearningStepsChange,
-    handleArenaSrsWriteEnabledChange,
     handleDayStartHourChange,
     handleAddToOutstandingEveryNthChange,
     handleAutoPostponeSkipTopNChange,

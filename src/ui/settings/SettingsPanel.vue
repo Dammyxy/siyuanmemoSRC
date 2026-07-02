@@ -316,30 +316,6 @@
         </div>
 
         <div class="form-item">
-          <label>{{ t('arenaEnabled', '启用 Arena 竞技场（实验）') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="arenaSettings.enabled">
-          </div>
-          <p class="form-hint">
-            {{ t('arenaEnabledHint', '关闭后不运行 AI/SRS Arena 记录、复习建议或管理器入口；开启后才会写入 arena/store.json。') }}
-          </p>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('arenaSrsWriteEnabled', '允许 Arena 写入正式排期（实验）') }}</label>
-          <div class="form-control">
-            <input
-              type="checkbox"
-              :checked="!arenaSettings.srs.advisoryOnly"
-              @change="handleArenaSrsWriteEnabledChange"
-            >
-          </div>
-          <p class="form-hint">
-            {{ t('arenaSrsWriteEnabledHint', '默认关闭。开启后仍需达到样本阈值，才允许综合调度器进入写入路径。') }}
-          </p>
-        </div>
-
-        <div class="form-item">
           <label>{{ t('enableDebugLogs', '启用调试日志') }}</label>
           <div class="form-control">
             <input type="checkbox" v-model="uiSettings.enableDebugLogs">
@@ -532,7 +508,7 @@
         </div>
 
         <div v-show="isActiveSubTab('capture-sync', 'storage')" class="settings-subtab-panel">
-        <h3>{{ t('progressiveStorageSectionTitle', '存放位置') }}</h3>
+        <h3>{{ t('progressiveStorageSectionTitle', '渐进阅读存放位置') }}</h3>
 
         <div class="form-item">
           <label>{{ t('progressiveStorageModeLabel', '摘录存放位置') }}</label>
@@ -600,10 +576,10 @@
           </p>
         </div>
 
-        <h3>{{ t('topicDerivationTitle', 'Item 存放位置') }}</h3>
+        <h3>{{ t('topicDerivationTitle', 'Topic 下新卡存放位置') }}</h3>
 
         <div class="form-item">
-          <label>{{ t('topicDerivationStorageMode', 'Item 存放位置') }}</label>
+          <label>{{ t('topicDerivationStorageMode', 'Topic 下新卡存放位置') }}</label>
           <div class="form-control">
             <select v-model="settings.quickCard.topicDerivation.storageMode" class="scheduler-select">
               <option value="workbench">{{ t('topicDerivationStorageWorkbench', '工作台文档（默认）') }}</option>
@@ -611,7 +587,7 @@
             </select>
           </div>
           <p class="form-hint">
-            {{ t('topicDerivationStorageModeHint', '作用于已有 Topic 内派生 Item，包括 ⌥⇧Z 创建 Item 与符号继续制卡；不影响普通摘录创建 Topic。工作台模式会把生成的 Item 集中收纳到源文档的“Topic 工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
+            {{ t('topicDerivationStorageModeHint', '这是渐进阅读里的 Topic 下新卡存放策略，作用于 ⌥⇧Z 创建 Item 与符号继续制卡；不影响普通摘录创建 Topic。工作台模式会把生成的新卡集中收纳到源文档的“Topic 工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
           </p>
         </div>
         </div>
@@ -1189,7 +1165,6 @@ const {
   resetSettings,
   handleSrsV2LearningStepsChange,
   handleSrsV2RelearningStepsChange,
-  handleArenaSrsWriteEnabledChange,
   handleDayStartHourChange,
   handleAddToOutstandingEveryNthChange,
   handleAutoPostponeSkipTopNChange,

@@ -21,21 +21,17 @@ import type {
 import { buildMemoryAnchoredCard, resolveReviewDate } from '@/core/scheduler/srs-v2/time';
 import { createLogger } from '@/utils/logger';
 import {
-  buildArenaPoolKey,
   buildSrsArenaPoolKey,
-  parseArenaPoolKey,
   type AIArenaEventType,
   type AIArenaScenarioId,
   type AIArenaSelection,
   type AIStrategyPackDefinition,
-  type ArenaChallengeReason,
   type ArenaChallengeTrigger,
   type ArenaDomain,
   type ArenaManagerState,
   type ArenaManagerViewModel,
   type ArenaOutcomeLabel,
   type ArenaPoolDescriptor,
-  type ArenaCardAttributionRecord,
   type ArenaScoreEntry,
   type ArenaScoreSnapshot,
   type ArenaSettings,
@@ -50,25 +46,6 @@ import { ArenaStoreService } from '@/application/services/ArenaStoreService';
 
 const logger = createLogger('ArenaKernelService');
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-export interface ArenaSkillRuntimeOverrides {
-  selectedPackId: string | null;
-  selectedPackTitle: string | null;
-  composerPreset?: string;
-  systemPromptTemplate?: string;
-  defaultToolGroups?: string[];
-  executionPolicies?: Record<string, string>;
-  resultApprovalPolicies?: Record<string, string>;
-  tabRunPrompts?: Partial<Record<string, string>>;
-  tabFollowUpPrompts?: Partial<Record<string, string>>;
-  challengeTrigger?: ArenaChallengeTrigger | null;
-  challengers?: Array<{ id: string; title: string }>;
-}
-
-type ArenaSkillRuntimeDescriptor = {
-  systemPromptTemplate: string;
-  defaultToolGroups: string[];
-};
 
 type ArenaKernelDeps = {
   getArenaSettings: () => ArenaSettings;
@@ -140,20 +117,6 @@ function normalizeTargetKind(card: FSRSCard | null | undefined): Extract<ArenaTa
   return null;
 }
 
-function toQualityDelta(label: ArenaOutcomeLabel): number {
-  switch (label) {
-    case 'off-target':
-      return -1;
-    case 'needs-refactor':
-      return -3;
-    case 'strong':
-      return 2;
-    case 'usable':
-    default:
-      return 1.5;
-  }
-}
-
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -212,25 +175,19 @@ export class ArenaKernelService {
   }
 
   async updateManagerState(patch: Partial<ArenaManagerState>): Promise<void> {
-    await this.deps.updateArenaSettings((current) => ({
-      ...current,
-      manager: {
-        ...current.manager,
-        ...patch,
-      },
-    }));
+    void patch;
   }
 
   async pinStrategyPack(packId: string): Promise<void> {
-    await this.updateStrategyPack(packId, (pack) => ({ ...pack, state: 'pinned', updatedAt: Date.now() }));
+    void packId;
   }
 
   async retireStrategyPack(packId: string): Promise<void> {
-    await this.updateStrategyPack(packId, (pack) => ({ ...pack, state: 'retired', updatedAt: Date.now() }));
+    void packId;
   }
 
   async reactivateStrategyPack(packId: string): Promise<void> {
-    await this.updateStrategyPack(packId, (pack) => ({ ...pack, state: 'active', updatedAt: Date.now() }));
+    void packId;
   }
 
   async cloneStrategyPack(
@@ -240,67 +197,14 @@ export class ArenaKernelService {
       promptSuffix?: string;
     },
   ): Promise<AIStrategyPackDefinition | null> {
-    const settings = this.getArenaSettings();
-    const base = settings.ai.strategyPacks.find((pack) => pack.id === normalizeString(packId));
-    if (!base) {
-      return null;
-    }
-    const clonePack: AIStrategyPackDefinition = {
-      ...clone(base),
-      id: createId('arena-pack'),
-      title: normalizeString(input?.title) || `${base.title} Variant`,
-      source: 'user',
-      state: 'active',
-      promptOverrides: {
-        ...(base.promptOverrides || {}),
-        appendSystemPrompt: [
-          normalizeString(base.promptOverrides?.appendSystemPrompt),
-          normalizeString(input?.promptSuffix),
-        ].filter(Boolean).join('\n\n') || undefined,
-      },
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      sampleHint: '用户克隆策略包',
-    };
-    await this.deps.updateArenaSettings((current) => ({
-      ...current,
-      ai: {
-        ...current.ai,
-        strategyPacks: [...current.ai.strategyPacks, clonePack],
-      },
-    }));
-    return clonePack;
+    void packId;
+    void input;
+    return null;
   }
 
   async generateChallengePack(poolKey: string): Promise<AIStrategyPackDefinition | null> {
-    const pool = parseArenaPoolKey(poolKey);
-    if (!pool) {
-      return null;
-    }
-    const settings = this.getArenaSettings();
-    const packs = this.listEligiblePacks(pool, settings);
-    if (packs.length === 0) {
-      return null;
-    }
-    const champion = await this.getLeadingPack(pool.key, packs);
-    const negativeMatches = (await this.deps.arenaStore.listMatches({
-      domain: 'ai',
-      poolKey: pool.key,
-      limit: 8,
-    })).filter((match) => (match.ai?.scoreDelta || 0) < 0);
-    const failureHints = negativeMatches
-      .map((match) => normalizeString(match.ai?.metadata?.reason || match.ai?.metadata?.note || match.ai?.qualityLabel))
-      .filter(Boolean)
-      .slice(0, 4);
-    return this.cloneStrategyPack(champion?.id || packs[0].id, {
-      title: `${champion?.title || packs[0].title} Challenger`,
-      promptSuffix: [
-        '这是一个竞技场挑战者变体。',
-        failureHints.length > 0
-          ? `请显式避免这些失败模式：${failureHints.join('；')}`
-          : '请在保留原策略优点的同时，进一步降低编辑成本并提升长期记忆友好度。',
-      ].join('\n'),
-    });
+    void poolKey;
+    return null;
   }
 
   async selectAIPack(input: {
@@ -311,185 +215,12 @@ export class ArenaKernelService {
     tabId?: string | null;
     sessionId?: string | null;
   }): Promise<AIArenaSelection | null> {
-    const settings = this.getArenaSettings();
-    const scenarioId = input.scenarioId;
-    const targetKind = input.targetKind;
-    if (
-      !this.isEnabled()
-      || !settings.ai.enabled
-      || !scenarioId
-      || !targetKind
-      || !settings.ai.surfaces.includes(input.surface)
-      || settings.ai.scenarios[scenarioId]?.enabled === false
-    ) {
-      return null;
-    }
-
-    const pool: ArenaPoolDescriptor = {
-      key: buildArenaPoolKey({
-        surface: input.surface,
-        scenarioId,
-        targetKind,
-        skillId: input.skillId as ArenaPoolDescriptor['skillId'],
-        tabId: input.tabId as ArenaPoolDescriptor['tabId'],
-      }),
-      surface: input.surface,
-      scenarioId,
-      targetKind,
-      skillId: (normalizeString(input.skillId) || null) as ArenaPoolDescriptor['skillId'],
-      tabId: (normalizeString(input.tabId) || null) as ArenaPoolDescriptor['tabId'],
-    };
-
-    const packs = this.listEligiblePacks(pool, settings);
-    if (packs.length === 0) {
-      return null;
-    }
-
-    const scoreSnapshotCandidate = await this.buildAiScoreSnapshot(pool.key, packs);
-    const snapshot = scoreSnapshotCandidate.snapshot;
-    const candidateEntries = snapshot.entries.filter((entry) => packs.some((pack) => pack.id === entry.contestantId));
-    const pinnedPacks = packs.filter((pack) => pack.state === 'pinned');
-    const weights = this.computeAiWeights(candidateEntries, settings.ai.explorationRate, pinnedPacks.map((pack) => pack.id));
-    const selectedPack = pinnedPacks[0] || this.pickByWeight(
-      packs,
-      (pack) => weights[pack.id] ?? 0,
-    );
-    const challengers = candidateEntries
-      .filter((entry) => entry.contestantId !== selectedPack.id)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, settings.ai.challenge.cloneVariantLimit)
-      .map((entry) => packs.find((pack) => pack.id === entry.contestantId))
-      .filter((pack): pack is AIStrategyPackDefinition => Boolean(pack));
-    const trigger = await this.buildChallengeTrigger(pool, snapshot, selectedPack.id, challengers.map((pack) => pack.id));
-    const selection: AIArenaSelection = {
-      exposureId: createId('arena-exposure'),
-      pool,
-      pack: clone(selectedPack),
-      challengers: challengers.map((pack) => clone(pack)),
-      trigger,
-      weights,
-      selectedAt: Date.now(),
-    };
-    await this.deps.arenaStore.commitBatch({
-      scoreSnapshots: scoreSnapshotCandidate.shouldPersist ? [snapshot] : [],
-      matches: [{
-        id: createId('arena-match'),
-        domain: 'ai',
-        poolKey: pool.key,
-        createdAt: selection.selectedAt,
-        surface: pool.surface,
-        scenarioId: pool.scenarioId,
-        targetKind: pool.targetKind,
-        ai: {
-          exposureId: selection.exposureId,
-          sessionId: normalizeString(input.sessionId) || null,
-          packId: selection.pack.id,
-          challengerPackIds: selection.challengers.map((pack) => pack.id),
-          skillId: pool.skillId,
-          tabId: pool.tabId,
-          eventType: 'exposure',
-          scoreDelta: 0,
-        },
-      }],
-    });
-    return selection;
-  }
-
-  resolveSkillRuntimeOverrides(
-    selection: AIArenaSelection | null,
-    skill: ArenaSkillRuntimeDescriptor,
-  ): ArenaSkillRuntimeOverrides {
-    if (!selection) {
-      return {
-        selectedPackId: null,
-        selectedPackTitle: null,
-        challengeTrigger: null,
-        challengers: [],
-      };
-    }
-    const pack = selection.pack;
-    const systemPromptTemplate = [
-      normalizeString(pack.promptOverrides?.prependSystemPrompt),
-      normalizeString(skill.systemPromptTemplate),
-      normalizeString(pack.promptOverrides?.appendSystemPrompt),
-    ].filter(Boolean).join('\n\n');
-    return {
-      selectedPackId: pack.id,
-      selectedPackTitle: pack.title,
-      composerPreset: normalizeString(pack.promptOverrides?.composerPreset) || undefined,
-      systemPromptTemplate: systemPromptTemplate || skill.systemPromptTemplate,
-      defaultToolGroups: pack.toolPolicyOverrides?.enabledToolGroups || skill.defaultToolGroups,
-      executionPolicies: pack.toolPolicyOverrides?.executionPolicies as Record<string, string> | undefined,
-      resultApprovalPolicies: pack.toolPolicyOverrides?.resultApprovalPolicies as Record<string, string> | undefined,
-      tabRunPrompts: clone(pack.promptOverrides?.tabRunPrompts || {}),
-      tabFollowUpPrompts: clone(pack.promptOverrides?.tabFollowUpPrompts || {}),
-      challengeTrigger: selection.trigger || null,
-      challengers: selection.challengers.map((challenger) => ({ id: challenger.id, title: challenger.title })),
-    };
+    void input;
+    return null;
   }
 
   async recordAIEvent(input: AIPackEventInput): Promise<void> {
-    if (!this.isEnabled() || !input.selection) {
-      return;
-    }
-    const now = Date.now();
-    const scoreDelta = this.resolveAIScoreDelta(input.eventType, input.qualityLabel);
-    const match: ArenaMatchRecord = {
-      id: createId('arena-match'),
-      domain: 'ai',
-      poolKey: input.selection.pool.key,
-      createdAt: now,
-      surface: input.selection.pool.surface,
-      scenarioId: input.selection.pool.scenarioId,
-      targetKind: input.selection.pool.targetKind,
-      ai: {
-        exposureId: input.selection.exposureId,
-        sessionId: normalizeString(input.sessionId) || null,
-        packId: input.selection.pack.id,
-        challengerPackIds: input.selection.challengers.map((pack) => pack.id),
-        skillId: input.selection.pool.skillId,
-        tabId: input.selection.pool.tabId,
-        eventType: input.eventType,
-        scoreDelta,
-        qualityLabel: input.qualityLabel || null,
-        cardIds: input.cardIds,
-        metadata: input.metadata,
-      },
-    };
-    const scoreSnapshot = scoreDelta !== 0
-      ? await this.buildPackScoreDeltaSnapshot(
-        input.selection.pool.key,
-        input.selection.pack.id,
-        input.selection.pack.title,
-        scoreDelta,
-        now,
-      )
-      : null;
-    const attributions: ArenaCardAttributionRecord[] = [];
-    if (input.cardIds && input.cardIds.length > 0 && (input.eventType === 'create' || input.eventType === 'accept')) {
-      for (const cardId of input.cardIds.map((entry) => normalizeString(entry)).filter(Boolean)) {
-        attributions.push({
-          cardId,
-          poolKey: input.selection.pool.key,
-          surface: input.selection.pool.surface,
-          scenarioId: input.selection.pool.scenarioId,
-          targetKind: input.selection.pool.targetKind,
-          sourcePackId: input.selection.pack.id,
-          sourcePackTitle: input.selection.pack.title,
-          exposureId: input.selection.exposureId,
-          createdAt: now,
-          updatedAt: now,
-          reviewCount: 0,
-          lastReviewAt: null,
-          lastOutcome: null,
-        });
-      }
-    }
-    await this.deps.arenaStore.commitBatch({
-      matches: [match],
-      scoreSnapshots: scoreSnapshot ? [scoreSnapshot] : [],
-      attributions,
-    });
+    void input;
   }
 
   async buildSrsRecommendation(
@@ -500,7 +231,7 @@ export class ArenaKernelService {
   ): Promise<SrsArenaRecommendation | null> {
     const targetKind = normalizeTargetKind(card);
     const settings = this.getArenaSettings();
-    if (!this.isEnabled() || !settings.srs.enabled || !targetKind || !settings.srs.targetKinds.includes(targetKind)) {
+    if (!settings.srs.enabled || !targetKind || !settings.srs.targetKinds.includes(targetKind)) {
       return null;
     }
     const predictionContext = this.normalizeSrsArenaPredictionContext(now, options);
@@ -609,7 +340,7 @@ export class ArenaKernelService {
     const rating = Math.max(1, Math.min(4, Math.floor(Number(input.rating) || 0))) as Rating;
     const targetKind = normalizeTargetKind(card);
     const settings = this.getArenaSettings();
-    if (!this.isEnabled() || !settings.srs.enabled || !targetKind || !settings.srs.targetKinds.includes(targetKind)) {
+    if (!settings.srs.enabled || !targetKind || !settings.srs.targetKinds.includes(targetKind)) {
       return null;
     }
     const now = Date.now();
@@ -720,36 +451,14 @@ export class ArenaKernelService {
 
   async buildManagerView(): Promise<ArenaManagerViewModel> {
     const settings = this.getArenaSettings();
-    const recentAiMatches = await this.deps.arenaStore.listMatches({ domain: 'ai', limit: 40 });
     const recentSrsMatches = await this.deps.arenaStore.listMatches({ domain: 'srs', limit: 40 });
     const scoreSnapshots = await this.deps.arenaStore.listScoreSnapshots();
 
-    const aiPoolKeys = new Set<string>([
-      ...recentAiMatches.map((match) => match.poolKey),
-      ...scoreSnapshots.filter((snapshot) => snapshot.domain === 'ai').map((snapshot) => snapshot.poolKey),
-    ]);
     const srsPoolKeys = new Set<string>([
       ...settings.srs.targetKinds.map((targetKind) => buildSrsArenaPoolKey(targetKind)),
       ...recentSrsMatches.map((match) => match.poolKey),
       ...scoreSnapshots.filter((snapshot) => snapshot.domain === 'srs').map((snapshot) => snapshot.poolKey),
     ]);
-
-    const aiPools = await Promise.all(Array.from(aiPoolKeys).map(async (poolKey) => {
-      const parsed = parseArenaPoolKey(poolKey);
-      if (!parsed) {
-        return null;
-      }
-      const packs = this.listEligiblePacks(parsed, settings);
-      const snapshot = await this.ensureAiScoreSnapshot(poolKey, packs);
-      const trigger = await this.buildChallengeTrigger(parsed, snapshot, snapshot.entries[0]?.contestantId || '', snapshot.entries.slice(1, 4).map((entry) => entry.contestantId));
-      return {
-        pool: parsed,
-        topEntries: snapshot.entries.slice().sort((left, right) => right.score - left.score).slice(0, 5),
-        totalEntries: snapshot.entries.length,
-        latestMatchAt: recentAiMatches.find((match) => match.poolKey === poolKey)?.createdAt || null,
-        challenge: trigger,
-      };
-    }));
 
     const srsScoreSnapshots: ArenaScoreSnapshot[] = [];
     const srsPools = await Promise.all(Array.from(srsPoolKeys).map(async (poolKey) => {
@@ -779,87 +488,15 @@ export class ArenaKernelService {
       generatedAt: Date.now(),
       manager: settings.manager,
       ai: {
-        pools: aiPools.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
-        recentMatches: recentAiMatches,
-        strategyPacks: clone(settings.ai.strategyPacks),
+        pools: [],
+        recentMatches: [],
+        strategyPacks: [],
       },
       srs: {
         pools: srsPools.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
         recentMatches: recentSrsMatches,
         scores: Array.from(srsScoresByKey.values()).sort((left, right) => right.createdAt - left.createdAt),
       },
-    };
-  }
-
-  private async updateStrategyPack(
-    packId: string,
-    updater: (pack: AIStrategyPackDefinition) => AIStrategyPackDefinition,
-  ): Promise<void> {
-    const normalizedPackId = normalizeString(packId);
-    if (!normalizedPackId) {
-      return;
-    }
-    await this.deps.updateArenaSettings((current) => ({
-      ...current,
-      ai: {
-        ...current.ai,
-        strategyPacks: current.ai.strategyPacks.map((pack) => (
-          pack.id === normalizedPackId ? updater(clone(pack)) : pack
-        )),
-      },
-    }));
-  }
-
-  private listEligiblePacks(pool: ArenaPoolDescriptor, settings: ArenaSettings): AIStrategyPackDefinition[] {
-    return settings.ai.strategyPacks.filter((pack) => (
-      pack.state !== 'retired'
-      && pack.state !== 'disabled'
-      && pack.eligibleScenarios.includes(pool.scenarioId)
-      && (!pack.skillId || pack.skillId === pool.skillId)
-      && (!pack.tabId || !pool.tabId || pack.tabId === pool.tabId)
-    ));
-  }
-
-  private async getLeadingPack(poolKey: string, packs: AIStrategyPackDefinition[]): Promise<AIStrategyPackDefinition | null> {
-    const snapshot = await this.ensureAiScoreSnapshot(poolKey, packs);
-    const leader = snapshot.entries.slice().sort((left, right) => right.score - left.score)[0];
-    return packs.find((pack) => pack.id === leader?.contestantId) || packs[0] || null;
-  }
-
-  private async ensureAiScoreSnapshot(poolKey: string, packs: AIStrategyPackDefinition[]): Promise<ArenaScoreSnapshot> {
-    const candidate = await this.buildAiScoreSnapshot(poolKey, packs);
-    if (candidate.shouldPersist) {
-      await this.deps.arenaStore.replaceScoreSnapshot(candidate.snapshot);
-    }
-    return candidate.snapshot;
-  }
-
-  private async buildAiScoreSnapshot(
-    poolKey: string,
-    packs: AIStrategyPackDefinition[],
-  ): Promise<{ snapshot: ArenaScoreSnapshot; shouldPersist: boolean }> {
-    const latest = await this.deps.arenaStore.getLatestScoreSnapshot('ai', poolKey);
-    const existingEntries = new Map((latest?.entries || []).map((entry) => [entry.contestantId, entry] as const));
-    const entries: ArenaScoreEntry[] = packs.map((pack) => ({
-      contestantId: pack.id,
-      title: pack.title,
-      weight: existingEntries.get(pack.id)?.weight || 1 / Math.max(1, packs.length),
-      score: existingEntries.get(pack.id)?.score || 0,
-      sampleCount: existingEntries.get(pack.id)?.sampleCount || 0,
-      winCount: existingEntries.get(pack.id)?.winCount || 0,
-      lossCount: existingEntries.get(pack.id)?.lossCount || 0,
-      lastEventAt: existingEntries.get(pack.id)?.lastEventAt || null,
-    }));
-    const snapshot: ArenaScoreSnapshot = {
-      id: latest?.id || createId('arena-score'),
-      domain: 'ai',
-      poolKey,
-      createdAt: latest?.createdAt || Date.now(),
-      entries,
-    };
-    return {
-      snapshot,
-      shouldPersist: !latest || latest.entries.length !== entries.length,
     };
   }
 
@@ -890,30 +527,6 @@ export class ArenaKernelService {
       await this.deps.arenaStore.replaceScoreSnapshot(snapshot);
     }
     return snapshot;
-  }
-
-  private computeAiWeights(
-    entries: ArenaScoreEntry[],
-    explorationRate: number,
-    pinnedIds: string[],
-  ): Record<string, number> {
-    if (entries.length === 0) {
-      return {};
-    }
-    if (pinnedIds.length > 0) {
-      const weight = 1 / pinnedIds.length;
-      return Object.fromEntries(pinnedIds.map((id) => [id, weight]));
-    }
-    const baseWeights = entries.map((entry) => {
-      const exploitation = Math.max(0.12, 1 + entry.score);
-      const exploration = entry.sampleCount < 3 ? explorationRate * (3 - entry.sampleCount + 1) : explorationRate;
-      return {
-        id: entry.contestantId,
-        value: exploitation + exploration,
-      };
-    });
-    const sum = baseWeights.reduce((acc, entry) => acc + entry.value, 0) || 1;
-    return Object.fromEntries(baseWeights.map((entry) => [entry.id, entry.value / sum]));
   }
 
   private computeScoreWeights(entries: ArenaScoreEntry[]): Record<string, number> {
@@ -981,131 +594,6 @@ export class ArenaKernelService {
       return '队列上下文';
     }
     return '默认上下文';
-  }
-
-  private pickByWeight<T>(items: T[], resolveWeight: (item: T) => number): T {
-    const random = this.deps.random || Math.random;
-    const weighted = items.map((item) => ({
-      item,
-      weight: Math.max(0, resolveWeight(item)),
-    }));
-    const total = weighted.reduce((sum, entry) => sum + entry.weight, 0);
-    if (total <= 0) {
-      return items[0];
-    }
-    const target = random() * total;
-    let cursor = 0;
-    for (const entry of weighted) {
-      cursor += entry.weight;
-      if (target <= cursor) {
-        return entry.item;
-      }
-    }
-    return weighted[weighted.length - 1].item;
-  }
-
-  private async buildChallengeTrigger(
-    pool: ArenaPoolDescriptor,
-    snapshot: ArenaScoreSnapshot,
-    selectedPackId: string,
-    challengerPackIds: string[],
-  ): Promise<ArenaChallengeTrigger | null> {
-    const settings = this.getArenaSettings();
-    const entries = snapshot.entries.slice().sort((left, right) => right.score - left.score);
-    const top = entries[0];
-    const second = entries[1];
-    const reasons: ArenaChallengeReason[] = [];
-    if (!top || top.sampleCount < settings.ai.challenge.minSamples) {
-      reasons.push('low-confidence');
-    }
-    if (top && second && Math.abs(top.score - second.score) < settings.ai.challenge.scoreGapForConfidence) {
-      reasons.push('high-disagreement');
-    }
-    const recentNegativeCount = (await this.deps.arenaStore.listMatches({
-      domain: 'ai',
-      poolKey: pool.key,
-      limit: 6,
-    })).filter((match) => (
-      match.ai?.packId === selectedPackId
-      && (match.ai?.scoreDelta || 0) < 0
-      && match.ai?.eventType !== 'exposure'
-    )).length;
-    if (recentNegativeCount >= settings.ai.challenge.consecutiveNegativeThreshold) {
-      reasons.push('repeated-dissatisfaction');
-    }
-    if (reasons.length === 0 || settings.ai.challenge.explicitTriggerEnabled === false) {
-      return null;
-    }
-    return {
-      triggered: true,
-      reasons,
-      challengerPackIds: challengerPackIds.slice(0, settings.ai.challenge.cloneVariantLimit),
-      summary: `Arena 检测到${reasons.join('、')}，建议显式露出挑战者。`,
-      detectedAt: Date.now(),
-    };
-  }
-
-  private resolveAIScoreDelta(eventType: AIArenaEventType, qualityLabel?: ArenaOutcomeLabel | null): number {
-    if (qualityLabel) {
-      return eventType === 'judge' ? toQualityDelta(qualityLabel) * 0.35 : toQualityDelta(qualityLabel);
-    }
-    switch (eventType) {
-      case 'accept':
-        return 1.5;
-      case 'create':
-        return 2;
-      case 'manual-bad':
-        return -3;
-      case 'edit':
-        return -0.5;
-      case 'rerun':
-        return -1;
-      case 'abandon':
-        return -1.5;
-      case 'judge':
-        return 0.25;
-      case 'exposure':
-      default:
-        return 0;
-    }
-  }
-
-  private async buildPackScoreDeltaSnapshot(
-    poolKey: string,
-    packId: string,
-    title: string,
-    scoreDelta: number,
-    updatedAt: number,
-  ): Promise<ArenaScoreSnapshot> {
-    const pool = parseArenaPoolKey(poolKey);
-    const settings = this.getArenaSettings();
-    const packs = pool ? this.listEligiblePacks(pool, settings) : settings.ai.strategyPacks.filter((entry) => entry.id === packId);
-    const candidate = await this.buildAiScoreSnapshot(poolKey, packs.length > 0 ? packs : [{
-      id: packId,
-      title,
-      source: 'ai-generated',
-      state: 'active',
-      eligibleScenarios: [],
-    }]);
-    const entries = candidate.snapshot.entries.map((entry) => (
-      entry.contestantId === packId
-        ? {
-          ...entry,
-          title,
-          score: entry.score + scoreDelta,
-          sampleCount: entry.sampleCount + 1,
-          winCount: entry.winCount + (scoreDelta > 0 ? 1 : 0),
-          lossCount: entry.lossCount + (scoreDelta < 0 ? 1 : 0),
-          lastEventAt: updatedAt,
-        }
-        : entry
-    ));
-    return {
-      ...candidate.snapshot,
-      id: createId('arena-score'),
-      createdAt: updatedAt,
-      entries,
-    };
   }
 
   private buildSrsPredictions(
@@ -1228,54 +716,8 @@ export class ArenaKernelService {
   }
 
   private async applyAttributedReviewFeedback(cardId: string, pass: boolean, rating: number): Promise<void> {
-    const attribution = await this.deps.arenaStore.getAttribution(cardId);
-    if (!attribution) {
-      return;
-    }
-    const now = Date.now();
-    const scoreDelta = pass
-      ? (rating === Rating.Easy ? 1.1 : 0.8)
-      : (rating === Rating.Again ? -1.4 : -0.9);
-    const scoreSnapshot = await this.buildPackScoreDeltaSnapshot(
-      attribution.poolKey,
-      attribution.sourcePackId,
-      attribution.sourcePackTitle,
-      scoreDelta,
-      now,
-    );
-    await this.deps.arenaStore.commitBatch({
-      scoreSnapshots: [scoreSnapshot],
-      attributions: [{
-        ...attribution,
-        updatedAt: now,
-        reviewCount: attribution.reviewCount + 1,
-        lastReviewAt: now,
-        lastOutcome: pass ? 'positive' : 'negative',
-      }],
-      matches: [{
-        id: createId('arena-match'),
-        domain: 'ai',
-        poolKey: attribution.poolKey,
-        createdAt: now,
-        surface: attribution.surface,
-        scenarioId: attribution.scenarioId,
-        targetKind: attribution.targetKind,
-        ai: {
-          exposureId: attribution.exposureId,
-          sessionId: null,
-          packId: attribution.sourcePackId,
-          challengerPackIds: [],
-          skillId: null,
-          tabId: null,
-          eventType: 'judge',
-          scoreDelta,
-          metadata: {
-            source: 'delayed-review-attribution',
-            rating,
-            cardId,
-          },
-        },
-      }],
-    });
+    void cardId;
+    void pass;
+    void rating;
   }
 }

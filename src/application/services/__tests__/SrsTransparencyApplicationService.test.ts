@@ -137,7 +137,7 @@ describe('SrsTransparencyApplicationService', () => {
     ]);
   });
 
-  it('adds Arena recommendation facts and hint when the advisory diverges', async () => {
+  it('adds internal SRS diagnostic facts and hint when the advisory diverges', async () => {
     const now = 1_700_000_000_000;
     const router = {
       getSchedulerType: vi.fn(() => 'fsrs-v6' as const),
@@ -160,7 +160,7 @@ describe('SrsTransparencyApplicationService', () => {
         ratingBasis: Rating.Good,
         schedulingContextLabel: '默认上下文',
         shouldHighlight: true,
-        summary: 'Arena summary',
+        summary: 'SRS diagnostic summary',
         contestants: [],
       })),
     };
@@ -174,10 +174,10 @@ describe('SrsTransparencyApplicationService', () => {
       now,
       { schedulingContext: undefined },
     );
-    expect(model.arenaHint).toBe('Arena 按Good综合建议约 9.0 d，与当前正式调度相差 800%。');
-    expect(model.algorithmFacts).toContainEqual({ label: 'Arena 预判间隔（Good）', value: '9.0 d' });
-    expect(model.algorithmFacts).toContainEqual({ label: 'Arena 当前领先', value: 'FSRS v6' });
-    expect(model.algorithmFacts).toContainEqual({ label: 'Arena 调度上下文', value: '默认上下文' });
+    expect(model.arenaHint).toBe('调度诊断按Good综合建议约 9.0 d，与当前正式调度相差 800%。');
+    expect(model.algorithmFacts).toContainEqual({ label: '调度诊断间隔（Good）', value: '9.0 d' });
+    expect(model.algorithmFacts).toContainEqual({ label: '候选算法', value: 'FSRS v6' });
+    expect(model.algorithmFacts).toContainEqual({ label: '调度上下文', value: '默认上下文' });
   });
 
   it('surfaces advisory learning-curve evidence from bounded review history', async () => {

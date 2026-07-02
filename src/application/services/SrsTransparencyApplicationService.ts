@@ -187,18 +187,21 @@ function buildAlgorithmFacts(
   arenaRecommendation: SrsArenaRecommendation | null,
   learningCurveEvidence: SrsTransparencyLearningCurveEvidence | null,
 ): SrsTransparencyFact[] {
+  const diagnosticRatingLabel = arenaRecommendation
+    ? resolveRatingLabel(arenaRecommendation.ratingBasis as Rating, t)
+    : '';
   const arenaFacts: SrsTransparencyFact[] = arenaRecommendation
     ? [
       {
         label: t(
-          'arenaWeightedIntervalWithRating',
-          `Arena 预判间隔（${resolveRatingLabel(arenaRecommendation.ratingBasis as Rating, t)}）`,
-        ),
+          'srsDiagnosticWeightedIntervalWithRating',
+          `调度诊断间隔（${diagnosticRatingLabel}）`,
+        ).replace('{rating}', diagnosticRatingLabel),
         value: formatDays(arenaRecommendation.weightedIntervalDays, t),
       },
-      { label: t('arenaLeadingContestant', 'Arena 当前领先'), value: resolveSrsArenaContestantLabel(arenaRecommendation.leadingContestantId) },
-      { label: t('arenaSchedulingContext', 'Arena 调度上下文'), value: arenaRecommendation.schedulingContextLabel },
-      { label: t('arenaDiscrepancy', '与正式调度偏差'), value: `${Math.round(arenaRecommendation.discrepancyRatio * 100)}%` },
+      { label: t('srsDiagnosticLeadingContestant', '候选算法'), value: resolveSrsArenaContestantLabel(arenaRecommendation.leadingContestantId) },
+      { label: t('srsDiagnosticSchedulingContext', '调度上下文'), value: arenaRecommendation.schedulingContextLabel },
+      { label: t('srsDiagnosticDiscrepancy', '与正式调度偏差'), value: `${Math.round(arenaRecommendation.discrepancyRatio * 100)}%` },
     ]
     : [];
   if (schedulerType === 'a-factor-v2') {
@@ -308,8 +311,8 @@ function buildArenaHint(
     return null;
   }
   return t(
-    'srsArenaHint',
-    `Arena 按{rating}综合建议约 {weighted}，与当前正式调度相差 {gap}。`,
+    'srsDiagnosticHint',
+    `调度诊断按{rating}综合建议约 {weighted}，与当前正式调度相差 {gap}。`,
   )
     .replace('{rating}', resolveRatingLabel(arenaRecommendation.ratingBasis as Rating, t))
     .replace('{weighted}', `${arenaRecommendation.weightedIntervalDays.toFixed(1)} ${t('days', 'days')}`)

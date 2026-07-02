@@ -68,7 +68,6 @@ import type { PracticeQueueFilter } from './PracticeQueueManager';
 import type { BrowserOpenState } from '@/types/browser';
 import type { ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import {
-  loadArenaManagerDialogComponent,
   loadCreateUnifiedReviewDialog,
   loadMobileReviewLauncherComponent,
   loadProgressiveSplitDialogComponent,
@@ -187,7 +186,6 @@ export class DialogManager implements IDialogManager {
   private srsBrowserDialog: VueDialogHandle | null = null;
   private mobileQueueLauncherDialog: VueDialogHandle | null = null;
   private templateSelectDialog: VueDialogHandle | null = null;
-  private arenaManagerDialog: VueDialogHandle | null = null;
   private progressiveSplitDialog: VueDialogHandle | null = null;
   private currentReviewDialog: VueDialogHandle | null = null;
   private currentReviewDialogQueueType: QueueType | null = null;
@@ -505,29 +503,7 @@ export class DialogManager implements IDialogManager {
   }
 
   async openArenaManagerDialog(): Promise<void> {
-    const service = this.context.getArenaKernelService();
-    if (!service.isEnabled()) {
-      return;
-    }
-    if (this.arenaManagerDialog) {
-      return;
-    }
-    const ArenaManagerDialog = await loadArenaManagerDialogComponent();
-    this.arenaManagerDialog = createVueDialog({
-      title: this.context.getI18n()?.arenaManagerTitle || 'Arena Manager',
-      component: ArenaManagerDialog,
-      props: {
-        service,
-        i18n: this.context.getI18n() || {},
-      },
-      width: this.isMobileFrontend() ? '100vw' : 'min(1120px, 96vw)',
-      height: this.isMobileFrontend() ? '100vh' : 'min(840px, 92vh)',
-      visualVariant: 'manager',
-      containerClass: 'siyuanmemo-arena-manager-shell',
-      onClose: () => {
-        this.arenaManagerDialog = null;
-      },
-    });
+    logger.info('[DialogManager] Arena manager is retired');
   }
   
   // ========================================================================

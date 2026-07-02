@@ -2,6 +2,16 @@
 
 This context defines the domain language for SiYuanMemo review, learning, and queue behavior.
 
+## Product Boundary
+
+SiYuanMemo is a self-contained memory system and incremental-reading system. SiYuan is the content host, while SiYuanMemo owns card identity, scheduling truth, review history, Browser membership, incremental reading, excerpts, and topic-derived learning items.
+
+Review and Browser are equally important learning surfaces. Excerpts and Topic-derived items belong to incremental reading, not to a separate AI-owned workflow.
+
+Plugin-owned AI reasoning is retired. Host SiYuan Agent/MCP owns AI assistance and calls SiYuanMemo only through explicit bounded tools such as `memo_query`, `memo_card`, `memo_review`, and `memo_ui`.
+
+Arena is retired as a product surface. AI Arena behavior must stay no-op or unsupported, and SRS algorithm comparison may remain only as internal diagnostic evidence until a dedicated migration-safe deletion pass removes the remaining Arena-era storage/type names.
+
 ## Language
 
 **Review Day**:
