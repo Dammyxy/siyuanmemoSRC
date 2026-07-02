@@ -10,7 +10,7 @@ import {
 } from '@/core/infrastructure/websocket/transaction-fanout-coordinator';
 import type FSRSPlugin from '@/index';
 import type { AutoCardSiyuanPort } from '../ports/AutoCardSiyuanPort';
-import type { AutoCardRiffPort } from '../ports/AutoCardRiffPort';
+import type { NativeRiffCompatibilityPort } from '@/application/ports/NativeRiffCompatibilityPort';
 import {
     createUnavailableHostBlockQueryPort,
     type HostBlockQueryPort,
@@ -203,7 +203,7 @@ type AutoCardTraceContext = {
 
 export interface AutoCardHandlerPorts {
     siyuanApi: AutoCardSiyuanPort;
-    riffApi: AutoCardRiffPort;
+    riffApi: NativeRiffCompatibilityPort;
     hostBlockQuery?: HostBlockQueryPort;
 }
 
@@ -306,7 +306,7 @@ function shouldPrefilterAutoCardOperation(op: { action?: unknown; data?: unknown
 export class AutoCardHandler implements ITransactionHandler {
     private plugin: FSRSPlugin;
     private readonly siyuanApi: AutoCardSiyuanPort;
-    private readonly riffApi: AutoCardRiffPort;
+    private readonly riffApi: NativeRiffCompatibilityPort;
     private readonly hostBlockQuery: HostBlockQueryPort;
     private readonly postCreationPlanner = new UnifiedPostCreationPlanner();
     private readonly conflictMediator = new PostCreationConflictMediator();
@@ -401,7 +401,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 const useCase = new CreateCdfMultilineCardsUseCase(
                     xiuyuanAppService,
                     {
-                        BUILTIN_DECK_ID: this.riffApi.BUILTIN_DECK_ID,
+                        BUILTIN_DECK_ID: this.getNativeRiffCompatibilityDeckId(),
                         getBlockAttrs: (blockId: string) => this.siyuanApi.getBlockAttrs(blockId),
                         getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
                     },
@@ -410,7 +410,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 return useCase.execute({
                     parentBlockId: input.parentBlockId,
                     templateId: input.templateId,
-                    deckId: this.riffApi.BUILTIN_DECK_ID,
+                    deckId: this.getNativeRiffCompatibilityDeckId(),
                 });
             },
         });
@@ -1002,7 +1002,7 @@ export class AutoCardHandler implements ITransactionHandler {
             blockIds: [envelope.blockId],
             templateId,
             fieldMapping: { content: envelope.blockId },
-            deckId: this.riffApi.BUILTIN_DECK_ID,
+            deckId: this.getNativeRiffCompatibilityDeckId(),
             cardType: this.normalizeTopicItemCardType(decision.cardType),
             source: 'doc-oneclick-scan',
             duplicatePolicy: 'error',
@@ -1381,6 +1381,10 @@ export class AutoCardHandler implements ITransactionHandler {
 
     getListenerCandidateDiagnostics(): AutoCardListenerCandidateDiagnostic[] {
         return this.listenerCandidateRuntime.getDiagnostics();
+    }
+
+    private getNativeRiffCompatibilityDeckId(): string {
+        return this.riffApi.BUILTIN_DECK_ID;
     }
 
     private async createXiuyuanFromBlocks(
@@ -2226,7 +2230,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     blockIds: [blockId],
                     templateId: 'builtin-quick-card',
                     fieldMapping: { content: blockId },
-                    deckId: this.riffApi.BUILTIN_DECK_ID,
+                    deckId: this.getNativeRiffCompatibilityDeckId(),
                     cardType,
                     backClozeInfo: {
                         originalContent: content,
@@ -2250,7 +2254,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 blockIds: [blockId],
                 templateId: 'builtin-quick-card',
                 fieldMapping: { content: blockId },
-                deckId: this.riffApi.BUILTIN_DECK_ID,
+                deckId: this.getNativeRiffCompatibilityDeckId(),
                 cardType,
             }, source, decision);
 
@@ -2303,7 +2307,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     blockIds: [blockId],
                     templateId: 'builtin-quick-card',
                     fieldMapping: { content: blockId },
-                    deckId: this.riffApi.BUILTIN_DECK_ID,
+                    deckId: this.getNativeRiffCompatibilityDeckId(),
                     cardType,
                     backClozeInfo: {
                         originalContent: `${term} <> ${definition}`,
@@ -2340,7 +2344,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 fieldMapping: {
                     content: blockId
                 },
-                deckId: this.riffApi.BUILTIN_DECK_ID,
+                deckId: this.getNativeRiffCompatibilityDeckId(),
                 cardType,
             }, source, decision);
             
@@ -2486,7 +2490,7 @@ export class AutoCardHandler implements ITransactionHandler {
                             concept: refId,
                             definition: blockId
                         },
-                        deckId: this.riffApi.BUILTIN_DECK_ID,
+                        deckId: this.getNativeRiffCompatibilityDeckId(),
                     }, source, decision);
                     
                     if (isErr(result)) {
@@ -2526,7 +2530,7 @@ export class AutoCardHandler implements ITransactionHandler {
                             concept: refId,
                             definition: blockId
                         },
-                        deckId: this.riffApi.BUILTIN_DECK_ID,
+                        deckId: this.getNativeRiffCompatibilityDeckId(),
                         cardType: 'descriptor'
                     }, source, decision);
                     
@@ -2679,7 +2683,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     concept: foundConceptId,
                     descriptor: blockId
                 },
-                deckId: this.riffApi.BUILTIN_DECK_ID,
+                deckId: this.getNativeRiffCompatibilityDeckId(),
                 cardType: 'descriptor'
             }, source, decision);
             
@@ -2781,7 +2785,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 fieldMapping: {
                     content: blockId
                 },
-                deckId: this.riffApi.BUILTIN_DECK_ID,
+                deckId: this.getNativeRiffCompatibilityDeckId(),
                 cardType,
                 clozeRenderMode,
                 clozeInfo: {
@@ -2898,7 +2902,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     question: blockId,
                     items: childBlocks.map(c => c.id).join(',')
                 },
-                deckId: this.riffApi.BUILTIN_DECK_ID,
+                deckId: this.getNativeRiffCompatibilityDeckId(),
                 cardType
             }, 'doc-oneclick-scan');
             
@@ -2947,7 +2951,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 fieldMapping: {
                     concept: conceptBlockId
                 },
-                deckId: this.riffApi.BUILTIN_DECK_ID
+                deckId: this.getNativeRiffCompatibilityDeckId()
             }, 'symbol-listener');
             
             if (isErr(result)) {

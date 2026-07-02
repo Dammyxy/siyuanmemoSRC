@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-01 (Round 644)
+Last update: 2026-07-02 (Round 645)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-02 - Native Riff compatibility seam pruning
+
+- Task: Implement OpenSpec change `prune-native-riff-compatibility-debt` after removing Native Riff as ordinary SRS source of truth.
+- Touched slice: Native Riff compatibility in Progressive/Topic-derived/AutoCard/ApplicationContext across `src/application/ports/NativeRiffCompatibilityPort.ts`, `src/infrastructure/siyuan/NativeRiffCompatibilityAdapter.ts`, `src/application/services/{ProgressiveReadingService,TopicDerivedItemService}.ts`, `src/application/handlers/AutoCardHandler.ts`, `src/application/ApplicationContext.ts`, and focused tests.
+- Debt fixed now: Duplicate Progressive/AutoCard Riff ports and adapters were deleted and replaced with one Native Riff compatibility port. Ordinary Progressive and Topic-derived card creation no longer require a Native Riff adapter when compatibility policy is disabled. AutoCard built-in deck identity now routes through one explicit compatibility helper. ApplicationContext no longer registers the old Native Riff transaction trigger as a fallback; Native Riff transaction sync has one active owner (`KernelTransactionActionPump`) or an explicit unavailable state. `RiffSyncEventHandler` is only registered when `deleteSync.enabled` explicitly enables native hard-delete compatibility.
+- Debt deferred: Review render `legacyProjection` cleanup and storage `createLegacyStorageLoader` cleanup remain separate razor candidates.
+- Why deferred: Review rendering and storage migration cross different ownership/risk surfaces; mixing them into Native Riff compatibility pruning would widen the change beyond one bounded compatibility slice.
+- Next safe step: Propose a follow-up change for either Review `legacyProjection` removal or storage legacy loader retirement, starting with characterization tests around the current active path.
+- Validation: Focused suites passed: `pnpm exec vitest run src/application/__tests__/ApplicationContext.writer-relay.test.ts src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts src/application/policies/__tests__/NativeRiffCompatibilityPolicy.test.ts src/application/services/__tests__/ProgressiveReadingService.test.ts src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts` (8 files / 151 tests passed) and `pnpm exec vitest run src/application/__tests__/ApplicationContext.writer-relay.test.ts src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts src/infrastructure/events/__tests__/RiffSyncEventHandler.test.ts src/application/handlers/__tests__/NativeRiffSyncTriggerHandler.test.ts` (4 files / 50 tests passed). `node scripts/check-hidden-fallbacks.cjs`, `pnpm run check:boundaries`, `pnpm build`, and `openspec validate prune-native-riff-compatibility-debt --strict` passed. Build still reports existing non-blocking i18n hard-coded-string hints and Sass legacy JS API warnings.
 
 ### 2026-07-01 - SiYuanMemo-owned SRS deferred debt closure
 

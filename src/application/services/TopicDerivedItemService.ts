@@ -1,5 +1,5 @@
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
-import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
+import type { NativeRiffCompatibilityPort } from '@/application/ports/NativeRiffCompatibilityPort';
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
 import {
   resolveNativeRiffCompatibilityDecision,
@@ -145,7 +145,7 @@ export class TopicDerivedItemService {
   constructor(
     private readonly cardService: CardApplicationService,
     private readonly progressiveReadingService: ProgressiveReadingService,
-    private readonly nativeRiffApi: ProgressiveNativeRiffPort,
+    private readonly nativeRiffApi: NativeRiffCompatibilityPort | undefined,
     private readonly settingsProvider: TopicDerivationSettingsProvider,
     private readonly ownershipBoundaryClient?: TopicDerivedOwnershipBoundaryClient,
     private readonly backendClient?: TopicDerivedBackendCommandClient,
@@ -615,6 +615,9 @@ export class TopicDerivedItemService {
   ): Promise<void> {
     if (!resolveNativeRiffCompatibilityDecision({ action }).enabled) {
       return;
+    }
+    if (!this.nativeRiffApi) {
+      throw new Error('NATIVE_RIFF_COMPATIBILITY_UNAVAILABLE');
     }
     await this.nativeRiffApi.addRiffCards(this.nativeRiffApi.BUILTIN_DECK_ID, [blockId]);
   }

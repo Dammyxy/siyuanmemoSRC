@@ -12,7 +12,7 @@ import {
   ATTR_PROGRESSIVE_STORAGE_MODE,
 } from '@/application/services/ProgressiveAttrContract';
 import type { CardApplicationService } from '../CardApplicationService';
-import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
+import type { NativeRiffCompatibilityPort } from '@/application/ports/NativeRiffCompatibilityPort';
 import type { ProgressiveReadingService } from '../ProgressiveReadingService';
 import { TopicDerivedItemService } from '../TopicDerivedItemService';
 
@@ -65,8 +65,8 @@ function createProgressiveReadingServiceMock() {
 }
 
 function createNativeRiffPortMock(
-  overrides: Partial<ProgressiveNativeRiffPort> = {},
-): ProgressiveNativeRiffPort {
+  overrides: Partial<NativeRiffCompatibilityPort> = {},
+): NativeRiffCompatibilityPort {
   return {
     BUILTIN_DECK_ID: 'builtin-deck',
     addRiffCards: vi.fn(async () => ({
@@ -703,6 +703,29 @@ describe('TopicDerivedItemService', () => {
     expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
     expect(cardService.service.deleteCard).not.toHaveBeenCalled();
     expect(progressiveReadingService.service.deleteProgressiveArtifact).not.toHaveBeenCalledWith('derived-doc-1');
+  });
+
+  it('creates ordinary topic-derived items without a native Riff adapter', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      undefined,
+      createSettingsProvider(),
+    );
+
+    await expect(service.createFromTopicSource({
+      sourceBlockId: 'source-block-no-riff',
+      sourceDocId: 'doc-root-no-riff',
+      parentTopicCardId: 'topic-card-no-riff',
+      plannerContent: 'Alpha ==Beta==',
+      decisions: [CLOZE_DECISION],
+    })).resolves.toEqual(expect.objectContaining({
+      created: 1,
+      skipped: 0,
+    }));
+    expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
   });
 
   it('uses content DOM for manual Topic cloze items so inline links, refs, and tokens are preserved', async () => {

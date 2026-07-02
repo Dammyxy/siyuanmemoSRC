@@ -1,6 +1,6 @@
 import type { ProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { ProgressiveBlockRow, ProgressiveDocInfo, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
-import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
+import type { NativeRiffCompatibilityPort } from '@/application/ports/NativeRiffCompatibilityPort';
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
 import {
   resolveNativeRiffCompatibilityDecision,
@@ -407,7 +407,7 @@ export class ProgressiveReadingService {
 
   constructor(
     private readonly siyuanApi: ProgressiveSiyuanPort,
-    private readonly nativeRiffApi: ProgressiveNativeRiffPort,
+    private readonly nativeRiffApi: NativeRiffCompatibilityPort | undefined,
     private readonly fileService: IFileService,
     private readonly cardService: CardApplicationService,
     private readonly settingsProvider: ProgressiveReadingSettingsProvider,
@@ -2467,6 +2467,9 @@ export class ProgressiveReadingService {
   ): Promise<void> {
     if (!resolveNativeRiffCompatibilityDecision({ action }).enabled) {
       return;
+    }
+    if (!this.nativeRiffApi) {
+      throw new Error('NATIVE_RIFF_COMPATIBILITY_UNAVAILABLE');
     }
     await this.nativeRiffApi.addRiffCards(this.nativeRiffApi.BUILTIN_DECK_ID, [blockId]);
   }

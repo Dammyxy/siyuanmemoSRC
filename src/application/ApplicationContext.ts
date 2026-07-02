@@ -37,7 +37,6 @@ import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import type { KernelTransactionActionPump } from '@/application/handlers/KernelTransactionActionPump';
 import { dispatchKernelTransactionWriterUnavailableEvent } from '@/application/handlers/KernelTransactionWriterUnavailableEvent';
 import type { KernelTransactionIngestHandler } from '@/application/handlers/KernelTransactionIngestHandler';
-import type { NativeRiffSyncTriggerHandler } from '@/application/handlers/NativeRiffSyncTriggerHandler';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 import { AdvancedDataRouter } from '@/application/queries/DataAccessFacade';
 
@@ -142,7 +141,7 @@ import {
   type AgentToolName,
 } from '@/application/agent/AgentToolContracts';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
-import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/ProgressiveNativeRiffAdapter';
+import { NativeRiffCompatibilityAdapter } from '@/infrastructure/siyuan/NativeRiffCompatibilityAdapter';
 import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { SiyuanNeuralRoamGraphQueryAdapter } from '@/infrastructure/siyuan/SiyuanNeuralRoamGraphQueryAdapter';
@@ -358,7 +357,6 @@ export class ApplicationContext {
   private autoCardBackendExecutionDepth = 0;
   private kernelTransactionIngestHandler?: KernelTransactionIngestHandler;
   private kernelTransactionActionPump?: KernelTransactionActionPump;
-  private nativeRiffSyncTriggerHandler?: NativeRiffSyncTriggerHandler;
   private fullSyncTimer?: NodeJS.Timeout;
   private progressiveExcerptCompletionRepairTimer?: ReturnType<typeof setTimeout>;
   private sqlPersistence?: SqlPersistenceBundle;
@@ -647,7 +645,7 @@ export class ApplicationContext {
     this.registerServiceFactory('progressiveReadingService', (context) => {
       return new ProgressiveReadingService(
         new ProgressiveSiyuanAdapter(),
-        new ProgressiveNativeRiffAdapter(),
+        undefined,
         context.getFileService(),
         context.getCardService(),
         context.getSettingsService(),
@@ -689,7 +687,7 @@ export class ApplicationContext {
       return new TopicDerivedItemService(
         context.getCardService(),
         context.getProgressiveReadingService(),
-        new ProgressiveNativeRiffAdapter(),
+        undefined,
         context.getSettingsService(),
         undefined,
         context.srsBackendClient || undefined,
@@ -1718,14 +1716,21 @@ export class ApplicationContext {
       
       logger.info('[ApplicationContext] ✅ HybridSyncService initialized with XiuyuanRepository');
       
-      // ✅ 注册 RiffSyncEventHandler（监听领域事件并同步到 Riff）
-      // 使用 sharedEventBus 而不是 context.getEventBus()，确保与 DeleteCardUseCase 使用同一个 EventBus
-      logger.info('[ApplicationContext] Importing RiffSyncEventHandler...');
-      const { RiffSyncEventHandler } = await import('@/infrastructure/events/RiffSyncEventHandler');
-      logger.info('[ApplicationContext] Creating RiffSyncEventHandler...');
-      new RiffSyncEventHandler(sharedEventBus, hybridSyncService);
-      logger.info('[ApplicationContext] ✅ RiffSyncEventHandler registered');
-      logger.info('[ApplicationContext] EventBus subscriber count for CardDeleted:', sharedEventBus.getSubscriberCount('CardDeleted'));
+      const nativeRiffDeleteSyncEnabled = ApplicationContext.shouldEnableNativeRiffDeleteCompatibilitySync({
+        riffIntegration: riffConfig,
+        hybridSyncAvailable: Boolean(hybridSyncService),
+      });
+      if (nativeRiffDeleteSyncEnabled) {
+        // 使用 sharedEventBus 而不是 context.getEventBus()，确保与 DeleteCardUseCase 使用同一个 EventBus
+        logger.info('[ApplicationContext] Importing RiffSyncEventHandler...');
+        const { RiffSyncEventHandler } = await import('@/infrastructure/events/RiffSyncEventHandler');
+        logger.info('[ApplicationContext] Creating RiffSyncEventHandler...');
+        new RiffSyncEventHandler(sharedEventBus, hybridSyncService);
+        logger.info('[ApplicationContext] ✅ RiffSyncEventHandler registered');
+        logger.info('[ApplicationContext] EventBus subscriber count for CardDeleted:', sharedEventBus.getSubscriberCount('CardDeleted'));
+      } else {
+        logger.info('[ApplicationContext] RiffSyncEventHandler skipped because native Riff delete compatibility is disabled');
+      }
       
       // 启动同步服务
       await measureRuntimePerformance('startup', 'hybrid-sync-service.start', () => hybridSyncService!.start(), {
@@ -1823,6 +1828,14 @@ export class ApplicationContext {
       && input.riffIntegration?.incrementalSync?.enabled === true;
   }
 
+  private static shouldEnableNativeRiffDeleteCompatibilitySync(input: {
+    riffIntegration?: RiffIntegrationConfig;
+    hybridSyncAvailable: boolean;
+  }): boolean {
+    return input.hybridSyncAvailable
+      && input.riffIntegration?.deleteSync?.enabled === true;
+  }
+
   private static resolveKernelTransactionIngestActionTypes(input: {
     quickCardEnabled: boolean;
     nativeRiffSyncEnabled: boolean;
@@ -1835,6 +1848,18 @@ export class ApplicationContext {
       actionTypes.push('auto-card-candidates');
     }
     return actionTypes;
+  }
+
+  private static resolveNativeRiffCompatibilitySyncOwner(input: {
+    nativeRiffSyncEnabled: boolean;
+    kernelTransactionIngestEnabled: boolean;
+  }): 'disabled' | 'kernel-transaction-action-pump' | 'unavailable' {
+    if (!input.nativeRiffSyncEnabled) {
+      return 'disabled';
+    }
+    return input.kernelTransactionIngestEnabled
+      ? 'kernel-transaction-action-pump'
+      : 'unavailable';
   }
 
   private static readEnvValue(key: string, lowercase = true): string {
@@ -2048,8 +2073,12 @@ export class ApplicationContext {
       quickCardEnabled,
       nativeRiffSyncEnabled,
     });
+    const nativeRiffSyncOwner = ApplicationContext.resolveNativeRiffCompatibilitySyncOwner({
+      nativeRiffSyncEnabled,
+      kernelTransactionIngestEnabled,
+    });
     const shouldEnable = quickCardEnabled
-      || nativeRiffSyncEnabled
+      || nativeRiffSyncOwner !== 'disabled'
       || reviewSourceBlockRefreshEnabled
       || kernelTransactionIngestEnabled;
     incrementRuntimePerformanceCounter('daily-editing', 'transaction-listener-configured', shouldEnable ? 1 : 0);
@@ -2063,8 +2092,6 @@ export class ApplicationContext {
         this.kernelTransactionIngestHandler = undefined;
         void this.kernelTransactionActionPump?.dispose();
         this.kernelTransactionActionPump = undefined;
-        this.nativeRiffSyncTriggerHandler?.dispose?.();
-        this.nativeRiffSyncTriggerHandler = undefined;
         this.transactionWebSocketService = undefined;
         logger.info('[ApplicationContext] ✅ TransactionWebSocketService stopped');
       }
@@ -2085,8 +2112,6 @@ export class ApplicationContext {
       this.kernelTransactionIngestHandler = undefined;
       void this.kernelTransactionActionPump?.dispose();
       this.kernelTransactionActionPump = undefined;
-      this.nativeRiffSyncTriggerHandler?.dispose?.();
-      this.nativeRiffSyncTriggerHandler = undefined;
       this.transactionWebSocketService = undefined;
     }
 
@@ -2130,18 +2155,14 @@ export class ApplicationContext {
       }
     }
 
-    if (nativeRiffSyncEnabled && !kernelTransactionIngestEnabled) {
-      const { NativeRiffSyncTriggerHandler } = await import('@/application/handlers/NativeRiffSyncTriggerHandler');
-      const nativeRiffSyncTriggerHandler = new NativeRiffSyncTriggerHandler(this.config.plugin as unknown as SiyuanMemoPlugin);
-      transactionWebSocketService.registerHandler(nativeRiffSyncTriggerHandler);
-      this.nativeRiffSyncTriggerHandler = nativeRiffSyncTriggerHandler;
-      logger.warn('[ApplicationContext] NativeRiffSyncTriggerHandler registered because kernel transaction ingest is disabled; two-window transaction smoke cannot validate ingest/action-pump logs in this mode', {
+    if (nativeRiffSyncOwner === 'unavailable') {
+      logger.error('[ApplicationContext] Native Riff compatibility sync unavailable: kernel transaction ingest action pump is required', {
         backendWorker: runtimePolicy.flags.backendWorker,
         writerLeaseGuard: runtimePolicy.flags.writerLeaseGuard,
         kernelTransactionIngest: runtimePolicy.flags.kernelTransactionIngest,
       });
-    } else if (nativeRiffSyncEnabled && kernelTransactionIngestEnabled) {
-      logger.info('[ApplicationContext] NativeRiffSyncTriggerHandler skipped because kernel transaction ingest pipeline is enabled');
+    } else if (nativeRiffSyncOwner === 'kernel-transaction-action-pump') {
+      logger.info('[ApplicationContext] Native Riff compatibility sync owned by kernel transaction action pump');
     }
 
     if (kernelTransactionIngestEnabled && this.srsBackendClient) {
@@ -2829,8 +2850,6 @@ export class ApplicationContext {
           this.kernelTransactionIngestHandler = undefined;
           void this.kernelTransactionActionPump?.dispose();
           this.kernelTransactionActionPump = undefined;
-          this.nativeRiffSyncTriggerHandler?.dispose?.();
-          this.nativeRiffSyncTriggerHandler = undefined;
           logger.info('[ApplicationContext] ✅ TransactionWebSocketService stopped');
         } catch (error) {
           logger.error('[ApplicationContext] Error stopping TransactionWebSocketService:', error);

@@ -4,7 +4,7 @@ import { ok } from '@/types/result';
 import type { CardApplicationService } from '../CardApplicationService';
 import { EXCERPT_RECORD_STORAGE_KEY, type ExcerptRecord, ExcerptRecordService } from '../ExcerptRecordService';
 import { ProgressiveReadingService, ProgressiveSplitCancelledError } from '../ProgressiveReadingService';
-import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
+import type { NativeRiffCompatibilityPort } from '@/application/ports/NativeRiffCompatibilityPort';
 import type { ProgressiveBlockRow, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import type { PluginSettings } from '@/types/settings';
@@ -108,9 +108,9 @@ function createSettingsProviderMock(
   };
 }
 
-function createProgressiveNativeRiffPortMock(
-  overrides: Partial<ProgressiveNativeRiffPort> = {},
-): ProgressiveNativeRiffPort {
+function createNativeRiffCompatibilityPortMock(
+  overrides: Partial<NativeRiffCompatibilityPort> = {},
+): NativeRiffCompatibilityPort {
   return {
     BUILTIN_DECK_ID: 'builtin-deck',
     addRiffCards: vi.fn(async () => ({
@@ -152,7 +152,7 @@ function createServiceUnderTest(
     };
   },
   configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock(),
-  nativeRiffApi = createProgressiveNativeRiffPortMock(),
+  nativeRiffApi: NativeRiffCompatibilityPort | undefined = createNativeRiffCompatibilityPortMock(),
   ownershipBoundaryClient?: {
     p6OwnershipQuery?: ReturnType<typeof vi.fn>;
   },
@@ -349,7 +349,7 @@ describe('ProgressiveReadingService', () => {
       cardService,
       createSettingsProviderMock(),
       createConfiguredCaptureStorageServiceMock(),
-      createProgressiveNativeRiffPortMock(),
+      createNativeRiffCompatibilityPortMock(),
       ownershipBoundaryClient,
     );
 
@@ -421,7 +421,7 @@ describe('ProgressiveReadingService', () => {
       cardService,
       createSettingsProviderMock(),
       createConfiguredCaptureStorageServiceMock(),
-      createProgressiveNativeRiffPortMock(),
+      createNativeRiffCompatibilityPortMock(),
       undefined,
       backendClient,
     );
@@ -531,7 +531,7 @@ describe('ProgressiveReadingService', () => {
       cardService,
       createSettingsProviderMock(),
       createConfiguredCaptureStorageServiceMock(),
-      createProgressiveNativeRiffPortMock(),
+      createNativeRiffCompatibilityPortMock(),
       undefined,
       backendClient,
       { getMode: vi.fn(() => 'follower'), getInstanceId: vi.fn(() => 'follower-1') },
@@ -920,7 +920,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-6'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -1049,7 +1049,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -1112,7 +1112,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -1173,7 +1173,7 @@ describe('ProgressiveReadingService', () => {
       }),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -1227,7 +1227,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -1324,7 +1324,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -1395,7 +1395,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-4'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -1658,7 +1658,7 @@ describe('ProgressiveReadingService', () => {
     const fileService = createFileServiceMock(initialState);
     const port = createProgressiveSiyuanPortMock();
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -1803,7 +1803,7 @@ describe('ProgressiveReadingService', () => {
       updateDomBlock: vi.fn(async () => 'excerpt-content-1'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const transactionProvenanceRegistry = {
       recordBlockIds: vi.fn(),
     };
@@ -2297,7 +2297,7 @@ describe('ProgressiveReadingService', () => {
       createDocWithMarkdown: vi.fn().mockResolvedValueOnce('excerpt-doc-2'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -2645,7 +2645,7 @@ describe('ProgressiveReadingService', () => {
       createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-fast-1'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     vi.mocked(cardService.service.createCard).mockImplementation(async () => {
       throw new Error('foreground card completion should not run');
     });
@@ -3250,7 +3250,7 @@ describe('ProgressiveReadingService', () => {
     const cardService = createCardServiceMock([
       { id: 'topic-card-excerpt-root-1', blockId: 'excerpt-doc-root-1', type: 'topic' },
     ]);
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -3329,7 +3329,7 @@ describe('ProgressiveReadingService', () => {
     const cardService = createCardServiceMock([
       { id: 'topic-card-root-1', blockId: 'topic-doc-root-1', type: 'topic' },
     ]);
-    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock();
     const service = createServiceUnderTest(
       port,
       fileService,
@@ -3387,7 +3387,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock({
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock({
       addRiffCards: vi.fn(async () => {
         throw new Error('native riff failed');
       }),
@@ -3410,6 +3410,41 @@ describe('ProgressiveReadingService', () => {
     expect(port.deleteBlock).not.toHaveBeenCalledWith('piece-1');
     expect(port.deleteBlock).not.toHaveBeenCalledWith('piece-2');
     expect(fileService.writeJSON).toHaveBeenCalled();
+  });
+
+  it('creates ordinary split piece cards without a native Riff adapter', async () => {
+    const fileService = createFileServiceMock();
+    const sql = createSplitTreeSqlMock([
+      { id: 'h1-intro', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Intro', markdown: '# Intro', sort: '001' },
+      { id: 'intro-body', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'Intro body', markdown: 'Intro body', sort: '001' },
+    ]);
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async () => ({
+        id: 'doc-1',
+        box: 'notebook-a',
+        path: '/reading/article.sy',
+        hpath: '/reading/article',
+        name: 'Article',
+      })),
+      sql,
+      copyStdMarkdown: vi.fn(async () => 'Intro body'),
+      createDocWithMarkdown: vi.fn(async () => 'piece-1'),
+    });
+    const cardService = createCardServiceMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      undefined,
+    );
+
+    await expect(service.splitDocument('doc-1', 'linear')).resolves.toEqual(expect.objectContaining({
+      pieceDocIds: ['piece-1'],
+      sessionId: expect.any(String),
+    }));
+    expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
   });
 
   it('does not put native Riff registration on the excerpt foreground path', async () => {
@@ -3442,7 +3477,7 @@ describe('ProgressiveReadingService', () => {
       createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-riff-fail-1'),
     });
     const cardService = createCardServiceMock();
-    const nativeRiffApi = createProgressiveNativeRiffPortMock({
+    const nativeRiffApi = createNativeRiffCompatibilityPortMock({
       addRiffCards: vi.fn(async () => {
         throw new Error('native riff failed');
       }),

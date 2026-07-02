@@ -104,6 +104,62 @@ describe('ApplicationContext writer relay command dispatch', () => {
     })).toBe(false);
   });
 
+  it('selects one native Riff sync owner and fails closed without kernel ingest', () => {
+    const resolve = (ApplicationContext as unknown as {
+      resolveNativeRiffCompatibilitySyncOwner: (input: {
+        nativeRiffSyncEnabled: boolean;
+        kernelTransactionIngestEnabled: boolean;
+      }) => string;
+    }).resolveNativeRiffCompatibilitySyncOwner;
+
+    expect(resolve({
+      nativeRiffSyncEnabled: false,
+      kernelTransactionIngestEnabled: false,
+    })).toBe('disabled');
+    expect(resolve({
+      nativeRiffSyncEnabled: true,
+      kernelTransactionIngestEnabled: true,
+    })).toBe('kernel-transaction-action-pump');
+    expect(resolve({
+      nativeRiffSyncEnabled: true,
+      kernelTransactionIngestEnabled: false,
+    })).toBe('unavailable');
+  });
+
+  it('registers native Riff delete event sync only for explicit delete compatibility', () => {
+    const resolve = (ApplicationContext as unknown as {
+      shouldEnableNativeRiffDeleteCompatibilitySync: (input: {
+        riffIntegration?: RiffIntegrationConfig;
+        hybridSyncAvailable: boolean;
+      }) => boolean;
+    }).shouldEnableNativeRiffDeleteCompatibilitySync;
+
+    expect(resolve({
+      riffIntegration: DEFAULT_SETTINGS.riffIntegration,
+      hybridSyncAvailable: true,
+    })).toBe(false);
+    expect(resolve({
+      riffIntegration: {
+        ...DEFAULT_SETTINGS.riffIntegration!,
+        deleteSync: {
+          ...DEFAULT_SETTINGS.riffIntegration!.deleteSync,
+          enabled: true,
+        },
+      },
+      hybridSyncAvailable: true,
+    })).toBe(true);
+    expect(resolve({
+      riffIntegration: {
+        ...DEFAULT_SETTINGS.riffIntegration!,
+        deleteSync: {
+          ...DEFAULT_SETTINGS.riffIntegration!.deleteSync,
+          enabled: true,
+        },
+      },
+      hybridSyncAvailable: false,
+    })).toBe(false);
+  });
+
   it('keeps the default writer lease TTL when no override env is configured', () => {
     const key = 'VITE_SIYUANMEMO_KERNEL_WRITER_LEASE_TTL_MS';
     const previous = process.env[key];
