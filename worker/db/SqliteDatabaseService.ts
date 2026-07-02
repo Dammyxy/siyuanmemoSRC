@@ -102,12 +102,6 @@ import {
   reconcileLegacyUnifiedCardsMigrationReceipt,
   type LegacyUnifiedCardsMigrationReceiptFamily,
 } from '../truth/LegacyUnifiedCardsMigrationReceipt';
-import {
-  detectLegacyUnifiedCardsSource,
-} from '../truth/LegacyUnifiedCardsSource';
-import {
-  migrateLegacyUnifiedCardsToCardMemoryTruth,
-} from '../truth/LegacyUnifiedCardsTruthMigration';
 import type {
   ReviewSqlTruthBackfillProjectionPatch,
   ReviewSqlTruthBackfillRow,
@@ -1047,7 +1041,6 @@ export class WorkerSqliteDatabaseService {
     const truthProjectionInput = await this.readStartupTruthProjectionInput(bootstrapOptions);
     if (truthProjectionInput) {
       await this.reconcileTruthWithoutReceipt(bootstrapOptions, truthProjectionInput);
-      await this.assertLegacySourceMatchesCompletedReceipt();
       return {
         truthAvailable: true,
         projectionRebuildRequired: true,
@@ -1064,61 +1057,11 @@ export class WorkerSqliteDatabaseService {
         truthProjectionInput: null,
       };
     }
-
-    const cardTruthStore = createMessagePackTruthSegmentStore({
-      fileStore: this.truthFileStore,
-      family: 'card-memory-facts',
-      deviceId: bootstrapOptions.truthDeviceId,
-      generationId: bootstrapOptions.cardTruthGenerationId,
-      schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
-      maxSegmentBytes: bootstrapOptions.maxSegmentBytes,
-    });
-    const reviewTruthStore = createMessagePackTruthSegmentStore({
-      fileStore: this.truthFileStore,
-      family: 'review-events',
-      deviceId: bootstrapOptions.truthDeviceId,
-      generationId: bootstrapOptions.reviewTruthGenerationId,
-      schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
-      maxSegmentBytes: bootstrapOptions.maxSegmentBytes,
-    });
-    const reviewLogFileStore = this.truthFileStore.listFiles
-      ? {
-          readJSON: <T>(fileName: string) => this.truthFileStore!.readJSON<T>(fileName),
-          listFiles: (prefix: string) => this.truthFileStore!.listFiles!(prefix),
-        }
-      : undefined;
-    const migrationResult = await migrateLegacyUnifiedCardsToCardMemoryTruth({
-      sourceFileStore: this.fileService,
-      receiptFileStore: this.truthFileStore,
-      truthStore: cardTruthStore,
-      reviewTruthStore: reviewLogFileStore ? reviewTruthStore : undefined,
-      reviewLogFileStore,
-      reviewGenerationId: bootstrapOptions.reviewTruthGenerationId,
-      truthExists: false,
-      localDeviceId: bootstrapOptions.truthDeviceId,
-      generationId: bootstrapOptions.cardTruthGenerationId,
-      truthSchemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
-    });
-    if (migrationResult.status !== 'migrated') {
-      return {
-        truthAvailable: false,
-        projectionRebuildRequired: false,
-        projectionRebuildReason: null,
-        truthProjectionInput: null,
-      };
-    }
-    const migratedTruthProjectionInput = await this.readStartupTruthProjectionInput(bootstrapOptions);
-    if (!migratedTruthProjectionInput) {
-      throw storageError(
-        'LEGACY_MIGRATION_FAILED',
-        'legacy MessagePack migration completed but truth could not be read back for startup projection rebuild',
-      );
-    }
     return {
-      truthAvailable: true,
-      projectionRebuildRequired: true,
-      projectionRebuildReason: 'legacy-messagepack-migrated',
-      truthProjectionInput: migratedTruthProjectionInput,
+      truthAvailable: false,
+      projectionRebuildRequired: false,
+      projectionRebuildReason: null,
+      truthProjectionInput: null,
     };
   }
 
@@ -1269,23 +1212,6 @@ export class WorkerSqliteDatabaseService {
           recordCount: family.recordCount,
         })),
       });
-    }
-  }
-
-  private async assertLegacySourceMatchesCompletedReceipt(): Promise<void> {
-    if (!this.truthFileStore) {
-      return;
-    }
-    const receipt = await readLegacyUnifiedCardsMigrationReceipt(this.truthFileStore);
-    if (!receipt || receipt.status !== 'completed' || !receipt.source.sha256) {
-      return;
-    }
-    const legacySource = await detectLegacyUnifiedCardsSource(this.fileService);
-    if (legacySource.status === 'present' && legacySource.sha256 !== receipt.source.sha256) {
-      throw storageError(
-        'LEGACY_DIVERGENCE_DETECTED',
-        `legacy MessagePack source changed after completed receipt: expected ${receipt.source.sha256}, got ${legacySource.sha256}`,
-      );
     }
   }
 

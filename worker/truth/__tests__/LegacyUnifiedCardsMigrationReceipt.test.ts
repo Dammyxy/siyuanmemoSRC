@@ -9,10 +9,10 @@ import {
   LegacyUnifiedCardsMigrationReceiptError,
   readLegacyUnifiedCardsMigrationReceipt,
   reconcileLegacyUnifiedCardsMigrationReceipt,
+  RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH,
   writeLegacyUnifiedCardsMigrationReceipt,
   type LegacyUnifiedCardsMigrationReceiptFileStore,
 } from '../LegacyUnifiedCardsMigrationReceipt';
-import { LEGACY_UNIFIED_CARDS_SOURCE_PATH } from '../LegacyUnifiedCardsSource';
 
 class MemoryReceiptFileStore implements LegacyUnifiedCardsMigrationReceiptFileStore {
   readonly jsonFiles = new Map<string, unknown>();
@@ -38,7 +38,7 @@ function completedReceipt() {
     migratedAt: 1_700_000_000_000,
     localDeviceId: 'device-A',
     source: {
-      sourceFile: LEGACY_UNIFIED_CARDS_SOURCE_PATH,
+      sourceFile: RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH,
       byteLength: 5,
       sha256: `sha256:${'a'.repeat(64)}`,
     },
@@ -85,7 +85,7 @@ describe('LegacyUnifiedCardsMigrationReceipt', () => {
     ]);
     expect(stored).toEqual(receipt);
     expect(stored?.source).toEqual({
-      file: LEGACY_UNIFIED_CARDS_SOURCE_PATH,
+      file: RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH,
       sha256: `sha256:${'a'.repeat(64)}`,
       byteLength: 5,
     });

@@ -63,12 +63,8 @@ const allowedRules = [
     reason: 'classifies bounded SQLite delta/truth segment host-effect paths for review durability diagnostics',
   },
   {
-    file: 'worker/truth/LegacyUnifiedCardsSource.ts',
-    reason: 'legacy unified-cards source detection exists only as truth migration source metadata',
-  },
-  {
-    file: 'worker/truth/LegacyUnifiedCardsTruthMigration.ts',
-    reason: 'legacy unified-cards import exists only as first-start truth migration source',
+    file: 'worker/truth/LegacyUnifiedCardsMigrationReceipt.ts',
+    reason: 'passive retired legacy migration receipt metadata; must not read legacy MessagePack bytes',
   },
 ];
 

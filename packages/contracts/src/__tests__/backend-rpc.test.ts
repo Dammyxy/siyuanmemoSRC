@@ -480,7 +480,6 @@ describe('backend SQL projection rebuild contract', () => {
     expect(codes).toEqual(new Set<BackendStorageErrorCode>([
       'TRUTH_DEVICE_ID_UNAVAILABLE',
       'LEGACY_MIGRATION_FAILED',
-      'LEGACY_DIVERGENCE_DETECTED',
       'TRUTH_VALIDATION_FAILED',
       'PROJECTION_REBUILD_FAILED',
       'SOURCE_READ_UNAVAILABLE',

@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encode } from '@msgpack/msgpack';
-import { LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH } from '../../packages/contracts/src/backend-rpc';
+import {
+  LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH,
+  MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+} from '../../packages/contracts/src/backend-rpc';
 import { CardState, CardType } from '@/types/card';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import {
   createInMemorySqlitePersistenceBridge,
   type SqlitePersistenceBridge,
 } from '../db/SqlitePersistenceBridge';
-import { LEGACY_UNIFIED_CARDS_SOURCE_PATH } from '../truth/LegacyUnifiedCardsSource';
+import { createMessagePackTruthSegmentStore } from '../truth/MessagePackTruthSegmentStore';
+import { RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH } from '../truth/LegacyUnifiedCardsMigrationReceipt';
 
 const SQLITE_DELTA_V2_MANIFEST = 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json';
 const SQLITE_DELTA_V2_OPEN_SEGMENT = 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack';
@@ -15,44 +19,58 @@ const WORKER_TRUTH_DEVICE_ID = 'device-worker-test';
 
 type InMemorySqliteBridge = ReturnType<typeof createInMemorySqlitePersistenceBridge>;
 
-function createLegacyUnifiedCardsSnapshot(cardId = 'legacy-startup-card') {
-  return encode({
-    version: 2,
-    xiuyuans: {},
-    cards: {
-      [cardId]: {
-        id: cardId,
-        xiuyuanID: `xy-${cardId}`,
-        blockId: `block-${cardId}`,
-        due: 1_700_086_400_000,
-        stability: 0,
-        difficulty: 0,
-        reps: 0,
-        lapses: 0,
-        state: CardState.New,
-        lastReview: 0,
-        elapsedDays: 0,
-        scheduledDays: 0,
-        priority: 42,
-        type: CardType.Item,
-        tags: ['legacy', 'startup'],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1_700_000_000_000,
-        updatedAt: 1_700_000_010_000,
-        schedulerType: 'fsrs-v6',
-        meta: {
-          sourceHash: `source-hash-${cardId}`,
-        },
+async function seedCardMemoryTruth(
+  bridge: InMemorySqliteBridge,
+  cardId = 'truth-rebuild-card',
+): Promise<void> {
+  const store = createMessagePackTruthSegmentStore({
+    fileStore: bridge.truthFileStore!,
+    family: 'card-memory-facts',
+    deviceId: WORKER_TRUTH_DEVICE_ID,
+    generationId: 'card-memory-facts-v1',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+  });
+  await store.appendRecords([{
+    id: `seed:${cardId}`,
+    family: 'card-memory-facts',
+    type: 'card-memory.snapshot-imported',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    createdAt: 1_700_000_010_000,
+    updatedAt: 1_700_000_010_000,
+    source: {
+      cardId,
+      sourceBlockId: `block-${cardId}`,
+      legacySource: 'test-truth-seed',
+    },
+    memory: {
+      stability: 0,
+      difficulty: 0,
+      due: 1_700_086_400_000,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      reps: 0,
+      lapses: 0,
+      state: CardState.New,
+      lastReview: 0,
+      priority: 42,
+      schedulerType: 'fsrs-v6',
+    },
+    payload: {
+      cardId,
+      xiuyuanId: `xy-${cardId}`,
+      blockId: `block-${cardId}`,
+      type: CardType.Item,
+      tags: ['truth', 'startup'],
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_010_000,
+      meta: {
+        sourceHash: `source-hash-${cardId}`,
       },
     },
-    cardDTOs: {},
-    deletedCardDTOs: {},
-    deletedXiuyuans: {},
-    riffBlacklist: [],
-    riffSyncState: {},
-  });
+  }]);
 }
 
 async function loadWorkerDatabaseFromBridge(
@@ -144,48 +162,25 @@ describe('WorkerSqliteDatabaseService', () => {
     expect(writeBinary).toHaveBeenCalledTimes(writesAfterSeed);
   });
 
-  it('migrates old unified-cards startup into truth receipt and startup projection', async () => {
+  it('does not import retired unified-cards startup snapshots into truth or projection', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
-    await bridge.writeBinary(LEGACY_UNIFIED_CARDS_SOURCE_PATH, createLegacyUnifiedCardsSnapshot());
+    await bridge.writeBinary(RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH, new Uint8Array([1, 2, 3]));
 
     const database = await loadWorkerDatabaseFromBridge(bridge);
 
-    expect(database.getOne<{
-      id: string;
-      block_id: string;
-      msgpack_ref: string;
-      truth_hash: string;
-    }>('SELECT id, block_id, msgpack_ref, truth_hash FROM cards WHERE id = ?', ['legacy-startup-card']))
-      .toMatchObject({
-        id: 'legacy-startup-card',
-        block_id: 'block-legacy-startup-card',
-        msgpack_ref: expect.stringContaining('truth/card-memory-facts/'),
-        truth_hash: expect.any(String),
-      });
-    expect(bridge.jsonSnapshot(LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH))
-      .toMatchObject({
-        status: 'completed',
-        source: {
-          file: LEGACY_UNIFIED_CARDS_SOURCE_PATH,
-        },
-        counts: {
-          activeCards: 1,
-        },
-      });
-    await expect(listTruthFiles(bridge)).resolves.toEqual(expect.arrayContaining([
-      expect.stringContaining('truth/card-memory-facts/'),
-      LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH,
-    ]));
+    expect(database.getOne<{ id: string }>(
+      'SELECT id FROM cards WHERE id = ?',
+      ['legacy-startup-card'],
+    )).toBeNull();
+    expect(bridge.jsonSnapshot(LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH)).toBeNull();
+    await expect(listTruthFiles(bridge)).resolves.toEqual([]);
   });
 
-  it('rebuilds a deleted temp projection from truth when legacy MessagePack bytes are gone', async () => {
+  it('rebuilds a deleted temp projection from truth without legacy MessagePack bytes', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
-    await bridge.writeBinary(LEGACY_UNIFIED_CARDS_SOURCE_PATH, createLegacyUnifiedCardsSnapshot('legacy-rebuild-card'));
-    const first = await loadWorkerDatabaseFromBridge(bridge);
-    first.dispose();
+    await seedCardMemoryTruth(bridge, 'truth-rebuild-card');
     const truthFilesBeforeRestart = await listTruthFiles(bridge);
     await bridge.deleteFile!('siyuanmemo.db');
-    await bridge.deleteFile!(LEGACY_UNIFIED_CARDS_SOURCE_PATH);
 
     const { bridge: trackedBridge, truthWriteBinary, truthWriteJSON } = wrapBridgeWithTrackedTruthWrites(bridge);
     const second = await loadWorkerDatabaseFromBridge(trackedBridge);
@@ -194,21 +189,27 @@ describe('WorkerSqliteDatabaseService', () => {
       id: string;
       block_id: string;
       msgpack_ref: string;
-    }>('SELECT id, block_id, msgpack_ref FROM cards WHERE id = ?', ['legacy-rebuild-card']))
+    }>('SELECT id, block_id, msgpack_ref FROM cards WHERE id = ?', ['truth-rebuild-card']))
       .toMatchObject({
-        id: 'legacy-rebuild-card',
-        block_id: 'block-legacy-rebuild-card',
+        id: 'truth-rebuild-card',
+        block_id: 'block-truth-rebuild-card',
         msgpack_ref: expect.stringContaining('truth/card-memory-facts/'),
       });
-    await expect(listTruthFiles(bridge)).resolves.toEqual(truthFilesBeforeRestart);
+    await expect(listTruthFiles(bridge)).resolves.toEqual(expect.arrayContaining([
+      ...truthFilesBeforeRestart,
+      LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH,
+    ]));
     expect(truthWriteBinary).not.toHaveBeenCalled();
-    expect(truthWriteJSON).not.toHaveBeenCalled();
+    expect(truthWriteJSON).toHaveBeenCalledWith(
+      LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH,
+      expect.objectContaining({ status: 'reconciled' }),
+    );
   });
 
-  it('uses existing truth when legacy source is unchanged and fails closed on divergence', async () => {
+  it('uses existing truth and ignores retired legacy source divergence', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
-    const originalLegacyBytes = createLegacyUnifiedCardsSnapshot('legacy-divergence-card');
-    await bridge.writeBinary(LEGACY_UNIFIED_CARDS_SOURCE_PATH, originalLegacyBytes);
+    await seedCardMemoryTruth(bridge, 'legacy-divergence-card');
+    await bridge.writeBinary(RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH, new Uint8Array([1, 2, 3]));
     const first = await loadWorkerDatabaseFromBridge(bridge);
     first.dispose();
 
@@ -226,13 +227,14 @@ describe('WorkerSqliteDatabaseService', () => {
     )).toEqual({ id: 'legacy-divergence-card' });
 
     await bridge.deleteFile!('siyuanmemo.db');
-    await bridge.writeBinary(LEGACY_UNIFIED_CARDS_SOURCE_PATH, createLegacyUnifiedCardsSnapshot('legacy-diverged-card'));
+    await bridge.writeBinary(RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH, new Uint8Array([9, 9, 9]));
     const diverged = wrapBridgeWithTrackedTruthWrites(bridge);
-    const third = new WorkerSqliteDatabaseService(diverged.bridge);
+    const third = await loadWorkerDatabaseFromBridge(diverged.bridge);
 
-    await expect(third.load({ truthDeviceId: WORKER_TRUTH_DEVICE_ID }))
-      .rejects
-      .toThrow(/LEGACY_DIVERGENCE_DETECTED/);
+    expect(third.getOne<{ id: string }>(
+      'SELECT id FROM cards WHERE id = ?',
+      ['legacy-divergence-card'],
+    )).toEqual({ id: 'legacy-divergence-card' });
     await expect(listTruthFiles(bridge)).resolves.toEqual(truthFilesAfterMigration);
     expect(diverged.truthWriteBinary).not.toHaveBeenCalled();
     expect(diverged.truthWriteJSON).not.toHaveBeenCalled();

@@ -77,6 +77,8 @@ describe('check-no-runtime-msgpack', () => {
     `);
 
     expect(evaluate({ rootDir })).toEqual([
+      expect.stringContaining('worker/truth/LegacyUnifiedCardsSource.ts'),
+      expect.stringContaining('worker/truth/LegacyUnifiedCardsTruthMigration.ts'),
       expect.stringContaining('worker/truth/OtherRuntimeStore.ts'),
     ]);
   });

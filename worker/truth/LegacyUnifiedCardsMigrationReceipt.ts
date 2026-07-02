@@ -5,7 +5,8 @@ import {
   type BackendStorageErrorCode,
   type MessagePackTruthFamily,
 } from '../../packages/contracts/src/backend-rpc';
-import { LEGACY_UNIFIED_CARDS_SOURCE_PATH } from './LegacyUnifiedCardsSource';
+
+export const RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH = 'unified-cards.msgpack';
 
 const LEGACY_UNIFIED_CARDS_MIGRATION_ID = 'legacy-unified-cards-to-truth.v1';
 const LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_VERSION = 1;
@@ -19,7 +20,7 @@ export interface LegacyUnifiedCardsMigrationReceiptFileStore {
 }
 
 export interface LegacyUnifiedCardsMigrationReceiptSource {
-  file: typeof LEGACY_UNIFIED_CARDS_SOURCE_PATH;
+  file: typeof RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH;
   sha256: `sha256:${string}` | null;
   byteLength: number | null;
 }
@@ -75,8 +76,8 @@ export class LegacyUnifiedCardsMigrationReceiptError extends Error {
 export interface CreateCompletedLegacyUnifiedCardsMigrationReceiptInput {
   migratedAt: number;
   localDeviceId: string;
-  source: {
-    sourceFile: typeof LEGACY_UNIFIED_CARDS_SOURCE_PATH;
+    source: {
+    sourceFile: typeof RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH;
     sha256: `sha256:${string}`;
     byteLength: number;
   };
@@ -154,14 +155,14 @@ function normalizeSource(value: unknown): LegacyUnifiedCardsMigrationReceiptSour
     fail('source is required');
   }
   const file = String(value.file || '').trim();
-  if (file !== LEGACY_UNIFIED_CARDS_SOURCE_PATH) {
-    fail(`source.file must be ${LEGACY_UNIFIED_CARDS_SOURCE_PATH}`);
+  if (file !== RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH) {
+    fail(`source.file must be ${RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH}`);
   }
   const byteLength = value.byteLength === null
     ? null
     : finiteNonNegativeInteger(value.byteLength, 'source.byteLength');
   return {
-    file: LEGACY_UNIFIED_CARDS_SOURCE_PATH,
+    file: RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH,
     sha256: normalizeSha256(value.sha256),
     byteLength,
   };
@@ -298,7 +299,7 @@ export function createReconciledLegacyUnifiedCardsMigrationReceipt(
     migrationId: LEGACY_UNIFIED_CARDS_MIGRATION_ID,
     status: 'reconciled',
     source: {
-      file: LEGACY_UNIFIED_CARDS_SOURCE_PATH,
+      file: RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH,
       sha256: null,
       byteLength: null,
     },
