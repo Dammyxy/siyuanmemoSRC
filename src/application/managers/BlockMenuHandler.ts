@@ -25,6 +25,12 @@ import { createLogger } from '@/utils/logger';
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
 import { resolveListItemAnchorBlockId as resolveListItemAnchorBlockIdHelper } from '@/application/usecases/xiuyuan/shared/ListItemAnchorResolver';
 import { resolveCdfTailMarkerFromSources } from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
+import { buildClearedBlockAttrs } from '@/application/usecases/card/shared/CardBlockAttrCleaner';
+import {
+  BLOCK_ATTR_BINDING_KEYS,
+  BLOCK_ATTR_DEPRECATED_KEYS,
+  BLOCK_ATTR_LEGACY_KEYS,
+} from '@/application/services/BlockAttrPolicy';
 import { CoreReviewEntryService, type CoreReviewScopeOptions } from '@/application/entries/CoreReviewEntryService';
 import type { CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryRegistry';
 import type { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
@@ -33,8 +39,17 @@ import {
 } from '@/application/entries/ProgressiveSelectionResolver';
 import type { CurrentBlockTopicContinuationPreparation } from '@/application/services/SelectionTopicContinuationService';
 import { isErr } from '@/types/result';
+import {
+  formatMenuActionError,
+  wrapSafeMenuItem,
+} from '@/utils/safeMenuAction';
 
 const logger = createLogger('BlockMenuHandler');
+const STALE_CARD_BLOCK_ATTR_KEYS = Object.freeze(Array.from(new Set([
+  ...BLOCK_ATTR_BINDING_KEYS,
+  ...BLOCK_ATTR_DEPRECATED_KEYS,
+  ...BLOCK_ATTR_LEGACY_KEYS,
+])));
 
 interface SiyuanMenuItem {
   icon?: string;
@@ -293,6 +308,30 @@ export class BlockMenuHandler {
       });
       return normalizedRoots;
     }
+  }
+
+  private async cleanupStaleCardBlockAttrs(blockIds: string[]): Promise<number> {
+    let cleanedCount = 0;
+
+    for (const blockId of blockIds) {
+      try {
+        const attrs = await this.siyuanApi.getBlockAttrs(blockId);
+        const nextAttrs = buildClearedBlockAttrs(attrs, { keys: STALE_CARD_BLOCK_ATTR_KEYS });
+        if (Object.keys(nextAttrs).length === 0) {
+          continue;
+        }
+
+        await this.siyuanApi.setBlockAttrs(blockId, nextAttrs);
+        cleanedCount += 1;
+      } catch (error) {
+        logger.warn('[BlockMenuHandler] Failed to cleanup stale card attrs for block:', {
+          blockId,
+          error,
+        });
+      }
+    }
+
+    return cleanedCount;
   }
 
   async runCoreEntryAction(actionId: CoreReviewEntryActionId, blockElements: HTMLElement[]): Promise<void> {
@@ -688,12 +727,29 @@ export class BlockMenuHandler {
     };
   }
 
-  private addSiyuanMemoMenu(menu: SiyuanMenu, submenu: SiyuanMenuItem[]): void {
-    menu.addItem({
-      icon: 'iconRiffCard',
-      label: 'SiYuanMemo',
-      submenu,
+  private notifyMenuActionFailed(label: string | undefined, error: unknown): void {
+    const actionLabel = String(label || this.text('menuAction', '菜单操作')).replace(/<[^>]+>/g, '').trim();
+    const errorMessage = formatMenuActionError(error);
+    void this.siyuanApi.pushErrMsg(`${actionLabel}失败：${errorMessage}`).catch((notifyError) => {
+      logger.warn('[BlockMenuHandler] Failed to show menu action error notification:', notifyError);
     });
+  }
+
+  private addSiyuanMemoMenu(menu: SiyuanMenu, submenu: SiyuanMenuItem[]): void {
+    try {
+      menu.addItem({
+        icon: 'iconRiffCard',
+        label: 'SiYuanMemo',
+        submenu: submenu.map((item) => wrapSafeMenuItem(item, {
+          fallbackLabel: this.text('menuAction', '菜单操作'),
+          logger,
+          onError: (label, error) => this.notifyMenuActionFailed(label, error),
+        })),
+      });
+    } catch (error) {
+      logger.error('[BlockMenuHandler] Failed to add SiYuanMemo menu:', error);
+      this.notifyMenuActionFailed('SiYuanMemo', error);
+    }
   }
 
   private buildDocReviewMenuItems(docId: string, scope: ReviewScopeSnapshot): SiyuanMenuItem[] {
@@ -1107,6 +1163,12 @@ export class BlockMenuHandler {
             selectedBlockIds: blockIds,
             subtreeBlockCount: subtreeBlockIds.length,
           });
+          const cleanedBlockCount = await this.cleanupStaleCardBlockAttrs(subtreeBlockIds);
+          if (cleanedBlockCount > 0) {
+            await this.siyuanApi.pushMsg(`已清理 ${cleanedBlockCount} 个块的残留闪卡标记，可重新制卡`);
+            return;
+          }
+
           await this.siyuanApi.pushMsg('未找到可取消的闪卡');
           return;
         }

@@ -34,7 +34,10 @@ import {
   getTopBarQuickEntryDefinition,
   type TopBarQuickEntryActionId,
 } from '@/application/entries/TopBarQuickEntryRegistry';
-import { ensureSiyuanMenuComponentFallbacks } from '@/utils/siyuanMenuComponentFallbacks';
+import {
+  ensureSiyuanMenuComponentFallbacks,
+  isSiyuanMenuInjectionError,
+} from '@/utils/siyuanMenuComponentFallbacks';
 import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 import {
   initializeRuntimePerformanceDiagnosticsFromSession,
@@ -176,6 +179,21 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private isUninstalling = false;
   private customTabsRegistered = false;
   private contextReady = createDeferredValue<ApplicationContext>();
+  private readonly menuInjectionErrorHandler = (event: ErrorEvent): void => {
+    if (!isSiyuanMenuInjectionError(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation?.();
+    this.logger.warn('[Plugin] Suppressed SiYuan menu injection error:', event.message);
+  };
+  private readonly menuInjectionRejectionHandler = (event: PromiseRejectionEvent): void => {
+    if (!isSiyuanMenuInjectionError(event.reason)) {
+      return;
+    }
+    event.preventDefault();
+    this.logger.warn('[Plugin] Suppressed SiYuan menu injection rejection:', event.reason);
+  };
 
   private static readonly LOCAL_DATA_FILES_TO_REMOVE = [
     'unified-cards.msgpack',
@@ -227,6 +245,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     if (patchedMenuFallbacks.length > 0) {
       this.logger.info('Installed menu component fallbacks:', patchedMenuFallbacks);
     }
+    this.installSiyuanMenuErrorGuard();
     measureRuntimePerformance('startup', 'plugin.setup-topbar', () => this.setupTopBar(), { frontend: frontEnd });
     this.startMobileMenuObserver();
     this.startMobileSidebarToolbarObserver();
@@ -312,6 +331,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   onunload() {
     this.contextReady.reject(new Error('Plugin unloading'));
     this.customTabsRegistered = false;
+    this.removeSiyuanMenuErrorGuard();
     const context = this.context;
     this.context = undefined;
     this.frontendAgentActionsRegistered = false;
@@ -392,6 +412,16 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.getContext().getMenuManager()?.openTopBarMenu(ev);
     };
     this.topBarElement?.addEventListener('contextmenu', this.topBarContextMenuHandler);
+  }
+
+  private installSiyuanMenuErrorGuard(): void {
+    window.addEventListener('error', this.menuInjectionErrorHandler, true);
+    window.addEventListener('unhandledrejection', this.menuInjectionRejectionHandler);
+  }
+
+  private removeSiyuanMenuErrorGuard(): void {
+    window.removeEventListener('error', this.menuInjectionErrorHandler, true);
+    window.removeEventListener('unhandledrejection', this.menuInjectionRejectionHandler);
   }
 
   private registerDock() {

@@ -124,6 +124,8 @@ function applyImageOcclusionCleanup(
 
   // Keep card-id list cleaned even when payload JSON is invalid.
   if (!payload) {
+    delete nextAttrs[ATTR_IMAGE_OCCLUSION];
+    delete nextAttrs[ATTR_IMAGE_OCCLUSION_VERSION];
     return;
   }
 

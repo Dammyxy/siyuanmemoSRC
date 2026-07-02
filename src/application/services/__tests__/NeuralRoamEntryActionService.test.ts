@@ -44,7 +44,9 @@ function createService(options: {
   promptTemporaryRouteClose?: ReturnType<typeof vi.fn>;
   dataSourceManager?: Record<string, unknown>;
 } = {}) {
-  const storedCard = options.storedCard ?? card({ type: CardType.Concept });
+  const storedCard = 'storedCard' in options
+    ? options.storedCard ?? null
+    : card({ type: CardType.Concept });
   const queue = 'queue' in options ? options.queue : {
     addCard: vi.fn(async () => undefined),
     setAnchorEntry: vi.fn(async () => undefined),
@@ -68,7 +70,6 @@ function createService(options: {
       cardCreationHelper: { createConceptCard } as any,
       cardService: { updateFSRSCard } as any,
       dataSourceManager: (options.dataSourceManager ?? { getQueue, neuralRoamCommand }) as any,
-      siyuanApi: { BUILTIN_DECK_ID: 'deck', addRiffCards } as any,
       openNeuralRoamDialog,
       resolveBlockTitle: options.resolveBlockTitle,
       promptTemporaryRouteClose: options.promptTemporaryRouteClose,
@@ -482,6 +483,23 @@ describe('NeuralRoamEntryActionService', () => {
       cardId: 'concept-card',
     });
     expect(queue.addCard).not.toHaveBeenCalled();
+  });
+
+  it('creates a missing concept card without native Riff registration on the ordinary NeuralRoam entry path', async () => {
+    const { service, createConceptCard, addRiffCards } = createService({ storedCard: null });
+
+    const result = await service.makeConceptOnly('concept-block');
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: 'make-concept',
+      blockId: 'concept-block',
+    });
+    expect(createConceptCard).toHaveBeenCalledWith('concept-block', {
+      priority: 50,
+      metadata: { source: 'manual' },
+    });
+    expect(addRiffCards).not.toHaveBeenCalled();
   });
 
   it('returns a typed failure when the NeuralRoam queue is unavailable', async () => {

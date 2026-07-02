@@ -38,6 +38,7 @@ import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
 import type { LeechActionEffectsPort } from '@/core/queue/domain/ports';
 import { createLogger } from '@/utils/logger';
+import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 import { isErr } from '@/types/result';
 import { DEFAULT_SETTINGS, type PluginSettings, type RiffIntegrationConfig } from '@/types/settings';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
@@ -2537,14 +2538,23 @@ export class DialogManager implements IDialogManager {
               }
 
               // 创建 Xiuyuan 和卡片（使用 XiuyuanApplicationService）
-              const result = await xiuyuanAppService.createFromBlocks({
-                blockIds,
-                templateId,
-                fieldMapping,
-                deckId: this.siyuanApi.BUILTIN_DECK_ID,
-                backClozeInfo,  // 🆕 添加背面挖空信息
-                cardType: templateId === 'builtin-concept-definition' ? 'descriptor' : undefined  // 🆕 概念定义卡的类型是 descriptor
-              });
+              const result = await measureRuntimePerformance(
+                'autocard',
+                'dialog.quick-template.create-from-blocks',
+                () => xiuyuanAppService.createFromBlocks({
+                  blockIds,
+                  templateId,
+                  fieldMapping,
+                  deckId: this.siyuanApi.BUILTIN_DECK_ID,
+                  backClozeInfo,  // 🆕 添加背面挖空信息
+                  cardType: templateId === 'builtin-concept-definition' ? 'descriptor' : undefined  // 🆕 概念定义卡的类型是 descriptor
+                }),
+                {
+                  blockCount: blockIds.length,
+                  surface: 'block-menu-quick-template',
+                  templateId,
+                },
+              );
 
               if (isErr(result)) {
                 logger.error('[DialogManager] Failed to create template card:', result.error);

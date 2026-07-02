@@ -98,7 +98,6 @@ export function createReviewBrowserServiceBundle(
         cardCreationHelper: new CardCreationHelper(cardService),
         cardService,
         dataSourceManager: neuralRoam.getUnifiedDataSourceManager(),
-        siyuanApi,
         openNeuralRoamDialog: neuralRoam.openNeuralRoamDialog,
         resolveBlockTitle: async (blockId) => siyuanApi.getBlockText(blockId),
         promptTemporaryRouteClose: async () => {

@@ -31,6 +31,10 @@ import {
   type TopBarQuickEntryActionId,
 } from '@/application/entries/TopBarQuickEntryRegistry';
 import { CoreReviewEntryService, type CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryService';
+import {
+  formatMenuActionError,
+  wrapSafeMenuAction,
+} from '@/utils/safeMenuAction';
 
 const logger = createLogger('MenuManager');
 type BlockIdSqlRow = { id?: unknown; root_id?: unknown };
@@ -145,27 +149,30 @@ export class MenuManager {
       menu.addItem({
         icon: definition.icon,
         label: this.i18n?.[definition.commandLangKey] || definition.fallbackLabel,
-        click: () => {
-          void this.runTopBarQuickEntryAction(definition.id);
-        },
+        click: this.wrapTopBarMenuAction(
+          this.i18n?.[definition.commandLangKey] || definition.fallbackLabel,
+          () => this.runTopBarQuickEntryAction(definition.id),
+        ),
       });
     }
 
     menu.addItem({
       icon: 'iconLayoutRight',
       label: this.i18n?.openSrsBrowserTab || 'Open Browser Tab',
-      click: () => {
-        this.openSRSBrowserTab();
-      },
+      click: this.wrapTopBarMenuAction(
+        this.i18n?.openSrsBrowserTab || 'Open Browser Tab',
+        () => this.openSRSBrowserTab(),
+      ),
     });
 
     if (this.isArenaEnabled()) {
       menu.addItem({
         icon: 'iconSparkles',
         label: this.i18n?.arenaManagerTitle || 'Arena Manager',
-        click: () => {
-          this.openArenaManager();
-        },
+        click: this.wrapTopBarMenuAction(
+          this.i18n?.arenaManagerTitle || 'Arena Manager',
+          () => this.openArenaManager(),
+        ),
       });
     }
 
@@ -174,18 +181,20 @@ export class MenuManager {
     menu.addItem({
       icon: 'iconRefresh',
       label: this.i18n?.syncConflictManualMergeCommand || '手动合并 SiYuanMemo 同步冲突',
-      click: () => {
-        void this.runManualSyncConflictMerge();
-      },
+      click: this.wrapTopBarMenuAction(
+        this.i18n?.syncConflictManualMergeCommand || '手动合并 SiYuanMemo 同步冲突',
+        () => this.runManualSyncConflictMerge(),
+      ),
     });
     
     // 设置
     menu.addItem({
       icon: 'iconSettings',
       label: this.i18n?.settings || 'Settings',
-      click: () => {
-        this.openSettings();
-      },
+      click: this.wrapTopBarMenuAction(
+        this.i18n?.settings || 'Settings',
+        () => this.openSettings(),
+      ),
     });
 
     // 打开菜单
@@ -211,6 +220,20 @@ export class MenuManager {
     }
   }
 
+  private wrapTopBarMenuAction(label: string, action: () => void | Promise<void>): () => void | Promise<void> {
+    return wrapSafeMenuAction(
+      { label },
+      action,
+      {
+        fallbackLabel: this.i18n?.menuAction || '菜单操作',
+        logger,
+        onError: (actionLabel, error) => {
+          showMessage(`${actionLabel}失败：${formatMenuActionError(error)}`, 5000, 'error');
+        },
+      },
+    );
+  }
+
   public async runTopBarQuickEntryAction(
     actionId: TopBarQuickEntryActionId,
     input?: { docId?: string | null },
@@ -219,22 +242,22 @@ export class MenuManager {
 
     switch (actionId) {
       case 'start-review':
-        this.openReviewDialog();
+        await this.openReviewDialog();
         return;
       case 'start-incremental-learning':
-        this.openIncrementalLearningDialog();
+        await this.openIncrementalLearningDialog();
         return;
       case 'start-deliberate-practice':
-        this.openFinalDrillDialog();
+        await this.openFinalDrillDialog();
         return;
       case 'start-neural-roam':
-        this.openNeuralRoamDialog();
+        await this.openNeuralRoamDialog();
         return;
       case 'start-filter-group-practice':
-        this.openFilterGroupPracticeDialog();
+        await this.openFilterGroupPracticeDialog();
         return;
       case 'open-srs-browser':
-        this.openSRSBrowser();
+        await this.openSRSBrowser();
         return;
       case 'one-click-symbol-current-doc':
         if (normalizedDocId) {
@@ -351,8 +374,8 @@ export class MenuManager {
    * 
    * 委托给 DialogManager 处理
    */
-  private openReviewDialog(): void {
-    this.dialogManager.openReviewDialog();
+  private openReviewDialog(): void | Promise<void> {
+    return this.dialogManager.openReviewDialog();
   }
   
   /**
@@ -360,8 +383,8 @@ export class MenuManager {
    * 
    * 委托给 DialogManager 处理
    */
-  private openIncrementalLearningDialog(): void {
-    this.dialogManager.openIncrementalLearningDialog();
+  private openIncrementalLearningDialog(): void | Promise<void> {
+    return this.dialogManager.openIncrementalLearningDialog();
   }
   
   /**
@@ -369,8 +392,8 @@ export class MenuManager {
    * 
    * 委托给 DialogManager 处理
    */
-  private openFinalDrillDialog(): void {
-    this.dialogManager.openFinalDrillDialog();
+  private openFinalDrillDialog(): void | Promise<void> {
+    return this.dialogManager.openFinalDrillDialog();
   }
   
   /**
@@ -378,8 +401,8 @@ export class MenuManager {
    * 
    * 委托给 DialogManager 处理
    */
-  private openNeuralRoamDialog(): void {
-    this.dialogManager.openNeuralRoamDialog();
+  private openNeuralRoamDialog(): void | Promise<void> {
+    return this.dialogManager.openNeuralRoamDialog();
   }
   
   /**
@@ -387,8 +410,8 @@ export class MenuManager {
    * 
    * 委托给 DialogManager 处理
    */
-  private openFilterGroupPracticeDialog(): void {
-    this.dialogManager.openFilterGroupPracticeDialog();
+  private openFilterGroupPracticeDialog(): void | Promise<void> {
+    return this.dialogManager.openFilterGroupPracticeDialog();
   }
   
   /**
@@ -396,8 +419,8 @@ export class MenuManager {
    * 
    * 委托给 DialogManager 处理
    */
-  private openSRSBrowser(): void {
-    this.dialogManager.openBrowserDialog();
+  private openSRSBrowser(): void | Promise<void> {
+    return this.dialogManager.openBrowserDialog();
   }
 
   private openSRSBrowserTab(): void {
@@ -407,11 +430,11 @@ export class MenuManager {
     }
   }
 
-  private openArenaManager(): void {
+  private openArenaManager(): void | Promise<void> {
     if (!this.isArenaEnabled()) {
       return;
     }
-    this.dialogManager.openArenaManagerDialog();
+    return this.dialogManager.openArenaManagerDialog();
   }
 
   private isArenaEnabled(): boolean {
@@ -423,8 +446,8 @@ export class MenuManager {
    * 
    * 委托给 DialogManager 处理
    */
-  private openSettings(): void {
-    this.dialogManager.openSettingsDialog();
+  private openSettings(): void | Promise<void> {
+    return this.dialogManager.openSettingsDialog();
   }
 
   public getCurrentDocId(): string | null {

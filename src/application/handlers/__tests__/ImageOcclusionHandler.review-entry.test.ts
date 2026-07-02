@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { showMessage } from 'siyuan';
 import { ImageOcclusionHandler } from '../ImageOcclusionHandler';
 
 const apiMocks = vi.hoisted(() => ({
@@ -34,9 +35,10 @@ describe('ImageOcclusionHandler review entries', () => {
 
     return {
       dialogManager,
-      handler: new ImageOcclusionHandler(plugin as never) as unknown as {
+      handler: new ImageOcclusionHandler(plugin as never) as unknown as ImageOcclusionHandler & {
         openImageOcclusionReviewAll: (blockId: string) => Promise<void>;
         openImageOcclusionTemporaryDrill: (blockId: string) => Promise<void>;
+        openEditor: (blockId: string, imageSrc: string) => Promise<void>;
       },
     };
   }
@@ -69,5 +71,35 @@ describe('ImageOcclusionHandler review entries', () => {
       cardIds: ['card-mask-2', 'card-mask-3'],
       preferredCardId: 'card-mask-2',
     });
+  });
+
+  it('contains rejected image menu action errors', async () => {
+    const { handler } = createHandler();
+    const menu = { addItem: vi.fn() };
+    const element = document.createElement('div');
+    element.setAttribute('data-node-id', 'image-block-1');
+    const image = document.createElement('img');
+    image.setAttribute('src', 'assets/image.png');
+    element.appendChild(image);
+    const error = new Error('dialog boot failed');
+    handler.openEditor = vi.fn().mockRejectedValue(error);
+
+    handler.handleImageMenu({
+      detail: {
+        menu,
+        element,
+      },
+    });
+
+    const item = menu.addItem.mock.calls[0][0] as { click?: () => void };
+    item.click?.();
+    await Promise.resolve();
+
+    expect(handler.openEditor).toHaveBeenCalledWith('image-block-1', 'assets/image.png');
+    expect(showMessage).toHaveBeenCalledWith(
+      expect.stringContaining('dialog boot failed'),
+      5000,
+      'error',
+    );
   });
 });

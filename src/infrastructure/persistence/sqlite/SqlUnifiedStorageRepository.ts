@@ -1,4 +1,8 @@
-import type { StorageLoadReason, UnifiedCardStore } from '@/core/storage/UnifiedStorageManager';
+import type {
+  StorageLoadReason,
+  UnifiedCardStore,
+  UnifiedStorageXiuyuanCardDelta,
+} from '@/core/storage/UnifiedStorageManager';
 import type {
   BrowserDeckReadPort,
   SourceExistenceRefreshCandidate,
@@ -584,6 +588,42 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         ['unified_store_version', stringifyJson(store.version || 2), now],
       );
     }, { label: 'unified-storage.save-store' });
+  }
+
+  async saveXiuyuanCardDelta(delta: UnifiedStorageXiuyuanCardDelta): Promise<void> {
+    await this.database.write((db) => {
+      const existingSource = this.loadSourceExistenceByCardId();
+      const now = Date.now();
+
+      for (const [id, xiuyuan] of Object.entries(delta.xiuyuans || {})) {
+        const updatedAt = normalizeNumber((xiuyuan as { updatedAt?: unknown }).updatedAt) || now;
+        db.run(
+          'INSERT OR REPLACE INTO xiuyuans (id, updated_at, payload_json) VALUES (?, ?, ?)',
+          [id, updatedAt, stringifyJson(xiuyuan)],
+        );
+      }
+
+      for (const { id, card, dto } of resolveCanonicalStoreCards({
+        version: delta.version,
+        xiuyuans: delta.xiuyuans,
+        cards: delta.cards,
+        cardDTOs: delta.cardDTOs,
+        deletedCardDTOs: {},
+        deletedXiuyuans: {},
+        riffBlacklist: [],
+      })) {
+        this.writeCardRecord(db, { ...card, id }, dto, existingSource.get(id), now);
+      }
+
+      db.run(
+        'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+        ['sync_metadata', stringifyJson(delta.syncMetadata || null), now],
+      );
+      db.run(
+        'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+        ['unified_store_version', stringifyJson(delta.version || 2), now],
+      );
+    }, { label: 'unified-storage.save-xiuyuan-card-delta' });
   }
 
   async touchSyncMetadata(input: {

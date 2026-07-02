@@ -149,7 +149,20 @@ describe('settings normalization', () => {
     expect(normalized.settings.ui.reviewSourceBlockRefreshEnabled).toBe(false);
   });
 
-  it('normalizes the legacy default incremental sync trigger triplet down to plugin-start only', () => {
+  it('fills missing native Riff integration with default disabled passive sync', () => {
+    const legacy = cloneSettings();
+    delete (legacy as Partial<PluginSettings>).riffIntegration;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.riffIntegration?.incrementalSync.enabled).toBe(false);
+    expect(normalized.settings.riffIntegration?.incrementalSync.triggers).toEqual([]);
+    expect(normalized.settings.riffIntegration?.fullSync.enabled).toBe(false);
+    expect(normalized.settings.riffIntegration?.deleteSync.enabled).toBe(false);
+  });
+
+  it('normalizes the legacy default incremental sync trigger triplet down to no startup trigger', () => {
     const legacy = cloneSettings();
     legacy.riffIntegration = {
       ...legacy.riffIntegration!,
@@ -162,7 +175,7 @@ describe('settings normalization', () => {
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
-    expect(normalized.settings.riffIntegration?.incrementalSync.triggers).toEqual(['plugin-start']);
+    expect(normalized.settings.riffIntegration?.incrementalSync.triggers).toEqual([]);
   });
 
   it('preserves user-customized incremental sync trigger combinations', () => {

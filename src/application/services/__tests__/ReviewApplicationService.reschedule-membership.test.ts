@@ -220,4 +220,64 @@ describe('ReviewApplicationService reschedule queue membership', () => {
     await expect(service.updateBlockMarkdown('block-1', 'Updated body')).resolves.toBe('block-1');
     expect(siyuanApi.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Updated body');
   });
+
+  it('routes explicit native Riff review feedback through the backend bridge', async () => {
+    const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
+    const schedulerRouter = {} as never;
+    const siyuanApi = createReviewSiyuanApi();
+    const backendClient = {
+      executeReviewRiffFeedback: vi.fn(async (request) => ({
+        status: 'completed' as const,
+        commandId: request.commandId,
+        idempotencyKey: request.idempotencyKey,
+        action: request.action,
+        updated: 1,
+        skipped: 0,
+        queueImpact: {
+          refreshRequired: true,
+          projectionChanged: true,
+          removedFromQueue: true,
+        },
+        diagnostics: {
+          diagnosticEventId: 'diag-native-riff-feedback',
+          family: 'review.riff-feedback',
+          commandId: request.commandId,
+        },
+      })),
+      executeReviewSourceRefresh: vi.fn(),
+    };
+    const service = new ReviewApplicationService(
+      manager,
+      schedulerRouter,
+      siyuanApi,
+      backendClient,
+    );
+
+    const result = await service.executeFinalDrillRiffFeedback({
+      commandId: 'cmd-native-riff-rate',
+      idempotencyKey: 'key-native-riff-rate',
+      sessionId: 'final-drill',
+      action: 'rate',
+      deckId: 'deck-1',
+      riffCardId: 'riff-card-1',
+      rating: 4,
+    });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      action: 'rate',
+      updated: 1,
+    });
+    expect(backendClient.executeReviewRiffFeedback).toHaveBeenCalledWith({
+      commandId: 'cmd-native-riff-rate',
+      idempotencyKey: 'key-native-riff-rate',
+      sessionId: 'final-drill',
+      action: 'rate',
+      deckId: 'deck-1',
+      riffCardId: 'riff-card-1',
+      rating: 4,
+    });
+    expect(siyuanApi.reviewRiffCard).not.toHaveBeenCalled();
+    expect(siyuanApi.skipReviewRiffCard).not.toHaveBeenCalled();
+  });
 });

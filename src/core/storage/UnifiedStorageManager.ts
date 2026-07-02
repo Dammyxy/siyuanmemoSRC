@@ -36,12 +36,18 @@ import {
   buildLogicalCardKey,
   buildLogicalXiuyuanKey,
   chooseCanonicalXiuyuan,
+  inferXiuyuanOwnership,
   mergeCardDTOsLocalFirst,
   mergeXiuyuanSnapshots,
   normalizeXiuyuanOwnership,
+  type XiuyuanOwnership,
 } from './stability/logicalKeys';
 import { createLogger } from '@/utils/logger';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
+import {
+  incrementRuntimePerformanceCounter,
+  measureRuntimePerformance,
+} from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('UnifiedStorageManager');
 
@@ -113,6 +119,29 @@ export interface CardUpdateOptions extends StorageMutationOptions {
 }
 
 export interface StorageSaveOptions extends StorageMutationOptions {}
+
+export interface UnifiedStorageXiuyuanCardDelta {
+  version: number;
+  xiuyuans: Record<string, IXiuyuan>;
+  cards: Record<string, FSRSCard>;
+  cardDTOs: Record<string, CardPersistenceDTO>;
+  syncMetadata?: StorageSyncMetadata;
+}
+
+export interface UnifiedStorageDeltaPersistenceCallbacks {
+  saveXiuyuanCardDelta?: (delta: UnifiedStorageXiuyuanCardDelta) => Promise<void>;
+}
+
+export interface SaveXiuyuanCardDeltaOptions extends StorageSaveOptions {
+  xiuyuanIds: string[];
+  cardIds: string[];
+  fallbackReason?: string;
+}
+
+export interface StorageSaveOutcome {
+  mode: 'delta' | 'full-save';
+  fallbackReason?: string;
+}
 
 export type StorageLoadReason = 'startup-load' | 'pre-save-conflict-check' | 'unspecified';
 type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
@@ -267,6 +296,7 @@ export class UnifiedStorageManager {
   // === 鎸佷箙鍖栧洖璋?===
   private saveCallback: ((data: UnifiedCardStore) => Promise<void>) | null = null;
   private loadCallback: ((reason?: StorageLoadReason) => Promise<UnifiedCardStore>) | null = null;
+  private deltaPersistenceCallbacks: UnifiedStorageDeltaPersistenceCallbacks = {};
   private conflictResolutionStrategy: StorageConflictResolutionStrategy = 'merge';
   private readonly instanceId = `storage-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   private lastKnownContentHash: string | null = null;
@@ -349,6 +379,47 @@ export class UnifiedStorageManager {
     cardDTOs: Map<string, CardPersistenceDTO> | Record<string, CardPersistenceDTO> = this.cardDTOs,
   ): Array<[string, CardPersistenceDTO]> {
     return cardDTOs instanceof Map ? Array.from(cardDTOs.entries()) : Object.entries(cardDTOs);
+  }
+
+  private getXiuyuanOwnership(xiuyuan: Pick<IXiuyuan, 'templateID' | 'meta'> | undefined): XiuyuanOwnership {
+    if (!xiuyuan) {
+      return 'local-owned';
+    }
+    return inferXiuyuanOwnership(xiuyuan);
+  }
+
+  private getCardDTOOwnership(
+    dto: CardPersistenceDTO,
+    xiuyuan: Pick<IXiuyuan, 'templateID' | 'meta'> | undefined,
+  ): XiuyuanOwnership {
+    return inferXiuyuanOwnership({
+      templateID: xiuyuan?.templateID ?? dto.templateID,
+      meta: xiuyuan?.meta ?? dto.meta,
+    });
+  }
+
+  private isMixedLocalAndRiffOwnership(left: XiuyuanOwnership, right: XiuyuanOwnership): boolean {
+    return (left === 'local-owned' && right === 'riff-managed')
+      || (left === 'riff-managed' && right === 'local-owned');
+  }
+
+  private isMixedLocalRiffXiuyuanOverlap(left: IXiuyuan, right: IXiuyuan): boolean {
+    return this.isMixedLocalAndRiffOwnership(
+      this.getXiuyuanOwnership(left),
+      this.getXiuyuanOwnership(right),
+    );
+  }
+
+  private isMixedLocalRiffCardOverlap(
+    leftDto: CardPersistenceDTO,
+    leftXiuyuan: IXiuyuan | undefined,
+    rightDto: CardPersistenceDTO,
+    rightXiuyuan: IXiuyuan | undefined,
+  ): boolean {
+    return this.isMixedLocalAndRiffOwnership(
+      this.getCardDTOOwnership(leftDto, leftXiuyuan),
+      this.getCardDTOOwnership(rightDto, rightXiuyuan),
+    );
   }
 
   private getDeletionTombstoneEntries(
@@ -675,7 +746,14 @@ export class UnifiedStorageManager {
       return normalizedIncoming;
     }
 
-    const canonical = chooseCanonicalXiuyuan([...candidates, normalizedIncoming]);
+    const mergeableCandidates = candidates.filter(
+      (candidate) => !this.isMixedLocalRiffXiuyuanOverlap(candidate, normalizedIncoming),
+    );
+    if (mergeableCandidates.length === 0) {
+      return normalizedIncoming;
+    }
+
+    const canonical = chooseCanonicalXiuyuan([...mergeableCandidates, normalizedIncoming]);
     if (canonical.id === normalizedIncoming.id) {
       return normalizedIncoming;
     }
@@ -704,6 +782,9 @@ export class UnifiedStorageManager {
       const candidateXiuyuan = this.getXiuyuanFromLookup(candidateDto.xiuyuanID, xiuyuanLookup);
       const candidateLogicalKey = buildLogicalCardKey(candidateDto, candidateXiuyuan);
       if (candidateLogicalKey === targetLogicalKey) {
+        if (this.isMixedLocalRiffCardOverlap(candidateDto, candidateXiuyuan, dto, xiuyuan)) {
+          continue;
+        }
         return {
           id: candidateId,
           dto: candidateDto,
@@ -828,10 +909,12 @@ export class UnifiedStorageManager {
    */
   setPersistenceCallbacks(
     save: (data: UnifiedCardStore) => Promise<void>,
-    load: (reason?: StorageLoadReason) => Promise<UnifiedCardStore>
+    load: (reason?: StorageLoadReason) => Promise<UnifiedCardStore>,
+    deltaPersistenceCallbacks: UnifiedStorageDeltaPersistenceCallbacks = {},
   ): void {
     this.saveCallback = save;
     this.loadCallback = load;
+    this.deltaPersistenceCallbacks = deltaPersistenceCallbacks;
   }
 
   setConflictResolutionStrategy(strategy: StorageConflictResolutionStrategy): void {
@@ -1037,6 +1120,120 @@ export class UnifiedStorageManager {
         return err(error instanceof Error ? error : new Error(String(error)));
       }
     }, options.transaction);
+  }
+
+  async saveXiuyuanCardDelta(
+    options: SaveXiuyuanCardDeltaOptions,
+  ): Promise<Result<StorageSaveOutcome>> {
+    return this.runWriteMutation('saveXiuyuanCardDelta', async (transaction) => {
+      try {
+        const fallbackReason = this.getXiuyuanCardDeltaFallbackReason(options);
+        if (fallbackReason) {
+          return await this.saveXiuyuanCardDeltaViaFullSave(fallbackReason, transaction);
+        }
+
+        const deltaStore = this.prepareDeltaStoreForPersist();
+        const delta = this.buildXiuyuanCardDelta(options, deltaStore);
+        if (!delta) {
+          return await this.saveXiuyuanCardDeltaViaFullSave('missing-affected-row', transaction);
+        }
+
+        const saveDelta = this.deltaPersistenceCallbacks.saveXiuyuanCardDelta;
+        if (!saveDelta) {
+          return await this.saveXiuyuanCardDeltaViaFullSave('delta-adapter-unavailable', transaction);
+        }
+
+        await measureRuntimePerformance(
+          'autocard',
+          'storage.delta-save-xiuyuan-card',
+          () => saveDelta(delta),
+          {
+            xiuyuanCount: Object.keys(delta.xiuyuans).length,
+            cardCount: Object.keys(delta.cardDTOs).length,
+          },
+        );
+        incrementRuntimePerformanceCounter('autocard', 'storage-delta-save-calls', 1);
+        incrementRuntimePerformanceCounter('autocard', 'storage-delta-save-xiuyuans', Object.keys(delta.xiuyuans).length);
+        incrementRuntimePerformanceCounter('autocard', 'storage-delta-save-cards', Object.keys(delta.cardDTOs).length);
+        this.captureSnapshotFromCanonicalStore(deltaStore);
+        this.dirty = false;
+        this.clearSaveTimer();
+        return ok({ mode: 'delta' });
+      } catch (error) {
+        return err(error instanceof Error ? error : new Error(String(error)));
+      }
+    }, options.transaction);
+  }
+
+  private async saveXiuyuanCardDeltaViaFullSave(
+    fallbackReason: string,
+    transaction: StorageWriteTransaction,
+  ): Promise<Result<StorageSaveOutcome>> {
+    incrementRuntimePerformanceCounter('autocard', 'storage-delta-full-save-fallback-calls', 1);
+    const saveResult = await this.save({ transaction });
+    if (isErr(saveResult)) {
+      return saveResult as Result<StorageSaveOutcome>;
+    }
+    return ok({
+      mode: 'full-save',
+      fallbackReason,
+    });
+  }
+
+  private getXiuyuanCardDeltaFallbackReason(options: SaveXiuyuanCardDeltaOptions): string | null {
+    const explicitReason = String(options.fallbackReason || '').trim();
+    if (explicitReason) {
+      return explicitReason;
+    }
+    if (!Array.isArray(options.xiuyuanIds) || options.xiuyuanIds.length === 0) {
+      return 'missing-xiuyuan-ids';
+    }
+    if (!Array.isArray(options.cardIds) || options.cardIds.length === 0) {
+      return 'missing-card-ids';
+    }
+    return null;
+  }
+
+  private buildXiuyuanCardDelta(
+    options: Pick<SaveXiuyuanCardDeltaOptions, 'xiuyuanIds' | 'cardIds'>,
+    store: UnifiedCardStore,
+  ): UnifiedStorageXiuyuanCardDelta | null {
+    const xiuyuans: Record<string, IXiuyuan> = {};
+    const cards: Record<string, FSRSCard> = {};
+    const cardDTOs: Record<string, CardPersistenceDTO> = {};
+
+    for (const xiuyuanId of Array.from(new Set(options.xiuyuanIds.map((id) => String(id || '').trim()).filter(Boolean)))) {
+      const xiuyuan = store.xiuyuans[xiuyuanId];
+      if (!xiuyuan) {
+        return null;
+      }
+      xiuyuans[xiuyuanId] = xiuyuan;
+    }
+
+    for (const cardId of Array.from(new Set(options.cardIds.map((id) => String(id || '').trim()).filter(Boolean)))) {
+      const dto = store.cardDTOs?.[cardId];
+      const card = store.cards?.[cardId];
+      if (!dto) {
+        return null;
+      }
+      cardDTOs[cardId] = dto;
+      cards[cardId] = card ?? this.toDomainCard(dto);
+    }
+
+    return {
+      version: CURRENT_UNIFIED_CARD_STORE_VERSION,
+      xiuyuans,
+      cards,
+      cardDTOs,
+      syncMetadata: store.syncMetadata,
+    };
+  }
+
+  private prepareDeltaStoreForPersist(): UnifiedCardStore {
+    const canonicalStore = this.prepareCanonicalStore(this.getStoreData(), {
+      logNormalizations: false,
+    });
+    return this.prepareStoreForPersist(canonicalStore, null);
   }
 
   /**
@@ -1321,8 +1518,13 @@ export class UnifiedStorageManager {
         continue;
       }
 
+      const groupOwnerships = new Set(group.map((xiuyuan) => this.getXiuyuanOwnership(xiuyuan)));
+      if (groupOwnerships.size > 1) {
+        continue;
+      }
+
       duplicateGroupCount += 1;
-      const canonicalXiuyuan = chooseCanonicalXiuyuan(group);
+      const canonicalXiuyuan = this.chooseStableCanonicalXiuyuanForLoad(group);
       let mergedCanonical = canonicalXiuyuan;
 
       for (const candidate of group) {
@@ -1350,6 +1552,14 @@ export class UnifiedStorageManager {
     };
   }
 
+  private chooseStableCanonicalXiuyuanForLoad(group: IXiuyuan[]): IXiuyuan {
+    const [canonical] = [...group].sort((left, right) => String(left.id || '').localeCompare(String(right.id || '')));
+    if (!canonical) {
+      throw new Error('chooseStableCanonicalXiuyuanForLoad requires at least one candidate');
+    }
+    return canonical;
+  }
+
   private normalizeXiuyuanDuplicateCards(
     cardDTOs: Record<string, CardPersistenceDTO>,
     xiuyuans: Record<string, IXiuyuan>
@@ -1359,7 +1569,7 @@ export class UnifiedStorageManager {
     for (const [id, dto] of Object.entries(cardDTOs)) {
       const xiuyuanId = typeof dto.xiuyuanID === 'string' ? dto.xiuyuanID.trim() : '';
       const faceIndex = readFiniteNumber(dto.meta?.faceIndex) ?? readFiniteNumber(dto.meta?.ruleIndex);
-      if (!xiuyuanId || faceIndex === undefined) {
+      if (!xiuyuanId || faceIndex == null) {
         continue;
       }
 
@@ -2853,13 +3063,10 @@ export class UnifiedStorageManager {
     for (const card of this.indexByDue) {
       if (card.due <= now && card.state !== 4) {
         dueCards.push(card);
-        if (dueCards.length >= limit) {
-          break;
-        }
       }
     }
 
-    return dueCards;
+    return this.projectPluginOwnedCardsOverRiffShadows(dueCards).slice(0, limit);
   }
 
   /**
@@ -2868,10 +3075,11 @@ export class UnifiedStorageManager {
    */
   getCardsByBlockId(blockId: string): FSRSCard[] {
     const cardIds = this.indexByBlockID.get(blockId) || [];
-    return cardIds
+    const cards = cardIds
       .map(id => this.cardDTOs.get(id))
       .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
       .map(dto => this.toDomainCard(dto));  // 鉁?鍔ㄦ€佽浆鎹?
+    return this.projectPluginOwnedCardsOverRiffShadows(cards);
   }
 
   /**
@@ -2880,10 +3088,11 @@ export class UnifiedStorageManager {
    */
   getCardsByXiuyuanId(xiuyuanId: string): FSRSCard[] {
     const cardIds = this.indexByXiuyuanID.get(xiuyuanId) || [];
-    return cardIds
+    const cards = cardIds
       .map(id => this.cardDTOs.get(id))
       .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
       .map(dto => this.toDomainCard(dto));  // 鉁?鍔ㄦ€佽浆鎹?
+    return this.projectPluginOwnedCardsOverRiffShadows(cards);
   }
 
   /**
@@ -2892,17 +3101,20 @@ export class UnifiedStorageManager {
    */
   getCardsByType(type: CardType): FSRSCard[] {
     const cardIds = this.indexByType.get(type) || [];
-    return cardIds
+    const cards = cardIds
       .map(id => this.cardDTOs.get(id))
       .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
       .map(dto => this.toDomainCard(dto));  // 鉁?鍔ㄦ€佽浆鎹?
+    return this.projectPluginOwnedCardsOverRiffShadows(cards);
   }
 
   /**
    * 鑾峰彇鎵€鏈夊崱鐗?
    */
   getAllCards(): FSRSCard[] {
-    return Array.from(this.cardDTOs.values()).map(dto => this.toDomainCard(dto));  // 鉁?鍔ㄦ€佽浆鎹?
+    return this.projectPluginOwnedCardsOverRiffShadows(
+      Array.from(this.cardDTOs.values()).map(dto => this.toDomainCard(dto)),  // 鉁?鍔ㄦ€佽浆鎹?
+    );
   }
 
   /**
@@ -2911,10 +3123,11 @@ export class UnifiedStorageManager {
    */
   getCardsByState(state: number): FSRSCard[] {
     const cardIds = this.indexByState.get(state) || [];
-    return cardIds
+    const cards = cardIds
       .map(id => this.cardDTOs.get(id))
       .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
       .map(dto => this.toDomainCard(dto));
+    return this.projectPluginOwnedCardsOverRiffShadows(cards);
   }
 
   getCardsByStates(states: number[]): FSRSCard[] {
@@ -3026,7 +3239,52 @@ export class UnifiedStorageManager {
         cards.push(this.toDomainCard(dto));
       }
     }
-    return cards;
+    return this.projectPluginOwnedCardsOverRiffShadows(cards);
+  }
+
+  private projectPluginOwnedCardsOverRiffShadows(cards: FSRSCard[]): FSRSCard[] {
+    const groups = new Map<string, Array<{ card: FSRSCard; ownership: XiuyuanOwnership }>>();
+    for (const card of cards) {
+      const dto = this.cardDTOs.get(card.id);
+      const xiuyuan = this.xiuyuans.get(card.xiuyuanID);
+      const logicalKey = dto
+        ? buildLogicalCardKey(dto, xiuyuan)
+        : buildLogicalCardKey(card, xiuyuan);
+      const group = groups.get(logicalKey) ?? [];
+      group.push({
+        card,
+        ownership: this.getCardDTOOwnership(dto ?? CardMapper.toPersistence(card), xiuyuan),
+      });
+      groups.set(logicalKey, group);
+    }
+
+    const projected: FSRSCard[] = [];
+    const hiddenShadowIds: string[] = [];
+    for (const group of groups.values()) {
+      const hasLocalOwned = group.some((entry) => entry.ownership === 'local-owned');
+      const hasRiffManaged = group.some((entry) => entry.ownership === 'riff-managed');
+      if (!hasLocalOwned || !hasRiffManaged) {
+        projected.push(...group.map((entry) => entry.card));
+        continue;
+      }
+
+      for (const entry of group) {
+        if (entry.ownership === 'local-owned') {
+          projected.push(entry.card);
+        } else {
+          hiddenShadowIds.push(entry.card.id);
+        }
+      }
+    }
+
+    if (hiddenShadowIds.length > 0) {
+      logger.debug('[UnifiedStorageManager] Projected plugin-owned cards over native Riff shadows', {
+        hiddenShadowCount: hiddenShadowIds.length,
+        hiddenShadowIdsSample: hiddenShadowIds.slice(0, 10),
+      });
+    }
+
+    return projected;
   }
 
   private collectDueCardIdsUpTo(maxDue: number): Set<string> {

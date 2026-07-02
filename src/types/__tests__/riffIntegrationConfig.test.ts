@@ -18,13 +18,13 @@ describe('RiffIntegrationConfig', () => {
         });
         
         describe('incrementalSync', () => {
-            it('should be enabled by default', () => {
-                expect(DEFAULT_RIFF_CONFIG.incrementalSync.enabled).toBe(true);
+            it('should be disabled by default', () => {
+                expect(DEFAULT_RIFF_CONFIG.incrementalSync.enabled).toBe(false);
             });
             
-            it('should default to plugin-start only', () => {
+            it('should not register startup triggers by default', () => {
                 const triggers = DEFAULT_RIFF_CONFIG.incrementalSync.triggers;
-                expect(triggers).toEqual(['plugin-start']);
+                expect(triggers).toEqual([]);
             });
             
             it('should use blacklist by default', () => {
@@ -33,8 +33,8 @@ describe('RiffIntegrationConfig', () => {
         });
         
         describe('fullSync', () => {
-            it('should be enabled by default', () => {
-                expect(DEFAULT_RIFF_CONFIG.fullSync.enabled).toBe(true);
+            it('should be disabled by default', () => {
+                expect(DEFAULT_RIFF_CONFIG.fullSync.enabled).toBe(false);
             });
             
             it('should have 24-hour interval', () => {
@@ -49,8 +49,8 @@ describe('RiffIntegrationConfig', () => {
         });
         
         describe('deleteSync', () => {
-            it('should be enabled by default', () => {
-                expect(DEFAULT_RIFF_CONFIG.deleteSync.enabled).toBe(true);
+            it('should be disabled by default', () => {
+                expect(DEFAULT_RIFF_CONFIG.deleteSync.enabled).toBe(false);
             });
             
             it('should use blacklist fallback by default', () => {

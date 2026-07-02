@@ -137,6 +137,13 @@ type DeferredRepositorySideEffects = {
   eventXiuyuans: Xiuyuan[];
 };
 
+type StagedXiuyuanSaveMutation = {
+  sideEffects: DeferredRepositorySideEffects;
+  xiuyuanId: string;
+  cardIds: string[];
+  deltaUnsafeReason?: string;
+};
+
 type TraceAttrsSnapshot = {
   hasXiuyuanBinding: boolean;
   xiuyuanId: string | null;
@@ -479,7 +486,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           return stagedResult;
         }
 
-        const saveResult = await this.storage.save({ transaction });
+        const saveResult = await this.persistStagedXiuyuanSaves([stagedResult.value], transaction);
         if (isErr(saveResult)) {
           const error = saveResult.error || new Error('Failed to persist xiuyuan snapshot');
           logger.error('Failed to persist xiuyuan snapshot:', error);
@@ -487,7 +494,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           return err(error);
         }
 
-        return ok(stagedResult.value);
+        return ok(stagedResult.value.sideEffects);
       } catch (error) {
         this.restoreStorageSnapshot(rollbackSnapshot, 'save', error);
         return err(error instanceof Error ? error : new Error(String(error)));
@@ -514,7 +521,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
             this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
             return stageResult;
           }
-          this.mergeDeferredSideEffects(deferredSideEffects, stageResult.value);
+          this.mergeDeferredSideEffects(deferredSideEffects, stageResult.value.sideEffects);
         }
 
         for (const update of changeSet.metadataUpdates) {
@@ -523,7 +530,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
             this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
             return stageResult;
           }
-          this.mergeDeferredSideEffects(deferredSideEffects, stageResult.value);
+          this.mergeDeferredSideEffects(deferredSideEffects, stageResult.value.sideEffects);
         }
 
         for (const deletion of changeSet.deletes) {
@@ -719,6 +726,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.saveMany', async (transaction) => {
         const rollbackSnapshot = this.cloneStorageSnapshot();
         const deferredSideEffects = this.createDeferredSideEffects();
+        const stagedSaves: StagedXiuyuanSaveMutation[] = [];
 
         try {
           for (const xiuyuan of xiuyuans) {
@@ -727,10 +735,11 @@ export class XiuyuanRepository implements IXiuyuanRepository {
               this.restoreStorageSnapshot(rollbackSnapshot, 'saveMany', stagedResult.error);
               return stagedResult;
             }
-            this.mergeDeferredSideEffects(deferredSideEffects, stagedResult.value);
+            stagedSaves.push(stagedResult.value);
+            this.mergeDeferredSideEffects(deferredSideEffects, stagedResult.value.sideEffects);
           }
 
-          const saveResult = await this.storage.save({ transaction });
+          const saveResult = await this.persistStagedXiuyuanSaves(stagedSaves, transaction);
           if (isErr(saveResult)) {
             const error = saveResult.error || new Error('Failed to persist xiuyuan batch snapshot');
             logger.error('Failed to persist xiuyuan batch snapshot:', error);
@@ -813,7 +822,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   private async stageSaveXiuyuanMutation(
     xiuyuan: Xiuyuan,
     transaction?: StorageWriteTransaction,
-  ): Promise<Result<DeferredRepositorySideEffects>> {
+  ): Promise<Result<StagedXiuyuanSaveMutation>> {
     try {
       const blockIDs = xiuyuan.getBlockIDs();
       const representativeBlockId = xiuyuan.getRepresentativeBlockId();
@@ -900,10 +909,32 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         isDescriptorTemplate,
       });
       sideEffects.eventXiuyuans.push(xiuyuan);
-      return ok(sideEffects);
+      return ok({
+        sideEffects,
+        xiuyuanId,
+        cardIds: Array.from(currentCardIds),
+        deltaUnsafeReason: cardsToDelete.length > 0 ? 'removed-existing-card' : undefined,
+      });
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
+  }
+
+  private async persistStagedXiuyuanSaves(
+    stagedSaves: StagedXiuyuanSaveMutation[],
+    transaction: StorageWriteTransaction,
+  ): Promise<Result<unknown>> {
+    const deltaUnsafeReason = stagedSaves
+      .map((staged) => staged.deltaUnsafeReason)
+      .find((reason): reason is string => Boolean(reason));
+    const xiuyuanIds = Array.from(new Set(stagedSaves.map((staged) => staged.xiuyuanId)));
+    const cardIds = Array.from(new Set(stagedSaves.flatMap((staged) => staged.cardIds)));
+    return this.storage.saveXiuyuanCardDelta({
+      xiuyuanIds,
+      cardIds,
+      fallbackReason: deltaUnsafeReason,
+      transaction,
+    });
   }
 
   private addSaveBlockAttrSideEffect(

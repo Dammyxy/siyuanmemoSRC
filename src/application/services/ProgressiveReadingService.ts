@@ -2,6 +2,10 @@ import type { ProgressiveExcerptSelectionSnapshot } from '@/application/entries/
 import type { ProgressiveBlockRow, ProgressiveDocInfo, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
+import {
+  resolveNativeRiffCompatibilityDecision,
+  type NativeRiffSrsAction,
+} from '@/application/policies/NativeRiffCompatibilityPolicy';
 import type {
   BackendProgressiveCommandExecuteRequest,
   BackendProgressiveCommandExecuteResult,
@@ -1736,15 +1740,7 @@ export class ProgressiveReadingService {
     if (!created) {
       throw new Error('Piece topic card created but could not be reloaded from storage');
     }
-    try {
-      await this.ensureNativeRiffRegistration(input.pieceDocId);
-    } catch (error) {
-      await this.rollbackLocalCard(created.id, {
-        blockId: input.pieceDocId,
-        kind: 'piece-topic',
-      });
-      throw error;
-    }
+    await this.ensureNativeRiffRegistration(input.pieceDocId);
     return {
       cardId: created.id,
       created: true,
@@ -2465,7 +2461,13 @@ export class ProgressiveReadingService {
     await this.siyuanApi.setBlockAttrs(blockId, normalized);
   }
 
-  private async ensureNativeRiffRegistration(blockId: string): Promise<void> {
+  private async ensureNativeRiffRegistration(
+    blockId: string,
+    action?: NativeRiffSrsAction,
+  ): Promise<void> {
+    if (!resolveNativeRiffCompatibilityDecision({ action }).enabled) {
+      return;
+    }
     await this.nativeRiffApi.addRiffCards(this.nativeRiffApi.BUILTIN_DECK_ID, [blockId]);
   }
 
@@ -2487,21 +2489,6 @@ export class ProgressiveReadingService {
         excerptEntityId: normalizedExcerptEntityId,
         excerptEntityType,
         error,
-        cleanupError,
-      });
-    }
-  }
-
-  private async rollbackLocalCard(cardId: string, context: Record<string, unknown>): Promise<void> {
-    try {
-      const result = await this.cardService.deleteCard({ cardId });
-      if (isErr(result)) {
-        throw result.error;
-      }
-    } catch (cleanupError) {
-      logger.warn('Failed to rollback progressive local card after native Riff sync error', {
-        cardId,
-        ...context,
         cleanupError,
       });
     }

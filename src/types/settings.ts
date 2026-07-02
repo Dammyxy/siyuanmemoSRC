@@ -506,7 +506,7 @@ function normalizeIncrementalSyncTriggers(
     const sourceTriggers = rawTriggers.filter(isIncrementalSyncTrigger);
     const dedupedTriggers = Array.from(new Set(sourceTriggers));
     const normalizedTriggers = isLegacyDefaultIncrementalSyncTriggerTriplet(rawTriggers as readonly LegacyIncrementalSyncTrigger[])
-        ? (['plugin-start'] as IncrementalSyncTrigger[])
+        ? ([] as IncrementalSyncTrigger[])
         : dedupedTriggers;
 
     return {
@@ -815,19 +815,19 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     storageConflictResolution: 'merge',
     
     incrementalSync: {
-        enabled: true,
-        triggers: ['plugin-start'],  // 🆕 移除 review-open，避免打开复习界面时触发快速制卡检查
+        enabled: false,
+        triggers: [],
         useBlacklist: true
     },
     
     fullSync: {
-        enabled: true,
+        enabled: false,
         interval: 86400000,  // 24小时：删除检测只由 full reconcile 执行
         cleanupBlacklist: true
     },
     
     deleteSync: {
-        enabled: true,
+        enabled: false,
         useBlacklistFallback: true
     }
 };

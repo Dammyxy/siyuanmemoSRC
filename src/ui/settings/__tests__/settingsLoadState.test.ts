@@ -18,6 +18,19 @@ function clone<T>(value: T): T {
 }
 
 describe('settingsLoadState', () => {
+  it('defaults native Riff compatibility sync controls to passive sync off', () => {
+    const riff = createDefaultSettingsRiffIntegrationState();
+
+    expect(riff.incrementalSync.enabled).toBe(false);
+    expect(riff.incrementalSync.triggers).toEqual([]);
+    expect(riff.fullSync.enabled).toBe(false);
+    expect(riff.deleteSync.enabled).toBe(false);
+    expect(resolveSettingsRiffTriggerSelection(riff)).toEqual({
+      pluginStart: false,
+      browserOpen: false,
+    });
+  });
+
   it('hydrates form, queue, scheduler, riff, arena, and ui settings from props', () => {
     const loaded = resolveSettingsPanelLoadState({
       fsrsSettings: {
@@ -176,10 +189,11 @@ describe('settingsLoadState', () => {
       currentRiffIntegrationConfig,
     });
 
-    expect(riff.incrementalSync.triggers).toEqual(['plugin-start']);
+    expect(riff.incrementalSync.enabled).toBe(false);
+    expect(riff.incrementalSync.triggers).toEqual([]);
     expect(riff.storageConflictResolution).toBe('merge');
     expect(resolveSettingsRiffTriggerSelection(riff)).toEqual({
-      pluginStart: true,
+      pluginStart: false,
       browserOpen: false,
     });
   });

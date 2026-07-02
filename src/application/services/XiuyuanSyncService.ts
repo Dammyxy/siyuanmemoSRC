@@ -111,6 +111,10 @@ type PreparedRiffBlocks = {
 type RiffInputStage = 'legacy-card-type-migration' | 'incremental' | 'full';
 
 type RiffSyncMetaSource = 'riff-sync';
+type NativeRiffCompatibilityMeta = {
+    owner: 'native-riff';
+    source: RiffSyncMetaSource;
+};
 type RiffClozeRenderMode = 'inline-formula-cloze';
 type RiffRenderProfile =
     | 'quick-default'
@@ -128,6 +132,20 @@ type RiffSyncStateStore = {
 };
 
 const INCREMENTAL_SYNC_OVERLAP_MS = 5_000;
+
+function createNativeRiffCompatibilityMeta(): NativeRiffCompatibilityMeta {
+    return {
+        owner: 'native-riff',
+        source: 'riff-sync',
+    };
+}
+
+function isNativeRiffCompatibilityMeta(value: unknown): value is NativeRiffCompatibilityMeta {
+    return typeof value === 'object'
+        && value !== null
+        && (value as NativeRiffCompatibilityMeta).owner === 'native-riff'
+        && (value as NativeRiffCompatibilityMeta).source === 'riff-sync';
+}
 
 function normalizeSyncBlockIds(values: unknown): string[] {
     if (!Array.isArray(values)) {
@@ -841,6 +859,7 @@ export class XiuyuanSyncService {
     ): boolean {
         const currentMeta = xiuyuan.getMeta();
         const expectedSource: RiffSyncMetaSource = 'riff-sync';
+        const expectedNativeRiffCompatibility = createNativeRiffCompatibilityMeta();
         const expectedRenderMode = this.resolveRiffClozeRenderMode(plan);
         const expectedRenderProfile = this.resolveRiffRenderProfile(plan);
         const expectedCreationRuleId = plan.hints?.ruleId;
@@ -868,6 +887,11 @@ export class XiuyuanSyncService {
 
         if (currentSource !== expectedSource) {
             metaPatch.source = expectedSource;
+            changed = true;
+        }
+
+        if (!isNativeRiffCompatibilityMeta(currentMeta.nativeRiffCompatibility)) {
+            metaPatch.nativeRiffCompatibility = expectedNativeRiffCompatibility;
             changed = true;
         }
 
@@ -1906,6 +1930,7 @@ export class XiuyuanSyncService {
                 cardType,
                 cardTypeMarker,
                 source: 'riff-sync' as RiffSyncMetaSource,
+                nativeRiffCompatibility: createNativeRiffCompatibilityMeta(),
                 ...(clozeRenderMode ? { clozeRenderMode } : {}),
                 ...(renderProfile ? { renderProfile } : {}),
                 creationRuleId: postCreationPlan.hints?.ruleId,
@@ -1993,6 +2018,7 @@ export class XiuyuanSyncService {
                 cardType,
                 cardTypeMarker,
                 source: 'riff-sync' as RiffSyncMetaSource,
+                nativeRiffCompatibility: createNativeRiffCompatibilityMeta(),
                 ...(clozeRenderMode ? { clozeRenderMode } : {}),
                 ...(renderProfile ? { renderProfile } : {}),
                 creationRuleId: postCreationPlan.hints?.ruleId,

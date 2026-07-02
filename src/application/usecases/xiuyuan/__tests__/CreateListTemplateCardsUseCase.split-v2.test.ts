@@ -151,10 +151,7 @@ describe('CreateListTemplateCardsUseCase (split-v2)', () => {
     expect(result.value.skippedChildBlockIds).toEqual([]);
 
     expect(saveMock).toHaveBeenCalledTimes(3);
-    expect(addRiffCardsMock).toHaveBeenCalledTimes(3);
-    expect(addRiffCardsMock).toHaveBeenNthCalledWith(1, 'deck-1', [CHILD_PARAGRAPH_IDS_BY_LIST_ITEM[CHILD_BLOCK_IDS[0]]]);
-    expect(addRiffCardsMock).toHaveBeenNthCalledWith(2, 'deck-1', [CHILD_PARAGRAPH_IDS_BY_LIST_ITEM[CHILD_BLOCK_IDS[1]]]);
-    expect(addRiffCardsMock).toHaveBeenNthCalledWith(3, 'deck-1', [CHILD_PARAGRAPH_IDS_BY_LIST_ITEM[CHILD_BLOCK_IDS[2]]]);
+    expect(addRiffCardsMock).not.toHaveBeenCalled();
 
     const savedXiuyuans = saveMock.mock.calls.map((call) => call[0]);
     savedXiuyuans.forEach((xiuyuan, index) => {
@@ -250,9 +247,7 @@ describe('CreateListTemplateCardsUseCase (split-v2)', () => {
     ]);
     expect(result.value.skippedChildBlockIds).toEqual([CHILD_BLOCK_IDS[1]]);
     expect(saveMock).toHaveBeenCalledTimes(2);
-    expect(addRiffCardsMock).toHaveBeenCalledTimes(2);
-    expect(addRiffCardsMock).toHaveBeenCalledWith('deck-1', [CHILD_PARAGRAPH_IDS_BY_LIST_ITEM[CHILD_BLOCK_IDS[0]]]);
-    expect(addRiffCardsMock).toHaveBeenCalledWith('deck-1', [CHILD_PARAGRAPH_IDS_BY_LIST_ITEM[CHILD_BLOCK_IDS[2]]]);
+    expect(addRiffCardsMock).not.toHaveBeenCalled();
   });
 
   it('writes descriptor cardType into xiuyuan meta when cardType=descriptor', async () => {
@@ -379,8 +374,7 @@ describe('CreateListTemplateCardsUseCase (split-v2)', () => {
     expect(result.value.skippedChildBlockIds).toEqual([]);
 
     expect(saveMock).toHaveBeenCalledTimes(1);
-    expect(addRiffCardsMock).toHaveBeenCalledTimes(1);
-    expect(addRiffCardsMock).toHaveBeenCalledWith('deck-1', [summaryContainerId]);
+    expect(addRiffCardsMock).not.toHaveBeenCalled();
 
     const savedXiuyuan = saveMock.mock.calls[0][0];
     const faces = savedXiuyuan.getFaces();

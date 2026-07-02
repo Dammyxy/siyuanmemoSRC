@@ -1,6 +1,5 @@
 import type { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
-import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import { CardType, type FSRSCard } from '@/types/card';
 import { isErr } from '@/types/result';
 import { QueueType, type IUnifiedDataSourceManagerFacade, type NeuralEngineMode } from '@/types/unified-data-source';
@@ -91,7 +90,6 @@ export interface NeuralRoamEntryActionServiceDeps {
   cardCreationHelper: Pick<CardCreationHelper, 'createConceptCard'>;
   cardService: Pick<CardApplicationService, 'updateFSRSCard'>;
   dataSourceManager: Pick<IUnifiedDataSourceManagerFacade, 'getQueue' | 'neuralRoamCommand' | 'readNeuralRoamViewState'>;
-  siyuanApi: Pick<ManagerSiyuanPort, 'BUILTIN_DECK_ID' | 'addRiffCards'>;
   openNeuralRoamDialog: (options?: NeuralRoamOpenOptions) => Promise<void>;
   waitForConceptVisible?: (blockId: string) => Promise<boolean>;
   resolveBlockTitle?: (blockId: string) => Promise<string | null>;
@@ -453,7 +451,6 @@ export class NeuralRoamEntryActionService {
       if (isErr(created)) {
         return this.fail('make-concept-and-add-to-queue', 'concept-create-failed', created.error.message, blockId, created.error);
       }
-      await this.deps.siyuanApi.addRiffCards(this.deps.siyuanApi.BUILTIN_DECK_ID, [blockId]);
     } else if (!this.isConceptCard(existingCard)) {
       const updated = await this.deps.cardService.updateFSRSCard({
         cardId: existingCard.id,

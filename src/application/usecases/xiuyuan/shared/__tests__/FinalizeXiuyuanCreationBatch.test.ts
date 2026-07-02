@@ -9,7 +9,7 @@ import { BlockId } from '@/core/xiuyuan/domain/BlockId';
 import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { CardsCreatedEvent } from '@/core/xiuyuan/domain/events';
-import { finalizeXiuyuanCreationBatch } from '../FinalizeXiuyuanCreation';
+import { finalizeXiuyuanCreation, finalizeXiuyuanCreationBatch } from '../FinalizeXiuyuanCreation';
 import {
   clearRuntimePerformanceDiagnostics,
   getRuntimePerformanceDiagnosticsReport,
@@ -38,6 +38,74 @@ function createXiuyuan(id: string, blockId: string): Xiuyuan {
 }
 
 describe('finalizeXiuyuanCreationBatch', () => {
+  it('skips native Riff registration for ordinary SiYuanMemo-owned creation', async () => {
+    const xiuyuan = createXiuyuan('xy_20260101000000-abcde03', '20260101000000-abcde03');
+    const save = vi.fn(async () => ok(undefined));
+    const addRiffCards = vi.fn(async () => ({ name: 'deck', size: 1 }));
+    const repo = { save } as unknown as IXiuyuanRepository;
+    const siyuanApi = {
+      BUILTIN_DECK_ID: 'builtin-deck',
+      addRiffCards,
+    } as unknown as XiuyuanSiyuanPort;
+
+    const result = await finalizeXiuyuanCreation({
+      xiuyuan,
+      xiuyuanRepository: repo,
+      eventBus: new EventBus(false),
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      },
+      siyuanApi,
+      riff: {
+        deckId: 'deck-1',
+        blockIds: ['20260101000000-abcde03'],
+        source: 'template-creation',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(addRiffCards).not.toHaveBeenCalled();
+  });
+
+  it('persists single Xiuyuan before registering native Riff cards', async () => {
+    const xiuyuan = createXiuyuan('xy_20260101000000-abcde01', '20260101000000-abcde01');
+    const save = vi.fn(async () => ok(undefined));
+    const addRiffCards = vi.fn(async () => ({ name: 'deck', size: 1 }));
+    const repo = { save } as unknown as IXiuyuanRepository;
+    const siyuanApi = {
+      BUILTIN_DECK_ID: 'builtin-deck',
+      addRiffCards,
+    } as unknown as XiuyuanSiyuanPort;
+    const eventBus = new EventBus(false);
+
+    const result = await finalizeXiuyuanCreation({
+      xiuyuan,
+      xiuyuanRepository: repo,
+      eventBus,
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      },
+      siyuanApi,
+      riff: {
+        deckId: 'deck-1',
+        blockIds: ['20260101000000-abcde01'],
+        source: 'template-creation',
+        action: 'explicit-native-riff-compatibility',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(addRiffCards).toHaveBeenCalledTimes(1);
+    expect(save.mock.invocationCallOrder[0])
+      .toBeLessThan(addRiffCards.mock.invocationCallOrder[0]);
+  });
+
   it('records batch performance counters for one-click creation diagnostics', async () => {
     setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
     try {
@@ -62,6 +130,7 @@ describe('finalizeXiuyuanCreationBatch', () => {
               deckId: 'deck-1',
               blockIds: ['20260101000000-abcde01'],
               source: 'doc-oneclick-scan',
+              action: 'explicit-native-riff-compatibility',
             },
           },
           {
@@ -71,6 +140,7 @@ describe('finalizeXiuyuanCreationBatch', () => {
               deckId: 'deck-1',
               blockIds: ['20260101000000-abcde02'],
               source: 'doc-oneclick-scan',
+              action: 'explicit-native-riff-compatibility',
             },
           },
         ],
@@ -100,12 +170,12 @@ describe('finalizeXiuyuanCreationBatch', () => {
   it('coalesces same-deck Riff registration and repository persistence', async () => {
     const first = createXiuyuan('xy_20260101000000-abcde01', '20260101000000-abcde01');
     const second = createXiuyuan('xy_20260101000000-abcde02', '20260101000000-abcde02');
-    const repo = {
-      saveMany: vi.fn(async () => ok(undefined)),
-    } as unknown as IXiuyuanRepository;
+    const saveMany = vi.fn(async () => ok(undefined));
+    const addRiffCards = vi.fn(async () => ({ name: 'deck', size: 2 }));
+    const repo = { saveMany } as unknown as IXiuyuanRepository;
     const siyuanApi = {
       BUILTIN_DECK_ID: 'builtin-deck',
-      addRiffCards: vi.fn(async () => ({ name: 'deck', size: 2 })),
+      addRiffCards,
     } as unknown as XiuyuanSiyuanPort;
     const eventBus = new EventBus(false);
     const events: string[][] = [];
@@ -121,6 +191,7 @@ describe('finalizeXiuyuanCreationBatch', () => {
             deckId: 'deck-1',
             blockIds: ['20260101000000-abcde01'],
             source: 'doc-oneclick-scan',
+            action: 'explicit-native-riff-compatibility',
           },
         },
         {
@@ -129,6 +200,7 @@ describe('finalizeXiuyuanCreationBatch', () => {
             deckId: 'deck-1',
             blockIds: ['20260101000000-abcde02'],
             source: 'doc-oneclick-scan',
+            action: 'explicit-native-riff-compatibility',
           },
         },
       ],
@@ -143,13 +215,15 @@ describe('finalizeXiuyuanCreationBatch', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(siyuanApi.addRiffCards).toHaveBeenCalledTimes(1);
-    expect(siyuanApi.addRiffCards).toHaveBeenCalledWith('deck-1', [
+    expect(addRiffCards).toHaveBeenCalledTimes(1);
+    expect(addRiffCards).toHaveBeenCalledWith('deck-1', [
       '20260101000000-abcde01',
       '20260101000000-abcde02',
     ]);
-    expect(repo.saveMany).toHaveBeenCalledTimes(1);
-    expect(repo.saveMany).toHaveBeenCalledWith([first, second]);
+    expect(saveMany).toHaveBeenCalledTimes(1);
+    expect(saveMany).toHaveBeenCalledWith([first, second]);
+    expect(saveMany.mock.invocationCallOrder[0])
+      .toBeLessThan(addRiffCards.mock.invocationCallOrder[0]);
     expect(events).toEqual([
       ['card_xy_20260101000000-abcde01_0', 'card_xy_20260101000000-abcde02_0'],
     ]);

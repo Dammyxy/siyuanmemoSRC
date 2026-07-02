@@ -12,7 +12,11 @@
 import type { Plugin } from 'siyuan';
 import type SiyuanMemoPlugin from '@/index';
 import { StorageManager } from '@/core/storage';
-import { UnifiedStorageManager, type UnifiedCardStore } from '@/core/storage/UnifiedStorageManager';
+import {
+  UnifiedStorageManager,
+  type UnifiedCardStore,
+  type UnifiedStorageDeltaPersistenceCallbacks,
+} from '@/core/storage/UnifiedStorageManager';
 import { createLegacyStorageLoader } from '@/core/storage/UnifiedStoragePersistence';
 import { SchedulerRouter, RescheduleService } from '@/core/scheduler';
 import { UnifiedStorageCardUpdateAdapter } from '@/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter';
@@ -154,7 +158,7 @@ import {
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
-import { DEFAULT_SETTINGS } from '@/types/settings';
+import { DEFAULT_SETTINGS, type RiffIntegrationConfig } from '@/types/settings';
 import type { HybridSyncConfig } from '@/application/services/XiuyuanSyncService.types';
 import { isErr } from '@/types/result';
 import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
@@ -1143,6 +1147,7 @@ export class ApplicationContext {
     let sqlPersistence: SqlPersistenceBundle | undefined;
     let unifiedSave!: (data: UnifiedCardStore) => Promise<void>;
     let unifiedLoad = legacyPersistence.load;
+    let unifiedDeltaPersistence: UnifiedStorageDeltaPersistenceCallbacks = {};
 
     try {
       await measureRuntimePerformance('startup', 'sqlite.init-and-migrate', async () => {
@@ -1172,6 +1177,9 @@ export class ApplicationContext {
         sqlPersistence = { database, unified, queue, neuralRoamRoutes, reviewLogs, arena, xiuyuanRead };
         unifiedSave = (data) => unified.saveStore(data);
         unifiedLoad = (reason) => unified.loadStore(reason);
+        unifiedDeltaPersistence = {
+          saveXiuyuanCardDelta: (delta) => unified.saveXiuyuanCardDelta(delta),
+        };
       });
       logger.info('[ApplicationContext] ✅ SQLite storage active');
     } catch (error) {
@@ -1183,7 +1191,7 @@ export class ApplicationContext {
     
     // 🆕 1.1 初始化统一存储管理器
     const unifiedStorageManager = new UnifiedStorageManager();
-    unifiedStorageManager.setPersistenceCallbacks(unifiedSave, unifiedLoad);
+    unifiedStorageManager.setPersistenceCallbacks(unifiedSave, unifiedLoad, unifiedDeltaPersistence);
     
     // 尝试加载数据，如果文件不存在则初始化为空
     const loadResult = await measureRuntimePerformance(
@@ -1807,6 +1815,14 @@ export class ApplicationContext {
       && (input.quickCardEnabled || input.nativeRiffSyncEnabled);
   }
 
+  private static shouldEnableNativeRiffCompatibilitySync(input: {
+    riffIntegration?: RiffIntegrationConfig;
+    hybridSyncAvailable: boolean;
+  }): boolean {
+    return input.hybridSyncAvailable
+      && input.riffIntegration?.incrementalSync?.enabled === true;
+  }
+
   private static resolveKernelTransactionIngestActionTypes(input: {
     quickCardEnabled: boolean;
     nativeRiffSyncEnabled: boolean;
@@ -2014,8 +2030,10 @@ export class ApplicationContext {
     const finishUpdateSpan = startRuntimePerformanceSpan('startup', 'transaction-websocket-service.configure');
     const settings = this.getSettingsService().getSettings();
     const quickCardEnabled = settings.quickCard?.enabled === true;
-    const nativeRiffSyncEnabled = settings.riffIntegration?.incrementalSync?.enabled === true
-      && Boolean(this.hybridSyncService);
+    const nativeRiffSyncEnabled = ApplicationContext.shouldEnableNativeRiffCompatibilitySync({
+      riffIntegration: settings.riffIntegration,
+      hybridSyncAvailable: Boolean(this.hybridSyncService),
+    });
     const reviewSourceBlockRefreshEnabled = settings.ui?.reviewSourceBlockRefreshEnabled === true;
     const runtimePolicy = this.getBackendMigrationRuntimePolicy();
     const kernelTransactionIngestAvailable = runtimePolicy.capabilities.kernelTransactionIngestEnabled

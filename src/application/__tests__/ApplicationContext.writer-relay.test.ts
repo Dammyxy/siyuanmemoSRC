@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ApplicationContext } from '../ApplicationContext';
 import { executeWriterRelayCommand } from '../commands/writerRelayCommandDispatcher';
+import { DEFAULT_SETTINGS, type RiffIntegrationConfig } from '@/types/settings';
 
 function readApplicationContextSource(): string {
   return readFileSync(resolve(process.cwd(), 'src/application/ApplicationContext.ts'), 'utf8');
@@ -63,6 +64,44 @@ describe('ApplicationContext writer relay command dispatch', () => {
       quickCardEnabled: true,
       nativeRiffSyncEnabled: true,
     })).toEqual(['native-riff-remove', 'native-riff-upsert', 'auto-card-candidates']);
+  });
+
+  it('enables native Riff transaction sync only for explicit compatibility sync settings', () => {
+    const resolve = (ApplicationContext as unknown as {
+      shouldEnableNativeRiffCompatibilitySync: (input: {
+        riffIntegration?: RiffIntegrationConfig;
+        hybridSyncAvailable: boolean;
+      }) => boolean;
+    }).shouldEnableNativeRiffCompatibilitySync;
+
+    expect(resolve({
+      riffIntegration: DEFAULT_SETTINGS.riffIntegration,
+      hybridSyncAvailable: true,
+    })).toBe(false);
+
+    expect(resolve({
+      riffIntegration: {
+        ...DEFAULT_SETTINGS.riffIntegration!,
+        incrementalSync: {
+          ...DEFAULT_SETTINGS.riffIntegration!.incrementalSync,
+          enabled: true,
+          triggers: ['plugin-start'],
+        },
+      },
+      hybridSyncAvailable: true,
+    })).toBe(true);
+
+    expect(resolve({
+      riffIntegration: {
+        ...DEFAULT_SETTINGS.riffIntegration!,
+        incrementalSync: {
+          ...DEFAULT_SETTINGS.riffIntegration!.incrementalSync,
+          enabled: true,
+          triggers: ['plugin-start'],
+        },
+      },
+      hybridSyncAvailable: false,
+    })).toBe(false);
   });
 
   it('keeps the default writer lease TTL when no override env is configured', () => {

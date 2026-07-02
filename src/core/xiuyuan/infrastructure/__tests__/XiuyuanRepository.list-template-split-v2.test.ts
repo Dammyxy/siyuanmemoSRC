@@ -70,6 +70,7 @@ function createStorageMock() {
       getCard: vi.fn((cardId: string) => cardStore.get(cardId)),
       updateCard,
       createCard,
+      saveXiuyuanCardDelta: vi.fn(async () => ok({ mode: 'delta' as const })),
       save: vi.fn(async () => ok(undefined)),
       getAllXiuYuans: vi.fn(() => Array.from(xiuyuanStore.values())),
       deleteXiuYuan: vi.fn(async () => ok(undefined)),

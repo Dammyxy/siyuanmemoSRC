@@ -66,7 +66,7 @@ function createExistingXiuyuan(blockId: string): Xiuyuan {
 }
 
 describe('XiuyuanApplicationService batch creation', () => {
-  it('tracks created and skipped counts separately in batch creation', async () => {
+  it('tracks created and skipped counts without native Riff registration for ordinary batch creation', async () => {
     const existingBlockId = '20260101000000-abcde02';
     const existingXiuyuan = createExistingXiuyuan(existingBlockId);
     const repo = {
@@ -111,15 +111,12 @@ describe('XiuyuanApplicationService batch creation', () => {
     expect(result.ok).toBe(true);
     expect(result.ok && result.value.createdCount).toBe(1);
     expect(result.ok && result.value.skippedCount).toBe(1);
-    expect(siyuanApi.addRiffCards).toHaveBeenCalledTimes(1);
-    expect(siyuanApi.addRiffCards).toHaveBeenCalledWith('deck-1', [
-      '20260101000000-abcde01',
-    ]);
+    expect(siyuanApi.addRiffCards).not.toHaveBeenCalled();
     expect(repo.saveMany).toHaveBeenCalledTimes(1);
     expect(result.ok && result.value.payloads).toHaveLength(2);
   });
 
-  it('creates bidirectional template cards inside the same batch persistence path', async () => {
+  it('creates bidirectional template cards inside the same local batch persistence path', async () => {
     const repo = {
       findById: vi.fn(async () => ok(null)),
       saveMany: vi.fn(async () => ok(undefined)),
@@ -154,10 +151,7 @@ describe('XiuyuanApplicationService batch creation', () => {
     expect(result.ok).toBe(true);
     expect(result.ok && result.value.createdCount).toBe(1);
     expect(result.ok && result.value.payloads[0]?.cards).toHaveLength(2);
-    expect(siyuanApi.addRiffCards).toHaveBeenCalledTimes(1);
-    expect(siyuanApi.addRiffCards).toHaveBeenCalledWith('deck-1', [
-      '20260101000000-abcde03',
-    ]);
+    expect(siyuanApi.addRiffCards).not.toHaveBeenCalled();
     expect(repo.saveMany).toHaveBeenCalledTimes(1);
   });
 });

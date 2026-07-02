@@ -173,4 +173,74 @@ describe('UnifiedStorageManager queryCards', () => {
 
     expect(cards.map(card => card.id)).toEqual(['card-a', 'card-c']);
   });
+
+  it('projects plugin-owned cards over same-block builtin-riff-sync shadows without deleting audit data', async () => {
+    const blockId = 'block-shadow-overlap';
+    const pluginXiuyuan = createXiuyuan('xy-plugin');
+    const riffXiuyuan = createXiuyuan('xy-riff');
+    pluginXiuyuan.blockIDs = [blockId];
+    pluginXiuyuan.templateID = 'builtin-quick-card';
+    pluginXiuyuan.meta = {
+      ownership: 'local-owned',
+      source: 'quick-card',
+    };
+    riffXiuyuan.blockIDs = [blockId];
+    riffXiuyuan.templateID = 'builtin-riff-sync';
+    riffXiuyuan.meta = {
+      ownership: 'riff-managed',
+      source: 'riff-sync',
+      nativeRiffCompatibility: {
+        owner: 'native-riff',
+        source: 'riff-sync',
+      },
+    };
+    const pluginCard = createDTO({
+      id: 'card-plugin',
+      xiuyuanID: pluginXiuyuan.id,
+      blockId,
+      due: 1,
+      templateID: 'builtin-quick-card',
+      meta: {
+        ownership: 'local-owned',
+        source: 'quick-card',
+        xiuyuanID: pluginXiuyuan.id,
+      },
+    });
+    const shadowCard = createDTO({
+      id: 'card-riff-shadow',
+      xiuyuanID: riffXiuyuan.id,
+      blockId,
+      due: 1,
+      templateID: 'builtin-riff-sync',
+      meta: {
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+        xiuyuanID: riffXiuyuan.id,
+      },
+    });
+
+    expect((await storage.createCardDTO(riffXiuyuan, shadowCard)).ok).toBe(true);
+    expect((await storage.createCardDTO(pluginXiuyuan, pluginCard)).ok).toBe(true);
+
+    expect(storage.getCardsByBlockId(blockId).map(card => card.id)).toEqual(['card-plugin']);
+    expect(storage.getCardByBlockId(blockId)?.id).toBe('card-plugin');
+    expect(storage.getAllCards().map(card => card.id)).toEqual(['card-plugin']);
+    expect(storage.queryCards({ blockIds: [blockId] }).map(card => card.id)).toEqual(['card-plugin']);
+    expect(storage.getDueCards(10).map(card => card.id)).toEqual(['card-plugin']);
+    expect(storage.getCardDTO('card-riff-shadow')).toMatchObject({
+      id: 'card-riff-shadow',
+      xiuyuanID: 'xy-riff',
+      blockId,
+    });
+    expect(storage.getStoreData()).toMatchObject({
+      xiuyuans: {
+        'xy-riff': { id: 'xy-riff', templateID: 'builtin-riff-sync' },
+      },
+      cardDTOs: {
+        'card-riff-shadow': { id: 'card-riff-shadow', blockId },
+      },
+      deletedCardDTOs: {},
+      deletedXiuyuans: {},
+    });
+  });
 });

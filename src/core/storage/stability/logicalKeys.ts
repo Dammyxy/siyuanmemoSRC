@@ -154,13 +154,18 @@ export function buildLogicalXiuyuanKey(
 }
 
 export function readCardFaceIndex(meta: unknown): number {
+  const faceIndex = readExplicitCardFaceIndex(meta);
+  return faceIndex ?? 0;
+}
+
+function readExplicitCardFaceIndex(meta: unknown): number | null {
   if (!isObjectRecord(meta)) {
-    return 0;
+    return null;
   }
 
   const faceIndex = readFiniteNumber(meta.faceIndex) ?? readFiniteNumber(meta.ruleIndex);
   if (faceIndex == null) {
-    return 0;
+    return null;
   }
 
   return Math.max(0, Math.floor(faceIndex));
@@ -192,9 +197,19 @@ export function buildLogicalCardKey(
           return `block:${blockId}`;
         }
         return `xiuyuan:${String(card.xiuyuanID || '').trim()}`;
-      })();
+    })();
 
-  return `${logicalXiuyuanKey}::${readCardFaceIndex(card.meta)}`;
+  const explicitFaceIndex = readExplicitCardFaceIndex(card.meta);
+  if (explicitFaceIndex !== null) {
+    return `${logicalXiuyuanKey}::face:${explicitFaceIndex}`;
+  }
+
+  const blockId = String(card.blockId || '').trim();
+  if (blockId) {
+    return `${logicalXiuyuanKey}::block:${blockId}`;
+  }
+
+  return `${logicalXiuyuanKey}::face:0`;
 }
 
 export function isManagedRiffXiuyuanRecord(xiuyuan: Pick<IXiuyuan, 'templateID' | 'meta'>): boolean {

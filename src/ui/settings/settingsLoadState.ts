@@ -78,24 +78,22 @@ export function createDefaultSettingsSchedulerConfig(): SettingsSchedulerConfigW
 }
 
 export function createDefaultSettingsRiffIntegrationState(): SettingsRiffIntegrationState {
+  const riffDefaults = DEFAULT_SETTINGS.riffIntegration!;
   return {
-    mode: 'advanced',
-    useLocalScheduler: true,
+    mode: riffDefaults.mode,
+    useLocalScheduler: riffDefaults.useLocalScheduler,
     incrementalSync: {
-      enabled: true,
-      triggers: ['plugin-start'],
-      useBlacklist: true,
+      enabled: riffDefaults.incrementalSync.enabled,
+      triggers: [...riffDefaults.incrementalSync.triggers],
+      useBlacklist: riffDefaults.incrementalSync.useBlacklist,
     },
     fullSync: {
-      enabled: true,
-      interval: 86400000,
-      cleanupBlacklist: true,
+      ...riffDefaults.fullSync,
     },
     deleteSync: {
-      enabled: true,
-      useBlacklistFallback: true,
+      ...riffDefaults.deleteSync,
     },
-    storageConflictResolution: 'merge',
+    storageConflictResolution: riffDefaults.storageConflictResolution || 'merge',
   };
 }
 
@@ -113,7 +111,7 @@ function normalizeRiffTriggerList(
         trigger === 'plugin-start' || trigger === 'browser-open',
     )
     : fallback;
-  return source.length > 0 ? source : ['plugin-start'];
+  return source;
 }
 
 export function resolveSettingsRiffTriggerSelection(
@@ -183,25 +181,37 @@ export function resolveSettingsRiffIntegrationState(input: {
     mode: riffSettings.mode === 'simple' ? 'simple' : 'advanced',
     useLocalScheduler: typeof riffSettings.useLocalScheduler === 'boolean'
       ? riffSettings.useLocalScheduler
-      : true,
+      : DEFAULT_SETTINGS.riffIntegration!.useLocalScheduler,
     incrementalSync: {
-      enabled: typeof incomingIncremental.enabled === 'boolean' ? incomingIncremental.enabled : true,
+      enabled: typeof incomingIncremental.enabled === 'boolean'
+        ? incomingIncremental.enabled
+        : DEFAULT_SETTINGS.riffIntegration!.incrementalSync.enabled,
       triggers: normalizeRiffTriggerList(
         incomingIncremental.triggers,
         input.currentRiffIntegrationConfig.incrementalSync.triggers,
       ),
-      useBlacklist: typeof incomingIncremental.useBlacklist === 'boolean' ? incomingIncremental.useBlacklist : true,
+      useBlacklist: typeof incomingIncremental.useBlacklist === 'boolean'
+        ? incomingIncremental.useBlacklist
+        : DEFAULT_SETTINGS.riffIntegration!.incrementalSync.useBlacklist,
     },
     fullSync: {
-      enabled: typeof incomingFullSync.enabled === 'boolean' ? incomingFullSync.enabled : true,
-      interval: typeof incomingFullSync.interval === 'number' ? incomingFullSync.interval : 86400000,
-      cleanupBlacklist: typeof incomingFullSync.cleanupBlacklist === 'boolean' ? incomingFullSync.cleanupBlacklist : true,
+      enabled: typeof incomingFullSync.enabled === 'boolean'
+        ? incomingFullSync.enabled
+        : DEFAULT_SETTINGS.riffIntegration!.fullSync.enabled,
+      interval: typeof incomingFullSync.interval === 'number'
+        ? incomingFullSync.interval
+        : DEFAULT_SETTINGS.riffIntegration!.fullSync.interval,
+      cleanupBlacklist: typeof incomingFullSync.cleanupBlacklist === 'boolean'
+        ? incomingFullSync.cleanupBlacklist
+        : DEFAULT_SETTINGS.riffIntegration!.fullSync.cleanupBlacklist,
     },
     deleteSync: {
-      enabled: typeof incomingDeleteSync.enabled === 'boolean' ? incomingDeleteSync.enabled : true,
+      enabled: typeof incomingDeleteSync.enabled === 'boolean'
+        ? incomingDeleteSync.enabled
+        : DEFAULT_SETTINGS.riffIntegration!.deleteSync.enabled,
       useBlacklistFallback: typeof incomingDeleteSync.useBlacklistFallback === 'boolean'
         ? incomingDeleteSync.useBlacklistFallback
-        : true,
+        : DEFAULT_SETTINGS.riffIntegration!.deleteSync.useBlacklistFallback,
     },
     storageConflictResolution: normalizeConflictResolutionStrategy(riffSettings.storageConflictResolution),
   };

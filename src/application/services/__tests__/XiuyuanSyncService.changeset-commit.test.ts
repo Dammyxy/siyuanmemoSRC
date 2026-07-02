@@ -85,6 +85,29 @@ function createManagedXiuyuan(blockId: string, meta: Record<string, unknown> = {
   return xiuyuan;
 }
 
+function createLocalOwnedXiuyuan(blockId: string, meta: Record<string, unknown> = {}): Xiuyuan {
+  const xiuyuan = must(Xiuyuan.create({
+    blockIDs: [must(BlockId.create(blockId))],
+    templateID: must(TemplateId.create('builtin-quick-card')),
+    faces: [
+      must(CardFace.create({
+        question: `local-${blockId}`,
+        answer: '',
+        questionBlockId: blockId,
+        answerBlockId: blockId,
+      })),
+    ],
+    meta: {
+      ownership: 'local-owned',
+      source: 'quick-card',
+      schedulerType: 'fsrs-v6',
+      ...meta,
+    },
+  }));
+  must(xiuyuan.createCard(0));
+  return xiuyuan;
+}
+
 function createXiuyuanRepositoryMock(): IXiuyuanRepository {
   return {
     save: vi.fn(async () => ({ ok: true, value: undefined })),
@@ -299,5 +322,54 @@ describe('XiuyuanSyncService ChangeSet commit path', () => {
       blockId: hiddenBlockId,
       riffCardId: `riff-${hiddenBlockId}`,
     }));
+  });
+
+  it('marks imported native Riff records as compatibility data without overriding local-owned scheduling truth', async () => {
+    const repository = createXiuyuanRepositoryMock();
+    const siyuanApi = createSiyuanApiMock();
+    const service = createService({ repository, siyuanApi });
+    const importBlockId = '20260301190000-import1';
+    const localOwnedBlockId = '20260301190000-local01';
+    const localOwnedXiuyuan = createLocalOwnedXiuyuan(localOwnedBlockId);
+
+    vi.mocked(siyuanApi.getRiffCards).mockResolvedValue([
+      createRiffBlock(importBlockId, 'topic'),
+      createRiffBlock(localOwnedBlockId, 'item'),
+    ]);
+    vi.mocked(repository.findByBlockId).mockImplementation(async (blockId: BlockId) => {
+      return blockId.getValue() === localOwnedBlockId
+        ? { ok: true, value: [localOwnedXiuyuan] }
+        : { ok: true, value: [] };
+    });
+    vi.mocked(repository.findAll).mockResolvedValue({
+      ok: true,
+      value: [localOwnedXiuyuan],
+    });
+
+    const result = await service.fullSync();
+
+    expect(result).toMatchObject({
+      success: true,
+      addedCount: 1,
+      updatedCount: 0,
+      skippedCount: 1,
+    });
+    expect(repository.applySyncChangeSet).toHaveBeenCalledTimes(1);
+    const changeSet = vi.mocked(repository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.creates).toHaveLength(1);
+    expect(changeSet?.creates[0]?.blockId).toBe(importBlockId);
+    expect(changeSet?.creates[0]?.xiuyuanEntity.getMeta()).toMatchObject({
+      ownership: 'riff-managed',
+      source: 'riff-sync',
+      nativeRiffCompatibility: {
+        owner: 'native-riff',
+        source: 'riff-sync',
+      },
+    });
+    expect(changeSet?.metadataUpdates.map((entry) => entry.blockId)).not.toContain(localOwnedBlockId);
+    expect(localOwnedXiuyuan.getMeta()).toMatchObject({
+      ownership: 'local-owned',
+      source: 'quick-card',
+    });
   });
 });

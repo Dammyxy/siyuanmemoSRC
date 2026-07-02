@@ -24,6 +24,10 @@ import {
   resolveBrowserCdfDiagnostic,
   type BrowserCdfDiagnosticAction,
 } from '@/application/queries/browser/shared/CdfBrowserDiagnostics';
+import {
+  formatMenuActionError,
+  wrapSafeMenuAction,
+} from '@/utils/safeMenuAction';
 
 type BrowserTranslate = (key: string, fallback: string) => string;
 
@@ -31,7 +35,7 @@ export type BrowserMenuItem = {
   icon?: string;
   label?: string;
   type?: 'separator';
-  click?: () => void;
+  click?: () => void | Promise<void>;
   submenu?: BrowserMenuItem[];
 };
 
@@ -164,6 +168,20 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
 
   function getActionLabel(action: { id: string; label: string }): string {
     return getBrowserActionLabel(action, deps.t);
+  }
+
+  function wrapBrowserMenuAction(label: string, action: () => void | Promise<void>): () => void | Promise<void> {
+    return wrapSafeMenuAction(
+      { label },
+      action,
+      {
+        fallbackLabel: deps.t('menuAction', 'Menu action'),
+        logger: deps.logger,
+        onError: async (actionLabel, error) => {
+          await deps.pushErrMsg(`${actionLabel}: ${formatMenuActionError(error, deps.t('actionFailed', 'Action failed'))}`);
+        },
+      },
+    );
   }
 
   function getReviewSubsetAction(): BrowserActionLike {
@@ -472,15 +490,16 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
     menu.addItem({
       icon: 'iconList',
       label: allInSeedPool ? sourceLabels.removeItem : sourceLabels.addItem,
-      click: () => {
-        void (async () => {
+      click: wrapBrowserMenuAction(
+        allInSeedPool ? sourceLabels.removeItem : sourceLabels.addItem,
+        async () => {
           for (const blockId of selectedIds) {
             await neuralQueue.setSeedEntry(blockId, !allInSeedPool);
           }
           await deps.refreshNeuralSubviewData();
           await deps.refreshQueueCounts();
-        })();
-      },
+        },
+      ),
     });
     menu.addItem({ type: 'separator' });
   }
@@ -517,10 +536,10 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
     sortMenu.push({
       icon: 'iconRefresh',
       label: deps.t('sortRandom', 'Random Sort'),
-      click: () => {
+      click: wrapBrowserMenuAction(deps.t('sortRandom', 'Random Sort'), () => {
         deps.logger.debug('menu click random sort');
-        void deps.applyRandomSort();
-      },
+        return deps.applyRandomSort();
+      }),
     });
 
     menu.addItem({
@@ -550,10 +569,10 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
         const submenuItems = validSubmenu.map((sub) => ({
           icon: sub.icon || 'iconMore',
           label: getActionLabel({ id: sub.id, label: sub.label }),
-          click: () => {
+          click: wrapBrowserMenuAction(getActionLabel({ id: sub.id, label: sub.label }), () => {
             deps.logger.debug('submenu clicked:', { id: sub.id, label: sub.label });
-            void handleAction(sub.id, selected, rowData);
-          },
+            return handleAction(sub.id, selected, rowData);
+          }),
         }));
 
         menu.addItem({
@@ -567,7 +586,10 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
       menu.addItem({
         icon: action.icon || 'iconMore',
         label: getActionLabel({ id: action.id, label: action.label }),
-        click: () => void handleAction(action.id, selected, rowData),
+        click: wrapBrowserMenuAction(
+          getActionLabel({ id: action.id, label: action.label }),
+          () => handleAction(action.id, selected, rowData),
+        ),
       });
     }
   }
@@ -614,7 +636,10 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
       menu.addItem({
         icon: action.icon || 'iconMore',
         label: getActionLabel({ id: action.id, label: action.label }),
-        click: () => void handleAction(action.id, selected, anchorRow),
+        click: wrapBrowserMenuAction(
+          getActionLabel({ id: action.id, label: action.label }),
+          () => handleAction(action.id, selected, anchorRow),
+        ),
       });
     }
 
@@ -644,37 +669,42 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
     menu.addItem({
       icon: 'iconRiffCard',
       label: deps.t('practiceExtract', 'Retrieval Practice'),
-      click: () => {
-        void dialogManager.openReviewDialog?.();
-      },
+      click: wrapBrowserMenuAction(
+        deps.t('practiceExtract', 'Retrieval Practice'),
+        () => dialogManager.openReviewDialog?.(),
+      ),
     });
     menu.addItem({
       icon: 'iconBook',
       label: deps.t('incrementalLearning', 'Incremental Learning'),
-      click: () => {
-        void dialogManager.openIncrementalLearningDialog?.();
-      },
+      click: wrapBrowserMenuAction(
+        deps.t('incrementalLearning', 'Incremental Learning'),
+        () => dialogManager.openIncrementalLearningDialog?.(),
+      ),
     });
     menu.addItem({
       icon: 'iconFlag',
       label: deps.t('practiceDeliberate', 'Deliberate Practice'),
-      click: () => {
-        void dialogManager.openFinalDrillDialog?.();
-      },
+      click: wrapBrowserMenuAction(
+        deps.t('practiceDeliberate', 'Deliberate Practice'),
+        () => dialogManager.openFinalDrillDialog?.(),
+      ),
     });
     menu.addItem({
       icon: 'iconRefresh',
       label: deps.t('practiceNeural', 'Neural Roam'),
-      click: () => {
-        void dialogManager.openNeuralRoamDialog?.();
-      },
+      click: wrapBrowserMenuAction(
+        deps.t('practiceNeural', 'Neural Roam'),
+        () => dialogManager.openNeuralRoamDialog?.(),
+      ),
     });
     menu.addItem({
       icon: 'iconList',
       label: deps.t('practiceFilterGroup', 'Filtered Review'),
-      click: () => {
-        void dialogManager.openFilterGroupPracticeDialog?.();
-      },
+      click: wrapBrowserMenuAction(
+        deps.t('practiceFilterGroup', 'Filtered Review'),
+        () => dialogManager.openFilterGroupPracticeDialog?.(),
+      ),
     });
 
     const target = (event?.currentTarget || event?.target) as HTMLElement | null;

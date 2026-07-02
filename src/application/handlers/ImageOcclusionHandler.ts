@@ -5,6 +5,7 @@ import { isErr } from '@/types/result';
 import { clamp01, normalizeRectFromPixels, toPercentMaskStyle } from '@/utils/imageOcclusionGeometry';
 import { applyDialogChrome } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
+import { formatMenuActionError, wrapSafeMenuAction } from '@/utils/safeMenuAction';
 
 const logger = createLogger('ImageOcclusionHandler');
 const TRACE_IMAGE_OCCLUSION = false;
@@ -228,9 +229,21 @@ export class ImageOcclusionHandler {
     menu.addItem({
       icon: 'iconImage',
       label: this.t('imageOcclusionMenuLabel', 'Create Image Occlusion Card'),
-      click: () => {
-        void this.openEditor(blockId, imageSrc);
-      },
+      click: wrapSafeMenuAction(
+        { label: this.t('imageOcclusionMenuLabel', 'Create Image Occlusion Card') },
+        () => this.openEditor(blockId, imageSrc),
+        {
+          fallbackLabel: this.t('imageOcclusionMenuLabel', 'Create Image Occlusion Card'),
+          logger,
+          onError: (_label, error) => {
+            showMessage(
+              `${this.t('imageOcclusionOpenFailed', '创建图片遮罩卡失败')}：${formatMenuActionError(error)}`,
+              5000,
+              'error',
+            );
+          },
+        },
+      ),
     });
   }
 

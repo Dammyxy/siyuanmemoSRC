@@ -5,6 +5,7 @@ import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 function createFixture(params: {
   cardsByBlockId: Record<string, FSRSCard[]>;
   subtreeRows: Array<{ id: string }>;
+  attrsByBlockId?: Record<string, Record<string, string>>;
 }) {
   const storage = {
     getCardsByBlockId: vi.fn((blockId: string) => params.cardsByBlockId[blockId] || []),
@@ -26,6 +27,11 @@ function createFixture(params: {
   const sql = vi.fn(async () => params.subtreeRows);
   const pushMsg = vi.fn(async () => undefined);
   const pushErrMsg = vi.fn(async () => undefined);
+  const getBlockAttrs = vi.fn(async (blockId: string) => params.attrsByBlockId?.[blockId] || {});
+  const setBlockAttrs = vi.fn(async () => undefined);
+  const hostBlockQuery = {
+    getSubtreeBlockIds: vi.fn(async () => params.subtreeRows.map((row) => row.id)),
+  };
   const docTreeReviewScopeService = {
     hasDoc: vi.fn(() => false),
     collectDocReviewScope: vi.fn(() => ({ cards: [], docIds: [] })),
@@ -60,12 +66,13 @@ function createFixture(params: {
       sql,
       getBlockKramdown: vi.fn().mockResolvedValue({ kramdown: '' }),
       getBlockText: vi.fn().mockResolvedValue(''),
-      getBlockAttrs: vi.fn().mockResolvedValue({}),
-      setBlockAttrs: vi.fn().mockResolvedValue(undefined),
+      getBlockAttrs,
+      setBlockAttrs,
       markBlockAsCard: vi.fn().mockResolvedValue(undefined),
       getCardBlockIds: vi.fn().mockResolvedValue([]),
       addRiffCards: vi.fn().mockResolvedValue({ name: '', size: 0 }),
     },
+    hostBlockQuery: hostBlockQuery as any,
   });
 
   return {
@@ -73,6 +80,9 @@ function createFixture(params: {
     cardService,
     sql,
     pushMsg,
+    getBlockAttrs,
+    setBlockAttrs,
+    hostBlockQuery,
   };
 }
 
@@ -145,5 +155,44 @@ describe('BlockMenuHandler cancel flashcards in subtree', () => {
     const args = cardService.deleteCards.mock.calls[0][0] as { cardIds: string[] };
     expect(new Set(args.cardIds)).toEqual(new Set(['card-parent', 'card-shared']));
     expect(args.cardIds).toHaveLength(2);
+  });
+
+  it('cleans stale Xiuyuan attrs when cancel finds no local cards', async () => {
+    const { handler, cardService, getBlockAttrs, setBlockAttrs, pushMsg } = createFixture({
+      cardsByBlockId: {},
+      subtreeRows: [{ id: 'parent' }],
+      attrsByBlockId: {
+        parent: {
+          'custom-xiuyuan-id': 'xy_parent',
+          'custom-fsrs-card-type': 'item',
+          'custom-fsrs-reading-source-doc-id': 'doc-1',
+        },
+      },
+    });
+
+    const deleteAction = resolveDeleteAction(handler, [createBlockElement('parent')]);
+    await deleteAction();
+
+    expect(cardService.deleteCards).not.toHaveBeenCalled();
+    expect(getBlockAttrs).toHaveBeenCalledWith('parent');
+    expect(setBlockAttrs).toHaveBeenCalledWith('parent', {
+      'custom-xiuyuan-id': '',
+      'custom-fsrs-card-type': '',
+    });
+    expect(pushMsg).toHaveBeenCalledWith('已清理 1 个块的残留闪卡标记，可重新制卡');
+  });
+
+  it('keeps no-card feedback when no stale attrs exist', async () => {
+    const { handler, cardService, setBlockAttrs, pushMsg } = createFixture({
+      cardsByBlockId: {},
+      subtreeRows: [{ id: 'parent' }],
+    });
+
+    const deleteAction = resolveDeleteAction(handler, [createBlockElement('parent')]);
+    await deleteAction();
+
+    expect(cardService.deleteCards).not.toHaveBeenCalled();
+    expect(setBlockAttrs).not.toHaveBeenCalled();
+    expect(pushMsg).toHaveBeenCalledWith('未找到可取消的闪卡');
   });
 });

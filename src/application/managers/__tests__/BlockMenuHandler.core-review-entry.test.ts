@@ -12,6 +12,13 @@ function createFixture(
   options?: {
     docScope?: { cards: FSRSCard[]; docIds: string[] } | null;
     hasDoc?: boolean;
+    dialogManagerOverrides?: Partial<{
+      openRetrievalPracticeWithFilter: ReturnType<typeof vi.fn>;
+      openIncrementalLearningWithFilter: ReturnType<typeof vi.fn>;
+      openTemporaryDrill: ReturnType<typeof vi.fn>;
+      openFinalDrillDialog: ReturnType<typeof vi.fn>;
+      openBrowserDialog: ReturnType<typeof vi.fn>;
+    }>;
   },
 ) {
   const storage = {
@@ -26,6 +33,7 @@ function createFixture(
     openTemporaryDrill: vi.fn().mockResolvedValue(undefined),
     openFinalDrillDialog: vi.fn().mockResolvedValue(undefined),
     openBrowserDialog: vi.fn(),
+    ...options?.dialogManagerOverrides,
   };
 
   const docTreeReviewScopeService = {
@@ -34,6 +42,20 @@ function createFixture(
     hydrate: vi.fn().mockResolvedValue(undefined),
     scheduleRebuild: vi.fn(),
     hasDoc: vi.fn(() => options?.hasDoc ?? false),
+  };
+
+  const siyuanApi = {
+    BUILTIN_DECK_ID: 'builtin',
+    CARD_ID_ATTR: 'custom-fsrs-card-id',
+    pushMsg: vi.fn().mockResolvedValue(undefined),
+    pushErrMsg: vi.fn().mockResolvedValue(undefined),
+    sql: vi.fn().mockResolvedValue([]),
+    getBlockKramdown: vi.fn().mockResolvedValue({ kramdown: '' }),
+    getBlockText: vi.fn().mockResolvedValue(''),
+    setBlockAttrs: vi.fn().mockResolvedValue(undefined),
+    markBlockAsCard: vi.fn().mockResolvedValue(undefined),
+    getCardBlockIds: vi.fn().mockResolvedValue([]),
+    addRiffCards: vi.fn().mockResolvedValue({ name: '', size: 0 }),
   };
 
   const handler = new BlockMenuHandler({
@@ -59,24 +81,14 @@ function createFixture(
       getDocTreeReviewScopeService: () => docTreeReviewScopeService,
     } as any,
     cardCreationHelper: {} as any,
-    siyuanApi: {
-      BUILTIN_DECK_ID: 'builtin',
-      CARD_ID_ATTR: 'custom-fsrs-card-id',
-      pushMsg: vi.fn().mockResolvedValue(undefined),
-      pushErrMsg: vi.fn().mockResolvedValue(undefined),
-      sql: vi.fn().mockResolvedValue([]),
-      getBlockKramdown: vi.fn().mockResolvedValue({ kramdown: '' }),
-      getBlockText: vi.fn().mockResolvedValue(''),
-      setBlockAttrs: vi.fn().mockResolvedValue(undefined),
-      markBlockAsCard: vi.fn().mockResolvedValue(undefined),
-      getCardBlockIds: vi.fn().mockResolvedValue([]),
-      addRiffCards: vi.fn().mockResolvedValue({ name: '', size: 0 }),
-    },
+    siyuanApi,
   });
 
   return {
     handler,
     dialogManager,
+    storage,
+    siyuanApi,
   };
 }
 
@@ -389,5 +401,40 @@ describe('BlockMenuHandler core review entry integration', () => {
       scopeDocIds: ['doc-1', 'doc-1-child'],
       dueOnly: false,
     });
+  });
+
+  it('contains rejected block-menu actions and reports an error instead of leaking to SiYuan', async () => {
+    const error = new Error('backend busy');
+    const now = Date.now();
+    const cardsByBlockId: Record<string, FSRSCard[]> = {
+      'block-1': [
+        { id: 'item-due', blockId: 'block-1', type: 'item', due: now - 1 } as FSRSCard,
+      ],
+    };
+    const { handler, dialogManager, siyuanApi } = createFixture(cardsByBlockId, {
+      dialogManagerOverrides: {
+        openRetrievalPracticeWithFilter: vi.fn().mockRejectedValue(error),
+      },
+    });
+
+    const menu = { addItem: vi.fn() };
+    const element = document.createElement('div');
+    element.setAttribute('data-node-id', 'block-1');
+
+    handler.handleBlockIconClick({
+      detail: {
+        menu,
+        blockElements: [element],
+      },
+    });
+
+    const submenu = menu.addItem.mock.calls[0][0].submenu as Array<{
+      label?: string;
+      click?: () => Promise<void> | void;
+    }>;
+
+    await expect(Promise.resolve(submenu[1]?.click?.())).resolves.toBeUndefined();
+    expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledTimes(1);
+    expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith(expect.stringContaining('backend busy'));
   });
 });

@@ -4,7 +4,14 @@ import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiu
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 import { CardsCreatedEvent } from '@/core/xiuyuan/domain/events';
-import { incrementRuntimePerformanceCounter } from '@/utils/runtimePerformanceDiagnostics';
+import {
+  incrementRuntimePerformanceCounter,
+  measureRuntimePerformance,
+} from '@/utils/runtimePerformanceDiagnostics';
+import {
+  resolveNativeRiffCompatibilityDecision,
+  type NativeRiffSrsAction,
+} from '@/application/policies/NativeRiffCompatibilityPolicy';
 
 interface FinalizerLogger {
   info(...args: unknown[]): void;
@@ -30,6 +37,7 @@ interface FinalizeRiffOptions {
   blockIds: string[];
   source: string;
   context?: Record<string, unknown>;
+  action?: NativeRiffSrsAction;
 }
 
 export interface FinalizeXiuyuanCreationOptions {
@@ -70,6 +78,55 @@ export function toXiuyuanCreationPayload(xiuyuan: Xiuyuan): XiuyuanCreationPaylo
   };
 }
 
+async function addRiffCardsForCreation(
+  options: {
+    siyuanApi: XiuyuanSiyuanPort;
+    logger: FinalizerLogger;
+    riff: FinalizeRiffOptions;
+    xiuyuanId?: string;
+    batchCount?: number;
+  }
+): Promise<void> {
+  const { logger, riff, siyuanApi } = options;
+  const deckId = riff.deckId || siyuanApi.BUILTIN_DECK_ID;
+  const isBatch = typeof options.batchCount === 'number';
+  try {
+    const operation = isBatch
+      ? 'riff.add-cards-batch'
+      : 'riff.add-cards-single';
+    await measureRuntimePerformance(
+      'autocard',
+      operation,
+      () => siyuanApi.addRiffCards(deckId, riff.blockIds),
+      {
+        blockCount: riff.blockIds.length,
+        deckId,
+        source: riff.source,
+      },
+    );
+    if (isBatch) {
+      logger.info('Created Xiuyuans and added to Riff:', {
+        deckId,
+        blockIds: riff.blockIds,
+        count: riff.blockIds.length,
+        source: 'batch',
+      });
+      return;
+    }
+
+    logger.info('Created Xiuyuan and added to Riff:', {
+      xiuyuanId: options.xiuyuanId,
+      blockIds: riff.blockIds,
+      source: riff.source,
+      ...(riff.context || {}),
+    });
+  } catch (error) {
+    logger.warn(isBatch
+      ? 'Failed to add batch to Riff:'
+      : 'Failed to add to Riff:', error);
+  }
+}
+
 function createCardsForXiuyuan(
   xiuyuan: Xiuyuan,
   logger: FinalizerLogger
@@ -96,29 +153,35 @@ export async function finalizeXiuyuanCreation(
     return createCardsResult as Result<XiuyuanCreationPayload>;
   }
 
-  if (riff && riff.blockIds.length > 0) {
-    const deckId = riff.deckId || siyuanApi.BUILTIN_DECK_ID;
-    try {
-      incrementRuntimePerformanceCounter('autocard', 'riff-single-calls', 1);
-      incrementRuntimePerformanceCounter('autocard', 'riff-single-blocks', riff.blockIds.length);
-      await siyuanApi.addRiffCards(deckId, riff.blockIds);
-      logger.info('Created Xiuyuan and added to Riff:', {
-        xiuyuanId: xiuyuan.getId().getValue(),
-        blockIds: riff.blockIds,
-        source: riff.source,
-        ...(riff.context || {}),
-      });
-    } catch (error) {
-      logger.warn('Failed to add to Riff:', error);
-    }
-  }
-
-  const saveResult = await xiuyuanRepository.save(xiuyuan);
+  const saveResult = await measureRuntimePerformance(
+    'autocard',
+    'storage.save-one',
+    () => xiuyuanRepository.save(xiuyuan),
+    {
+      xiuyuanId: xiuyuan.getId().getValue(),
+      source: riff?.source,
+    },
+  );
   if (!saveResult.ok) {
     return saveResult as Result<XiuyuanCreationPayload>;
   }
   incrementRuntimePerformanceCounter('autocard', 'storage-save-one-calls', 1);
   incrementRuntimePerformanceCounter('autocard', 'storage-save-one-items', 1);
+
+  if (
+    riff
+    && riff.blockIds.length > 0
+    && resolveNativeRiffCompatibilityDecision({ action: riff.action }).enabled
+  ) {
+    incrementRuntimePerformanceCounter('autocard', 'riff-single-calls', 1);
+    incrementRuntimePerformanceCounter('autocard', 'riff-single-blocks', riff.blockIds.length);
+    await addRiffCardsForCreation({
+      siyuanApi,
+      logger,
+      riff,
+      xiuyuanId: xiuyuan.getId().getValue(),
+    });
+  }
 
   incrementRuntimePerformanceCounter('autocard', 'event-single-notifications', 1);
   await eventBus.publishAll(xiuyuan.getDomainEvents());
@@ -145,7 +208,11 @@ export async function finalizeXiuyuanCreationBatch(
   const riffBlockIdsByDeck = new Map<string, string[]>();
   for (const item of items) {
     const riff = item.riff;
-    if (!riff || riff.blockIds.length === 0) {
+    if (
+      !riff
+      || riff.blockIds.length === 0
+      || !resolveNativeRiffCompatibilityDecision({ action: riff.action }).enabled
+    ) {
       continue;
     }
     const deckId = riff.deckId || siyuanApi.BUILTIN_DECK_ID;
@@ -154,28 +221,34 @@ export async function finalizeXiuyuanCreationBatch(
     riffBlockIdsByDeck.set(deckId, blockIds);
   }
 
-  for (const [deckId, blockIds] of riffBlockIdsByDeck.entries()) {
-    try {
-      incrementRuntimePerformanceCounter('autocard', 'riff-batch-calls', 1);
-      incrementRuntimePerformanceCounter('autocard', 'riff-batch-blocks', blockIds.length);
-      await siyuanApi.addRiffCards(deckId, blockIds);
-      logger.info('Created Xiuyuans and added to Riff:', {
-        deckId,
-        blockIds,
-        count: blockIds.length,
-        source: 'batch',
-      });
-    } catch (error) {
-      logger.warn('Failed to add batch to Riff:', error);
-    }
-  }
-
   const xiuyuans = items.map((item) => item.xiuyuan);
   incrementRuntimePerformanceCounter('autocard', 'storage-save-many-calls', 1);
   incrementRuntimePerformanceCounter('autocard', 'storage-save-many-items', xiuyuans.length);
-  const saveResult = await xiuyuanRepository.saveMany(xiuyuans);
+  const saveResult = await measureRuntimePerformance(
+    'autocard',
+    'storage.save-many',
+    () => xiuyuanRepository.saveMany(xiuyuans),
+    {
+      itemCount: xiuyuans.length,
+    },
+  );
   if (!saveResult.ok) {
     return saveResult as Result<XiuyuanCreationPayload[]>;
+  }
+
+  for (const [deckId, blockIds] of riffBlockIdsByDeck.entries()) {
+    incrementRuntimePerformanceCounter('autocard', 'riff-batch-calls', 1);
+    incrementRuntimePerformanceCounter('autocard', 'riff-batch-blocks', blockIds.length);
+    await addRiffCardsForCreation({
+      siyuanApi,
+      logger,
+      riff: {
+        deckId,
+        blockIds,
+        source: 'batch',
+      },
+      batchCount: items.length,
+    });
   }
 
   const batchEvent = new CardsCreatedEvent(

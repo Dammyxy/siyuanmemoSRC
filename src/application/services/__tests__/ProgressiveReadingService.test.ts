@@ -988,8 +988,7 @@ describe('ProgressiveReadingService', () => {
         isDocument: true,
       }),
     }));
-    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledTimes(1);
-    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['piece-1']);
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
 
     const stored = fileService.getStored() as {
       sessions: Record<string, {
@@ -1264,9 +1263,7 @@ describe('ProgressiveReadingService', () => {
         sourceDocId: 'doc-1',
       }),
     }));
-    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledTimes(2);
-    expect(nativeRiffApi.addRiffCards).toHaveBeenNthCalledWith(1, 'builtin-deck', ['piece-1']);
-    expect(nativeRiffApi.addRiffCards).toHaveBeenNthCalledWith(2, 'builtin-deck', ['piece-2']);
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
 
     const stored = fileService.getStored() as {
       sessions: Record<string, {
@@ -1697,7 +1694,7 @@ describe('ProgressiveReadingService', () => {
         sourceDocId: 'doc-1',
       }),
     }));
-    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['piece-2']);
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
     expect(cardService.service.updateCard).not.toHaveBeenCalled();
     expect(cardService.service.updateFSRSCard).not.toHaveBeenCalled();
   });
@@ -3359,7 +3356,7 @@ describe('ProgressiveReadingService', () => {
     expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
   });
 
-  it('rolls back split piece documents when native Riff sync fails for a new piece topic', async () => {
+  it('keeps split piece documents and local cards when native Riff is unavailable', async () => {
     const fileService = createFileServiceMock();
     const sql = createSplitTreeSqlMock([
       { id: 'h1-intro', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Intro', markdown: '# Intro', sort: '001' },
@@ -3404,12 +3401,15 @@ describe('ProgressiveReadingService', () => {
       nativeRiffApi,
     );
 
-    await expect(service.splitDocument('doc-1', 'linear')).rejects.toThrow('native riff failed');
+    await expect(service.splitDocument('doc-1', 'linear')).resolves.toEqual(expect.objectContaining({
+      pieceDocIds: ['piece-1', 'piece-2'],
+    }));
 
-    expect(cardService.service.deleteCard).toHaveBeenCalledWith({ cardId: 'card-1' });
-    expect(port.deleteBlock).toHaveBeenCalledWith('piece-1');
-    expect(port.deleteBlock).toHaveBeenCalledWith('piece-2');
-    expect(fileService.writeJSON).not.toHaveBeenCalled();
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
+    expect(cardService.service.deleteCard).not.toHaveBeenCalled();
+    expect(port.deleteBlock).not.toHaveBeenCalledWith('piece-1');
+    expect(port.deleteBlock).not.toHaveBeenCalledWith('piece-2');
+    expect(fileService.writeJSON).toHaveBeenCalled();
   });
 
   it('does not put native Riff registration on the excerpt foreground path', async () => {

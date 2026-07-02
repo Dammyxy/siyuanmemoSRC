@@ -1,6 +1,10 @@
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
+import {
+  resolveNativeRiffCompatibilityDecision,
+  type NativeRiffSrsAction,
+} from '@/application/policies/NativeRiffCompatibilityPolicy';
 import type {
   BackendTopicDerivedCommandExecuteRequest,
   BackendTopicDerivedCommandExecuteResult,
@@ -600,21 +604,19 @@ export class TopicDerivedItemService {
       throw result.error;
     }
 
-    const derivedCardId = result.value.getId().getValue();
-    try {
-      await this.nativeRiffApi.addRiffCards(this.nativeRiffApi.BUILTIN_DECK_ID, [input.derivedBlockId]);
-    } catch (error) {
-      await this.rollbackLocalCard(derivedCardId, {
-        derivedBlockId: input.derivedBlockId,
-        sourceBlockId: input.sourceBlockId,
-        parentTopicCardId: input.parentTopicCardId,
-        parentExcerptId: input.parentExcerptId || null,
-        error,
-      });
-      throw error;
-    }
+    await this.registerNativeRiffCompatibility(input.derivedBlockId);
 
-    return derivedCardId;
+    return result.value.getId().getValue();
+  }
+
+  private async registerNativeRiffCompatibility(
+    blockId: string,
+    action?: NativeRiffSrsAction,
+  ): Promise<void> {
+    if (!resolveNativeRiffCompatibilityDecision({ action }).enabled) {
+      return;
+    }
+    await this.nativeRiffApi.addRiffCards(this.nativeRiffApi.BUILTIN_DECK_ID, [blockId]);
   }
 
   private async rollbackDerivedDoc(docId: string, context: Record<string, unknown>): Promise<void> {
@@ -628,21 +630,6 @@ export class TopicDerivedItemService {
     } catch (cleanupError) {
       logger.warn('Failed to rollback derived item document after progressive item creation error', {
         docId: normalizedDocId,
-        ...context,
-        cleanupError,
-      });
-    }
-  }
-
-  private async rollbackLocalCard(cardId: string, context: Record<string, unknown>): Promise<void> {
-    try {
-      const result = await this.cardService.deleteCard({ cardId });
-      if (isErr(result)) {
-        throw result.error;
-      }
-    } catch (cleanupError) {
-      logger.warn('Failed to rollback derived item local card after native Riff sync error', {
-        cardId,
         ...context,
         cleanupError,
       });
@@ -697,7 +684,7 @@ export class TopicDerivedItemService {
         audit: {
           created: result.created,
           skipped: result.skipped,
-          nativeRiffRegistered: result.created,
+          nativeRiffRegistered: 0,
         },
         rollback: { attempted: false, status: 'not-needed' },
         progress: { state: 'succeeded', currentStep: 'completed', updatedAt: now },

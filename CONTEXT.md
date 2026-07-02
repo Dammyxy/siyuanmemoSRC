@@ -68,6 +68,14 @@ _Avoid_: AutoCard Decision Relay, AutoCard Execute Relay, local planner rules, X
 The set of SRS cards that SiYuanMemo can manage through its card identity and browser projection. Arbitrary SQL block results are candidates only after intersecting with this card universe.
 _Avoid_: treating all matching `blocks` rows as SRS Browser cards
 
+**SiYuanMemo-owned SRS**:
+The default learning system where SiYuanMemo owns card identity, scheduling truth, review history, and Browser membership.
+_Avoid_: Riff as source of truth, native deck as primary scheduler
+
+**Native Riff Compatibility**:
+Optional interoperability with SiYuan's native Riff deck for importing, registering, or rating native cards without making native Riff the scheduling authority.
+_Avoid_: mandatory Riff sync, shadow-card truth, default dual scheduling
+
 **Browser Read Model**:
 The authoritative Browser-facing read contract that resolves matched row identity, count, page hydration, row-by-ID hydration, action targets, and source-existence state for deck, query, block-ID, and queue views. It reads from the declared owner for each view and must not replace unavailable owner data with stale local queue or snapshot data.
 _Avoid_: grid cache, Browser UI state, Review projection builder, local queue fallback
@@ -123,6 +131,9 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - **AutoCard Execute Relay** chooses the backend/writer owner for AutoCard execution envelopes, but does not execute local card creation itself.
 - **AutoCard Listener Candidate Runtime** decides when transaction-derived AutoCard candidates are evaluated; **AutoCard Decision Relay** and **AutoCard Execute Relay** decide backend/writer command ownership after evaluation begins.
 - **SRS Browser Card Universe** scopes Browser filters, SQL searches, counts, and bulk operations to cards managed by SiYuanMemo.
+- **SiYuanMemo-owned SRS** owns ordinary card creation, scheduling, review history, and Browser membership.
+- **Native Riff Compatibility** may consume or update native Riff cards only as an explicit interoperability path.
+- **Native Riff Compatibility** must not create a second scheduling truth for cards already owned by **SiYuanMemo-owned SRS**.
 - A **Browser Read Model** consumes **SRS Browser Card Universe** and, for projection-backed queue views, consumes queue projection identity before hydrating Browser rows.
 - **Custom Review Surfaces** share review rendering requirements with native-like review surfaces, including supported link and reference behavior.
 - A **Semantic Session Read Model** is derived from Semantic session owner state and may consume core Semantic session projection, but it remains a read-only presentation model for Browser, Review sidebar, or session inspection callers.
@@ -139,6 +150,9 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 > **Dev:** "After rating this card 3, it has a six-minute interval. Should it still be counted as due?"
 > **Domain expert:** "It stays in the mixed SRS queue, but it is not current learning due until the six minutes pass."
 
+> **Dev:** "Should quick-card creation also add a native Riff card?"
+> **Domain expert:** "No by default. Quick-card creation belongs to SiYuanMemo-owned SRS; native Riff registration is compatibility, not the learning truth."
+
 ## Flagged Ambiguities
 
 - "due" was used to mean both **Current Learning Due** and **Today Review Due**. Resolved: learning/relearning uses exact time; review uses the current review day.
@@ -152,6 +166,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - AutoCard execute routing was ambiguous with local execution side effects. Resolved: **AutoCard Execute Relay** owns backend/follower/writer relay routing and unavailable diagnostics; local planner, Xiuyuan, and Topic-derived writes remain behind application execution runtime/services.
 - AutoCard listener retry/settle state was ambiguous with decision and execute command ownership. Resolved: **AutoCard Listener Candidate Runtime** owns candidate lifecycle timing/diagnostics only; decision/execute routing and write side effects stay outside it.
 - SRS Browser filtering was ambiguous between arbitrary block SQL and plugin-managed cards. Resolved: **SRS Browser Card Universe** is the outer scope; SQL results are intersected with it.
+- "Riff" was used to mean native card registration, import, feedback, sync, and scheduling truth. Resolved: **SiYuanMemo-owned SRS** is the default truth; **Native Riff Compatibility** is optional interoperability.
 - Browser read ownership was ambiguous between grid datasource sessions, queue projections, SQL card-universe reads, and stale local queue cards. Resolved: **Browser Read Model** owns Browser-facing matched IDs/counts/hydration and must consume the declared owner for each view.
 - Temporary and deliberate practice were described as unable to render links. Resolved: the issue belongs to **Custom Review Surface** rendering, not to those practice modes as domain concepts.
 - Semantic read assembly was ambiguous with core projection building. Resolved: **Semantic Session Read Model** names the presentation-ready read model derived from Semantic session owner state, while core projection remains the lower-level tree/path/branch derivation.
