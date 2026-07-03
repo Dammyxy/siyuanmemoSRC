@@ -108,5 +108,7 @@ export interface ReviewSessionQueueRuntime {
   rebuild(trigger: ReviewSessionRebuildTrigger): Promise<void>;
   getCounterSnapshot(): QueueCounterSnapshot | null;
   getSessionCards(): FSRSCard[];
+  appendCardsToTail?(cards: FSRSCard[]): number;
+  replaceCurrentCard?(card: FSRSCard): boolean;
   undoLast(token?: string | null): ReviewSessionUndoResult | null;
 }

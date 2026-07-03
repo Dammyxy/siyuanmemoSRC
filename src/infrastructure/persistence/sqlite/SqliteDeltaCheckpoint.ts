@@ -215,6 +215,10 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isSegmentChecksumMismatch(error: unknown): boolean {
+  return describeError(error).startsWith('SQLite delta segment checksum mismatch:');
+}
+
 function emptyManifest(updatedAt = 0): SqliteDeltaSegmentManifest {
   return {
     version: SQLITE_DELTA_LOG_VERSION,
@@ -684,6 +688,15 @@ function uniqueSegmentEntriesByPath(entries: SqliteDeltaSegmentManifestEntry[]):
     byPath.set(entry.path, entry);
   }
   return Array.from(byPath.values()).sort((left, right) => left.sequence - right.sequence);
+}
+
+function manifestReadSignature(manifest: SqliteDeltaSegmentManifest): string {
+  return JSON.stringify({
+    openSegment: manifest.openSegment,
+    sealedSegments: manifest.sealedSegments,
+    checkpoint: manifest.checkpoint ?? null,
+    nextSequence: manifest.nextSequence,
+  });
 }
 
 function normalizeChange(value: unknown, entryIndex: number, changeIndex: number): SqliteDeltaChange {
@@ -1463,6 +1476,21 @@ export class SqliteDeltaCheckpointLayer {
 
   private async readSnapshot(): Promise<SqliteDeltaLogSnapshot> {
     const manifest = await this.readManifest();
+    try {
+      return await this.readSnapshotFromManifest(manifest);
+    } catch (error) {
+      if (!isSegmentChecksumMismatch(error)) {
+        throw error;
+      }
+      const refreshedManifest = await this.readManifest();
+      if (manifestReadSignature(refreshedManifest) === manifestReadSignature(manifest)) {
+        throw error;
+      }
+      return this.readSnapshotFromManifest(refreshedManifest);
+    }
+  }
+
+  private async readSnapshotFromManifest(manifest: SqliteDeltaSegmentManifest): Promise<SqliteDeltaLogSnapshot> {
     const segmentRefs = [
       ...manifest.sealedSegments,
       ...(manifest.openSegment ? [manifest.openSegment] : []),

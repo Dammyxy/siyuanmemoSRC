@@ -149,6 +149,30 @@ describe('FileService', () => {
     expect(sources).toEqual([]);
   });
 
+  it('treats missing SiYuan sync conflict root as no conflict sources', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as { path?: string };
+      if (body.path === '/temp/repo/sync/conflicts') {
+        return {
+          ok: false,
+          status: 404,
+          json: async () => ({ code: 404, msg: 'file does not exist', data: null }),
+        } as Response;
+      }
+      return {
+        ok: false,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+
+    await expect(service.readSyncConflictDatabaseSources()).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledWith('/api/file/readDir', expect.objectContaining({
+      body: JSON.stringify({ path: '/temp/repo/sync/conflicts' }),
+    }));
+  });
+
   it('reads the sqlite projection database from workspace temp instead of plugin petal storage', async () => {
     const dbBytes = new Uint8Array([
       ...Array.from(new TextEncoder().encode('SQLite format 3')),

@@ -136,6 +136,119 @@ describe('UnifiedQueueStrategy appendCardsToTail', () => {
     strategy.cleanup();
   });
 
+  it('keeps incremental-learning runtime and cursor aligned after appending new scope cards', async () => {
+    const firstCard = createCard('card-1', 'block-1');
+    const secondCard = createCard('card-2', 'block-2');
+    const thirdCard = createCard('card-3', 'block-3');
+    let liveCards = [firstCard];
+    const queue = {
+      getType: () => QueueType.IncrementalLearning,
+      getCards: vi.fn(async () => liveCards),
+      getCounterSnapshot: vi.fn(async () => createCounterSnapshot(liveCards.length)),
+      handleReview: vi.fn(async (cardId: string, rating: number) => {
+        liveCards = liveCards.filter((card) => card.id !== cardId);
+        return {
+          cardId,
+          rating,
+          removedFromQueue: true,
+          remainsInQueue: false,
+          queueChanged: true,
+          requiresCurrentViewReorder: false,
+          counterSnapshot: createCounterSnapshot(liveCards.length),
+        };
+      }),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+
+    const strategy = new UnifiedQueueStrategy(
+      queue as any,
+      {
+        getCard: vi.fn(async (cardId: string) => liveCards.find((card) => card.id === cardId) ?? null),
+        getCards: vi.fn(async () => liveCards),
+      } as any,
+      new EventBus(false),
+      null,
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+
+    liveCards = [firstCard, secondCard, thirdCard];
+    expect(strategy.appendCardsToTail([secondCard, thirdCard])).toBe(2);
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 3, commitIdempotencyKey: 'grade-card-1' });
+
+    const next = await strategy.next();
+    expect(next?.id).toBe(secondCard.id);
+    await expect(strategy.onFeedback(next, { action: 'rate', rating: 3, commitIdempotencyKey: 'grade-card-2' }))
+      .resolves
+      .toBeUndefined();
+
+    strategy.cleanup();
+  });
+
+  it('accepts feedback for the refreshed visible card after review-open repair changes its fingerprint', async () => {
+    const originalCard = createCard('card-1', 'block-1');
+    const refreshedCard = {
+      ...originalCard,
+      updatedAt: originalCard.updatedAt + 1000,
+      meta: {
+        ...originalCard.meta,
+        xiuyuanID: 'xy-card-1',
+      },
+    };
+    let liveCards = [originalCard];
+    const queue = {
+      getType: () => QueueType.IncrementalLearning,
+      getCards: vi.fn(async () => liveCards),
+      getCounterSnapshot: vi.fn(async () => createCounterSnapshot(liveCards.length)),
+      handleReview: vi.fn(async (cardId: string, rating: number) => {
+        liveCards = liveCards.filter((card) => card.id !== cardId);
+        return {
+          cardId,
+          rating,
+          removedFromQueue: true,
+          remainsInQueue: false,
+          queueChanged: true,
+          requiresCurrentViewReorder: false,
+          counterSnapshot: createCounterSnapshot(liveCards.length),
+        };
+      }),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+
+    const strategy = new UnifiedQueueStrategy(
+      queue as any,
+      {
+        getCard: vi.fn(async (cardId: string) => liveCards.find((card) => card.id === cardId) ?? null),
+        getCards: vi.fn(async () => liveCards),
+      } as any,
+      new EventBus(false),
+      null,
+      {
+        refreshCdfLiveRelationOnOpen: vi.fn(async () => ({ updatedCard: refreshedCard })),
+      },
+    );
+
+    const visible = await strategy.next();
+
+    expect(visible).toMatchObject({
+      id: refreshedCard.id,
+      updatedAt: refreshedCard.updatedAt,
+    });
+    await expect(strategy.onFeedback(visible!, {
+      action: 'rate',
+      rating: 3,
+      commitIdempotencyKey: 'grade-refreshed-card',
+    }))
+      .resolves
+      .toBeUndefined();
+
+    strategy.cleanup();
+  });
+
   it('restores a serialized review-tab session snapshot and continues from the next queued card', async () => {
     const initialCards = [
       createCard('card-1', 'block-1'),

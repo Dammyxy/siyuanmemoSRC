@@ -1,8 +1,68 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-03 (Round 649)
+Last update: 2026-07-03 (Round 654)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-03 - Review refreshed current-card runtime sync
+
+- Task: Diagnose and fix incremental-learning review failure `REVIEW_SESSION_RUNTIME_CONFLICT: current-card-stale`, plus reduce repeated queue-load storage repair work reported by live logs.
+- Touched slice: Review session runtime and current-card hydration in `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/{ReviewSessionQueueRuntime.ts,SrsV2SessionQueueRuntime.ts}`, focused Review regressions in `src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts`, and Xiuyuan canonical storage repair in `src/core/storage/UnifiedStorageManager.ts` with `src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts`.
+- Debt fixed now: Runtime-backed Review sessions now replace the runtime current card when review-open/hydration repair returns an authoritative refreshed visible card, so stale fingerprint checks still protect unrelated mutations without rejecting the card the UI just displayed. Missing-Xiuyuan binding repair now rewrites the renamed Xiuyuan metadata (`xiuyuanID` and `cardIds`) with the target ID, so the repaired snapshot persists cleanly and later queue loads do not keep repairing the same renamed binding.
+- Debt deferred: Live SiYuan click-through timing was not run in this pass, and first canonicalization of an already-broken snapshot can still perform both local and remote repair work before the fixed snapshot is persisted.
+- Why deferred: This patch fixes the active root causes in Review runtime and storage canonicalization; live timing depends on the user's open SiYuan runtime, while eliminating the initial double canonicalization would require broader storage conflict-check restructuring.
+- Next safe step: Reopen incremental-learning review in SiYuan, grade the previously failing card, then reopen the queue once more to confirm no repeated `Normalized cards with missing Xiuyuan bindings` spam and no `current-card-stale`.
+- Validation: Focused Review/storage regressions passed; wider Review queue/session/UI and storage tests passed; `pnpm run check:boundaries` and `pnpm build` passed.
+
+### 2026-07-03 - Review SRS v2 tail append session sync
+
+- Task: Diagnose and fix Review failure `REVIEW_SESSION_RUNTIME_CONFLICT: current-card-mismatch` during incremental-learning review.
+- Touched slice: Review queue/session runtime in `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/{ReviewSessionQueueRuntime.ts,SrsV2SessionQueueRuntime.ts}`, and focused queue append regression in `src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts`.
+- Debt fixed now: Mid-session appended scope cards now enter the SRS v2 session runtime, not only the legacy cursor cache. `UnifiedQueueStrategy.appendCardsToTail()` delegates to the runtime for incremental-learning/retrieval-practice sessions and then syncs the cursor snapshot from the same runtime authority, preventing UI current card and runtime current card from diverging before the next grade.
+- Debt deferred: No live SiYuan click-through smoke was run in this pass, and broader review observer refresh behavior remains unchanged.
+- Why deferred: The bug root was the bounded queue/session append seam; live smoke needs the user’s running SiYuan environment, while observer redesign would widen beyond the failing Review slice.
+- Next safe step: Reopen incremental-learning review in SiYuan, create or append cards mid-session, then grade several cards to confirm no `current-card-mismatch` appears.
+- Validation: Focused regression and runtime tests passed; wider Review queue/session tests passed; `pnpm run check:boundaries` and `pnpm build` passed.
+
+### 2026-07-03 - Backend worker host-effect timeout guard
+
+- Task: Diagnose plugin open failure where backend Worker requests timed out and SiYuan could not exit cleanly.
+- Touched slice: Backend Worker browser transport in `src/application/clients/BrowserSrsBackendWorkerTransport.ts`, conflict-source file adapter in `src/infrastructure/services/FileService.ts`, and focused tests for both.
+- Debt fixed now: Host effects now have an explicit transport-side deadline, so a hung renderer/Siyuan file or truth effect returns a `BACKEND_UNAVAILABLE` host-effect failure to the worker instead of leaving the worker request pending until the outer 30s request timeout. Missing/unreadable sync conflict root is treated as no conflict sources for the conflict-source read path.
+- Debt deferred: This does not complete manual SiYuan smoke for `stabilize-review-durability-segments` task 6.6 and does not add richer live storage repair UI.
+- Why deferred: User will run live smoke. This patch only prevents the backend request path from hanging indefinitely and keeps unavailable state explicit.
+- Next safe step: Rebuild plugin, reopen SiYuan, then retry browser/review entry; if unavailable remains, use the new faster host-effect error to identify the exact failing effect.
+- Validation: Focused transport and FileService tests run; boundary/build checks run below.
+
+### 2026-07-03 - Review storage envelope and policy catalog deepening
+
+- Task: Implement `deepen-review-storage-policy-modules` to finish the two storage locality debts selected after the storage architecture pass.
+- Touched slice: Review feedback storage envelope in `worker/review/ReviewFeedbackStorageEnvelope.ts`, worker delegation in `worker/db/SqliteDatabaseService.ts`, contract storage catalog in `packages/contracts/src/backend-rpc/storage-policy-catalog.ts`, compatibility exports in `packages/contracts/src/backend-rpc.ts`, focused envelope/contract tests, `ARCHITECTURE.md`, and OpenSpec change artifacts.
+- Debt fixed now: `review.feedback` storage-state assembly no longer lives inline in the broad worker DB module. The envelope module owns journal diagnostics, SQLite delta diagnostic read/wrap, queue-impact status mapping, and `BackendReviewFeedbackStorageState` shaping while worker mutation ownership stays with journal append/mark, truth candidate creation, SQL projection writes, and persistence. MessagePack truth family policies, SQL projection schemas, and storage slimming policy declarations now live in a contract-only catalog while `backend-rpc.ts` keeps import compatibility.
+- Debt deferred: Richer storage repair UI/commands, old root-level SQLite delta cleanup, and broader worker DB facade splitting remain deferred. The prior bootstrap deferral for Review feedback envelope extraction is now handled by this change.
+- Why deferred: This slice deepens locality without changing storage authority: durable truth stays MessagePack truth plus SQLite delta, `siyuanmemo.db` remains rebuildable temp projection, and backend RPC method/request/response shapes remain stable.
+- Next safe step: If storage diagnostics keep surfacing live repair needs, add an explicit storage repair command/UI; otherwise split another worker DB facade only after a fresh bounded architecture pass.
+- Validation: Focused envelope + contract tests passed; final OpenSpec, worker Review/storage, hidden-fallback, boundary, build, and diff checks run below.
+
+### 2026-07-03 - Storage bootstrap runtime deepening
+
+- Task: Create and implement `deepen-storage-bootstrap-runtime` so worker startup storage bootstrap has locality without changing the active storage model.
+- Touched slice: Worker storage startup in `worker/db/StorageBootstrapRuntime.ts`, `worker/db/SqliteDatabaseService.ts`, focused bootstrap tests, `ARCHITECTURE.md`, and OpenSpec change artifacts.
+- Debt fixed now: Extracted projection startup probing, ignored legacy petal DB diagnostics, MessagePack truth target discovery/replay, truth-without-receipt reconciliation, projection rebuild decisions, and invalid persisted projection reinitialization ordering behind a focused bootstrap runtime. `WorkerSqliteDatabaseService` now delegates startup bootstrap while retaining SQL runtime/repository/rebuild/persist authority through explicit callbacks.
+- Debt deferred: Richer storage repair UI/commands, old root-level SQLite delta file cleanup, and broader worker DB facade splitting remain deferred; Review feedback journal envelope extraction is handled by `deepen-review-storage-policy-modules`.
+- Why deferred: This change intentionally deepens one active startup seam while preserving the settled design: durable truth stays MessagePack truth plus SQLite delta, and `siyuanmemo.db` remains a rebuildable temp projection.
+- Next safe step: Add a storage repair command or split another worker DB facade only after a fresh architecture pass identifies that slice as the next highest-locality debt.
+- Validation: Focused bootstrap runtime tests pass; final OpenSpec, worker/storage, hidden-fallback, boundary, build, and diff checks run below.
+
+### 2026-07-03 - SQLite delta open-segment read-window retry
+
+- Task: Diagnose live `SQLite delta segment checksum mismatch` logs and fix the narrow recovery gap without redesigning storage.
+- Touched slice: SQLite delta checkpoint replay in `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, focused SQLite delta tests in `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, and live storage inspection under `H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo`.
+- Debt fixed now: Confirmed the active storage scheme is live (`sqlite-delta/v2/` manifest/open/sealed files are being written, with temp `siyuanmemo.db` as volatile projection). Added one retry when a segment checksum mismatch occurs and a refreshed manifest differs from the first manifest read, covering the real open-segment rewrite window where bytes update before manifest. True unchanged-manifest corruption still fails closed or uses the existing durable-checkpoint cleanup path.
+- Debt deferred: No broad storage redesign. Legacy root-level `sqlite-delta-log.v2.sealed-*` files, old review truth device directories, and richer live repair UI/command remain deferred.
+- Why deferred: The live file check showed the scheme is active and the reported open segment now matches its manifest checksum, so the bug is a transient read-window gap, not proof that the storage model is invalid.
+- Next safe step: Add a diagnostic/repair command only if real logs keep showing persistent unchanged-manifest checksum mismatch after this retry.
+- Validation: Focused red/green `open-segment` test added; final storage, worker, boundary, build, and diff checks run below.
 
 ### 2026-07-03 - Review concept reference document search
 

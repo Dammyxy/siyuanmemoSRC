@@ -312,6 +312,26 @@ export class SqlQueueProjectionRepository implements QueueProjectionRepositoryPo
     return row ? rowToGeneration(row) : null;
   }
 
+  listReadyGenerations(queueType: QueueType): QueueProjectionGeneration[] {
+    const rows = this.database.getAll<QueueProjectionGenerationRecord>(
+      `SELECT c.queue_type,
+              c.policy_hash,
+              c.generation,
+              COALESCE(g.status, 'ready') AS status,
+              g.rebuild_reason,
+              c.updated_at,
+              COALESCE(g.metadata_json, '{}') AS metadata_json
+       FROM queue_projection_counters c
+       LEFT JOIN queue_projection_generations g
+         ON g.queue_type = c.queue_type
+       WHERE c.queue_type = ?
+         AND COALESCE(g.status, 'ready') = ?
+       ORDER BY c.updated_at DESC, c.generation DESC, c.policy_hash ASC`,
+      [queueType, 'ready'],
+    );
+    return rows.map(rowToGeneration);
+  }
+
   readLastReadyGeneration(queueType: QueueType): QueueProjectionGeneration | null {
     return readLastReadyGenerationMetadata(this.readGeneration(queueType));
   }

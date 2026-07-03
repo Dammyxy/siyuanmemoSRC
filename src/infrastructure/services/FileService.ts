@@ -521,7 +521,19 @@ export class FileService implements IFileService {
     const conflictRoot = '/temp/repo/sync/conflicts';
     const pluginStoragePath = `${getPluginDataPath(this.plugin.name)}/siyuanmemo.db`
       .replace(/^\/data(?=\/)/, '');
-    const conflictEntries = await this.readDir(conflictRoot);
+    let conflictEntries: ReadDirEntry[];
+    try {
+      conflictEntries = await this.readDir(conflictRoot);
+    } catch (error) {
+      if (this.isFileNotFoundError(error)) {
+        return [];
+      }
+      logger.warn('[FileService] Failed to read SiYuan sync conflict root; treating as no conflict sources', {
+        conflictRoot,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
     const sources: Array<{ sourceId: string; bytes: Uint8Array }> = [];
 
     for (const entry of conflictEntries) {

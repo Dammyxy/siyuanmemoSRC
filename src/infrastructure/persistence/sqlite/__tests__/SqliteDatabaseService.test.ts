@@ -75,6 +75,24 @@ class MemorySqliteFileService implements JsonFileService {
   }
 }
 
+class OpenSegmentReadWindowFileService extends MemorySqliteFileService {
+  pendingManifestAfterOpenRead: unknown | null = null;
+  patchedManifestAfterOpenRead = false;
+
+  async readBinary(fileName: string): Promise<Uint8Array | null> {
+    const bytes = await super.readBinary(fileName);
+    if (
+      fileName === SQLITE_DELTA_V2_OPEN_SEGMENT
+      && this.pendingManifestAfterOpenRead
+      && !this.patchedManifestAfterOpenRead
+    ) {
+      this.patchedManifestAfterOpenRead = true;
+      this.json.set(SQLITE_DELTA_V2_MANIFEST, structuredClone(this.pendingManifestAfterOpenRead));
+    }
+    return bytes;
+  }
+}
+
 class SplitProjectionSqliteFileService implements JsonFileService {
   readonly json: Map<string, unknown>;
   readonly durableBinary: Map<string, Uint8Array>;
@@ -149,6 +167,32 @@ function readPrimaryKeyColumns(database: SqliteDatabaseService, tableName: strin
     .filter((column) => Number(column.pk) > 0)
     .sort((left, right) => Number(left.pk) - Number(right.pk))
     .map((column) => column.name);
+}
+
+function insertReviewEventForSqliteDeltaWindow(
+  database: SqliteDatabaseService,
+  id: string,
+  reviewedAt: number,
+): Promise<void> {
+  return database.runTransaction('review.feedback', (db) => {
+    db.run(
+      `INSERT INTO review_events
+        (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        `card-${id}`,
+        `attempt-${id}`,
+        3,
+        reviewedAt,
+        `commit-${id}`,
+        2026,
+        7,
+        'review-v2',
+        '{}',
+      ],
+    );
+  });
 }
 
 describe('SqliteDatabaseService', () => {
@@ -775,6 +819,35 @@ describe('SqliteDatabaseService', () => {
       fileName: SQLITE_DELTA_V2_MANIFEST,
       pendingCount: 1,
     });
+  });
+
+  it('retries a sqlite delta open-segment read when manifest lags a rewritten open file', async () => {
+    const fileService = new OpenSegmentReadWindowFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    await insertReviewEventForSqliteDeltaWindow(database, 'event-open-window-1', 1_783_060_000_001);
+    const staleManifest = structuredClone(fileService.json.get(SQLITE_DELTA_V2_MANIFEST));
+    await insertReviewEventForSqliteDeltaWindow(database, 'event-open-window-2', 1_783_060_000_002);
+    const currentManifest = structuredClone(fileService.json.get(SQLITE_DELTA_V2_MANIFEST));
+
+    fileService.json.set(SQLITE_DELTA_V2_MANIFEST, staleManifest);
+    fileService.pendingManifestAfterOpenRead = currentManifest;
+
+    const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await reloaded.init();
+
+    expect(reloaded.getOne<{ id: string }>(
+      'SELECT id FROM review_events WHERE id = ?',
+      ['event-open-window-2'],
+    )).toEqual({ id: 'event-open-window-2' });
   });
 
   it('excludes queue projection cache from review feedback sqlite delta while retaining canonical writes', async () => {

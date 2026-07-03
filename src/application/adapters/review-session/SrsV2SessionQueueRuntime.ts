@@ -247,6 +247,65 @@ export class SrsV2SessionQueueRuntime implements ReviewSessionQueueRuntime {
     ].map(cloneCard);
   }
 
+  appendCardsToTail(cards: FSRSCard[]): number {
+    if (!Array.isArray(cards) || cards.length === 0) {
+      return 0;
+    }
+
+    const existingCardIds = new Set(
+      [
+        ...(this.currentCard ? [this.currentCard] : []),
+        ...this.learningQueue.map((entry) => entry.card),
+        ...this.mainQueue.map((entry) => entry.card),
+      ]
+        .map((card) => normalizeId(card.id))
+        .filter(Boolean),
+    );
+    const previous = this.counterSnapshot
+      ?? this.buildCounterSnapshot(this.mainQueue.length + this.learningQueue.length);
+    let appendedCount = 0;
+
+    for (const card of cards) {
+      const cardId = normalizeId(card.id);
+      if (!cardId || existingCardIds.has(cardId) || !this.profile.isEligible(card)) {
+        continue;
+      }
+      existingCardIds.add(cardId);
+      this.mainQueue.push(this.toEntry(card, 'main'));
+      appendedCount += 1;
+    }
+
+    if (appendedCount > 0) {
+      const remaining = Math.max(0, Number(previous.remaining) || 0) + appendedCount;
+      this.counterSnapshot = {
+        ...previous,
+        remaining,
+        due: Math.max(0, Number(previous.due) || 0) + appendedCount,
+        total: typeof previous.total === 'number' ? Math.max(0, previous.total) + appendedCount : previous.total,
+        buckets: {
+          ...previous.buckets,
+          all: Math.max(0, Number(previous.buckets.all) || 0) + appendedCount,
+        },
+        source: 'hot',
+      };
+      this.loaded = true;
+      this.loadedReviewDayKey = this.currentReviewDayKey();
+    }
+
+    return appendedCount;
+  }
+
+  replaceCurrentCard(card: FSRSCard): boolean {
+    const currentId = normalizeId(this.currentCard?.id);
+    const replacementId = normalizeId(card.id);
+    if (!currentId || !replacementId || currentId !== replacementId) {
+      return false;
+    }
+
+    this.currentCard = cloneCard(card);
+    return true;
+  }
+
   reset(): void {
     this.mainQueue = [];
     this.learningQueue = [];

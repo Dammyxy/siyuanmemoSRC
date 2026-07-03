@@ -339,12 +339,54 @@ describe('UnifiedStorageManager sync conflict resolution', () => {
     expect(remoteStore.xiuyuans['xy-old']).toBeUndefined();
     expect(remoteStore.cardDTOs?.['card-a']?.xiuyuanID).toBe('xy-target');
     expect(remoteStore.cards?.['card-a']?.meta?.xiuyuanID).toBe('xy-target');
+    expect(remoteStore.xiuyuans['xy-target']?.meta).toMatchObject({
+      xiuyuanID: 'xy-target',
+      cardIds: ['card-a'],
+    });
 
     savedStores = [];
     const secondSaveResult = await manager.save();
 
     expect(secondSaveResult.ok).toBe(true);
     expect(savedStores).toHaveLength(0);
+  });
+
+  it('does not re-repair renamed Xiuyuan bindings across repeated loads', async () => {
+    remoteStore = {
+      ...createEmptyStore(),
+      xiuyuans: {
+        'xy-old': {
+          ...createXiuyuan('xy-old'),
+          blockIDs: ['block-shared'],
+          fields: [{ name: 'content', blockID: 'block-shared' }],
+        },
+      },
+      cardDTOs: {
+        'card-a': createDTO('card-a', 'xy-target', {
+          blockId: 'block-shared',
+          frontBlockIDs: ['block-shared'],
+          meta: {
+            xiuyuanID: 'xy-target',
+          },
+        }),
+      },
+    };
+    const firstManager = createManager('merge');
+    expect((await firstManager.load()).ok).toBe(true);
+    savedStores = [];
+    expect((await firstManager.save()).ok).toBe(true);
+    expect(savedStores).toHaveLength(1);
+
+    const secondManager = createManager('merge');
+    expect((await secondManager.load()).ok).toBe(true);
+    savedStores = [];
+    expect((await secondManager.save()).ok).toBe(true);
+
+    expect(savedStores).toHaveLength(0);
+    expect(secondManager.getStoreData().xiuyuans['xy-target']?.meta).toMatchObject({
+      xiuyuanID: 'xy-target',
+      cardIds: ['card-a'],
+    });
   });
 
   it('canonicalizes the same persisted snapshot deterministically across loads', async () => {

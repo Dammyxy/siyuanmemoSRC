@@ -30,6 +30,7 @@ import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnost
 
 const logger = createLogger('BrowserSrsBackendWorkerTransport');
 const REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS = 120;
+const DEFAULT_HOST_EFFECT_TIMEOUT_MS = 5_000;
 const LONG_BACKEND_COMMAND_REQUEST_TIMEOUT_MS = 300_000;
 const LONG_BACKEND_COMMAND_METHODS = new Set<string>([
   'storage.projection.rebuild',
@@ -94,6 +95,7 @@ export interface BrowserSrsBackendWorkerTransportOptions {
   hostEffects: BrowserSrsBackendWorkerHostEffects;
   startupTimeoutMs?: number;
   requestTimeoutMs?: number;
+  hostEffectTimeoutMs?: number;
   probeTimeoutMs?: number;
   maxRestartAttempts?: number;
   restartBackoffMs?: number;
@@ -410,7 +412,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
 
   private async handleHostEffect(effectId: string, effect: BackendWorkerHostEffect): Promise<void> {
     try {
-      const result = await this.executeHostEffect(effect);
+      const result = await this.executeHostEffectWithDeadline(effect);
       this.postToWorker({
         kind: 'host-effect-result',
         effectId,
@@ -430,6 +432,24 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         },
       });
     }
+  }
+
+  private executeHostEffectWithDeadline(effect: BackendWorkerHostEffect): Promise<unknown> {
+    const timeoutMs = this.hostEffectTimeoutMs;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(unavailable(`backend worker host effect ${effect.kind} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+    return Promise.race([
+      this.executeHostEffect(effect),
+      deadline,
+    ]).finally(() => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    });
   }
 
   private async executeHostEffect(effect: BackendWorkerHostEffect): Promise<unknown> {
@@ -1010,6 +1030,10 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
 
   private get requestTimeoutMs(): number {
     return Math.max(1, Math.floor(Number(this.options.requestTimeoutMs ?? 30_000)));
+  }
+
+  private get hostEffectTimeoutMs(): number {
+    return Math.max(1, Math.floor(Number(this.options.hostEffectTimeoutMs ?? DEFAULT_HOST_EFFECT_TIMEOUT_MS)));
   }
 
   private resolveRequestTimeoutMs(request: BackendRpcRequest): number {

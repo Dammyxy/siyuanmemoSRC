@@ -206,6 +206,7 @@ function createDeps(entries: unknown[] = []): ReviewJournalProjectionReconcilerD
     },
     queueProjection: {
       readGeneration: vi.fn(() => createGeneration()),
+      listReadyGenerations: vi.fn(() => [createGeneration()]),
       readCounters: vi.fn(() => createCounters()),
       readRows: vi.fn(() => []),
       replaceQueueProjection: vi.fn(),
@@ -284,13 +285,54 @@ describe('ReviewJournalProjectionReconciler', () => {
     expect(deps.queueProjection?.replaceQueueProjection).toHaveBeenCalledWith(expect.objectContaining({
       queueType: QueueType.IncrementalLearning,
       policyHash: 'policy-a',
-      generation: 2,
+      generation: 3,
       rows: [],
       metadata: expect.objectContaining({
         reason: 'review-feedback-journal-reconciliation',
         source: 'review-feedback-journal',
         reconciledCardIds: ['card-1'],
         reconciledBlockIds: ['block-1'],
+      }),
+    }));
+  });
+
+  it('rebuilds every ready policy for the queue when stale reviewed rows exist across policies', async () => {
+    const entry = createJournalEntry({ status: 'truth-flushed', projectionPolicyHash: 'policy-a' });
+    const deps = createDeps([entry]);
+    const policyARow = createProjectionRow();
+    const policyBRow: QueueProjectionRow = {
+      ...createProjectionRow(),
+      rowId: 'policy-b-row',
+      policyHash: 'policy-b',
+    };
+    vi.mocked(deps.queueProjection!.listReadyGenerations).mockReturnValue([
+      createGeneration({ policyHash: 'policy-a' }),
+      createGeneration({ policyHash: 'policy-b' }),
+    ]);
+    vi.mocked(deps.queueProjection!.readRows).mockImplementation((query) => {
+      if (query.policyHash === 'policy-a') {
+        return [policyARow];
+      }
+      if (query.policyHash === 'policy-b') {
+        return [policyBRow];
+      }
+      return [policyARow, policyBRow];
+    });
+
+    await new ReviewJournalProjectionReconciler(deps).reconcile();
+
+    expect(deps.queueProjection?.replaceQueueProjection).toHaveBeenCalledTimes(2);
+    expect(deps.queueProjection?.replaceQueueProjection).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.IncrementalLearning,
+      policyHash: 'policy-a',
+      rows: [],
+    }));
+    expect(deps.queueProjection?.replaceQueueProjection).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.IncrementalLearning,
+      policyHash: 'policy-b',
+      rows: [],
+      metadata: expect.objectContaining({
+        reconciledCardIds: ['card-1'],
       }),
     }));
   });

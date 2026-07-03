@@ -796,6 +796,45 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('posts host-effect timeout failures before backend request deadlines expire', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {
+        readSyncConflictDatabaseSources: () => new Promise(() => undefined),
+      },
+      hostEffectTimeoutMs: 20,
+      requestTimeoutMs: 100,
+      maxRestartAttempts: 0,
+    });
+
+    worker.emit({ kind: 'ready' });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-hangs',
+      effect: {
+        kind: 'sqlite.readSyncConflictDatabaseSources',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(20);
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(worker.posted[0]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-hangs',
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: backend worker host effect sqlite.readSyncConflictDatabaseSources timed out after 20ms',
+      },
+    });
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'healthy',
+      requestTimeouts: 0,
+    }));
+    transport.dispose();
+  });
+
   it('routes truth segment host effects through explicit truth handlers', async () => {
     const worker = new FakeWorker();
     const readTruthJSON = vi.fn(async () => ({ version: 1 }));

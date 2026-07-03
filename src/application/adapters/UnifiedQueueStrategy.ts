@@ -322,6 +322,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     if (!cardWithNextDues) {
                         return await this.next();
                     }
+                    this.srsV2SessionQueueRuntime.replaceCurrentCard?.(cardWithNextDues);
                     this.setCurrentItem(cardWithNextDues);
                     this.syncCursorFromSrsV2Runtime();
                     if (this.pendingSrsV2CounterSnapshot) {
@@ -340,6 +341,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 if (!cardWithNextDues) {
                     return await this.next();
                 }
+                this.srsV2SessionQueueRuntime.replaceCurrentCard?.(cardWithNextDues);
                 this.setCurrentItem(cardWithNextDues);
                 this.syncCursorFromSrsV2Runtime();
                 return cardWithNextDues;
@@ -643,11 +645,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
         const currentCard = await this.hydrateNeuralRoamVirtualDocumentCard(authorityCard);
         if (!this.shouldComputeNextDues(currentCard)) {
+            this.srsV2SessionQueueRuntime?.replaceCurrentCard?.(currentCard);
             this.setCurrentItem(currentCard);
             return currentCard;
         }
 
         const cardWithNextDues = await this.addNextDues(currentCard);
+        this.srsV2SessionQueueRuntime?.replaceCurrentCard?.(cardWithNextDues);
         this.setCurrentItem(cardWithNextDues);
         return cardWithNextDues;
     }
@@ -1451,9 +1455,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     appendCardsToTail(cards: FSRSCard[]): number {
-        const appendedCount = this.cursor.appendCardsToTail(cards);
+        const appendedCount = this.srsV2SessionQueueRuntime?.appendCardsToTail(cards)
+            ?? this.cursor.appendCardsToTail(cards);
         if (appendedCount === 0) {
             return 0;
+        }
+
+        if (this.srsV2SessionQueueRuntime) {
+            this.syncCursorFromSrsV2Runtime();
         }
 
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Appended cards to tail without resetting session pointer:`, {

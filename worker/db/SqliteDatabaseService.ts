@@ -1,6 +1,5 @@
 import type { Database, ParamsObject, SqlValue } from 'sql.js';
 import { SqliteDatabaseService as RuntimeSqliteDatabaseService } from '@/infrastructure/persistence/sqlite';
-import type { SqliteDeltaDiagnostics } from '@/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint';
 import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
 import { SqlQueueProjectionRepository } from '@/infrastructure/persistence/sqlite/SqlQueueProjectionRepository';
@@ -8,7 +7,6 @@ import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/Sql
 import { SqlSemanticActivationRepository } from '@/infrastructure/persistence/sqlite/SqlSemanticActivationRepository';
 import {
   MESSAGEPACK_TRUTH_SCHEMA_VERSION,
-  SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH,
 } from '../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
@@ -82,7 +80,6 @@ import type {
   BackendReviewFeedbackJournalDiagnostics,
   BackendReviewFeedbackJournalBackpressureDiagnostics,
   BackendReviewFeedbackJournalOperationStatus,
-  BackendReviewFeedbackStorageState,
   BackendStorageErrorCode,
   BackendStorageDiagnostic,
   MessagePackTruthFamily,
@@ -90,18 +87,9 @@ import type {
   MessagePackReviewEventTruthRecord,
 } from '../../packages/contracts/src/backend-rpc';
 import {
-  MESSAGEPACK_TRUTH_MANIFEST_VERSION,
-  MessagePackTruthValidationError,
-  createMessagePackTruthSegmentStore,
   type MessagePackTruthSegmentManifest,
   type MessagePackTruthSegmentFileStore,
 } from '../truth/MessagePackTruthSegmentStore';
-import {
-  createReconciledLegacyUnifiedCardsMigrationReceipt,
-  readLegacyUnifiedCardsMigrationReceipt,
-  reconcileLegacyUnifiedCardsMigrationReceipt,
-  type LegacyUnifiedCardsMigrationReceiptFamily,
-} from '../truth/LegacyUnifiedCardsMigrationReceipt';
 import type {
   ReviewSqlTruthBackfillProjectionPatch,
   ReviewSqlTruthBackfillRow,
@@ -135,6 +123,7 @@ import { createLogger } from '@/utils/logger';
 import { AutoCardDecisionService } from './AutoCardDecisionService';
 import { SemanticSessionReadModelBuilder } from '../semantic/SemanticSessionReadModelBuilder';
 import { WorkerReviewFeedbackRuntime } from '../review/WorkerReviewFeedbackRuntime';
+import { ReviewFeedbackStorageEnvelope } from '../review/ReviewFeedbackStorageEnvelope';
 import { ReviewJournalProjectionReconciler } from '../review/ReviewJournalProjectionReconciler';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { recordBackendWorkerInnerStep, recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
@@ -145,6 +134,11 @@ import {
 import { SourceExistenceProjectionInvalidator } from '../queue-projection/SourceExistenceProjectionInvalidator';
 import { WorkerKernelTransactionRuntime } from '../kernel-transaction/WorkerKernelTransactionRuntime';
 import { WorkerXiuyuanSyncRuntime } from '../xiuyuan/WorkerXiuyuanSyncRuntime';
+import {
+  StorageBootstrapRuntime,
+  type StartupTruthProjectionInput,
+  type WorkerStorageBootstrapOptions,
+} from './StorageBootstrapRuntime';
 import { activePluginCardSql } from '@/infrastructure/persistence/sqlite/cardAdmissionSql';
 import {
   deriveAlgorithmCardState,
@@ -191,33 +185,6 @@ type SqliteFileServiceAdapter = {
 interface SqliteFileServiceAdapterOptions {
   shouldSuppressBinaryRead?: (fileName: string) => boolean;
   shouldSuppressJsonRead?: (fileName: string) => boolean;
-}
-
-interface WorkerStorageBootstrapOptions {
-  truthDeviceId: string | null;
-  cardTruthGenerationId: string;
-  reviewTruthGenerationId: string;
-  maxSegmentBytes?: number;
-}
-
-interface WorkerStorageBootstrapState {
-  truthAvailable: boolean;
-  projectionRebuildRequired: boolean;
-  projectionRebuildReason: string | null;
-  truthProjectionInput: StartupTruthProjectionInput | null;
-}
-
-interface TruthManifestTarget {
-  family: MessagePackTruthFamily;
-  deviceId: string;
-  generationId: string;
-}
-
-interface StartupTruthProjectionInput {
-  truthRecords: MessagePackTruthRecord[];
-  truthManifest: MessagePackTruthSegmentManifest;
-  primaryDeviceId: string;
-  primaryGenerationId: string;
 }
 
 type ExternalDatabaseMergeContext =
@@ -790,6 +757,7 @@ export class WorkerSqliteDatabaseService {
   private readonly truthFileStore: MessagePackTruthSegmentFileStore | null;
   private readonly autoCardDecisionService = new AutoCardDecisionService();
   private readonly kernelTransactionRuntime: WorkerKernelTransactionRuntime;
+  private readonly storageBootstrapRuntime: StorageBootstrapRuntime;
   private repository: SqlUnifiedStorageRepository | null = null;
   private queueProjection: SqlQueueProjectionRepository | null = null;
   private queueState: SqlQueueStateRepository | null = null;
@@ -831,7 +799,6 @@ export class WorkerSqliteDatabaseService {
   private aiJobTimeoutTotal = 0;
   private aiJobFailedTotal = 0;
   private suppressProjectionReadForStartupReset = false;
-  private legacyPetalSqliteDbProbeComplete = false;
   private readonly storageDiagnostics: BackendStorageDiagnostic[] = [];
   private readonly reviewFeedbackJournalStore: ReviewFeedbackJournalStore | null;
   private readonly reviewFeedbackJournalBackpressure: {
@@ -864,6 +831,24 @@ export class WorkerSqliteDatabaseService {
         this.suppressProjectionReadForStartupReset
         && fileName === this.dbFile
       ),
+    });
+    this.storageBootstrapRuntime = new StorageBootstrapRuntime({
+      dbFile: this.dbFile,
+      fileService: this.fileService,
+      truthFileStore: this.truthFileStore,
+      addStorageDiagnostic: (diagnostic) => this.addStorageDiagnostic(diagnostic),
+      projectionRuntime: {
+        dispose: () => this.runtime.dispose(),
+        init: () => this.runtime.init(),
+        suppressPersistedProjectionRead: async (task) => {
+          this.suppressProjectionReadForStartupReset = true;
+          try {
+            return await task();
+          } finally {
+            this.suppressProjectionReadForStartupReset = false;
+          }
+        },
+      },
     });
     this.reviewFeedbackJournalStore = bridge.reviewFeedbackJournalStore ?? null;
     this.kernelTransactionRuntime = new WorkerKernelTransactionRuntime({
@@ -909,12 +894,8 @@ export class WorkerSqliteDatabaseService {
       return;
     }
     const bootstrapOptions = this.normalizeStorageBootstrapOptions(request);
-    await this.recordIgnoredLegacyPetalSqliteDbDiagnostic();
-    const projectionBytesBeforeStartup = await this.readProjectionBytesForStartupProbe();
-    const storageBootstrap = await this.bootstrapStorageFromMessagePackTruth(
-      bootstrapOptions,
-      projectionBytesBeforeStartup,
-    );
+    const storageBootstrap = await this.storageBootstrapRuntime.bootstrap(bootstrapOptions);
+    const projectionBytesBeforeStartup = storageBootstrap.projectionBytesBeforeStartup;
     let projectionResetDuringStartup = false;
     try {
       await this.runtime.init();
@@ -923,7 +904,7 @@ export class WorkerSqliteDatabaseService {
         throw error;
       }
       projectionResetDuringStartup = true;
-      await this.reinitializeSqlRuntimeIgnoringPersistedProjection(error);
+      await this.storageBootstrapRuntime.reinitializeTempProjectionRuntimeAfterLoadFailure(error);
     }
     this.repository = new SqlUnifiedStorageRepository(this.runtime, {
       domainSyncLedger: new DomainSyncLedger(this.runtime),
@@ -992,229 +973,6 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
-  private async readProjectionBytesForStartupProbe(): Promise<Uint8Array | null> {
-    try {
-      return await this.fileService.readBinary(this.dbFile);
-    } catch {
-      return null;
-    }
-  }
-
-  private async recordIgnoredLegacyPetalSqliteDbDiagnostic(): Promise<void> {
-    if (this.legacyPetalSqliteDbProbeComplete) {
-      return;
-    }
-    this.legacyPetalSqliteDbProbeComplete = true;
-    let exists = false;
-    try {
-      exists = await this.fileService.hasLegacyPetalSqliteDb();
-    } catch (error) {
-      logger.warn('[SiYuanMemo][WorkerSqliteDatabaseService] ignored legacy petal DB probe failed', {
-        path: SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH,
-        error: errorMessage(error),
-      });
-      return;
-    }
-    if (!exists) {
-      return;
-    }
-    this.addStorageDiagnostic({
-      kind: 'legacy-petal-db-ignored',
-      severity: 'warning',
-      at: Date.now(),
-      message: 'Legacy petal siyuanmemo.db exists but is ignored; temp projection uses workspace temp and truth remains authoritative.',
-      path: SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH,
-      details: {
-        action: 'ignored',
-        read: false,
-        migrated: false,
-        deleted: false,
-        written: false,
-      },
-    });
-  }
-
-  private async bootstrapStorageFromMessagePackTruth(
-    bootstrapOptions: WorkerStorageBootstrapOptions,
-    projectionBytesBeforeStartup: Uint8Array | null,
-  ): Promise<WorkerStorageBootstrapState> {
-    const truthProjectionInput = await this.readStartupTruthProjectionInput(bootstrapOptions);
-    if (truthProjectionInput) {
-      await this.reconcileTruthWithoutReceipt(bootstrapOptions, truthProjectionInput);
-      return {
-        truthAvailable: true,
-        projectionRebuildRequired: true,
-        projectionRebuildReason: projectionBytesBeforeStartup ? 'sql-stale' : 'temp-projection-missing',
-        truthProjectionInput,
-      };
-    }
-
-    if (!bootstrapOptions.truthDeviceId || !this.truthFileStore) {
-      return {
-        truthAvailable: false,
-        projectionRebuildRequired: false,
-        projectionRebuildReason: null,
-        truthProjectionInput: null,
-      };
-    }
-    return {
-      truthAvailable: false,
-      projectionRebuildRequired: false,
-      projectionRebuildReason: null,
-      truthProjectionInput: null,
-    };
-  }
-
-  private async readStartupTruthProjectionInput(
-    bootstrapOptions: WorkerStorageBootstrapOptions,
-  ): Promise<StartupTruthProjectionInput | null> {
-    if (!this.truthFileStore) {
-      return null;
-    }
-
-    const targets = await this.discoverStartupTruthManifestTargets(bootstrapOptions);
-    const manifests: MessagePackTruthSegmentManifest[] = [];
-    const truthRecords: MessagePackTruthRecord[] = [];
-    let primaryDeviceId = bootstrapOptions.truthDeviceId;
-    let primaryGenerationId = bootstrapOptions.cardTruthGenerationId;
-
-    for (const target of targets) {
-      const truthStore = createMessagePackTruthSegmentStore({
-        fileStore: this.truthFileStore,
-        family: target.family,
-        deviceId: target.deviceId,
-        generationId: target.generationId,
-        schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
-        maxSegmentBytes: bootstrapOptions.maxSegmentBytes,
-      });
-      try {
-        const replay = await truthStore.replayRecords({
-          dedupeByIdempotencyKey: target.family === 'review-events',
-        });
-        if (
-          replay.manifest.segments.length === 0
-          && replay.manifest.updatedAt === 0
-          && replay.records.length === 0
-        ) {
-          continue;
-        }
-        manifests.push(replay.manifest);
-        truthRecords.push(...replay.records);
-        primaryDeviceId ||= replay.manifest.deviceId;
-        if (target.family === 'card-memory-facts') {
-          primaryGenerationId = replay.manifest.generationId;
-        }
-      } catch (error) {
-        if (error instanceof MessagePackTruthValidationError) {
-          throw storageError('TRUTH_VALIDATION_FAILED', error.message);
-        }
-        throw error;
-      }
-    }
-
-    if (manifests.length === 0) {
-      return null;
-    }
-
-    const truthManifest = mergeStartupTruthManifests(manifests, {
-      primaryDeviceId: primaryDeviceId ?? manifests[0].deviceId,
-      primaryGenerationId,
-    });
-    return {
-      truthRecords,
-      truthManifest,
-      primaryDeviceId: primaryDeviceId ?? manifests[0].deviceId,
-      primaryGenerationId,
-    };
-  }
-
-  private async discoverStartupTruthManifestTargets(
-    bootstrapOptions: WorkerStorageBootstrapOptions,
-  ): Promise<TruthManifestTarget[]> {
-    const targets: TruthManifestTarget[] = [];
-    const defaultDeviceId = normalizeString(bootstrapOptions.truthDeviceId);
-    if (defaultDeviceId) {
-      targets.push(
-        {
-          family: 'card-memory-facts',
-          deviceId: defaultDeviceId,
-          generationId: bootstrapOptions.cardTruthGenerationId,
-        },
-        {
-          family: 'review-events',
-          deviceId: defaultDeviceId,
-          generationId: bootstrapOptions.reviewTruthGenerationId,
-        },
-      );
-    }
-
-    if (this.truthFileStore?.listFiles) {
-      for (const family of ['card-memory-facts', 'review-events'] as const) {
-        try {
-          const paths = await this.truthFileStore.listFiles(`truth/${family}`);
-          for (const path of paths) {
-            const target = parseTruthManifestTarget(path, family);
-            if (target) {
-              targets.push(target);
-            }
-          }
-        } catch {
-          continue;
-        }
-      }
-    }
-
-    return dedupeTruthManifestTargets(targets);
-  }
-
-  private async reconcileTruthWithoutReceipt(
-    bootstrapOptions: WorkerStorageBootstrapOptions,
-    truthProjectionInput: StartupTruthProjectionInput,
-  ): Promise<void> {
-    if (!this.truthFileStore) {
-      return;
-    }
-    const existingReceipt = await readLegacyUnifiedCardsMigrationReceipt(this.truthFileStore);
-    if (existingReceipt) {
-      return;
-    }
-    if (!bootstrapOptions.truthDeviceId) {
-      throw storageError(
-        'TRUTH_DEVICE_ID_UNAVAILABLE',
-        'truth-without-receipt reconciliation requires truth-wide persistent local device id',
-      );
-    }
-    const reconciledReceipt = createReconciledLegacyUnifiedCardsMigrationReceipt({
-      reconciledAt: Date.now(),
-      localDeviceId: bootstrapOptions.truthDeviceId,
-      truthSchemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
-      families: buildReconciledMigrationReceiptFamilies(truthProjectionInput.truthManifest),
-      diagnostics: [{
-        kind: 'truth-without-receipt',
-        severity: 'warning',
-        message: 'Truth manifests existed without the legacy migration receipt; startup trusted truth and wrote a reconciled receipt.',
-        details: {
-          projectionDeviceId: truthProjectionInput.primaryDeviceId,
-          projectionGenerationId: truthProjectionInput.primaryGenerationId,
-        },
-      }],
-    });
-    const result = await reconcileLegacyUnifiedCardsMigrationReceipt(this.truthFileStore, {
-      truthExists: true,
-      reconciledReceipt,
-    });
-    if (result.wroteReceipt) {
-      logger.warn('[SiYuanMemo][WorkerSqliteDatabaseService] reconciled MessagePack truth without legacy migration receipt', {
-        receiptStatus: result.receipt.status,
-        families: result.receipt.families.map((family) => ({
-          family: family.family,
-          generationId: family.generationId,
-          recordCount: family.recordCount,
-        })),
-      });
-    }
-  }
-
   private async rebuildRequiredStartupProjectionFromTruth(
     bootstrapOptions: WorkerStorageBootstrapOptions,
     truthProjectionInput: StartupTruthProjectionInput | null,
@@ -1251,21 +1009,6 @@ export class WorkerSqliteDatabaseService {
         hotPath: false,
       },
     });
-  }
-
-  private async reinitializeSqlRuntimeIgnoringPersistedProjection(error: unknown): Promise<void> {
-    this.suppressProjectionReadForStartupReset = true;
-    this.runtime.dispose();
-    try {
-      await this.runtime.init();
-    } catch (reinitError) {
-      throw storageError(
-        'PROJECTION_REBUILD_FAILED',
-        `failed to reinitialize temp projection after persisted DB load failure: ${errorMessage(reinitError)}; original failure: ${errorMessage(error)}`,
-      );
-    } finally {
-      this.suppressProjectionReadForStartupReset = false;
-    }
   }
 
   private addStorageDiagnostic(diagnostic: BackendStorageDiagnostic): void {
@@ -2204,111 +1947,14 @@ export class WorkerSqliteDatabaseService {
     });
     return {
       ...result,
-      storage: await this.buildReviewFeedbackStorageState(result, committedJournalEntryId),
+      storage: await new ReviewFeedbackStorageEnvelope({
+        readJournalDiagnostics: () => this.getReviewFeedbackJournalDiagnostics(),
+        readSqliteDeltaDiagnostics: () => this.getSqliteDeltaDiagnostics(),
+      }).build({
+        result,
+        journalEntryId: committedJournalEntryId,
+      }),
     };
-  }
-
-  private async buildReviewFeedbackStorageState(
-    result: BackendReviewFeedbackResult,
-    journalEntryId: string | null,
-  ): Promise<BackendReviewFeedbackStorageState> {
-    const journal = await this.getReviewFeedbackJournalDiagnostics();
-    const sqliteDelta = await this.tryReadSqliteDeltaDiagnosticsForReviewFeedback();
-    const checkpoint = sqliteDelta.diagnostics?.lastCheckpoint ?? null;
-    const queueImpact = result.queueImpact ?? null;
-    const projectionStatus = this.resolveReviewFeedbackSqlProjectionStatus(queueImpact);
-    const projectionGeneration = queueImpact?.affectedQueues
-      .map((entry) => entry.currentGeneration ?? entry.generation ?? entry.counterGeneration ?? null)
-      .find((generation): generation is number => typeof generation === 'number' && Number.isFinite(generation))
-      ?? null;
-    const pendingCount = typeof journal.pendingCount === 'number' ? journal.pendingCount : null;
-    const hotPathCheckpoint = checkpoint?.hotPath === true;
-    const checkpointStatus = sqliteDelta.error
-      ? 'unknown'
-      : hotPathCheckpoint
-      ? (checkpoint?.ok === true ? 'checkpointed' : 'failed')
-      : 'not-run';
-    const localIntentStatus = result.committed
-      ? (journal.storage === 'non-siyuan' ? 'recorded' : 'unavailable')
-      : 'not-required';
-    return {
-      localIntent: {
-        status: localIntentStatus,
-        durable: localIntentStatus === 'recorded',
-        storage: journal.storage ?? 'unavailable',
-        entryId: journalEntryId ?? journal.lastWrite?.entryId ?? null,
-        idempotencyKey: result.idempotencyKey ?? null,
-        journalStatus: journalEntryId
-          ? 'projection-applied'
-          : journal.lastWrite?.status ?? null,
-        pendingCount,
-        pendingBytes: typeof journal.pendingBytes === 'number' ? journal.pendingBytes : null,
-        error: journal.lastWrite?.error ?? null,
-      },
-      truthFlush: {
-        status: pendingCount && pendingCount > 0 ? 'pending' : 'not-required',
-        family: 'review-events',
-        syncVisible: false,
-        pendingCount,
-        oldestPendingAgeMs: journal.oldestPendingAgeMs ?? null,
-        lastError: null,
-      },
-      sqlProjection: {
-        status: projectionStatus,
-        hotPatchable: queueImpact?.hotPatchable === true,
-        refreshRequired: queueImpact?.refreshRequired === true,
-        affectedQueueCount: queueImpact?.affectedQueues.length ?? 0,
-        projectionGeneration,
-      },
-      sqlCheckpoint: {
-        status: checkpointStatus,
-        hotPath: hotPathCheckpoint,
-        cause: hotPathCheckpoint ? checkpoint?.cause ?? null : null,
-        initiator: hotPathCheckpoint ? checkpoint?.initiator ?? null : null,
-        projectionGeneration: hotPathCheckpoint ? checkpoint?.projectionGeneration ?? null : null,
-        byteLength: hotPathCheckpoint ? checkpoint?.byteLength ?? null : null,
-        error: sqliteDelta.error ?? (hotPathCheckpoint ? checkpoint?.error ?? null : null),
-      },
-    };
-  }
-
-  private async tryReadSqliteDeltaDiagnosticsForReviewFeedback(): Promise<{
-    diagnostics: SqliteDeltaDiagnostics | null;
-    error: string | null;
-  }> {
-    try {
-      return {
-        diagnostics: await this.getSqliteDeltaDiagnostics(),
-        error: null,
-      };
-    } catch (error) {
-      return {
-        diagnostics: null,
-        error: errorMessage(error),
-      };
-    }
-  }
-
-  private resolveReviewFeedbackSqlProjectionStatus(
-    queueImpact: BackendReviewFeedbackResult['queueImpact'] | null | undefined,
-  ): BackendReviewFeedbackStorageState['sqlProjection']['status'] {
-    if (!queueImpact) {
-      return 'not-applicable';
-    }
-    if (queueImpact.refreshRequired) {
-      return 'refresh-required';
-    }
-    if (queueImpact.hotPatchable) {
-      return 'patched';
-    }
-    const outcomes = queueImpact.affectedQueues.map((entry) => entry.outcome);
-    if (outcomes.includes('unavailable')) {
-      return 'unavailable';
-    }
-    if (outcomes.includes('deferred')) {
-      return 'deferred';
-    }
-    return 'not-applicable';
   }
 
   private async appendReviewFeedbackJournalEntry(entry: ReviewFeedbackJournalEntry): Promise<void> {
@@ -6839,99 +6485,6 @@ function storageError(code: BackendStorageErrorCode, message: string): Error & {
   error.name = 'BackendStorageError';
   error.code = code;
   return error;
-}
-
-function buildReconciledMigrationReceiptFamilies(
-  manifest: MessagePackTruthSegmentManifest,
-): LegacyUnifiedCardsMigrationReceiptFamily[] {
-  const byKey = new Map<string, LegacyUnifiedCardsMigrationReceiptFamily>();
-  for (const segment of manifest.segments) {
-    const family = segment.family;
-    if (family !== 'card-memory-facts' && family !== 'review-events') {
-      continue;
-    }
-    const key = `${family}\n${segment.generationId}`;
-    const existing = byKey.get(key);
-    if (existing) {
-      existing.recordCount += Math.max(0, Number(segment.recordCount) || 0);
-      existing.segmentRefs.push(segment.path);
-      continue;
-    }
-    byKey.set(key, {
-      family,
-      generationId: segment.generationId,
-      recordCount: Math.max(0, Number(segment.recordCount) || 0),
-      segmentRefs: [segment.path],
-    });
-  }
-  const families = [...byKey.values()];
-  if (families.length === 0) {
-    throw storageError(
-      'LEGACY_MIGRATION_FAILED',
-      'truth-without-receipt reconciliation found no supported truth family segments',
-    );
-  }
-  return families;
-}
-
-function mergeStartupTruthManifests(
-  manifests: MessagePackTruthSegmentManifest[],
-  input: {
-    primaryDeviceId: string;
-    primaryGenerationId: string;
-  },
-): MessagePackTruthSegmentManifest {
-  if (manifests.length === 1) {
-    return manifests[0];
-  }
-  const updatedAt = manifests.reduce((max, manifest) => Math.max(max, Number(manifest.updatedAt) || 0), 0);
-  return {
-    version: MESSAGEPACK_TRUTH_MANIFEST_VERSION,
-    path: 'startup-projection-rebuild:merged',
-    family: 'startup-projection-rebuild',
-    deviceId: input.primaryDeviceId,
-    generationId: input.primaryGenerationId,
-    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
-    segments: manifests.flatMap((manifest) => manifest.segments),
-    updatedAt,
-  };
-}
-
-function parseTruthManifestTarget(
-  path: unknown,
-  expectedFamily?: MessagePackTruthFamily,
-): TruthManifestTarget | null {
-  const normalized = normalizeString(path).replace(/\\/g, '/');
-  const match = /^truth\/([^/]+)\/([^/]+)\/device-([^/]+)\/manifest\.v1\.json$/.exec(normalized);
-  if (!match) {
-    return null;
-  }
-  const family = match[1] as MessagePackTruthFamily;
-  if (expectedFamily && family !== expectedFamily) {
-    return null;
-  }
-  if (family !== 'card-memory-facts' && family !== 'review-events') {
-    return null;
-  }
-  return {
-    family,
-    generationId: match[2],
-    deviceId: match[3],
-  };
-}
-
-function dedupeTruthManifestTargets(targets: TruthManifestTarget[]): TruthManifestTarget[] {
-  const seen = new Set<string>();
-  const result: TruthManifestTarget[] = [];
-  for (const target of targets) {
-    const key = `${target.family}\n${target.generationId}\n${target.deviceId}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push(target);
-  }
-  return result;
 }
 
 function normalizeOptionalInteger(value: unknown): number | null {

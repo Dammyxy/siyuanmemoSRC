@@ -165,6 +165,7 @@ export interface QueueProjectionReadPort {
   readRowsByIds(queueType: QueueType, rowIds: string[], policyHash?: string | null): QueueProjectionRow[];
   readCounters(queueType: QueueType, policyHash?: string | null): QueueProjectionCounters | null;
   readGeneration(queueType: QueueType): QueueProjectionGeneration | null;
+  listReadyGenerations(queueType: QueueType): QueueProjectionGeneration[];
   readLastReadyGeneration(queueType: QueueType): QueueProjectionGeneration | null;
   listInvalidations(queueType: QueueType, limit?: number): QueueProjectionInvalidationRecord[];
 }

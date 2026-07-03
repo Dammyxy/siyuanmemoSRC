@@ -72,6 +72,7 @@ export type ReviewJournalProjectionReconcilerDeps = {
   } | null;
   queueProjection: {
     readGeneration(queueType: QueueType): QueueProjectionGeneration | null;
+    listReadyGenerations(queueType: QueueType): QueueProjectionGeneration[];
     readCounters(queueType: QueueType, policyHash?: string | null): QueueProjectionCounters | null;
     readRows(query: QueueProjectionRowsQuery): QueueProjectionRow[];
     replaceQueueProjection(input: QueueProjectionReplaceInput): void;
@@ -110,7 +111,9 @@ export class ReviewJournalProjectionReconciler {
       if (entry.status === 'prepared') {
         await this.markPreparedEntryProjectionApplied(entry.id, reconciliation.reviewedAt);
       }
-      this.mergeReconciliation(groups, reconciliation);
+      for (const expanded of this.expandReconciliationPolicies(reconciliation)) {
+        this.mergeReconciliation(groups, expanded);
+      }
     }
 
     for (const reconciliation of groups.values()) {
@@ -201,6 +204,33 @@ export class ReviewJournalProjectionReconciler {
     existing.preparedEntryIds = uniqueStrings([...existing.preparedEntryIds, ...reconciliation.preparedEntryIds]);
   }
 
+  private expandReconciliationPolicies(
+    reconciliation: ReviewJournalProjectionReconciliation,
+  ): ReviewJournalProjectionReconciliation[] {
+    if (!this.deps.queueProjection) {
+      return [reconciliation];
+    }
+    const readyGenerations = this.deps.queueProjection
+      .listReadyGenerations(reconciliation.queueType)
+      .filter((generation) => normalizeString(generation.policyHash));
+    if (readyGenerations.length === 0) {
+      return [reconciliation];
+    }
+    const expanded = new Map<string, ReviewJournalProjectionReconciliation>();
+    for (const generation of readyGenerations) {
+      const policyHash = normalizeString(generation.policyHash);
+      expanded.set(policyHash, {
+        ...reconciliation,
+        policyHash,
+        generation: Math.max(reconciliation.generation, Math.floor(Number(generation.generation) || 0) + 1),
+      });
+    }
+    if (!expanded.has(reconciliation.policyHash)) {
+      expanded.set(reconciliation.policyHash, reconciliation);
+    }
+    return [...expanded.values()];
+  }
+
   private async markPreparedEntryProjectionApplied(entryId: string, appliedAt: number): Promise<void> {
     if (!this.deps.journalStore) {
       return;
@@ -217,7 +247,10 @@ export class ReviewJournalProjectionReconciler {
     if (!this.deps.queueProjection) {
       return false;
     }
-    const current = this.deps.queueProjection.readGeneration(reconciliation.queueType);
+    const current = this.deps.queueProjection
+      .listReadyGenerations(reconciliation.queueType)
+      .find((generation) => generation.policyHash === reconciliation.policyHash)
+      ?? this.deps.queueProjection.readGeneration(reconciliation.queueType);
     if (!current || current.status !== 'ready' || current.generation < reconciliation.generation) {
       return true;
     }

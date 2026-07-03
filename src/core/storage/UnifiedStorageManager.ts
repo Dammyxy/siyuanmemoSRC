@@ -1683,6 +1683,18 @@ export class UnifiedStorageManager {
       xiuyuans[targetXiuyuanId] = {
         ...candidate,
         id: targetXiuyuanId,
+        blockIDs: this.normalizeStringArray(candidate.blockIDs),
+        fields: Array.isArray(candidate.fields)
+          ? candidate.fields.map((field) => ({ ...field }))
+          : [],
+        meta: {
+          ...(isObjectRecord(candidate.meta) ? candidate.meta : {}),
+          xiuyuanID: targetXiuyuanId,
+          cardIds: Array.from(new Set([
+            ...this.normalizeStringArray(isObjectRecord(candidate.meta) ? candidate.meta.cardIds : undefined),
+            cardId,
+          ])).sort(),
+        },
       };
       this.applyXiuyuanIdToDTO(dto, targetXiuyuanId);
       repairedCardIds.push(cardId);
