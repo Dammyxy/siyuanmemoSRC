@@ -55,6 +55,15 @@ export type QueueFeedback = {
   commitIdempotencyKey?: string;
 };
 
+export type QueueFeedbackAdvanceResult<TItem extends import('../types').QueueItem = import('../types').QueueItem> = {
+  status: 'advanced';
+  nextItem: TItem | null;
+  counterSnapshot?: QueueCounterSnapshot | null;
+};
+
+export type QueueFeedbackResult<TItem extends import('../types').QueueItem = import('../types').QueueItem> =
+  QueueFeedbackAdvanceResult<TItem>;
+
 /**
  * Queue Strategy Interface - Defines the behavior of a review queue
  *
@@ -88,7 +97,7 @@ export interface IQueueStrategy<TItem extends import('../types').QueueItem = imp
   /**
    * Process user feedback for the current item
    */
-  onFeedback(currentItem: TItem | null, feedback: QueueFeedback): Promise<void>;
+  onFeedback(currentItem: TItem | null, feedback: QueueFeedback): Promise<QueueFeedbackResult<TItem> | void>;
 
   /**
    * Hydrate an externally restored or refreshed current item for display (optional)

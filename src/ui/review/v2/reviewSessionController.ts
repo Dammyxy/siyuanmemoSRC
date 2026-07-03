@@ -3,6 +3,7 @@ import {
   isQueueItemUnavailableError,
   type IQueueStrategy,
   type QueueFeedback,
+  type QueueFeedbackResult,
 } from '@/core/queue/abstraction/Strategy';
 import type { QueueItem } from '@/core/queue/types';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
@@ -58,6 +59,12 @@ type SessionHistoryEntry = NonNullable<NonNullable<AdapterContext['session']>['r
 type NeuralPathLoader<TItem> = {
   getPathItemByNodeId: (blockId: string) => Promise<TItem | null>;
 };
+
+function isFeedbackAdvanceResult<TItem extends QueueItem>(
+  result: QueueFeedbackResult<TItem> | void,
+): result is QueueFeedbackResult<TItem> {
+  return Boolean(result && result.status === 'advanced');
+}
 
 export type ReviewSessionUpdateReason =
   | 'mount'
@@ -790,7 +797,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
       pendingCommitKeys.set(pendingKey, commitIdempotencyKey);
       const feedback: QueueFeedback = { action: 'rate', rating: normalized, commitIdempotencyKey };
 
-      await measureReviewPhase('feedback', reviewedCardId, () => queue.onFeedback(reviewedItem, feedback));
+      const feedbackResult = await measureReviewPhase('feedback', reviewedCardId, () => queue.onFeedback(reviewedItem, feedback));
       pendingCommitKeys.delete(pendingKey);
       if (options?.onReview && reviewedItem) {
         if (reviewedCardId) {
@@ -804,7 +811,9 @@ export function createReviewSessionController<TItem extends QueueItem>(
         correctDelta: normalized >= 3 ? 1 : 0,
       });
       pushedHistory = true;
-      currentItem.value = await measureReviewPhase('next', reviewedCardId, () => queue.next());
+      currentItem.value = isFeedbackAdvanceResult(feedbackResult)
+        ? feedbackResult.nextItem
+        : await measureReviewPhase('next', reviewedCardId, () => queue.next());
       context.value.showAnswer = false;
       await measureReviewPhase('update-state', reviewedCardId, () => updateState('grade'));
       status = 'graded';

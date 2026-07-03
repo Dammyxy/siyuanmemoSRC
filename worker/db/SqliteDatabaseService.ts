@@ -1926,6 +1926,7 @@ export class WorkerSqliteDatabaseService {
     if (result.committed) {
       this.reviewFeedbackCommittedTotal += 1;
       this.lastDomainSyncStatusSnapshot = null;
+      this.markReviewFeedbackOwnPersistedMainDbClean();
       if (committedJournalEntryId) {
         this.appliedReviewFeedbackJournalEntryIds.add(committedJournalEntryId);
         await this.markReviewFeedbackJournalEntryProjectionApplied(

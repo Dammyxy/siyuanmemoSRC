@@ -4,6 +4,16 @@ Last update: 2026-07-03 (Round 654)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-03 - Review/session storage hot-path cleanup
+
+- Task: Implement `optimize-review-session-storage-hot-paths` for the three current latency suspects plus the strong `getCardDTOsByXiuyuanId()` read-path debt.
+- Touched slice: Review queue/session cursor, `UnifiedQueueStrategy` feedback contract, Review UI controller, `UnifiedStorageManager` Xiuyuan DTO reads/indexing, worker Review preflight invalidation, and focused Review/Queue/Storage/worker tests.
+- Debt fixed now: SRS v2 `onFeedback()` now returns the `answerAndAdvance()` next card and counter snapshot, and `ReviewSessionController.grade()` uses that result directly instead of paying an immediate second `queue.next()` hop. `getCardDTOsByXiuyuanId()` is now pure read: it uses the maintained Xiuyuan card index, does not scan the full DTO table, does not repair bindings, and does not mark storage dirty. Worker Review preflight now preserves main DB fast-skip across own committed Review writes and `queue.projection.replace` cache updates while keeping real conflict-source merge checks fail-closed.
+- Debt deferred: Explicit malformed Xiuyuan binding diagnostics/repair UI remains a separate repair surface. Broader queue projection write/read module splitting remains deferred.
+- Why deferred: This pass removes hot-path hidden mutation and redundant advancement work without broadening storage repair UX or queue projection ownership.
+- Next safe step: Run live SiYuan timing on plugin load, queue load, and review grade-to-next; if slow phases remain, profile the next largest worker or renderer phase with the new cleaner data path.
+- Validation: Focused `useReviewSession`, `UnifiedQueueStrategy.performance`, `UnifiedStorageManager.dto`, and worker Review preflight tests passed. `pnpm run check:boundaries` and `pnpm build` passed; build still reports the existing Sass legacy JS API deprecation warnings.
+
 ### 2026-07-03 - Review refreshed current-card runtime sync
 
 - Task: Diagnose and fix incremental-learning review failure `REVIEW_SESSION_RUNTIME_CONFLICT: current-card-stale`, plus reduce repeated queue-load storage repair work reported by live logs.

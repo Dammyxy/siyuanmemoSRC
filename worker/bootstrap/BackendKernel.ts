@@ -95,6 +95,7 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'review.truth.flush',
   'review.truth.backfill',
   'storage.projection.rebuild',
+  'queue.projection.replace',
   'kernel.transaction.dequeue',
 ]);
 
@@ -107,6 +108,7 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS = new Set<string>([
   'review.truth.flush',
   'review.truth.backfill',
   'kernel.transaction.dequeue',
+  'queue.projection.replace',
 ]);
 
 const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS = new Set<string>([

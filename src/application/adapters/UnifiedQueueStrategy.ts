@@ -2,6 +2,7 @@ import {
     QueueItemUnavailableError,
     type IQueueStrategy,
     type QueueFeedback,
+    type QueueFeedbackResult,
 } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
@@ -311,24 +312,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
             if (this.srsV2SessionQueueRuntime && !this.learnAheadSession) {
                 if (this.pendingSrsV2NextCard !== undefined) {
-                    const pending = this.pendingSrsV2NextCard;
-                    this.pendingSrsV2NextCard = undefined;
-                    if (!pending) {
-                        this.clearCurrentItem();
-                        logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Runtime-backed queue exhausted: ${this.queueType}`);
-                        return null;
-                    }
-                    const cardWithNextDues = await this.prepareSelectedReviewCard(pending);
-                    if (!cardWithNextDues) {
-                        return await this.next();
-                    }
-                    this.srsV2SessionQueueRuntime.replaceCurrentCard?.(cardWithNextDues);
-                    this.setCurrentItem(cardWithNextDues);
-                    this.syncCursorFromSrsV2Runtime();
-                    if (this.pendingSrsV2CounterSnapshot) {
-                        this.cursor.counterSnapshot = this.cloneCounterSnapshot(this.pendingSrsV2CounterSnapshot);
-                    }
-                    return cardWithNextDues;
+                    return await this.consumeSrsV2FeedbackAdvanceResult(this.pendingSrsV2NextCard);
                 }
 
                 const card = await this.srsV2SessionQueueRuntime.next();
@@ -385,7 +369,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
     }
 
-    async onFeedback(currentItem: FSRSCard | null, feedback: QueueFeedback): Promise<void> {
+    async onFeedback(currentItem: FSRSCard | null, feedback: QueueFeedback): Promise<QueueFeedbackResult<FSRSCard> | void> {
         const activeItem = this.currentItemCommand.resolveActive(currentItem);
         if (!activeItem) {
             this.cursor.clearPendingRotation();
@@ -431,15 +415,19 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     }
                     throw new Error(`REVIEW_SESSION_RUNTIME_UNAVAILABLE: ${result.reason ?? 'answer unavailable'}`);
                 }
-                this.pendingSrsV2NextCard = result.nextCard;
                 this.syncCursorFromSrsV2Runtime();
                 this.cursor.counterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
                 this.pendingSrsV2CounterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
+                const advancedNextItem = await this.consumeSrsV2FeedbackAdvanceResult(result.nextCard);
                 this.recordReviewHistory(activeItem, activeTransaction);
                 activeTransactionPushed = true;
                 activeTransaction = null;
                 activeTransactionPushed = false;
-                return;
+                return {
+                    status: 'advanced',
+                    nextItem: advancedNextItem,
+                    counterSnapshot: this.cloneCounterSnapshot(result.counterSnapshot),
+                };
             }
 
             if (feedback.action === 'rate' && feedback.rating) {
@@ -1827,6 +1815,28 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return refreshedCard;
         }
         return this.addNextDues(refreshedCard);
+    }
+
+    private async consumeSrsV2FeedbackAdvanceResult(nextCard: FSRSCard | null): Promise<FSRSCard | null> {
+        this.pendingSrsV2NextCard = undefined;
+        if (!nextCard) {
+            this.clearCurrentItem();
+            logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Runtime-backed queue exhausted after feedback: ${this.queueType}`);
+            return null;
+        }
+
+        const cardWithNextDues = await this.prepareSelectedReviewCard(nextCard);
+        if (!cardWithNextDues) {
+            return await this.next();
+        }
+
+        this.srsV2SessionQueueRuntime?.replaceCurrentCard?.(cardWithNextDues);
+        this.setCurrentItem(cardWithNextDues);
+        this.syncCursorFromSrsV2Runtime();
+        if (this.pendingSrsV2CounterSnapshot) {
+            this.cursor.counterSnapshot = this.cloneCounterSnapshot(this.pendingSrsV2CounterSnapshot);
+        }
+        return cardWithNextDues;
     }
 
     private async refreshCdfLiveRelationOnReviewOpen(card: FSRSCard): Promise<{

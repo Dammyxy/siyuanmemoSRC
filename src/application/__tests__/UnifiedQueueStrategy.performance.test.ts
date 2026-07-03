@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
-import { isQueueItemUnavailableError } from '@/core/queue/abstraction/Strategy';
+import { isQueueItemUnavailableError, type QueueFeedbackResult } from '@/core/queue/abstraction/Strategy';
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
 import { QueueType, type DataChangeEvent, type IReviewQueue, type QueueReviewResult } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
@@ -32,6 +32,19 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
     updatedAt: now - 60_000,
     ...overrides,
   };
+}
+
+function expectAdvancedNext(
+  result: QueueFeedbackResult<FSRSCard> | void,
+  expectedId: string,
+): FSRSCard {
+  expect(result).toMatchObject({
+    status: 'advanced',
+    nextItem: expect.objectContaining({ id: expectedId }),
+  });
+  const nextItem = result && result.status === 'advanced' ? result.nextItem : null;
+  expect(nextItem).not.toBeNull();
+  return nextItem as FSRSCard;
 }
 
 function createQueueStub(
@@ -335,10 +348,12 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
     getCardsSpy.mockClear();
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
-    const next = await strategy.next();
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
 
-    expect(next?.id).toBe(secondCard.id);
+    expect(feedbackResult).toMatchObject({
+      status: 'advanced',
+      nextItem: expect.objectContaining({ id: secondCard.id }),
+    });
     expect(getCardsSpy).not.toHaveBeenCalled();
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
@@ -379,8 +394,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       timestamp: Date.now(),
     });
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 4, commitIdempotencyKey: 'no-rebuild' });
-    await expect(strategy.next()).resolves.toMatchObject({ id: second.id });
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4, commitIdempotencyKey: 'no-rebuild' });
+    expectAdvancedNext(feedbackResult, second.id);
 
     expect(getCardsSpy).toHaveBeenCalledTimes(1);
     expect(queue.getCounterSnapshot).not.toHaveBeenCalled();
@@ -708,11 +723,10 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
     getCardsSpy.mockClear();
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
-    const second = await strategy.next();
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    expectAdvancedNext(feedbackResult, 'card-2');
     const third = await strategy.next();
 
-    expect(second?.id).toBe('card-2');
     expect(third).toBeNull();
     expect(getCardsSpy).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
@@ -919,10 +933,9 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const getSnapshotRowsSpy = queue.getSnapshotRows as unknown as ReturnType<typeof vi.fn>;
     getSnapshotRowsSpy.mockClear();
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
-    const second = await strategy.next();
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
 
-    expect(second?.id).toBe('incremental-card-2');
+    expectAdvancedNext(feedbackResult, 'incremental-card-2');
     expect(getSnapshotRowsSpy).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
@@ -1105,15 +1118,14 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
     strategy.onDataChanged({
       type: 'queue-changed',
       queueType: QueueType.RetrievalPractice,
       timestamp: Date.now(),
     });
 
-    const next = await strategy.next();
-    expect(next?.id).toBe(secondCard.id);
+    const next = expectAdvancedNext(feedbackResult, secondCard.id);
     const counterSnapshot = await strategy.getCounterSnapshot();
     expect(counterSnapshot?.remaining).toBe(1);
     expect(counterSnapshot?.buckets.all).toBe(1);
@@ -1170,10 +1182,9 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
 
-    const next = await strategy.next();
-    expect(next?.id).toBe(secondCard.id);
+    const next = expectAdvancedNext(feedbackResult, secondCard.id);
 
     const counterSnapshot = await strategy.getCounterSnapshot();
     expect(counterSnapshot?.remaining).toBe(1);
@@ -1248,10 +1259,9 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
     getCardsSpy.mockClear();
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 3 });
-    const next = await strategy.next();
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 3 });
 
-    expect(next?.id).toBe(secondCard.id);
+    expectAdvancedNext(feedbackResult, secondCard.id);
     expect(getCardsSpy).not.toHaveBeenCalled();
   });
 
@@ -1325,15 +1335,14 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
     strategy.onDataChanged({
       type: 'queue-changed',
       queueType: QueueType.RetrievalPractice,
       timestamp: Date.now(),
     });
 
-    const next = await strategy.next();
-    expect(next?.id).toBe(sameBlockOtherFace.id);
+    expectAdvancedNext(feedbackResult, sameBlockOtherFace.id);
   });
 
   it('does not mutate follower-local runtime session queue when writer relay is unavailable', async () => {
@@ -1617,7 +1626,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await expect(strategy.onFeedback(first, { action: 'rate', rating: 4 })).resolves.toBeUndefined();
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    expectAdvancedNext(feedbackResult, secondCard.id);
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
     await expect(strategy.getCounterSnapshot()).resolves.toMatchObject({
       remaining: 1,
@@ -1692,9 +1702,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 2 });
-    const next = await strategy.next();
-    expect(next?.id).toBe(secondCard.id);
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 2 });
+    expectAdvancedNext(feedbackResult, secondCard.id);
   });
 
   it('keeps immediate repeat when low-rated card is the only candidate', async () => {
@@ -1736,9 +1745,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(card.id);
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 2 });
-    const next = await strategy.next();
-    expect(next?.id).toBe(card.id);
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 2 });
+    expectAdvancedNext(feedbackResult, card.id);
   });
 
   it('does not rotate cards on rating 3/4', async () => {
@@ -1774,9 +1782,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
-    const next = await strategy.next();
-    expect(next?.id).toBe(secondCard.id);
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    expectAdvancedNext(feedbackResult, secondCard.id);
   });
 
   it('requeries incremental learning after low feedback and advances to a different card when available', async () => {
@@ -1820,9 +1827,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 2 });
-    const next = await strategy.next();
-    expect(next?.id).toBe(nextBlockCard.id);
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 2 });
+    expectAdvancedNext(feedbackResult, nextBlockCard.id);
   });
 
   it('requeries incremental learning after high feedback and avoids same-block sibling cards', async () => {
@@ -1859,9 +1865,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
-    const next = await strategy.next();
-    expect(next?.id).toBe(nextBlockCard.id);
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    expectAdvancedNext(feedbackResult, nextBlockCard.id);
   });
 
   it('allows immediate repeat in incremental learning when the deferred card is the only candidate', async () => {
@@ -1903,9 +1908,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(card.id);
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 2 });
-    const next = await strategy.next();
-    expect(next?.id).toBe(card.id);
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 2 });
+    expectAdvancedNext(feedbackResult, card.id);
   });
 
   it('requeries incremental learning after skip and advances to the next available card', async () => {
@@ -1968,9 +1972,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await strategy.onFeedback(first, { action: 'skip' });
-    const next = await strategy.next();
-    expect(next?.id).toBe(nextBlockCard.id);
+    const feedbackResult = await strategy.onFeedback(first, { action: 'skip' });
+    expectAdvancedNext(feedbackResult, nextBlockCard.id);
   });
 
   it('cleans a stale current item when incremental review reports the card no longer exists', async () => {
@@ -2446,9 +2449,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(card.id);
 
-    await strategy.onFeedback(first, { action: 'rate', rating: 2 });
-    const current = await strategy.next();
-    expect(current?.id).toBe(nextCard.id);
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 2 });
+    const current = expectAdvancedNext(feedbackResult, nextCard.id);
 
     const previous = await strategy.goBack(current);
     expect(previous?.id).toBe(card.id);

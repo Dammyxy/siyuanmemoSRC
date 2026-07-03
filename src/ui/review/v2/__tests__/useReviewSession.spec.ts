@@ -308,6 +308,39 @@ describe('useReviewSession', () => {
     wrapper.unmount();
   });
 
+  it('uses the next item returned by feedback advancement without calling queue.next again', async () => {
+    const queue = createQueue();
+    const preparedNext = hydrateItem(createItem('prepared-next'));
+    queue.onFeedback = vi.fn(async () => ({
+      status: 'advanced' as const,
+      nextItem: preparedNext,
+    }));
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter });
+    await flushAsync();
+
+    const hook = getHook();
+    expect(hook.state.value.content.id).toBe('card-1');
+    expect(queue.next).toHaveBeenCalledTimes(1);
+
+    await hook.grade(3);
+
+    expect(queue.onFeedback).toHaveBeenCalledWith(expect.objectContaining({ id: 'card-1' }), expect.objectContaining({
+      action: 'rate',
+      rating: 3,
+    }));
+    expect(queue.next).toHaveBeenCalledTimes(1);
+    expect(adapter.toUIState).toHaveBeenLastCalledWith(queue, preparedNext, expect.any(Object));
+    expect(hook.state.value.content.id).toBe('prepared-next');
+    expect(hook.context.value.session?.answeredCount).toBe(1);
+    expect(hook.context.value.session?.correctCount).toBe(1);
+
+    wrapper.unmount();
+  });
+
   it('advances past an unavailable graded item without counting it as reviewed', async () => {
     const queue = createQueue();
     queue.onFeedback = vi.fn(async () => {

@@ -7078,6 +7078,93 @@ describe('BackendReviewSyncRpcAdapter', () => {
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterFirst);
   });
 
+  it('keeps review feedback main DB read fast path across queue projection replacement', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    const reviewedAt = 1_779_188_000_000;
+    const firstCard = buildCard({
+      id: 'card-review-fast-projection-a',
+      blockId: 'block-review-fast-projection-a',
+      due: reviewedAt - 10_000,
+    });
+    const secondCard = buildCard({
+      id: 'card-review-fast-projection-b',
+      blockId: 'block-review-fast-projection-b',
+      due: reviewedAt - 10_000,
+    });
+    await database.upsertCards([firstCard, secondCard]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const first = await kernel.handle({
+      id: 'review-feedback-fast-projection-a',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: firstCard.id,
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+      }],
+    });
+    expect('result' in first).toBe(true);
+    const mainDbReadsAfterFirst = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+
+    const replace = await kernel.handle({
+      id: 'review-fast-projection-replace',
+      jsonrpc: '2.0',
+      method: 'queue.projection.replace' as never,
+      params: [{
+        queueType: 'retrieval-practice',
+        policyHash: 'retrieval-practice:review-fast-projection',
+        generation: 1,
+        rows: [{
+          queueType: 'retrieval-practice',
+          rowId: secondCard.id,
+          cardId: secondCard.id,
+          blockId: secondCard.blockId,
+          deckId: null,
+          membershipReason: 'review-fast-path',
+          dueAt: secondCard.due,
+          dueBucket: 'overdue',
+          priorityScore: secondCard.priority,
+          sortKey: `000000001:${secondCard.id}`,
+          queueIndexHint: 1,
+          policyHash: 'retrieval-practice:review-fast-projection',
+          sourceGeneration: 1,
+          payload: { queueKind: 'retrieval-practice', source: 'review-fast-path-test' },
+          updatedAt: reviewedAt + 500,
+        }],
+        reason: 'review-feedback-projection-replace',
+      }],
+    });
+    expect('result' in replace).toBe(true);
+
+    const second = await kernel.handle({
+      id: 'review-feedback-fast-projection-b',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: secondCard.id,
+        rating: 3,
+        reviewedAt: reviewedAt + 1_000,
+        queueType: 'retrieval-practice',
+      }],
+    });
+
+    expect('result' in second).toBe(true);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterFirst);
+  });
+
   it('skips repeated persisted main DB reads for review feedback when conflict source entries are empty', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));

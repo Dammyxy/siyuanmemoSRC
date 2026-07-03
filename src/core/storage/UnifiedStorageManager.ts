@@ -2599,8 +2599,8 @@ export class UnifiedStorageManager {
 
   /**
    * 根据 Xiuyuan ID 获取关联卡片 DTO。
-   * 读取时直接扫描 DTO 主表，避免依赖可能尚未重建的索引。
-   * 同时修复已能由块/Riff 归属唯一定位、但 DTO 缺少 xiuyuanID 的读时绑定。
+   * 读取路径必须保持纯读：只使用维护好的 Xiuyuan -> card id 索引，
+   * 不扫描 DTO 主表、不修复绑定、不标记 dirty。
    */
   getCardDTOsByXiuyuanId(xiuyuanId: string): CardPersistenceDTO[] {
     const normalizedXiuyuanId = String(xiuyuanId || '').trim();
@@ -2608,42 +2608,11 @@ export class UnifiedStorageManager {
       return [];
     }
 
-    const xiuyuan = this.xiuyuans.get(normalizedXiuyuanId);
-    const cardDTOs: CardPersistenceDTO[] = [];
-    for (const dto of this.cardDTOs.values()) {
-      const boundXiuyuanId = this.readXiuyuanIdFromDTO(dto);
-      if (boundXiuyuanId === normalizedXiuyuanId) {
-        const topLevelXiuyuanId = typeof dto.xiuyuanID === 'string' ? dto.xiuyuanID.trim() : '';
-        cardDTOs.push(
-          topLevelXiuyuanId === normalizedXiuyuanId
-            ? dto
-            : this.repairMissingXiuyuanBindingForRead(dto, normalizedXiuyuanId)
-        );
-        continue;
-      }
-
-      if (!boundXiuyuanId && xiuyuan && this.matchesXiuyuanBinding(dto, xiuyuan)) {
-        cardDTOs.push(this.repairMissingXiuyuanBindingForRead(dto, normalizedXiuyuanId));
-      }
-    }
-
-    return cardDTOs
+    const cardIds = this.indexByXiuyuanID.get(normalizedXiuyuanId) ?? [];
+    return cardIds
+      .map((cardId) => this.cardDTOs.get(cardId))
+      .filter((dto): dto is CardPersistenceDTO => Boolean(dto))
       .sort((left, right) => left.id.localeCompare(right.id));
-  }
-
-  private repairMissingXiuyuanBindingForRead(
-    dto: CardPersistenceDTO,
-    xiuyuanId: string,
-  ): CardPersistenceDTO {
-    const previous = JSON.parse(JSON.stringify(dto)) as CardPersistenceDTO;
-    const repaired = JSON.parse(JSON.stringify(dto)) as CardPersistenceDTO;
-    this.updateIndexesForDTO(previous, 'remove');
-    this.applyXiuyuanIdToDTO(repaired, xiuyuanId);
-    this.cardDTOs.set(repaired.id, repaired);
-    this.updateIndexesForDTO(repaired, 'add');
-    this.indexByDue.sort((left, right) => left.due - right.due);
-    this.dirty = true;
-    return repaired;
   }
 
   /**

@@ -206,6 +206,40 @@ describe('UnifiedStorageManager DTO Operations', () => {
     });
   });
 
+  describe('getCardDTOsByXiuyuanId', () => {
+    it('should read through the maintained Xiuyuan index without repairing malformed DTOs or dirtying storage', async () => {
+      const xiuyuan = createTestXiuYuan('xy_indexed');
+      const dtoB = {
+        ...createTestDTO('card-b', xiuyuan.id, 'block-b'),
+        meta: { xiuyuanID: xiuyuan.id, faceIndex: 1 },
+      };
+      const dtoA = {
+        ...createTestDTO('card-a', xiuyuan.id, 'block-a'),
+        meta: { xiuyuanID: xiuyuan.id, faceIndex: 0 },
+      };
+
+      await storage.createCardDTO(xiuyuan, dtoB);
+      await storage.createCardDTO(xiuyuan, dtoA);
+      await storage.save();
+
+      const malformedDTO = storage.getCardDTO('card-a') as CardPersistenceDTO & { xiuyuanID?: string };
+      delete malformedDTO.xiuyuanID;
+      const beforeStore = storage.getStoreData();
+      const beforeDirty = (storage as unknown as { dirty: boolean }).dirty;
+
+      const result = storage.getCardDTOsByXiuyuanId(xiuyuan.id);
+      const afterStore = storage.getStoreData();
+      const afterDirty = (storage as unknown as { dirty: boolean }).dirty;
+
+      expect(result.map((dto) => dto.id)).toEqual(['card-a', 'card-b']);
+      expect(storage.getCardDTO('card-a')?.xiuyuanID).toBeUndefined();
+      expect(afterDirty).toBe(beforeDirty);
+      expect(afterStore.cardDTOs).toEqual(beforeStore.cardDTOs);
+      expect(afterStore.cards).toEqual(beforeStore.cards);
+      expect(afterStore.xiuyuans).toEqual(beforeStore.xiuyuans);
+    });
+  });
+
   describe('updateCardDTO', () => {
     /**
      * 测试 updateCardDTO 方法
@@ -354,14 +388,14 @@ describe('UnifiedStorageManager DTO Operations', () => {
       // 尝试批量创建，其中一个已存在（应该失败）
       const dtos = [
         createTestDTO('card-1', xiuyuan.id, 'block-1'), // 已存在
-        createTestDTO('card-2', xiuyuan.id, 'block-2'),
+        createTestDTO('card-2', xiuyuan.id, 'block-1'),
       ];
 
       const result = await storage.batchCreateCardsDTO(xiuyuan, dtos);
 
       expect(result.ok).toBe(true);
 
-      // 同一 Xiuyuan + 默认 faceIndex=0 是同一逻辑卡，card-2 被合并进 card-1
+      // 同一 Xiuyuan + 同一 blockId + 无显式 faceIndex 是同一逻辑卡，card-2 被合并进 card-1
       expect(storage.getCardDTO('card-2')).toBeUndefined();
       expect(storage.getCardDTO('card-1')).toBeDefined();
     });
