@@ -182,7 +182,7 @@
           @resolve-source-conflict="resolveCurrentContentEditorConflict"
           @confirm-source="confirmInlineCardEditorSource"
           @reveal-answer-fields="revealAnswerFieldsForInlineEditor"
-          @close="closeInlineCardEditor"
+          @close="requestCloseInlineCardEditor"
         />
 
         <div v-if="reviewSemanticTemporaryView" class="fsrs-review-v2__temporary-view" role="status">
@@ -525,6 +525,7 @@ import { prepareReviewPresentation } from './reviewPresentationPreparer';
 import { createReviewCardActionRuntime, type ReviewCardPeerInfo } from './reviewCardActionCommands';
 import {
   createReviewCurrentContentEditorRuntime,
+  type ReviewCurrentContentEditorAfterSuccessfulWritesResult,
   type ReviewCurrentContentEditorRelationPreview,
   type ReviewEditableTargetConflictResolution,
   type ReviewCurrentContentEditorPendingWrite,
@@ -726,6 +727,11 @@ type ReviewContentExpose = {
   getDependencyBlockIds?: () => string[];
   getNativeSplitGuardState?: () => ReviewNativeSplitGuardState;
   refreshVisibleContent?: (reason?: string) => Promise<boolean>;
+};
+
+type ReviewSourceEditSessionImpact = {
+  currentStillReviewable: boolean;
+  refreshedSameSourceSnapshots: boolean;
 };
 
 type ProtyleHostElement = HTMLElement & {
@@ -3527,6 +3533,149 @@ function isCurrentReviewCdfLiveRelationCard(): boolean {
   );
 }
 
+function isReviewCardStillSessionReviewable(card: FSRSCard | null | undefined): boolean {
+  if (!card) {
+    return false;
+  }
+  if (hasCdfLiveRelationMetadata(card)) {
+    return isCdfMetaReviewEligible(readReviewCardMeta(card));
+  }
+
+  const blockId = String(card.blockId || '').trim();
+  if (!blockId) {
+    return false;
+  }
+
+  return !(card as { deleted?: boolean; dismissed?: boolean }).deleted
+    && !(card as { sourceMissingAt?: unknown }).sourceMissingAt
+    && card.skipped !== true
+    && readReviewRecordString(readReviewCardMeta(card), 'sourceMissingAt') === '';
+}
+
+function buildInvalidAfterSourceEditDiagnostic(card: FSRSCard | null | undefined): ReviewNoScoreRemovalDiagnostic {
+  const cardId = String(card?.id || resolveCurrentReviewCardId() || '').trim();
+  const blockId = String(card?.blockId || resolveCurrentReviewBlockId() || '').trim();
+  return {
+    kind: 'invalid-after-source-edit',
+    cardId,
+    blockId,
+    sourceBlockId: resolveCurrentReviewSourceBlockId() || blockId,
+    reasonCode: 'invalid-after-source-edit',
+    reasonLabel: t('reviewSourceEditInvalidAfterSave', '保存后当前卡已不再适合本轮复习'),
+  };
+}
+
+async function refreshSameSessionSnapshotsAfterSourceEdit(
+  pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+): Promise<boolean> {
+  const markdownBlockIds = Array.from(new Set(
+    pendingWrites
+      .filter(write => write.sourceKind === 'block-markdown')
+      .map(write => String(write.blockId || '').trim())
+      .filter(Boolean),
+  ));
+  if (markdownBlockIds.length === 0) {
+    return true;
+  }
+
+  const dependencyBlockIds = Array.from(new Set([
+    ...reviewSourceRefreshHostRuntime.getDependencyBlockIds(),
+    ...markdownBlockIds,
+  ].map(value => String(value || '').trim()).filter(Boolean)));
+  const currentReference = getCurrentReviewCardReference();
+  if ((!currentReference.cardId && !currentReference.blockId) || dependencyBlockIds.length === 0) {
+    return true;
+  }
+
+  const reviewService = getReviewService();
+  if (typeof reviewService?.executeReviewSourceRefresh !== 'function') {
+    return true;
+  }
+
+  try {
+    const timestamp = Date.now();
+    const impact = await reviewService.executeReviewSourceRefresh({
+      commandId: `review-source-edit-save:${currentReference.cardId || currentReference.blockId}:${timestamp}`,
+      idempotencyKey: `review-source-edit-save:${currentReference.cardId || currentReference.blockId}:${markdownBlockIds.join(',')}:${timestamp}`,
+      sessionId: reviewSessionId.value,
+      currentCardId: currentReference.cardId || null,
+      currentBlockId: currentReference.blockId || null,
+      changedBlockIds: markdownBlockIds,
+      dependencyBlockIds,
+    });
+    return impact.status !== 'failed' && impact.status !== 'unavailable';
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Same-session source snapshot refresh failed after source edit save:', {
+      blockIds: markdownBlockIds,
+      error,
+    });
+    return false;
+  }
+}
+
+async function applyOrdinarySourceEditSessionImpact(
+  pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+): Promise<ReviewSourceEditSessionImpact> {
+  const sameSessionRefreshOk = await refreshSameSessionSnapshotsAfterSourceEdit(pendingWrites);
+  if (!sameSessionRefreshOk) {
+    showMessage(
+      t('reviewSourceEditSessionRefreshFailed', '源内容已保存；本轮部分同源卡可能要等下次加载才刷新'),
+      5000,
+      'warning',
+    );
+  }
+
+  const currentReference = getCurrentReviewCardReference();
+  const manager = getReviewDataManager();
+  if (!manager || !currentReference.cardId) {
+    return {
+      currentStillReviewable: true,
+      refreshedSameSourceSnapshots: sameSessionRefreshOk,
+    };
+  }
+
+  try {
+    const nextCard = await manager.getCard(currentReference.cardId);
+    if (getCurrentReviewCardReference().cardId !== currentReference.cardId) {
+      return {
+        currentStillReviewable: true,
+        refreshedSameSourceSnapshots: sameSessionRefreshOk,
+      };
+    }
+    if (isReviewCardStillSessionReviewable(nextCard)) {
+      await hook.refreshCurrentItem(nextCard, buildExpectedRefreshOptions(currentReference));
+      return {
+        currentStillReviewable: true,
+        refreshedSameSourceSnapshots: sameSessionRefreshOk,
+      };
+    }
+
+    await removeCardIdsFromActiveQueue([currentReference.cardId, currentReference.blockId]);
+    await hook.advanceWithoutFeedback({
+      diagnostic: buildInvalidAfterSourceEditDiagnostic(nextCard),
+      decrementTotal: true,
+    });
+    showMessage(
+      t('reviewSourceEditInvalidAfterSaveToast', '源内容已保存；当前卡已移出本轮且未评分'),
+      3000,
+      'warning',
+    );
+    return {
+      currentStillReviewable: false,
+      refreshedSameSourceSnapshots: sameSessionRefreshOk,
+    };
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to re-evaluate current card after source edit save:', {
+      cardId: currentReference.cardId,
+      error,
+    });
+    return {
+      currentStillReviewable: true,
+      refreshedSameSourceSnapshots: sameSessionRefreshOk,
+    };
+  }
+}
+
 function resolveCurrentCdfLiveSourceBlockId(pendingWrites: ReviewCurrentContentEditorPendingWrite[]): string {
   const card = state.value.content.card as FSRSCard | null | undefined;
   const meta = readReviewCardMeta(card);
@@ -4124,15 +4273,17 @@ async function confirmCurrentContentEditorRelationPreview(
 async function reconcileCurrentContentEditorRelationWrites(
   pendingWrites: ReviewCurrentContentEditorPendingWrite[],
   validation: ReviewCurrentContentEditorValidationResult,
-): Promise<void> {
+): Promise<ReviewCurrentContentEditorAfterSuccessfulWritesResult | void> {
   const reviewService = getReviewService();
   if (!reviewService?.reconcileCdfLiveRelationsInWriteRepairFlow) {
-    return;
+    const impact = await applyOrdinarySourceEditSessionImpact(pendingWrites);
+    return { refreshVisibleContent: impact.currentStillReviewable };
   }
 
   const options = buildCurrentCdfWriteRepairOptions(pendingWrites, validation.updates, true);
   if (!options) {
-    return;
+    const impact = await applyOrdinarySourceEditSessionImpact(pendingWrites);
+    return { refreshVisibleContent: impact.currentStillReviewable };
   }
 
   const result = await reviewService.reconcileCdfLiveRelationsInWriteRepairFlow(options);
@@ -4380,11 +4531,44 @@ function resolveSourceEditUnavailableMessage(): string {
 }
 
 async function openInlineCardEditor(): Promise<void> {
+  if (reviewInlineCardEditorOpen.value) {
+    await requestCloseInlineCardEditor();
+    return;
+  }
+
   await reviewInlineCardEditorBridgeRuntime.openEditor();
 }
 
 function closeInlineCardEditor(): void {
   reviewInlineCardEditorBridgeRuntime.close();
+}
+
+async function requestCloseInlineCardEditor(): Promise<boolean> {
+  if (!reviewInlineCardEditorOpen.value) {
+    return true;
+  }
+  if (!reviewTextEditorRuntime.dirty.value) {
+    closeInlineCardEditor();
+    return true;
+  }
+
+  const decision = await threeChoiceDialog({
+    title: t('reviewInlineEditorDirtyExitTitle', '保存源内容改动？'),
+    content: t('reviewInlineEditorDirtyExitContent', '当前源内容有未保存改动。离开前请选择保存、丢弃或继续编辑。'),
+    primaryText: t('save', '保存'),
+    secondaryText: t('discard', '丢弃'),
+    cancelText: t('cancel', '取消'),
+    visualVariant: 'form',
+  });
+
+  if (decision === 'primary') {
+    return reviewInlineCardEditorBridgeRuntime.confirmSource();
+  }
+  if (decision === 'secondary') {
+    closeInlineCardEditor();
+    return true;
+  }
+  return false;
 }
 
 async function confirmInlineCardEditorSource(): Promise<void> {
@@ -4765,7 +4949,12 @@ function closeReviewSurfaceAfterTemporaryRouteClose(): void {
   emit('close');
 }
 
-function closeCurrentReviewSurface(): void {
+async function closeCurrentReviewSurface(): Promise<void> {
+  const canCloseInlineEditor = await requestCloseInlineCardEditor();
+  if (!canCloseInlineEditor) {
+    return;
+  }
+
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue?.resolveTemporaryRouteCloseAction) {
     closeReviewSurfaceAfterTemporaryRouteClose();

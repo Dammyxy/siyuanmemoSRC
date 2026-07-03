@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-03 (Round 648)
+Last update: 2026-07-03 (Round 649)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-03 - Review source edit session-impact closure
+
+- Task: Finish all remaining `enhance-review-source-editing` tasks for structured field behavior, dirty-exit guards, and post-save Review session impact.
+- Touched slice: Review inline source editing in `src/ui/review/v2/{ReviewView.vue,reviewCurrentContentEditorRuntime.ts,reviewStructuredFieldModel.ts,types.ts,__tests__/ReviewView.more-menu.spec.ts,__tests__/reviewStructuredFieldModel.test.ts}` plus OpenSpec task ledger.
+- Debt fixed now: Quick and list-template safe grammar now have explicit structured-field coverage; list-template edits stay scoped to the current item source. Multi-cloze is forced to raw Markdown for this change. Dirty inline editors now use one Save/Discard/Cancel guard for editor close and leaving Review, while review reveal/grade/skip/back/hotkeys stay ignored while editing. Ordinary source saves refresh same-session same-source snapshots without SRS mutation, warn without rollback on refresh failure, re-evaluate the current card after save, keep it visible when still reviewable, and remove non-CDF invalid cards without scoring or stale renderer refresh. CDF invalid cases remain on the existing `cdf-abnormal` path.
+- Debt deferred: Full concept-card chooser/search UI remains deferred; the current relation target still accepts explicit block ID input.
+- Why deferred: Chooser/search is product UX beyond this final task-closure pass and was already recorded as separate follow-up debt.
+- Next safe step: Build the concept-card chooser on top of the existing concept-reference target model, then archive `enhance-review-source-editing`.
+- Validation: Focused structured/session tests passed: `pnpm vitest run "src/ui/review/v2/__tests__/reviewStructuredFieldModel.test.ts" "src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts" --testNamePattern 'list-template|multi-cloze|dirty inline|same-session|invalid non-CDF|pauses review actions|SRS data'` and `pnpm vitest run "src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts" --testNamePattern 'dirty inline|leaving review|same-session|invalid non-CDF|pauses review actions|SRS data'`. Review slice passed: `pnpm vitest run "src/core/card/cdf-live-relation/__tests__/sourceGrammar.test.ts" "src/ui/review/v2/__tests__/reviewCurrentContentEditorRuntime.test.ts" "src/ui/review/v2/__tests__/ReviewEditableTargetsPanel.spec.ts" "src/ui/review/v2/__tests__/ReviewInlineCardEditor.spec.ts" "src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts" "src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts" "src/ui/review/v2/__tests__/reviewStructuredFieldModel.test.ts" "src/ui/review/v2/__tests__/reviewMoreMenuItems.test.ts"` (8 files / 141 tests before the final close-review guard addition; final validation reruns below).
 
 ### 2026-07-03 - Review answer reveal guard pass
 

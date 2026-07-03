@@ -270,7 +270,7 @@ export interface ReviewSessionHistoryEntry {
   correctDelta: number;
 }
 
-export type ReviewNoScoreRemovalDiagnosticKind = 'blocked-cdf';
+export type ReviewNoScoreRemovalDiagnosticKind = 'blocked-cdf' | 'invalid-after-source-edit';
 
 export interface ReviewNoScoreRemovalDiagnostic {
   kind: ReviewNoScoreRemovalDiagnosticKind;

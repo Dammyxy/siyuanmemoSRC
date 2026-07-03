@@ -67,6 +67,10 @@ export interface ReviewCurrentContentEditorValidationResult {
   relationPreview?: ReviewCurrentContentEditorRelationPreview | null;
 }
 
+export interface ReviewCurrentContentEditorAfterSuccessfulWritesResult {
+  refreshVisibleContent?: boolean;
+}
+
 export type ReviewCurrentContentEditorRuntimeOptions = {
   t: ReviewTextEditorTranslate;
   showMessage: ReviewTextEditorShowMessage;
@@ -83,7 +87,9 @@ export type ReviewCurrentContentEditorRuntimeOptions = {
   afterSuccessfulWrites?: (
     pendingWrites: ReviewCurrentContentEditorPendingWrite[],
     validation: ReviewCurrentContentEditorValidationResult,
-  ) => Promise<void> | void;
+  ) => Promise<ReviewCurrentContentEditorAfterSuccessfulWritesResult | void>
+    | ReviewCurrentContentEditorAfterSuccessfulWritesResult
+    | void;
   suppressSourceBlockRefresh: (blockId: string) => void;
   refreshVisibleContent: (reason: string) => Promise<boolean | undefined> | boolean | undefined;
 };
@@ -99,6 +105,7 @@ export function createReviewCurrentContentEditorRuntime(
   let seq = 0;
 
   const dirtyEntries = computed(() => entries.value.filter(entry => entry.value !== entry.originalValue));
+  const dirty = computed(() => dirtyEntries.value.length > 0);
   const title = computed(() => options.t('editSourceContent', '编辑源内容'));
   const readonly = computed(() => loading.value || saving.value);
   const confirmDisabled = computed(() => (
@@ -408,14 +415,16 @@ export function createReviewCurrentContentEditorRuntime(
         write.entry.fieldConflicts = undefined;
       }
 
-      await options.afterSuccessfulWrites?.(pendingWrites, validation);
+      const afterSuccessfulWritesResult = await options.afterSuccessfulWrites?.(pendingWrites, validation);
       if (currentSeq !== seq) {
         return false;
       }
 
-      await options.refreshVisibleContent('manual-edit-save');
-      if (currentSeq !== seq) {
-        return false;
+      if (afterSuccessfulWritesResult?.refreshVisibleContent !== false) {
+        await options.refreshVisibleContent('manual-edit-save');
+        if (currentSeq !== seq) {
+          return false;
+        }
       }
 
       open.value = false;
@@ -446,6 +455,7 @@ export function createReviewCurrentContentEditorRuntime(
     saving,
     targets,
     entries,
+    dirty,
     title,
     readonly,
     confirmDisabled,

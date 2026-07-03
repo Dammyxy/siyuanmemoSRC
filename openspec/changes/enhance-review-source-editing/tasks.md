@@ -15,19 +15,19 @@
 
 ## 3. Structured Field Editor Behavior
 
-- [ ] 3.1 Build safe structured field models for recognized quick question and answer source grammar
-- [ ] 3.2 Build safe structured field models for list-template current-item cue and answer only
+- [x] 3.1 Build safe structured field models for recognized quick question and answer source grammar
+- [x] 3.2 Build safe structured field models for list-template current-item cue and answer only
 - [x] 3.3 Build safe structured field models for concept-definition definition text while keeping relation direction and kind read-only
 - [x] 3.4 Build safe structured field models for descriptor cue and answer while keeping relation direction and kind read-only
-- [ ] 3.5 Force multi-cloze source editing to raw Markdown in this change
-- [ ] 3.6 Fall back to raw Markdown with warning when parser or rewrite safety cannot be proven
+- [x] 3.5 Force multi-cloze source editing to raw Markdown in this change
+- [x] 3.6 Fall back to raw Markdown with warning when parser or rewrite safety cannot be proven
 
 ## 4. Answer Reveal And Dirty Exit Guards
 
 - [x] 4.1 Hide answer-side fields while the current card is unrevealed
 - [x] 4.2 Add explicit confirmation that reveals the current card before exposing answer-side edits
-- [ ] 4.3 Add one Save, Discard, Cancel dirty-exit guard for closing the editor, leaving review, or navigating cards
-- [ ] 4.4 Keep reveal, grade, skip, back, and review hotkeys disabled or ignored while the inline editor is open
+- [x] 4.3 Add one Save, Discard, Cancel dirty-exit guard for closing the editor, leaving review, or navigating cards
+- [x] 4.4 Keep reveal, grade, skip, back, and review hotkeys disabled or ignored while the inline editor is open
 
 ## 5. Save, Conflict, And Partial Failure Flow
 
@@ -46,12 +46,12 @@
 
 ## 7. Session Refresh And Invalid-Card Impact
 
-- [ ] 7.1 Refresh the current visible renderer once after successful save handling completes
-- [ ] 7.2 Refresh same-session same-source snapshots after ordinary custom-rendered source edits without schedule changes
-- [ ] 7.3 Warn without rollback when same-session snapshot refresh fails after source write success
-- [ ] 7.4 Re-evaluate the current card after save and keep it visible when still reviewable
-- [ ] 7.5 Remove newly invalid cards from the current session without scoring and advance when possible
-- [ ] 7.6 Route invalid CDF relation cards to existing `cdf-abnormal` diagnostics and keep non-CDF invalid removals session-local
+- [x] 7.1 Refresh the current visible renderer once after successful save handling completes
+- [x] 7.2 Refresh same-session same-source snapshots after ordinary custom-rendered source edits without schedule changes
+- [x] 7.3 Warn without rollback when same-session snapshot refresh fails after source write success
+- [x] 7.4 Re-evaluate the current card after save and keep it visible when still reviewable
+- [x] 7.5 Remove newly invalid cards from the current session without scoring and advance when possible
+- [x] 7.6 Route invalid CDF relation cards to existing `cdf-abnormal` diagnostics and keep non-CDF invalid removals session-local
 
 ## 8. Tests And Validation
 
@@ -60,5 +60,5 @@
 - [x] 8.3 Add ReviewView interaction tests for toolbar entry, `e` shortcut, active edit state, unavailable reasons, dirty exit, and paused review actions
 - [x] 8.4 Add answer reveal protection tests for unrevealed answer-side field access
 - [x] 8.5 Add CDF relation edit tests for concept selector default scope, batch confirmation, preview, repair, and `cdf-abnormal` routing
-- [ ] 8.6 Add session impact tests for same-source refresh, refresh failure warnings, invalid post-save removal, and no SRS schedule mutation
+- [x] 8.6 Add session impact tests for same-source refresh, refresh failure warnings, invalid post-save removal, and no SRS schedule mutation
 - [x] 8.7 Run focused test suites, boundary checks, hidden-fallback check, and production build for the touched Review slice

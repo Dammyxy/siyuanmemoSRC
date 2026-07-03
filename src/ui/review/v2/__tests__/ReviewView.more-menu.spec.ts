@@ -349,6 +349,7 @@ function createPluginContext(overrides?: {
     getEditableBlockMarkdown: ReturnType<typeof vi.fn>;
     getBlockKramdown: ReturnType<typeof vi.fn>;
     updateBlockMarkdown: ReturnType<typeof vi.fn>;
+    executeReviewSourceRefresh?: ReturnType<typeof vi.fn>;
     reconcileCdfLiveRelationsInWriteRepairFlow?: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
       BUILTIN_DECK_ID: string;
@@ -435,6 +436,7 @@ function mountReviewView(options?: {
     getEditableBlockMarkdown: ReturnType<typeof vi.fn>;
     getBlockKramdown: ReturnType<typeof vi.fn>;
     updateBlockMarkdown: ReturnType<typeof vi.fn>;
+    executeReviewSourceRefresh?: ReturnType<typeof vi.fn>;
     reconcileCdfLiveRelationsInWriteRepairFlow?: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
       BUILTIN_DECK_ID: string;
@@ -914,10 +916,17 @@ describe('ReviewView more menu', () => {
     await textarea.setValue('Updated body');
     await flushPromises();
 
+    reviewViewDialogMocks.threeChoiceDialogMock.mockResolvedValueOnce('cancel');
     header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
     await flushPromises();
     expect(reviewService.getEditableBlockMarkdown).toHaveBeenCalledTimes(1);
     expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
+    expect(wrapper.get('.fsrs-review-v2-content').attributes('style')).toContain('display: none');
+
+    reviewViewDialogMocks.threeChoiceDialogMock.mockResolvedValueOnce('secondary');
+    header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
     expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
     expect(wrapper.get('.fsrs-review-v2-content').attributes('style') || '').not.toContain('display: none');
 
@@ -2008,7 +2017,11 @@ describe('ReviewView more menu', () => {
         BUILTIN_DECK_ID: 'deck-1',
       }),
     };
-    const { wrapper } = mountReviewView({ reviewService, attachInDialog: true });
+    const { wrapper } = mountReviewView({
+      reviewService,
+      attachInDialog: true,
+      initialShowAnswer: true,
+    });
     await flushPromises();
 
     const typingInput = document.createElement('input');
@@ -2388,6 +2401,109 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
+  it('requires Save Discard or Cancel before closing a dirty inline editor', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => 'Original body'),
+      getBlockKramdown: vi.fn(async () => 'Original body'),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      reviewService,
+      attachInDialog: true,
+      initialShowAnswer: true,
+    });
+    await flushPromises();
+
+    const header = wrapper.getComponent(ReviewHeaderStub);
+    header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+    await wrapper.get('textarea.review-editable-targets-panel__textarea').setValue('Dirty draft');
+    await flushPromises();
+
+    reviewViewDialogMocks.threeChoiceDialogMock.mockResolvedValueOnce('cancel');
+    header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    expect(reviewViewDialogMocks.threeChoiceDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '保存源内容改动？',
+      primaryText: '保存',
+      secondaryText: '丢弃',
+      cancelText: '取消',
+    }));
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
+
+    reviewViewDialogMocks.threeChoiceDialogMock.mockResolvedValueOnce('secondary');
+    header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
+
+    header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+    await wrapper.get('textarea.review-editable-targets-panel__textarea').setValue('Saved through guard');
+    await flushPromises();
+
+    reviewViewDialogMocks.threeChoiceDialogMock.mockResolvedValueOnce('primary');
+    header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Saved through guard');
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('guards leaving review with Save Discard or Cancel when inline editor is dirty', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => 'Original body'),
+      getBlockKramdown: vi.fn(async () => 'Original body'),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      reviewService,
+      attachInDialog: true,
+      initialShowAnswer: true,
+    });
+    await flushPromises();
+
+    const header = wrapper.getComponent(ReviewHeaderStub);
+    header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+    await wrapper.get('textarea.review-editable-targets-panel__textarea').setValue('Dirty draft');
+    await flushPromises();
+
+    reviewViewDialogMocks.threeChoiceDialogMock.mockResolvedValueOnce('cancel');
+    header.vm.$emit('toolbar-action', 'close-review', createToolbarEvent());
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
+    expect(wrapper.emitted('close')).toBeUndefined();
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
+
+    reviewViewDialogMocks.threeChoiceDialogMock.mockResolvedValueOnce('primary');
+    header.vm.$emit('toolbar-action', 'close-review', createToolbarEvent());
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Dirty draft');
+    expect(wrapper.emitted('close')).toHaveLength(1);
+
+    wrapper.unmount();
+  });
+
   it('pauses review actions while the inline editor is open and resumes after cancel', async () => {
     reviewContentEditableTargets = [
       buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
@@ -2442,6 +2558,173 @@ describe('ReviewView more menu', () => {
     await vi.waitFor(() => {
       expect(queue.onFeedback).toHaveBeenCalledTimes(1);
     });
+
+    wrapper.unmount();
+  });
+
+  it('refreshes current and same-session same-source snapshots after ordinary source save without SRS mutation', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => 'Original body'),
+      getBlockKramdown: vi.fn(async () => 'Original body'),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      executeReviewSourceRefresh: vi.fn(async () => ({ status: 'ok' })),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const cardEditorService = {
+      updatePriority: vi.fn(async (_cardId: string, priority: number) => ({
+        card: { ...buildCard('card-1'), priority },
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      scheduleCard: vi.fn(async () => ({
+        card: buildCard('card-1'),
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissed: vi.fn(async () => ({
+        card: buildCard('card-1'),
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissedMany: vi.fn(async () => ({
+        updatedCardIds: ['card-1'],
+        failedCardIds: [],
+      })),
+      resetProgress: vi.fn(async () => ({
+        card: buildCard('card-1'),
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+    };
+    const { wrapper, queue, unifiedManager } = mountReviewView({
+      reviewService,
+      cardEditorService,
+      attachInDialog: true,
+      initialShowAnswer: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+    await wrapper.get('textarea.review-editable-targets-panel__textarea').setValue('Updated body');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-targets-confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Updated body');
+    expect(reviewService.executeReviewSourceRefresh).toHaveBeenCalledWith(expect.objectContaining({
+      currentCardId: 'card-1',
+      currentBlockId: 'block-1',
+      changedBlockIds: ['block-1'],
+      dependencyBlockIds: expect.arrayContaining(['block-1']),
+    }));
+    expect(unifiedManager.getCard).toHaveBeenCalledWith('card-1');
+    expect(reviewContentRefreshVisibleContent).toHaveBeenCalledTimes(1);
+    expect(reviewContentRefreshVisibleContent).toHaveBeenCalledWith('manual-edit-save');
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(cardEditorService.scheduleCard).not.toHaveBeenCalled();
+    expect(cardEditorService.resetProgress).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('warns without rollback when same-session source refresh fails after source save', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => 'Original body'),
+      getBlockKramdown: vi.fn(async () => 'Original body'),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      executeReviewSourceRefresh: vi.fn(async () => ({ status: 'failed' })),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      reviewService,
+      attachInDialog: true,
+      initialShowAnswer: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+    await wrapper.get('textarea.review-editable-targets-panel__textarea').setValue('Updated body');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-targets-confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Updated body');
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith(
+      '源内容已保存；本轮部分同源卡可能要等下次加载才刷新',
+      5000,
+      'warning',
+    );
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenLastCalledWith(
+      '当前内容已保存',
+      2000,
+      'info',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('removes invalid non-CDF post-save cards without scoring and skips stale visible refresh', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
+    ];
+    const invalidCard = {
+      ...buildCard('card-1'),
+      sourceMissingAt: 1762300000000,
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => 'Original body'),
+      getBlockKramdown: vi.fn(async () => 'Original body'),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      executeReviewSourceRefresh: vi.fn(async () => ({ status: 'ok' })),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const unifiedManager = {
+      getCards: vi.fn(async () => [invalidCard, buildCard('card-2', 'block-2')]),
+      getCard: vi.fn(async (cardId: string) => (cardId === 'card-1' ? invalidCard : buildCard(cardId))),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+    };
+    const { wrapper, queue } = mountReviewView({
+      cards: [buildCard('card-1'), buildCard('card-2', 'block-2')],
+      reviewService,
+      unifiedManager,
+      attachInDialog: true,
+      initialShowAnswer: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+    await wrapper.get('textarea.review-editable-targets-panel__textarea').setValue('Updated body');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-targets-confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Updated body');
+    expect(queue.removeCard).toHaveBeenCalledWith('card-1');
+    expect(queue.removeCard).toHaveBeenCalledWith('block-1');
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
+    expect(reviewContentRefreshVisibleContent).not.toHaveBeenCalled();
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith(
+      '源内容已保存；当前卡已移出本轮且未评分',
+      3000,
+      'warning',
+    );
 
     wrapper.unmount();
   });

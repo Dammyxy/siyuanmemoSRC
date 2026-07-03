@@ -485,6 +485,66 @@ describe('reviewStructuredFieldModel', () => {
     ]);
   });
 
+  it('extracts list-template current item cue and answer only', () => {
+    const card = createCard({
+      type: 'item',
+      meta: {
+        templateID: 'builtin-list-template',
+      },
+    });
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'list-template:list-item:child-2',
+          blockId: 'child-2',
+          role: 'current-content',
+          rendererKind: 'list-template',
+          title: 'Current item',
+          value: 'Current cue >> Current answer',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('structured');
+    expect(model.family).toBe('item');
+    expect(model.fields.map(field => [field.role, field.value, field.origin.blockId])).toEqual([
+      ['question', 'Current cue', 'child-2'],
+      ['answer', 'Current answer', 'child-2'],
+    ]);
+  });
+
+  it('keeps multi-cloze source editing in raw Markdown mode even with safe item grammar', () => {
+    const card = createCard({
+      type: 'item',
+      meta: {
+        templateID: 'builtin-multi-cloze',
+      },
+    });
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'multi-cloze:current-content:source-block',
+          blockId: 'source-block',
+          role: 'current-content',
+          rendererKind: 'multi-cloze',
+          title: 'Multi-cloze source',
+          value: 'Prompt >> Answer',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('source-fallback');
+    expect(model.family).toBe('source');
+    expect(model.fallbackReason).toBe('multi-cloze-raw-markdown-only');
+    expect(model.fields.map(field => [field.role, field.value, field.origin.kind])).toEqual([
+      ['source', 'Prompt >> Answer', 'source-fallback'],
+    ]);
+  });
+
   it('keeps reverse Item grammar as logical question and answer fields', () => {
     const card = createCard({
       type: 'item',

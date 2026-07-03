@@ -665,6 +665,14 @@ export function buildReviewStructuredFieldModelFromExplicitSources(
   input: ReviewStructuredExplicitFieldModelInput,
 ): ReviewStructuredFieldModel {
   const sources = normalizeExplicitSources(input.sources || []);
+  if (sources.some(source => source.rendererKind === 'multi-cloze')) {
+    return createExplicitSourceFallback(
+      input,
+      sources,
+      'multi-cloze-raw-markdown-only',
+    );
+  }
+
   const family = input.family && input.family !== 'source'
     ? input.family
     : resolveReviewStructuredCardFamily(input.card);
