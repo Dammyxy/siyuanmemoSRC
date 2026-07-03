@@ -27,6 +27,19 @@ import type {
 
 const logger = createLogger('ReviewApplicationService');
 
+export interface ReviewConceptReferenceSearchOption {
+  blockId: string;
+  label: string;
+  detail?: string;
+}
+
+type ReviewConceptReferenceSearchRow = {
+  id?: unknown;
+  content?: unknown;
+  markdown?: unknown;
+  hpath?: unknown;
+};
+
 type ScheduledCardMembershipSyncQueue = {
   syncManualMembershipForScheduledCard: (card: FSRSCard) => Promise<boolean> | boolean;
 };
@@ -52,6 +65,32 @@ function withManualScheduleFields(card: FSRSCard, options: RescheduleOptions): F
     updatedAt: Date.now(),
     ...(Number.isFinite(scheduledDays) && scheduledDays >= 0 ? { scheduledDays } : {}),
   };
+}
+
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function normalizeConceptReferenceSearchRows(
+  rows: ReviewConceptReferenceSearchRow[],
+): ReviewConceptReferenceSearchOption[] {
+  const seen = new Set<string>();
+  const options: ReviewConceptReferenceSearchOption[] = [];
+  for (const row of rows) {
+    const blockId = String(row.id || '').trim();
+    if (!blockId || seen.has(blockId)) {
+      continue;
+    }
+    seen.add(blockId);
+    const label = String(row.content || row.markdown || row.hpath || blockId).trim();
+    const detail = String(row.hpath || blockId).trim();
+    options.push({
+      blockId,
+      label: label || blockId,
+      detail: detail === label ? blockId : detail,
+    });
+  }
+  return options;
 }
 
 export class ReviewApplicationService {
@@ -144,6 +183,28 @@ export class ReviewApplicationService {
 
   async updateBlockMarkdown(blockId: string, markdown: string): Promise<string> {
     return this.siyuanApi.updateBlockMarkdown(blockId, markdown);
+  }
+
+  async searchConceptReferenceBlocks(query: string): Promise<ReviewConceptReferenceSearchOption[]> {
+    const normalized = String(query || '').trim();
+    if (!normalized) {
+      return [];
+    }
+
+    const escaped = escapeSqlLiteral(normalized);
+    const rows = await this.siyuanApi.sql<ReviewConceptReferenceSearchRow>(`
+      SELECT id, content, markdown, hpath
+      FROM blocks
+      WHERE type = 'd'
+        AND (
+          content LIKE '%${escaped}%'
+          OR markdown LIKE '%${escaped}%'
+          OR hpath LIKE '%${escaped}%'
+        )
+      ORDER BY updated DESC
+      LIMIT 8
+    `);
+    return normalizeConceptReferenceSearchRows(rows);
   }
 
   async refreshCdfLiveRelationOnOpen(card: FSRSCard | string): Promise<CdfLiveRelationRefreshResult> {

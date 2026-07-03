@@ -349,6 +349,7 @@ function createPluginContext(overrides?: {
     getEditableBlockMarkdown: ReturnType<typeof vi.fn>;
     getBlockKramdown: ReturnType<typeof vi.fn>;
     updateBlockMarkdown: ReturnType<typeof vi.fn>;
+    searchConceptReferenceBlocks?: ReturnType<typeof vi.fn>;
     executeReviewSourceRefresh?: ReturnType<typeof vi.fn>;
     reconcileCdfLiveRelationsInWriteRepairFlow?: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
@@ -3119,6 +3120,72 @@ describe('ReviewView more menu', () => {
     expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalledWith(
       '20260703020202-bcdefgh',
       expect.any(String),
+    );
+
+    wrapper.unmount();
+  });
+
+  it('searches document blocks before applying a concept-reference edit', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:20260703010101-abcdefg', '20260703010101-abcdefg', 'Definition', 'definition'),
+      {
+        id: 'definition:concept-reference:20260703020202-bcdefgh',
+        blockId: '20260703020202-bcdefgh',
+        title: 'Concept',
+        role: 'concept',
+        rendererKind: 'concept-definition',
+        sourceKind: 'concept-reference',
+        referenceLabel: 'Old concept',
+      },
+    ];
+    const searchConceptReferenceBlocks = vi.fn(async () => [
+      {
+        blockId: '20260703030303-cdefghi',
+        label: 'New concept',
+        detail: '/Concepts/New concept',
+      },
+    ]);
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === '20260703010101-abcdefg') {
+          return '((20260703020202-bcdefgh "Old concept")) :> old definition';
+        }
+        return `${blockId} markdown`;
+      }),
+      getBlockKramdown: vi.fn(async () => ''),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      searchConceptReferenceBlocks,
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => ({
+        changed: false,
+        actions: [],
+        diagnostics: [],
+      })),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [buildCdfLiveCard('card-1', '20260703010101-abcdefg')],
+      reviewService,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-target-concept-reference-input"]').setValue('New concept');
+    await flushPromises();
+
+    expect(searchConceptReferenceBlocks).toHaveBeenCalledWith('New concept');
+    await wrapper.get('[data-testid="review-editable-target-concept-reference-option"]').trigger('click');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-targets-confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      '20260703010101-abcdefg',
+      '((20260703030303-cdefghi "Old concept")) :> old definition',
     );
 
     wrapper.unmount();

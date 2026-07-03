@@ -23,7 +23,7 @@
     </header>
 
     <div class="review-editable-targets-panel__body">
-      <label
+      <div
         v-for="entry in entries"
         :key="entry.target.id"
         class="review-editable-targets-panel__target"
@@ -43,13 +43,37 @@
           <input
             class="b3-text-field review-editable-targets-panel__reference-input"
             data-testid="review-editable-target-concept-reference-input"
-            :value="entry.value"
+            :value="getConceptReferenceInputValue(entry)"
             :readonly="readonly"
             :placeholder="conceptReferencePlaceholder"
-            @input="emit('update-target', entry.target.id, ($event.target as HTMLInputElement).value)"
+            @input="updateConceptReferenceQuery(entry, ($event.target as HTMLInputElement).value)"
             @keydown.enter.prevent="confirmIfEditable"
           />
-          <span class="review-editable-targets-panel__reference-note">{{ conceptReferencePendingLabel }}</span>
+          <span class="review-editable-targets-panel__reference-note">
+            {{ getConceptReferenceNote(entry) }}
+          </span>
+          <div
+            v-if="getConceptReferenceOptions(entry).length > 0"
+            class="review-editable-targets-panel__reference-options"
+            data-testid="review-editable-target-concept-reference-options"
+          >
+            <button
+              v-for="option in getConceptReferenceOptions(entry)"
+              :key="option.blockId"
+              type="button"
+              class="review-editable-targets-panel__reference-option"
+              data-testid="review-editable-target-concept-reference-option"
+              :disabled="readonly"
+              @click="selectConceptReferenceOption(entry, option)"
+            >
+              <span class="review-editable-targets-panel__reference-option-title">
+                {{ option.label }}
+              </span>
+              <span class="review-editable-targets-panel__reference-option-meta">
+                {{ option.detail || option.blockId }}
+              </span>
+            </button>
+          </div>
         </div>
         <textarea
           v-else
@@ -95,13 +119,17 @@
             </button>
           </div>
         </div>
-      </label>
+      </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { reactive } from 'vue';
+import type { ReviewConceptReferenceSearchOption } from '@/application/services/ReviewApplicationService';
 import type { ReviewEditableTargetEditorEntry } from '../reviewCurrentContentEditorRuntime';
+
+const SIYUAN_BLOCK_ID_RE = /^\d{14}-[a-z0-9]{7}$/i;
 
 const props = withDefaults(defineProps<{
   open: boolean;
@@ -114,6 +142,7 @@ const props = withDefaults(defineProps<{
   dirtyLabel?: string;
   conceptReferencePendingLabel?: string;
   conceptReferencePlaceholder?: string;
+  conceptReferenceOptionsByTarget?: Record<string, ReviewConceptReferenceSearchOption[]>;
   sourceLatestConflictLabel?: string;
   draftOverwriteConflictLabel?: string;
 }>(), {
@@ -123,18 +152,57 @@ const props = withDefaults(defineProps<{
   cancelLabel: '取消',
   confirmLabel: '保存',
   dirtyLabel: '已修改',
-  conceptReferencePendingLabel: '输入概念块 ID',
-  conceptReferencePlaceholder: '粘贴概念卡块 ID',
+  conceptReferencePendingLabel: '输入文字搜索文档块，或粘贴块 ID',
+  conceptReferencePlaceholder: '搜索概念文档块',
+  conceptReferenceOptionsByTarget: () => ({}),
   sourceLatestConflictLabel: '使用源文档最新',
   draftOverwriteConflictLabel: '保留我的草稿',
 });
 
 const emit = defineEmits<{
   (e: 'update-target', targetId: string, value: string): void;
+  (e: 'search-concept-reference', targetId: string, query: string): void;
   (e: 'resolve-conflict', targetId: string, resolution: 'source-latest' | 'draft-overwrite'): void;
   (e: 'confirm'): void;
   (e: 'close'): void;
 }>();
+
+const conceptReferenceQueries = reactive<Record<string, string>>({});
+
+function getConceptReferenceInputValue(entry: ReviewEditableTargetEditorEntry): string {
+  return conceptReferenceQueries[entry.target.id]
+    ?? entry.target.referenceLabel
+    ?? entry.value;
+}
+
+function getConceptReferenceNote(entry: ReviewEditableTargetEditorEntry): string {
+  if (entry.value) {
+    return `${props.conceptReferencePendingLabel} · ${entry.value}`;
+  }
+  return props.conceptReferencePendingLabel;
+}
+
+function getConceptReferenceOptions(entry: ReviewEditableTargetEditorEntry): ReviewConceptReferenceSearchOption[] {
+  return props.conceptReferenceOptionsByTarget[entry.target.id] || [];
+}
+
+function updateConceptReferenceQuery(entry: ReviewEditableTargetEditorEntry, rawValue: string): void {
+  const query = String(rawValue || '');
+  const normalized = query.trim();
+  conceptReferenceQueries[entry.target.id] = query;
+  emit('search-concept-reference', entry.target.id, normalized);
+  if (SIYUAN_BLOCK_ID_RE.test(normalized)) {
+    emit('update-target', entry.target.id, normalized);
+  }
+}
+
+function selectConceptReferenceOption(
+  entry: ReviewEditableTargetEditorEntry,
+  option: ReviewConceptReferenceSearchOption,
+): void {
+  conceptReferenceQueries[entry.target.id] = option.label || option.blockId;
+  emit('update-target', entry.target.id, option.blockId);
+}
 
 function confirmIfEditable(): void {
   if (props.readonly || props.confirmDisabled) {
@@ -207,9 +275,9 @@ function confirmIfEditable(): void {
 }
 
 .review-editable-targets-panel__reference {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   width: 100%;
   min-height: 34px;
@@ -222,13 +290,52 @@ function confirmIfEditable(): void {
 }
 
 .review-editable-targets-panel__reference-input {
-  flex: 1 1 auto;
   min-width: 0;
   height: 28px;
 }
 
 .review-editable-targets-panel__reference-note {
-  flex: 0 0 auto;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.review-editable-targets-panel__reference-options {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 4px;
+}
+
+.review-editable-targets-panel__reference-option {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  text-align: left;
+}
+
+.review-editable-targets-panel__reference-option:hover:not(:disabled) {
+  border-color: var(--b3-theme-primary);
+  background: color-mix(in srgb, var(--b3-theme-primary) 6%, var(--b3-theme-background));
+}
+
+.review-editable-targets-panel__reference-option-title,
+.review-editable-targets-panel__reference-option-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-editable-targets-panel__reference-option-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.review-editable-targets-panel__reference-option-meta {
   color: var(--b3-theme-on-surface-light);
   font-size: 11px;
 }

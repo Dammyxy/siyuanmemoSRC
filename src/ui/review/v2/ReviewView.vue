@@ -176,9 +176,11 @@
           :cancel-label="t('cancel', '取消')"
           :save-label="t('save', '保存')"
           :close-label="t('cancel', '取消')"
+          :concept-reference-options-by-target="reviewConceptReferenceOptionsByTarget"
           :source-latest-conflict-label="t('reviewStructuredConflictUseSourceLatest', '使用源文档最新')"
           :draft-overwrite-conflict-label="t('reviewStructuredConflictKeepDraft', '保留我的草稿')"
           @update-source-target="updateCurrentContentEditorTarget"
+          @search-concept-reference="searchCurrentContentEditorConceptReference"
           @resolve-source-conflict="resolveCurrentContentEditorConflict"
           @confirm-source="confirmInlineCardEditorSource"
           @reveal-answer-fields="revealAnswerFieldsForInlineEditor"
@@ -518,7 +520,10 @@ import {
 } from './reviewShellCommands';
 import { openReviewSrsEditorDialog } from './reviewSrsEditorCommands';
 import type { PluginSettings } from '@/types/settings';
-import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
+import type {
+  ReviewApplicationService,
+  ReviewConceptReferenceSearchOption,
+} from '@/application/services/ReviewApplicationService';
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import { prepareReviewPresentation } from './reviewPresentationPreparer';
@@ -964,10 +969,14 @@ const reviewStructuredConflictResolutionsBySourceTarget = new Map<string, Map<st
   resolution: ReviewEditableTargetConflictResolution;
   latestSource?: string;
 }>>();
+const reviewConceptReferenceOptionsByTarget = ref<Record<string, ReviewConceptReferenceSearchOption[]>>({});
+const reviewConceptReferenceSearchSeqByTarget = new Map<string, number>();
 
 function clearReviewStructuredEditorState(): void {
   reviewStructuredTouchedFieldIdsBySourceTarget.clear();
   reviewStructuredConflictResolutionsBySourceTarget.clear();
+  reviewConceptReferenceOptionsByTarget.value = {};
+  reviewConceptReferenceSearchSeqByTarget.clear();
 }
 
 const reviewTextEditorRuntime = createReviewCurrentContentEditorRuntime({
@@ -3336,6 +3345,45 @@ function clearStructuredConflictResolution(sourceTargetId: string, fieldId?: str
   }
   if (fieldResolutions.size === 0) {
     reviewStructuredConflictResolutionsBySourceTarget.delete(sourceTargetId);
+  }
+}
+
+function setReviewConceptReferenceOptions(
+  targetId: string,
+  options: ReviewConceptReferenceSearchOption[],
+): void {
+  reviewConceptReferenceOptionsByTarget.value = {
+    ...reviewConceptReferenceOptionsByTarget.value,
+    [targetId]: options,
+  };
+}
+
+async function searchCurrentContentEditorConceptReference(targetId: string, query: string): Promise<void> {
+  const normalized = String(query || '').trim();
+  const nextSeq = (reviewConceptReferenceSearchSeqByTarget.get(targetId) || 0) + 1;
+  reviewConceptReferenceSearchSeqByTarget.set(targetId, nextSeq);
+  if (!normalized || /^\d{14}-[a-z0-9]{7}$/i.test(normalized)) {
+    setReviewConceptReferenceOptions(targetId, []);
+    return;
+  }
+
+  const reviewService = getReviewService();
+  if (!reviewService?.searchConceptReferenceBlocks) {
+    setReviewConceptReferenceOptions(targetId, []);
+    return;
+  }
+
+  try {
+    const options = await reviewService.searchConceptReferenceBlocks(normalized);
+    if (reviewConceptReferenceSearchSeqByTarget.get(targetId) !== nextSeq) {
+      return;
+    }
+    setReviewConceptReferenceOptions(targetId, options);
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to search concept reference blocks:', error);
+    if (reviewConceptReferenceSearchSeqByTarget.get(targetId) === nextSeq) {
+      setReviewConceptReferenceOptions(targetId, []);
+    }
   }
 }
 

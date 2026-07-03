@@ -77,11 +77,13 @@
           :confirm-label="saveLabel"
           :confirm-disabled="sourceConfirmDisabled"
           :cancel-label="cancelLabel"
-          :concept-reference-pending-label="t('conceptReferenceSelectorPending', '输入概念块 ID')"
-          :concept-reference-placeholder="t('conceptReferenceSelectorPlaceholder', '粘贴概念卡块 ID')"
+          :concept-reference-pending-label="t('conceptReferenceSelectorPending', '输入文字搜索文档块，或粘贴块 ID')"
+          :concept-reference-placeholder="t('conceptReferenceSelectorPlaceholder', '搜索概念文档块')"
+          :concept-reference-options-by-target="conceptReferenceOptionsByTarget"
           :source-latest-conflict-label="sourceLatestConflictLabel"
           :draft-overwrite-conflict-label="draftOverwriteConflictLabel"
           @update-target="(targetId, value) => emit('update-source-target', targetId, value)"
+          @search-concept-reference="(targetId, query) => emit('search-concept-reference', targetId, query)"
           @resolve-conflict="(targetId, resolution) => emit('resolve-source-conflict', targetId, resolution)"
           @confirm="emit('confirm-source')"
           @close="emit('close')"
@@ -125,6 +127,7 @@ import {
   createReviewStructuredFieldTargetId,
   extractReviewStructuredGrammarFieldValue,
 } from '../reviewStructuredFieldModel';
+import type { ReviewConceptReferenceSearchOption } from '@/application/services/ReviewApplicationService';
 
 const props = defineProps<{
   open: boolean;
@@ -141,12 +144,14 @@ const props = defineProps<{
   cancelLabel: string;
   saveLabel: string;
   closeLabel: string;
+  conceptReferenceOptionsByTarget?: Record<string, ReviewConceptReferenceSearchOption[]>;
   sourceLatestConflictLabel: string;
   draftOverwriteConflictLabel: string;
 }>();
 
 const emit = defineEmits<{
   (e: 'update-source-target', targetId: string, value: string): void;
+  (e: 'search-concept-reference', targetId: string, query: string): void;
   (e: 'resolve-source-conflict', targetId: string, resolution: ReviewEditableTargetConflictResolution): void;
   (e: 'confirm-source'): void;
   (e: 'reveal-answer-fields'): void;
