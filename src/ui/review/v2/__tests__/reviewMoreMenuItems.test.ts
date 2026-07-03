@@ -82,6 +82,17 @@ describe('reviewMoreMenuItems', () => {
     expect(isReviewMenuSeparator(items[3])).toBe(true);
   });
 
+  it('keeps source editing discoverable when caller provides the entry title', () => {
+    const items = buildItems({
+      editableSourceTitle: 'Edit source content',
+    });
+
+    expect(items.find((item) => item.id === 'edit-current-content')).toMatchObject({
+      label: 'Edit source content',
+      disabled: false,
+    });
+  });
+
   it('projects card action availability without owning command execution', () => {
     const openAsItems: ReviewMenuItem[] = [{ id: 'openByTab', label: 'Open Tab' }];
     const items = buildItems({

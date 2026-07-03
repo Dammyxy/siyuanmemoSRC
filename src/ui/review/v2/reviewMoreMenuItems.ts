@@ -112,6 +112,7 @@ export function buildReviewMoreMenuItems(input: BuildReviewMoreMenuItemsInput): 
       id: 'edit-current-content',
       icon: 'iconEdit',
       label: input.editableSourceTitle,
+      disabled: false,
       click: input.actions.editCurrentContent,
     });
   }

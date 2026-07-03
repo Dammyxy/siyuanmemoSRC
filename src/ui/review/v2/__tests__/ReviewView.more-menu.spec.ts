@@ -4,7 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
-import type { ReviewEditableTarget } from '../types';
+import type { ReviewEditableTarget, ReviewNativeSplitGuardState } from '../types';
 import { createEmptyReviewUIState } from '../types';
 import {
   REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
@@ -17,6 +17,10 @@ import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 let reviewContentEditableTargets: ReviewEditableTarget[] = [];
 const reviewContentRefreshVisibleContent = vi.fn(async () => true);
 const reviewContentExitEditorByEscape = vi.fn(() => false);
+let reviewContentNativeSplitGuardState: ReviewNativeSplitGuardState = {
+  rendererKind: 'main-protyle',
+  blockNativeTabSplit: false,
+};
 
 const reviewViewMoreMenuMocks = vi.hoisted(() => {
   const menuOpen = vi.fn();
@@ -270,6 +274,7 @@ const ReviewContentStub = defineComponent({
     expose({
       exitEditorByEscape: reviewContentExitEditorByEscape,
       getEditableTargets: () => reviewContentEditableTargets,
+      getNativeSplitGuardState: () => reviewContentNativeSplitGuardState,
       refreshVisibleContent: reviewContentRefreshVisibleContent,
     });
     return () => h(
@@ -437,6 +442,7 @@ function mountReviewView(options?: {
   };
   attachInDialog?: boolean;
   mode?: 'dialog' | 'tab';
+  initialShowAnswer?: boolean;
 }) {
   const cards = options?.cards ?? [buildCard('card-1'), buildCard('card-2', 'block-2')];
   const queue = createQueue(cards, options?.queueType);
@@ -530,6 +536,7 @@ function mountReviewView(options?: {
       queue: queue as never,
       adapter: adapter as never,
       mode: options?.mode ?? 'dialog',
+      initialShowAnswer: options?.initialShowAnswer,
       plugin: {
         getContext: () => createPluginContext({
           cardService,
@@ -583,6 +590,10 @@ describe('ReviewView more menu', () => {
     reviewViewLoggerMocks.log.mockReset();
     reviewViewLoggerMocks.trace.mockReset();
     reviewContentEditableTargets = [];
+    reviewContentNativeSplitGuardState = {
+      rendererKind: 'main-protyle',
+      blockNativeTabSplit: false,
+    };
     reviewContentRefreshVisibleContent.mockClear();
     reviewContentExitEditorByEscape.mockClear();
     reviewContentExitEditorByEscape.mockReturnValue(false);
@@ -861,15 +872,18 @@ describe('ReviewView more menu', () => {
         BUILTIN_DECK_ID: 'deck-1',
       }),
     };
-    const { wrapper, queue } = mountReviewView({ reviewService });
+    const { wrapper, queue } = mountReviewView({
+      reviewService,
+      initialShowAnswer: true,
+    });
     await flushPromises();
 
     const header = wrapper.getComponent(ReviewHeaderStub);
     const editToolbarButton = (header.props('header') as { toolbar: Array<{ type: string; label?: string; ariaLabel?: string; tooltip?: string; active?: boolean }> })
       .toolbar.find(button => button.type === 'edit-current-content');
     expect(editToolbarButton).toMatchObject({
-      ariaLabel: '编辑当前内容',
-      tooltip: '编辑当前内容',
+      ariaLabel: '编辑源内容',
+      tooltip: '编辑源内容',
     });
     expect(editToolbarButton?.label).toBeUndefined();
     expect(wrapper.get('[data-toolbar-action="edit-current-content"]').text()).toBe('');
@@ -879,7 +893,7 @@ describe('ReviewView more menu', () => {
     await flushPromises();
 
     const editCurrentContentItem = getLatestMenuItems().find((item) => item.id === 'edit-current-content');
-    expect(editCurrentContentItem?.label).toBe('编辑当前内容');
+    expect(editCurrentContentItem?.label).toBe('编辑源内容');
 
     header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
     await flushPromises();
@@ -957,6 +971,7 @@ describe('ReviewView more menu', () => {
       cards: [mappedCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -981,6 +996,75 @@ describe('ReviewView more menu', () => {
     await flushPromises();
 
     expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('answer-block', 'Updated answer');
+
+    wrapper.unmount();
+  });
+
+  it('keeps answer fields hidden until answer reveal confirmation succeeds', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:question-block', 'question-block', '编辑问题'),
+      buildEditableTarget('main-protyle:current-content:answer-block', 'answer-block', '编辑答案'),
+    ];
+    const mappedCard = {
+      ...buildCard('card-1', 'question-block'),
+      meta: {
+        fieldMapping: {
+          question: 'question-block',
+          answer: 'answer-block',
+        },
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async (blockId: string) => (
+        blockId === 'answer-block' ? 'Original answer' : 'Original question'
+      )),
+      getBlockKramdown: vi.fn(async () => ''),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      }),
+    };
+    reviewViewDialogMocks.confirmDialogMock.mockResolvedValueOnce(false);
+    const { wrapper } = mountReviewView({
+      cards: [mappedCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    let fieldTitles = wrapper.findAll('.review-editable-targets-panel__target-title')
+      .map(title => title.text());
+    expect(fieldTitles).toEqual(['Question']);
+    expect(wrapper.get('.fsrs-review-v2-content').attributes('data-show-answer')).toBe('false');
+
+    await wrapper.get('[data-testid="review-inline-card-editor-reveal-answer-fields"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewViewDialogMocks.confirmDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '显示答案字段',
+      content: '编辑答案字段会先显示当前卡答案。是否继续？',
+      confirmText: '显示答案并编辑',
+      cancelText: '取消',
+    }));
+    fieldTitles = wrapper.findAll('.review-editable-targets-panel__target-title')
+      .map(title => title.text());
+    expect(fieldTitles).toEqual(['Question']);
+    expect(wrapper.get('.fsrs-review-v2-content').attributes('data-show-answer')).toBe('false');
+
+    reviewViewDialogMocks.confirmDialogMock.mockResolvedValueOnce(true);
+    await wrapper.get('[data-testid="review-inline-card-editor-reveal-answer-fields"]').trigger('click');
+    await flushPromises();
+
+    fieldTitles = wrapper.findAll('.review-editable-targets-panel__target-title')
+      .map(title => title.text());
+    expect(fieldTitles).toEqual(['Question', 'Answer']);
+    expect(wrapper.get('.fsrs-review-v2-content').attributes('data-show-answer')).toBe('true');
+    expect(wrapper.find('[data-testid="review-inline-card-editor-reveal-answer-fields"]').exists()).toBe(false);
 
     wrapper.unmount();
   });
@@ -1011,6 +1095,7 @@ describe('ReviewView more menu', () => {
       cards: [itemCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1075,6 +1160,7 @@ describe('ReviewView more menu', () => {
       cards: [itemCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1133,6 +1219,7 @@ describe('ReviewView more menu', () => {
       cards: [itemCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1191,6 +1278,7 @@ describe('ReviewView more menu', () => {
       cards: [itemCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1250,6 +1338,7 @@ describe('ReviewView more menu', () => {
       cards: [itemCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1315,6 +1404,7 @@ describe('ReviewView more menu', () => {
       cards: [itemCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1376,6 +1466,7 @@ describe('ReviewView more menu', () => {
       cards: [itemCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1437,6 +1528,7 @@ describe('ReviewView more menu', () => {
       cards: [itemCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1549,6 +1641,7 @@ describe('ReviewView more menu', () => {
       cards: [cdfCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1668,6 +1761,7 @@ describe('ReviewView more menu', () => {
       cards: [cdfCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1783,6 +1877,7 @@ describe('ReviewView more menu', () => {
       cards: [cdfCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1878,6 +1973,7 @@ describe('ReviewView more menu', () => {
       cards: [cdfCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -1943,11 +2039,11 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
-  it('keeps source editing entry hidden when source targets are unavailable', async () => {
+  it('keeps source editing entry discoverable when source targets are unavailable', async () => {
     const { wrapper, cardEditorService } = mountReviewView({ attachInDialog: true });
     await flushPromises();
 
-    expect(wrapper.find('[data-toolbar-action="edit-current-content"]').exists()).toBe(false);
+    expect(wrapper.find('[data-toolbar-action="edit-current-content"]').exists()).toBe(true);
 
     document.body.focus();
     wrapper.element.dispatchEvent(new KeyboardEvent('keydown', {
@@ -1960,7 +2056,7 @@ describe('ReviewView more menu', () => {
     expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="review-structured-content-editor"]').exists()).toBe(false);
     expect(cardEditorService.loadSnapshot).not.toHaveBeenCalled();
-    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith('当前内容暂不支持编辑', 3000, 'info');
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith('当前卡片没有可编辑的源块', 3000, 'info');
 
     wrapper.unmount();
   });
@@ -2049,6 +2145,7 @@ describe('ReviewView more menu', () => {
       cards: [definitionCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -2116,6 +2213,7 @@ describe('ReviewView more menu', () => {
       cards: [descriptorCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -2184,6 +2282,7 @@ describe('ReviewView more menu', () => {
       cards: [descriptorCard, buildCard('card-2', 'block-2')],
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -2264,6 +2363,7 @@ describe('ReviewView more menu', () => {
       cardEditorService,
       reviewService,
       attachInDialog: true,
+      initialShowAnswer: true,
     });
     await flushPromises();
 
@@ -2346,14 +2446,45 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
-  it('hides edit-current-content when the active renderer is not editable', async () => {
+  it('keeps source editing discoverable and explains unavailable renderers', async () => {
+    reviewContentNativeSplitGuardState = {
+      rendererKind: 'image-occlusion',
+      blockNativeTabSplit: true,
+    };
     const { wrapper } = mountReviewView();
     await flushPromises();
+
+    const editButton = wrapper.get('[data-toolbar-action="edit-current-content"]');
+    expect(editButton.attributes('aria-label')).toBe('编辑源内容');
+
+    await editButton.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith(
+      '图像遮挡卡暂不支持复习中编辑源内容',
+      3000,
+      'info',
+    );
 
     wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
     await flushPromises();
 
-    expect(getLatestMenuItems().find((item) => item.id === 'edit-current-content')).toBeUndefined();
+    const editMenuItem = getLatestMenuItems().find((item) => item.id === 'edit-current-content');
+    expect(editMenuItem).toMatchObject({
+      label: '编辑源内容',
+      disabled: false,
+    });
+
+    await editMenuItem?.click?.();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenLastCalledWith(
+      '图像遮挡卡暂不支持复习中编辑源内容',
+      3000,
+      'info',
+    );
 
     wrapper.unmount();
   });
@@ -2373,10 +2504,7 @@ describe('ReviewView more menu', () => {
 
     expect(cardEditorService.setDismissed).toHaveBeenCalledWith('card-1', true);
     expect(queue.removeCard).toHaveBeenCalledWith('card-1');
-    expect(queue.onFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'card-1' }),
-      { action: 'skip' },
-    );
+    expect(queue.onFeedback).not.toHaveBeenCalled();
     expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
 
     wrapper.unmount();
@@ -2455,10 +2583,7 @@ describe('ReviewView more menu', () => {
     expect(queue.removeCard).toHaveBeenCalledWith('peer-1');
     expect(queue.removeCard).toHaveBeenCalledWith('peer-2');
     expect(queue.removeCard).toHaveBeenCalledWith('card-1');
-    expect(queue.onFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'card-1' }),
-      { action: 'skip' },
-    );
+    expect(queue.onFeedback).not.toHaveBeenCalled();
     expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
 
     wrapper.unmount();
@@ -2652,6 +2777,289 @@ describe('ReviewView more menu', () => {
       app: {},
       blockId: 'source-block-1',
     });
+
+    wrapper.unmount();
+  });
+
+  it('saves concept-reference edits by rewriting the relation source block only', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:20260703010101-abcdefg', '20260703010101-abcdefg', 'Definition', 'definition'),
+      {
+        id: 'definition:concept-reference:20260703020202-bcdefgh',
+        blockId: '20260703020202-bcdefgh',
+        title: 'Concept',
+        role: 'concept',
+        rendererKind: 'concept-definition',
+        sourceKind: 'concept-reference',
+        referenceLabel: 'Old concept',
+      },
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === '20260703010101-abcdefg') {
+          return '((20260703020202-bcdefgh "Old concept")) :> old definition';
+        }
+        return `${blockId} markdown`;
+      }),
+      getBlockKramdown: vi.fn(async () => ''),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => ({
+        changed: false,
+        actions: [],
+        diagnostics: [],
+      })),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [buildCdfLiveCard('card-1', '20260703010101-abcdefg')],
+      reviewService,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const conceptInput = wrapper.get('[data-testid="review-editable-target-concept-reference-input"]');
+    await conceptInput.setValue('20260703030303-cdefghi');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-targets-confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledTimes(1);
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      '20260703010101-abcdefg',
+      '((20260703030303-cdefghi "Old concept")) :> old definition',
+    );
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalledWith(
+      '20260703020202-bcdefgh',
+      expect.any(String),
+    );
+
+    wrapper.unmount();
+  });
+
+  it('requires secondary confirmation when concept-reference save impacts same-source related relations', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:20260703010101-abcdefg', '20260703010101-abcdefg', 'Definition', 'definition'),
+      {
+        id: 'definition:concept-reference:20260703020202-bcdefgh',
+        blockId: '20260703020202-bcdefgh',
+        title: 'Concept',
+        role: 'concept',
+        rendererKind: 'concept-definition',
+        sourceKind: 'concept-reference',
+        referenceLabel: 'Old concept',
+      },
+    ];
+    const dryRun = {
+      changed: true,
+      attempted: true,
+      actions: [
+        {
+          kind: 'update-card-meta',
+          cardId: 'card-1',
+          status: 'active-live',
+          relation: {
+            conceptBlockId: '20260703030303-cdefghi',
+            relationKind: 'definition-forward',
+            relationKey: '20260703010101-abcdefg:20260703030303-cdefghi:definition-forward',
+            sourceBlockId: '20260703010101-abcdefg',
+            contentStatus: 'content-complete',
+          },
+          meta: {},
+          reason: 'active-live',
+        },
+        {
+          kind: 'update-card-meta',
+          cardId: 'peer-cdf-card',
+          status: 'orphaned-by-live-relation',
+          relation: {
+            conceptBlockId: '20260703020202-bcdefgh',
+            relationKind: 'definition-forward',
+            relationKey: '20260703010101-abcdefg:20260703020202-bcdefgh:definition-forward',
+            sourceBlockId: '20260703010101-abcdefg',
+            contentStatus: 'content-complete',
+          },
+          meta: {},
+          reason: 'orphaned',
+        },
+      ],
+      diagnostics: [],
+      createdCards: [],
+      updatedCards: [],
+      derivedRelationCount: 1,
+      reason: 'reconciled',
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === '20260703010101-abcdefg') {
+          return '((20260703020202-bcdefgh "Old concept")) :> old definition';
+        }
+        return `${blockId} markdown`;
+      }),
+      getBlockKramdown: vi.fn(async () => ''),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => dryRun),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    reviewViewDialogMocks.createVueDialogMock.mockImplementationOnce((options) => {
+      queueMicrotask(() => options.events?.confirm?.());
+      return {
+        dialog: {} as never,
+        destroy: vi.fn(),
+      };
+    });
+    reviewViewDialogMocks.confirmDialogMock.mockResolvedValueOnce(false);
+    const { wrapper } = mountReviewView({
+      cards: [buildCdfLiveCard('card-1', '20260703010101-abcdefg')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const conceptInput = wrapper.get('[data-testid="review-editable-target-concept-reference-input"]');
+    await conceptInput.setValue('20260703030303-cdefghi');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-targets-confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewViewDialogMocks.createVueDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '保存前预览关系变化',
+    }));
+    expect(reviewViewDialogMocks.confirmDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '确认更换同源关系',
+      content: '这次更换概念会影响同一来源下 1 张其他关系卡。确认继续保存？',
+      confirmText: '继续保存',
+      cancelText: '取消',
+    }));
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it('continues concept-reference save after secondary same-source relation confirmation', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:20260703010101-abcdefg', '20260703010101-abcdefg', 'Definition', 'definition'),
+      {
+        id: 'definition:concept-reference:20260703020202-bcdefgh',
+        blockId: '20260703020202-bcdefgh',
+        title: 'Concept',
+        role: 'concept',
+        rendererKind: 'concept-definition',
+        sourceKind: 'concept-reference',
+        referenceLabel: 'Old concept',
+      },
+    ];
+    const dryRun = {
+      changed: true,
+      attempted: true,
+      actions: [
+        {
+          kind: 'update-card-meta',
+          cardId: 'card-1',
+          status: 'active-live',
+          relation: {
+            conceptBlockId: '20260703030303-cdefghi',
+            relationKind: 'definition-forward',
+            relationKey: '20260703010101-abcdefg:20260703030303-cdefghi:definition-forward',
+            sourceBlockId: '20260703010101-abcdefg',
+            contentStatus: 'content-complete',
+          },
+          meta: {},
+          reason: 'active-live',
+        },
+        {
+          kind: 'update-card-meta',
+          cardId: 'peer-cdf-card',
+          status: 'orphaned-by-live-relation',
+          relation: {
+            conceptBlockId: '20260703020202-bcdefgh',
+            relationKind: 'definition-forward',
+            relationKey: '20260703010101-abcdefg:20260703020202-bcdefgh:definition-forward',
+            sourceBlockId: '20260703010101-abcdefg',
+            contentStatus: 'content-complete',
+          },
+          meta: {},
+          reason: 'orphaned',
+        },
+      ],
+      diagnostics: [],
+      createdCards: [],
+      updatedCards: [],
+      derivedRelationCount: 1,
+      reason: 'reconciled',
+    };
+    const executed = {
+      ...dryRun,
+      actions: [],
+      reason: 'unchanged',
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === '20260703010101-abcdefg') {
+          return '((20260703020202-bcdefgh "Old concept")) :> old definition';
+        }
+        return `${blockId} markdown`;
+      }),
+      getBlockKramdown: vi.fn(async () => ''),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async (options: { persist?: boolean }) => (
+        options.persist === false ? dryRun : executed
+      )),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    reviewViewDialogMocks.createVueDialogMock.mockImplementationOnce((options) => {
+      queueMicrotask(() => options.events?.confirm?.());
+      return {
+        dialog: {} as never,
+        destroy: vi.fn(),
+      };
+    });
+    reviewViewDialogMocks.confirmDialogMock.mockResolvedValueOnce(true);
+    const { wrapper } = mountReviewView({
+      cards: [buildCdfLiveCard('card-1', '20260703010101-abcdefg')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const conceptInput = wrapper.get('[data-testid="review-editable-target-concept-reference-input"]');
+    await conceptInput.setValue('20260703030303-cdefghi');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-targets-confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewViewDialogMocks.confirmDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '确认更换同源关系',
+    }));
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      '20260703010101-abcdefg',
+      '((20260703030303-cdefghi "Old concept")) :> old definition',
+    );
+    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenCalledTimes(2);
+    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      sourceBlockId: '20260703010101-abcdefg',
+      changedBlockId: '20260703010101-abcdefg',
+      reconciliationScope: 'block-edit',
+      persist: true,
+    }));
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
 
     wrapper.unmount();
   });

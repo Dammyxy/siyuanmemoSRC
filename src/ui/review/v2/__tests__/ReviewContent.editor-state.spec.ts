@@ -658,7 +658,9 @@ function getEditorStates(wrapper: ReturnType<typeof mount>): ReviewEditorState[]
 type EditableTargetProbe = {
   blockId: string;
   rendererKind: string;
-  sourceKind: 'block-markdown';
+  sourceKind: 'block-markdown' | 'concept-reference';
+  role?: string;
+  referenceLabel?: string;
   title?: string;
 };
 
@@ -668,11 +670,11 @@ type EditableTargetsExposed = {
 
 function expectEditableTargets(
   exposed: EditableTargetsExposed,
-  expected: Array<Pick<EditableTargetProbe, 'blockId' | 'rendererKind'>>,
+  expected: Array<Pick<EditableTargetProbe, 'blockId' | 'rendererKind'> & Partial<Pick<EditableTargetProbe, 'sourceKind' | 'role' | 'referenceLabel'>>>,
 ): void {
   expect(exposed.getEditableTargets()).toEqual(expected.map(target => expect.objectContaining({
     ...target,
-    sourceKind: 'block-markdown',
+    sourceKind: target.sourceKind ?? 'block-markdown',
   })));
 }
 
@@ -1234,11 +1236,13 @@ describe('ReviewContent editor state', () => {
     expect(wrapper.findComponent({ name: 'ConceptDefinitionCardRendererStub' }).exists()).toBe(true);
     expect(reviewContentMocks.instances).toHaveLength(0);
     expectEditableTargets(exposed, [{
-      blockId: 'concept-block',
-      rendererKind: 'concept-definition',
-    }, {
       blockId: 'definition-block',
       rendererKind: 'concept-definition',
+    }, {
+      blockId: 'concept-block',
+      rendererKind: 'concept-definition',
+      sourceKind: 'concept-reference',
+      role: 'concept',
     }]);
 
     await wrapper.setProps({
@@ -1337,11 +1341,14 @@ describe('ReviewContent editor state', () => {
     const exposed = wrapper.vm as unknown as EditableTargetsExposed;
 
     expectEditableTargets(exposed, [{
-      blockId: 'concept-block',
-      rendererKind: 'concept-definition',
-    }, {
       blockId: 'definition-block',
       rendererKind: 'concept-definition',
+    }, {
+      blockId: 'concept-block',
+      rendererKind: 'concept-definition',
+      sourceKind: 'concept-reference',
+      role: 'concept',
+      referenceLabel: 'Concept',
     }]);
     expect(exposed.getEditableTargets().map(target => target.blockId)).not.toContain('breadcrumb-block');
     expect(exposed.getEditableTargets().map(target => target.blockId)).not.toContain('sibling-descriptor-block');
@@ -1396,11 +1403,13 @@ describe('ReviewContent editor state', () => {
     expect(reviewContentMocks.instances).toHaveLength(0);
     expect(reviewContentDescriptorMocks.isDescriptorCard).not.toHaveBeenCalled();
     expectEditableTargets(exposed, [{
-      blockId: 'concept-block',
-      rendererKind: 'descriptor',
-    }, {
       blockId: 'descriptor-block',
       rendererKind: 'descriptor',
+    }, {
+      blockId: 'concept-block',
+      rendererKind: 'descriptor',
+      sourceKind: 'concept-reference',
+      role: 'concept',
     }]);
 
     wrapper.unmount();
@@ -1461,11 +1470,13 @@ describe('ReviewContent editor state', () => {
     expect(reviewContentDescriptorMocks.isDescriptorCard).not.toHaveBeenCalled();
     expect(reviewContentQuickCardMocks.isQuickCard).not.toHaveBeenCalled();
     expectEditableTargets(exposed, [{
-      blockId: 'concept-block',
-      rendererKind: 'descriptor',
-    }, {
       blockId: 'descriptor-policy-block',
       rendererKind: 'descriptor',
+    }, {
+      blockId: 'concept-block',
+      rendererKind: 'descriptor',
+      sourceKind: 'concept-reference',
+      role: 'concept',
     }]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'descriptor',

@@ -167,13 +167,12 @@
           :hint="reviewInlineCardEditorHint"
           :i18n="i18n"
           :source-open="reviewTextEditorOpen"
-          :source-title="reviewTextEditorTitle"
           :source-entries="reviewTextEditorEntries"
           :source-readonly="reviewTextEditorReadonly"
-          :source-placeholder="t('editCurrentContentPlaceholder', '使用 Markdown 编辑当前块内容')"
-          :source-hint="reviewTextEditorHint"
+          :source-placeholder="t('editSourceContentPlaceholder', '使用 Markdown 编辑源块内容')"
           :source-confirm-disabled="reviewTextEditorConfirmDisabled"
           :structured-model="reviewInlineCardEditorStructuredModel"
+          :answer-revealed="hook.context.value.showAnswer"
           :cancel-label="t('cancel', '取消')"
           :save-label="t('save', '保存')"
           :close-label="t('cancel', '取消')"
@@ -182,6 +181,7 @@
           @update-source-target="updateCurrentContentEditorTarget"
           @resolve-source-conflict="resolveCurrentContentEditorConflict"
           @confirm-source="confirmInlineCardEditorSource"
+          @reveal-answer-fields="revealAnswerFieldsForInlineEditor"
           @close="closeInlineCardEditor"
         />
 
@@ -545,6 +545,7 @@ import {
   extractSafeCardSourceGrammarFields,
   hasCdfLiveRelationMetadata,
   readCdfLiveRelationMetadata,
+  replaceConceptReferenceInCardSourceGrammar,
   replaceDefinitionInCardSourceGrammar,
   replaceDescriptorInCardSourceGrammar,
   replaceItemInCardSourceGrammar,
@@ -984,7 +985,7 @@ const reviewTextEditorHint = reviewTextEditorRuntime.hint;
 const reviewInlineCardEditorBridgeRuntime = createReviewInlineCardEditorBridgeRuntime({
   clearStructuredState: clearReviewStructuredEditorState,
   canOpen: () => resolveCurrentEditableTargets().length > 0,
-  showNotEditable: () => showMessage(t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info'),
+  showNotEditable: () => showMessage(resolveSourceEditUnavailableMessage(), 3000, 'info'),
   openSourceEditor: reviewTextEditorRuntime.openEditor,
   closeSourceEditor: reviewTextEditorRuntime.close,
   confirmSourceEditor: reviewTextEditorRuntime.confirm,
@@ -1872,7 +1873,7 @@ const displayedReviewHeader = computed<ReviewUIState['header']>(() => {
   const header = state.value.header;
   let toolbar = Array.isArray(header.toolbar) ? header.toolbar : [];
   let toolbarChanged = false;
-  const editLabel = t('editCurrentContent', '编辑当前内容');
+  const editLabel = t('editSourceContent', '编辑源内容');
   if (shouldExposeHeaderEditButton()) {
     const editButtonActive = reviewInlineCardEditorOpen.value ? true : undefined;
     const editButtonIndex = toolbar.findIndex((button) => button.type === 'edit-current-content');
@@ -2073,9 +2074,9 @@ const showLearnAheadAction = computed(() => (
   && typeof (props.queue as QueueStrategyWithLearnAhead | null | undefined)?.learnAhead === 'function'
 ));
 
-const reviewInlineCardEditorTitle = computed(() => t('editCurrentCard', '编辑当前卡片'));
+const reviewInlineCardEditorTitle = computed(() => t('editSourceContent', '编辑源内容'));
 const reviewInlineCardEditorHint = computed(() => (
-  t('inlineCardEditorHint', '源码修改需要保存；关系与方向在当前版本只读。')
+  t('inlineCardEditorHint', '修改源块后会刷新当前复习卡；关系方向保持只读。')
 ));
 const reviewInlineCardEditorStructuredModel = computed(() => {
   const card = state.value.content.card as FSRSCard | null | undefined;
@@ -2795,6 +2796,23 @@ function handleReveal(): void {
   hook.reveal();
 }
 
+async function revealAnswerFieldsForInlineEditor(): Promise<void> {
+  if (hook.context.value.showAnswer === true) {
+    return;
+  }
+  const confirmed = await confirmDialog({
+    title: t('reviewRevealAnswerFieldsTitle', '显示答案字段'),
+    content: t('reviewRevealAnswerFieldsContent', '编辑答案字段会先显示当前卡答案。是否继续？'),
+    confirmText: t('reviewRevealAnswerFieldsConfirm', '显示答案并编辑'),
+    cancelText: t('cancel', '取消'),
+    visualVariant: 'form',
+  });
+  if (!confirmed) {
+    return;
+  }
+  hook.reveal();
+}
+
 function handleGrade(rating: number): void {
   if (reviewInlineCardEditorOpen.value) {
     return;
@@ -3105,7 +3123,7 @@ function getEditableTargetsProbeKey(): string {
 
 function shouldExposeHeaderEditButton(): boolean {
   getEditableTargetsProbeKey();
-  return canOpenInlineCardEditor();
+  return hasCurrentReviewCard() && state.value.content.type !== 'empty';
 }
 
 function isStructuredEditableFamily(family: ReviewStructuredCardFamily): family is Exclude<ReviewStructuredCardFamily, 'source'> {
@@ -3202,6 +3220,66 @@ function rewriteStructuredGrammarFieldValue(input: {
     values,
     descriptorGroupLeaf: input.descriptorGroupLeaf,
   });
+}
+
+function findCurrentContentEditorMarkdownWriteForConceptReference(
+  pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+  conceptWrite: ReviewCurrentContentEditorPendingWrite,
+): ReviewCurrentContentEditorPendingWrite | null {
+  const card = state.value.content.card as FSRSCard | null | undefined;
+  const meta = readReviewCardMeta(card);
+  const mapping = readReviewFieldMapping(meta);
+  const preferredSourceBlockId = mapping.definition || mapping.descriptor || resolveCurrentCdfLiveSourceBlockId(pendingWrites);
+  const markdownWrites = pendingWrites.filter(write => write.sourceKind === 'block-markdown');
+  return markdownWrites.find(write => write.blockId === preferredSourceBlockId)
+    || markdownWrites.find(write => write.target.rendererKind === conceptWrite.target.rendererKind)
+    || markdownWrites[0]
+    || null;
+}
+
+async function mergeConceptReferenceWritesIntoMarkdown(
+  pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+): Promise<ReviewCurrentContentEditorWriteConflict[]> {
+  const conceptWrites = pendingWrites.filter(write => write.sourceKind === 'concept-reference');
+  if (conceptWrites.length === 0) {
+    return [];
+  }
+
+  const reviewService = getReviewService();
+  if (!reviewService) {
+    return [];
+  }
+
+  const conflicts: ReviewCurrentContentEditorWriteConflict[] = [];
+  for (const conceptWrite of conceptWrites) {
+    const markdownWrite = findCurrentContentEditorMarkdownWriteForConceptReference(pendingWrites, conceptWrite);
+    if (!markdownWrite) {
+      conflicts.push({
+        targetId: conceptWrite.targetId,
+        message: t('reviewConceptReferenceSourceMissing', '找不到可改写的关系源码块'),
+      });
+      continue;
+    }
+
+    const source = markdownWrite.value || String(await reviewService.getEditableBlockMarkdown(markdownWrite.blockId) ?? '');
+    const rewritten = replaceConceptReferenceInCardSourceGrammar({
+      source,
+      conceptBlockId: conceptWrite.value,
+      expectedConceptBlockId: conceptWrite.originalValue,
+    });
+    if (!rewritten.ok) {
+      conflicts.push({
+        targetId: conceptWrite.targetId,
+        message: t('reviewConceptReferenceWriteUnavailable', '当前关系源码无法安全改写概念引用'),
+      });
+      continue;
+    }
+
+    markdownWrite.value = rewritten.source;
+    markdownWrite.entry.value = rewritten.source;
+  }
+
+  return conflicts;
 }
 
 function getCurrentStructuredDescriptorGroupLeaf(): boolean {
@@ -3302,7 +3380,15 @@ async function validateCurrentContentEditorPendingWrites(
     updates: [],
   };
 
+  result.conflicts?.push(...await mergeConceptReferenceWritesIntoMarkdown(pendingWrites));
+  if ((result.conflicts || []).length > 0) {
+    return result;
+  }
+
   for (const write of pendingWrites) {
+    if (write.sourceKind !== 'block-markdown') {
+      continue;
+    }
     const latestSource = String(await reviewService.getEditableBlockMarkdown(write.blockId) ?? '');
     if (latestSource === write.originalValue) {
       continue;
@@ -3457,13 +3543,16 @@ function buildDraftMarkdownByBlockId(
   pendingWrites: ReviewCurrentContentEditorPendingWrite[],
   updates: ReviewCurrentContentEditorValidationResult['updates'] = [],
 ): Record<string, string> {
-  const valueByTargetId = new Map(pendingWrites.map(write => [write.targetId, write.value]));
+  const markdownWrites = pendingWrites.filter(write => write.sourceKind === 'block-markdown');
+  const valueByTargetId = new Map(markdownWrites.map(write => [write.targetId, write.value]));
   for (const update of updates || []) {
-    valueByTargetId.set(update.targetId, update.value);
+    if (markdownWrites.some(write => write.targetId === update.targetId)) {
+      valueByTargetId.set(update.targetId, update.value);
+    }
   }
 
   const draftMarkdownByBlockId: Record<string, string> = {};
-  for (const write of pendingWrites) {
+  for (const write of markdownWrites) {
     draftMarkdownByBlockId[write.blockId] = valueByTargetId.get(write.targetId) ?? write.value;
   }
   return draftMarkdownByBlockId;
@@ -3483,7 +3572,8 @@ function buildCurrentCdfWriteRepairOptions(
     return null;
   }
 
-  const changedBlockIds = Array.from(new Set(pendingWrites.map(write => write.blockId).filter(Boolean)));
+  const markdownWrites = pendingWrites.filter(write => write.sourceKind === 'block-markdown');
+  const changedBlockIds = Array.from(new Set(markdownWrites.map(write => write.blockId).filter(Boolean)));
   return {
     sourceBlockId,
     changedBlockId: changedBlockIds.length === 1 ? changedBlockIds[0] : sourceBlockId,
@@ -3531,6 +3621,34 @@ function hasPreviewableCdfRelationChange(actions: CdfReconciliationAction[]): bo
     || summary.duplicate > 0
     || summary.restore > 0
     || summary.legacyUnavailable > 0;
+}
+
+function hasConceptReferencePendingWrite(pendingWrites: ReviewCurrentContentEditorPendingWrite[]): boolean {
+  return pendingWrites.some(write => write.sourceKind === 'concept-reference');
+}
+
+function countSameSourceRelatedRelationImpacts(
+  actions: CdfReconciliationAction[],
+  sourceBlockId: string,
+): number {
+  const normalizedSourceBlockId = String(sourceBlockId || '').trim();
+  const currentCardId = resolveCurrentReviewCardId();
+  if (!normalizedSourceBlockId || !currentCardId) {
+    return 0;
+  }
+
+  const impactedCardIds = new Set<string>();
+  for (const action of actions) {
+    if (
+      action.kind !== 'update-card-meta'
+      || action.cardId === currentCardId
+      || action.relation?.sourceBlockId !== normalizedSourceBlockId
+    ) {
+      continue;
+    }
+    impactedCardIds.add(action.cardId);
+  }
+  return impactedCardIds.size;
 }
 
 function formatReviewCountLabel(label: string, count: number): string {
@@ -3934,11 +4052,12 @@ async function buildCurrentContentEditorRelationPreview(
 
 async function confirmCurrentContentEditorRelationPreview(
   preview: ReviewCurrentContentEditorRelationPreview,
+  pendingWrites: ReviewCurrentContentEditorPendingWrite[],
 ): Promise<boolean> {
   const raw = preview.raw;
   if (isRecord(raw) && raw.kind === 'cdf-live-relation-preview') {
-    const dialogProps = (raw as CdfRelationPreviewRaw).dialogProps;
-    return new Promise<boolean>((resolve) => {
+    const cdfPreview = raw as CdfRelationPreviewRaw;
+    const confirmedPreview = await new Promise<boolean>((resolve) => {
       let settled = false;
       let instance: ReturnType<typeof createVueDialog> | null = null;
       const settle = (value: boolean) => {
@@ -3952,7 +4071,7 @@ async function confirmCurrentContentEditorRelationPreview(
       instance = createVueDialog({
         title: preview.title,
         component: ReviewCdfRelationPreviewDialog,
-        props: dialogProps as unknown as Record<string, unknown>,
+        props: cdfPreview.dialogProps as unknown as Record<string, unknown>,
         events: {
           confirm: () => settle(true),
           cancel: () => settle(false),
@@ -3969,6 +4088,27 @@ async function confirmCurrentContentEditorRelationPreview(
           }
         },
       });
+    });
+    if (!confirmedPreview) {
+      return false;
+    }
+
+    const relatedImpactCount = hasConceptReferencePendingWrite(pendingWrites)
+      ? countSameSourceRelatedRelationImpacts(cdfPreview.dryRun.actions, cdfPreview.options.sourceBlockId)
+      : 0;
+    if (relatedImpactCount === 0) {
+      return true;
+    }
+
+    return confirmDialog({
+      title: t('reviewConceptReferenceRelatedConfirmTitle', '确认更换同源关系'),
+      content: t(
+        'reviewConceptReferenceRelatedConfirmContent',
+        '这次更换概念会影响同一来源下 {count} 张其他关系卡。确认继续保存？',
+      ).replace('{count}', String(relatedImpactCount)),
+      confirmText: t('reviewConceptReferenceRelatedConfirmText', '继续保存'),
+      cancelText: t('cancel', '取消'),
+      visualVariant: 'form',
     });
   }
 
@@ -4219,6 +4359,26 @@ function canOpenInlineCardEditor(): boolean {
   return reviewInlineCardEditorBridgeRuntime.canOpen();
 }
 
+function resolveSourceEditUnavailableMessage(): string {
+  const guardState = contentRef.value?.getNativeSplitGuardState?.();
+  switch (guardState?.rendererKind) {
+    case 'image-occlusion':
+      return t('sourceEditUnavailableImageOcclusion', '图像遮挡卡暂不支持复习中编辑源内容');
+    case 'html':
+      return t('sourceEditUnavailableHtml', 'HTML 内容暂不支持复习中编辑源内容');
+    case 'empty':
+      return t('sourceEditUnavailableEmpty', '当前没有可编辑的复习卡');
+    case 'unsupported':
+      return t('sourceEditUnavailableUnsupportedRenderer', '当前渲染器暂不支持复习中编辑源内容');
+    case 'concept-definition':
+      return t('sourceEditUnavailableConceptDefinition', '当前定义卡还没有可编辑的定义源块；概念引用稍后用选择器更换');
+    case 'descriptor':
+      return t('sourceEditUnavailableDescriptor', '当前描述符卡还没有可编辑的描述符源块；概念引用稍后用选择器更换');
+    default:
+      return t('sourceEditUnavailableNoTargets', '当前卡片没有可编辑的源块');
+  }
+}
+
 async function openInlineCardEditor(): Promise<void> {
   await reviewInlineCardEditorBridgeRuntime.openEditor();
 }
@@ -4235,10 +4395,9 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
   const openAsItems = buildOpenAsMenuItems();
   const peerInfo = resolveCurrentBlockPeerCards();
-  const editableTargets = resolveCurrentEditableTargets();
-  const editableSourceTitle = editableTargets.length > 1
-    ? t('editCurrentContent', '编辑当前内容')
-    : editableTargets[0]?.title ?? null;
+  const editableSourceTitle = shouldExposeHeaderEditButton()
+    ? t('editSourceContent', '编辑源内容')
+    : null;
   const hasReviewCard = hasCurrentReviewCard();
   const cardEditorService = getCardEditorService();
   const hasCardEditorService = Boolean(cardEditorService);

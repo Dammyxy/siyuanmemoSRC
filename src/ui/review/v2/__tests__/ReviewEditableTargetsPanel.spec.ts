@@ -128,4 +128,40 @@ describe('ReviewEditableTargetsPanel', () => {
       ['answer-target', 'draft-overwrite'],
     ]);
   });
+
+  it('edits concept reference as a block id input and confirms with Enter', async () => {
+    const wrapper = mount(ReviewEditableTargetsPanel, {
+      props: {
+        open: true,
+        title: 'Edit fields',
+        entries: [{
+          target: {
+            id: 'descriptor:concept-reference:concept-a',
+            blockId: 'concept-a',
+            title: '更换概念卡',
+            role: 'concept',
+            rendererKind: 'descriptor',
+            sourceKind: 'concept-reference',
+            referenceLabel: '原概念',
+          },
+          value: 'concept-a',
+          originalValue: 'concept-a',
+        }],
+        readonly: false,
+        confirmDisabled: false,
+        confirmLabel: 'Save',
+        cancelLabel: 'Cancel',
+      },
+    });
+
+    const input = wrapper.get('[data-testid="review-editable-target-concept-reference-input"]');
+    await input.setValue('concept-b');
+    await input.trigger('keydown', { key: 'Enter' });
+
+    expect(wrapper.emitted('update-target')?.at(-1)).toEqual([
+      'descriptor:concept-reference:concept-a',
+      'concept-b',
+    ]);
+    expect(wrapper.emitted('confirm')).toHaveLength(1);
+  });
 });

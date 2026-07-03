@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-03 (Round 647)
+Last update: 2026-07-03 (Round 648)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-03 - Review answer reveal guard pass
+
+- Task: Continue `enhance-review-source-editing` for deferred answer-side edit protection in the Review inline source editor.
+- Touched slice: Review inline editor reveal state and tests in `src/ui/review/v2/{ReviewView.vue,reviewSessionController.ts,components/ReviewInlineCardEditor.vue,__tests__/ReviewInlineCardEditor.spec.ts,__tests__/ReviewView.more-menu.spec.ts}` plus i18n copy.
+- Debt fixed now: Unrevealed review cards hide answer-side structured fields (`answer`, `definition`, and unsafe raw source fallback) by default. The inline editor now shows an explicit "show answer fields" action, asks confirmation, and only reveals/expands answer-side edits after confirmation. Cancel keeps the current card unrevealed. Existing revealed-state editor tests now opt into `initialShowAnswer`, and controller startup now honors `initialShowAnswer` on the normal `queue.next()` mount path.
+- Debt deferred: Dirty-exit review navigation guard (`4.3`), review hotkey/action pause (`4.4`), and same-session refresh/invalid-card impact tasks (`7.x`, `8.6`) remain open.
+- Why deferred: This pass intentionally closed answer reveal integrity only; dirty-exit and session refresh mutate different review action paths and need separate focused tests.
+- Next safe step: Implement dirty-exit Save/Discard/Cancel guards or continue session refresh/invalid-card impact tasks.
+- Validation: Focused answer reveal tests passed: `pnpm vitest run "src/ui/review/v2/__tests__/ReviewInlineCardEditor.spec.ts" "src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts" --testNamePattern "answer|Answer|reveal|source fallback"` (2 files / 9 matching tests). Review slice passed: `pnpm vitest run "src/core/card/cdf-live-relation/__tests__/sourceGrammar.test.ts" "src/ui/review/v2/__tests__/reviewCurrentContentEditorRuntime.test.ts" "src/ui/review/v2/__tests__/ReviewEditableTargetsPanel.spec.ts" "src/ui/review/v2/__tests__/ReviewInlineCardEditor.spec.ts" "src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts" "src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts" "src/ui/review/v2/__tests__/reviewMoreMenuItems.test.ts"` (7 files / 114 tests). `ReviewView.more-menu.spec.ts` also passed standalone after the last guard fixes (47 tests). Final hidden-fallback, boundaries, build, OpenSpec, and diff checks are the required next verification step.
+
+### 2026-07-03 - Review source edit concept-reference pass
+
+- Task: Continue `enhance-review-source-editing` for custom-rendered Review card source editing, especially concept-definition / descriptor concept reassignment.
+- Touched slice: Review inline editor UI/runtime and CDF source grammar in `src/ui/review/v2/{ReviewContent.vue,ReviewView.vue,reviewCurrentContentEditorRuntime.ts,components/*}`, `src/core/card/cdf-live-relation/sourceGrammar.ts`, i18n, and focused Review tests.
+- Debt fixed now: Editable targets now distinguish raw Markdown block targets from concept-reference targets. Concept-definition and descriptor cards expose source text plus a concept-reference control that changes the relation's source Markdown block reference instead of editing the concept document block body. Concept-reference saves are carried through validation with related Markdown support entries, save only dirty Markdown blocks, route through the existing CDF preview/write-repair path, and require a second explicit confirmation when the dry-run would update same-source related relation cards. Inline editor chrome was tightened by removing duplicate labels/hints and adding stable test anchors.
+- Debt deferred: Concept reassignment is currently a block-ID input, not a full search/chooser UI. Descriptor cases where the visible concept is inherited from a parent/boundary block still return explicit unsafe conflict instead of guessing a source rewrite.
+- Why deferred: Full chooser/search needs product UX beyond this narrow repair pass. Inherited descriptor concepts lack a single proven editable source block, so safe conflict is better than hidden fallback.
+- Next safe step: Build the concept-card chooser on top of the current concept-reference target model, then continue answer reveal and session refresh tasks.
+- Validation: `pnpm vitest run "src/core/card/cdf-live-relation/__tests__/sourceGrammar.test.ts" "src/ui/review/v2/__tests__/reviewCurrentContentEditorRuntime.test.ts" "src/ui/review/v2/__tests__/ReviewEditableTargetsPanel.spec.ts" "src/ui/review/v2/__tests__/ReviewInlineCardEditor.spec.ts" "src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts" "src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts" "src/ui/review/v2/__tests__/reviewMoreMenuItems.test.ts"` passed (7 files / 111 tests). `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate enhance-review-source-editing --strict`; and `git diff --check` passed. Build keeps existing non-blocking hard-coded UI string, i18n content, and Sass legacy JS API warnings.
 
 ### 2026-07-03 - Legacy migration runtime retirement
 

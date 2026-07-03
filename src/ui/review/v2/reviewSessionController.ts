@@ -649,6 +649,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
         if (disposed) {
           return;
         }
+        context.value.showAnswer = options?.initialShowAnswer === true;
         started = true;
         await updateState('mount');
         notifySubscribers();

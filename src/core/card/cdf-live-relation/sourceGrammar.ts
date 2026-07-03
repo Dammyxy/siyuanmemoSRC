@@ -95,6 +95,17 @@ export type CardSourceGrammarItemRewriteResult =
     issues: CdfLiveRelationIssue[];
   };
 
+export type CardSourceGrammarConceptReferenceRewriteResult =
+  | {
+    ok: true;
+    source: string;
+  }
+  | {
+    ok: false;
+    reason: CardSourceGrammarFieldFallbackReason;
+    issues: CdfLiveRelationIssue[];
+  };
+
 const FW_COLON = '\uFF1A';
 const FW_SEMICOLON = '\uFF1B';
 const FW_LT = '\uFF1C';
@@ -103,6 +114,7 @@ const CJK_LT = '\u300A';
 const CJK_GT = '\u300B';
 const TRAILING_BLOCK_ATTR_PATTERN = /\s*\{:[^{}]*\}\s*$/s;
 const ARROW_SPLIT_RE = /^(.*?)\s*(?:->|→)\s*(.+)$/s;
+const FIRST_BLOCK_REF_RE = /\(\((\d{14}-[a-z0-9]{7})(\s+[^\)]*)?\)\)/i;
 
 type OperatorDefinition = {
   canonical: CardSourceOperatorCanonical;
@@ -670,6 +682,60 @@ export function replaceItemInCardSourceGrammar(input: {
       rightLeadingWhitespace,
       rightValue,
       rightTrailingWhitespace,
+      trailingAttrs,
+    ].join(''),
+  };
+}
+
+export function replaceConceptReferenceInCardSourceGrammar(input: {
+  source: string;
+  conceptBlockId: string;
+  expectedConceptBlockId?: string;
+}): CardSourceGrammarConceptReferenceRewriteResult {
+  const conceptBlockId = String(input.conceptBlockId || '').trim();
+  if (!conceptBlockId) {
+    return {
+      ok: false,
+      reason: 'unsafe-field-identity',
+      issues: [],
+    };
+  }
+
+  const { body, trailingAttrs } = splitTrailingBlockAttrs(input.source);
+  const grammar = parseCardSourceGrammar(body);
+  if (grammar.issues.length > 0) {
+    return {
+      ok: false,
+      reason: 'invalid-source-grammar',
+      issues: grammar.issues,
+    };
+  }
+
+  const match = body.match(FIRST_BLOCK_REF_RE);
+  if (!match || match.index === undefined) {
+    return {
+      ok: false,
+      reason: 'unsafe-field-identity',
+      issues: [],
+    };
+  }
+
+  const expectedConceptBlockId = String(input.expectedConceptBlockId || '').trim();
+  if (expectedConceptBlockId && match[1] !== expectedConceptBlockId) {
+    return {
+      ok: false,
+      reason: 'unsafe-field-identity',
+      issues: [],
+    };
+  }
+
+  const nextRef = `((${conceptBlockId}${match[2] ?? ''}))`;
+  return {
+    ok: true,
+    source: [
+      body.slice(0, match.index),
+      nextRef,
+      body.slice(match.index + match[0].length),
       trailingAttrs,
     ].join(''),
   };

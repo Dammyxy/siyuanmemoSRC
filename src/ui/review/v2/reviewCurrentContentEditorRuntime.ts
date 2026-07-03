@@ -36,6 +36,7 @@ export interface ReviewCurrentContentEditorPendingWrite {
   blockId: string;
   value: string;
   originalValue: string;
+  sourceKind: ReviewEditableTarget['sourceKind'];
 }
 
 export interface ReviewCurrentContentEditorWriteConflict {
@@ -98,11 +99,7 @@ export function createReviewCurrentContentEditorRuntime(
   let seq = 0;
 
   const dirtyEntries = computed(() => entries.value.filter(entry => entry.value !== entry.originalValue));
-  const title = computed(() => (
-    targets.value.length > 1
-      ? options.t('editCurrentContentTargets', '编辑当前内容')
-      : targets.value[0]?.title || options.t('editCurrentContent', '编辑当前内容')
-  ));
+  const title = computed(() => options.t('editSourceContent', '编辑源内容'));
   const readonly = computed(() => loading.value || saving.value);
   const confirmDisabled = computed(() => (
     readonly.value
@@ -116,7 +113,7 @@ export function createReviewCurrentContentEditorRuntime(
     if (saving.value) {
       return options.t('savingCurrentContentMarkdown', '正在保存到思源块...');
     }
-    return options.t('editCurrentContentHint', '支持 Markdown，Ctrl/Cmd + Enter 保存');
+    return options.t('editSourceContentHint', '支持 Markdown，Ctrl/Cmd + Enter 保存');
   });
 
   function resetLoadedState(): void {
@@ -189,15 +186,44 @@ export function createReviewCurrentContentEditorRuntime(
     return error instanceof Error ? error.message : String(error);
   }
 
+  function createPendingWrite(entry: ReviewEditableTargetEditorEntry): ReviewCurrentContentEditorPendingWrite {
+    return {
+      entry,
+      targetId: entry.target.id,
+      blockId: entry.target.blockId,
+      value: entry.value,
+      originalValue: entry.originalValue,
+      sourceKind: entry.target.sourceKind,
+    };
+  }
+
+  function resolvePendingWrites(): ReviewCurrentContentEditorPendingWrite[] {
+    const dirty = dirtyEntries.value.map(createPendingWrite);
+    const hasConceptReferenceChange = dirty.some(write => write.sourceKind === 'concept-reference');
+    if (!hasConceptReferenceChange) {
+      return dirty;
+    }
+
+    const pendingTargetIds = new Set(dirty.map(write => write.targetId));
+    const supportMarkdownWrites = entries.value
+      .filter(entry => (
+        entry.target.sourceKind === 'block-markdown'
+        && !pendingTargetIds.has(entry.target.id)
+      ))
+      .map(createPendingWrite);
+    return [...dirty, ...supportMarkdownWrites];
+  }
+
   async function openEditor(): Promise<boolean> {
     const editableTargets = options.resolveEditableTargets();
+    const markdownTargets = editableTargets.filter(target => target.sourceKind === 'block-markdown');
     if (editableTargets.length === 0) {
       options.showMessage(options.t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
       return false;
     }
 
     const reviewService = options.getReviewService();
-    if (!reviewService) {
+    if (!reviewService && markdownTargets.length > 0) {
       options.showMessage(options.t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
       return false;
     }
@@ -214,6 +240,14 @@ export function createReviewCurrentContentEditorRuntime(
 
     try {
       const loadedEntries = await Promise.all(editableTargets.map(async (target) => {
+        if (target.sourceKind === 'concept-reference') {
+          const value = target.blockId;
+          return {
+            target,
+            value,
+            originalValue: value,
+          };
+        }
         const markdown = await reviewService.getEditableBlockMarkdown(target.blockId);
         return {
           target,
@@ -247,19 +281,15 @@ export function createReviewCurrentContentEditorRuntime(
   }
 
   async function confirm(): Promise<boolean> {
-    const pendingWrites: ReviewCurrentContentEditorPendingWrite[] = dirtyEntries.value.map(entry => ({
-      entry,
-      targetId: entry.target.id,
-      blockId: entry.target.blockId,
-      value: entry.value,
-      originalValue: entry.originalValue,
-    }));
+    const pendingWrites = resolvePendingWrites();
     if (confirmDisabled.value || pendingWrites.length === 0) {
       return false;
     }
 
+    const markdownWrites = pendingWrites.filter(write => write.sourceKind === 'block-markdown');
+
     const reviewService = options.getReviewService();
-    if (!reviewService) {
+    if (!reviewService && markdownWrites.length > 0) {
       options.showMessage(options.t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
       return false;
     }
@@ -336,8 +366,9 @@ export function createReviewCurrentContentEditorRuntime(
         }
       }
 
-      const results = await Promise.allSettled(pendingWrites.map(async write => (
-        reviewService.updateBlockMarkdown(write.blockId, write.value)
+      const dirtyMarkdownWrites = markdownWrites.filter(write => write.value !== write.originalValue);
+      const results = await Promise.allSettled(dirtyMarkdownWrites.map(async write => (
+        reviewService?.updateBlockMarkdown(write.blockId, write.value)
       )));
       if (currentSeq !== seq) {
         return false;
@@ -345,16 +376,16 @@ export function createReviewCurrentContentEditorRuntime(
 
       const failedWrites = results.flatMap((result, index) => {
         if (result.status === 'fulfilled') {
-          options.suppressSourceBlockRefresh(pendingWrites[index].blockId);
+          options.suppressSourceBlockRefresh(dirtyMarkdownWrites[index].blockId);
           return [];
         }
 
         const message = formatErrorMessage(result.reason);
-        pendingWrites[index].entry.saveError = message;
-        pendingWrites[index].entry.conflict = undefined;
-        pendingWrites[index].entry.fieldErrors = undefined;
-        pendingWrites[index].entry.fieldConflicts = undefined;
-        return [{ write: pendingWrites[index], message }];
+        dirtyMarkdownWrites[index].entry.saveError = message;
+        dirtyMarkdownWrites[index].entry.conflict = undefined;
+        dirtyMarkdownWrites[index].entry.fieldErrors = undefined;
+        dirtyMarkdownWrites[index].entry.fieldConflicts = undefined;
+        return [{ write: dirtyMarkdownWrites[index], message }];
       });
 
       if (failedWrites.length > 0) {

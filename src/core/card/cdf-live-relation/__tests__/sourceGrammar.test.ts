@@ -4,6 +4,7 @@ import {
   parseCardSourceGrammar,
   replaceDefinitionInCardSourceGrammar,
   replaceDescriptorInCardSourceGrammar,
+  replaceConceptReferenceInCardSourceGrammar,
   replaceItemInCardSourceGrammar,
   tokenizeCardSourceOperators,
 } from '../sourceGrammar';
@@ -180,6 +181,26 @@ describe('Card Source Grammar', () => {
       ok: true,
       source: '((20240101010101-abcdefg))\uFF1A\u300B  新定义  {: id="block-1"}',
     });
+  });
+
+  it('rewrites the concept block reference while preserving alias text and attrs', () => {
+    expect(replaceConceptReferenceInCardSourceGrammar({
+      source: '((20240101010101-abcdefg "TCP")) :< Reliable transport protocol. {: id="block-1"}',
+      conceptBlockId: '20240102020202-hijklmn',
+      expectedConceptBlockId: '20240101010101-abcdefg',
+    })).toEqual({
+      ok: true,
+      source: '((20240102020202-hijklmn "TCP")) :< Reliable transport protocol. {: id="block-1"}',
+    });
+
+    expect(replaceConceptReferenceInCardSourceGrammar({
+      source: '((20240101010101-abcdefg)) :< Reliable transport protocol.',
+      conceptBlockId: '20240102020202-hijklmn',
+      expectedConceptBlockId: '20240103030303-opqrstu',
+    })).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'unsafe-field-identity',
+    }));
   });
 
   it('rewrites descriptor cue and answer while preserving operator and leaf style', () => {

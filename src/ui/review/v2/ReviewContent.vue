@@ -780,6 +780,28 @@ function buildEditableTarget(
   };
 }
 
+function buildConceptReferenceTarget(
+  blockId: string,
+  title: string,
+  rendererKind: 'concept-definition' | 'descriptor',
+  referenceLabel?: string,
+): ReviewEditableTarget | null {
+  const trimmedBlockId = String(blockId || '').trim();
+  if (!trimmedBlockId) {
+    return null;
+  }
+
+  return {
+    id: `${rendererKind}:concept-reference:${trimmedBlockId}`,
+    blockId: trimmedBlockId,
+    title,
+    sourceKind: 'concept-reference',
+    rendererKind,
+    role: 'concept',
+    referenceLabel,
+  };
+}
+
 function appendEditableTarget(
   targets: ReviewEditableTarget[],
   seenBlockIds: Set<string>,
@@ -794,6 +816,19 @@ function appendEditableTarget(
   }
   seenBlockIds.add(target.blockId);
   targets.push(target);
+}
+
+function appendConceptReferenceTarget(
+  targets: ReviewEditableTarget[],
+  blockId: string,
+  title: string,
+  rendererKind: 'concept-definition' | 'descriptor',
+  referenceLabel?: string,
+): void {
+  const target = buildConceptReferenceTarget(blockId, title, rendererKind, referenceLabel);
+  if (target) {
+    targets.push(target);
+  }
 }
 
 const editableTargets = computed<ReviewEditableTarget[]>(() => {
@@ -833,18 +868,11 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
   }
 
   if (shouldUseConceptDefinitionRenderer.value) {
-    const conceptBlockId = readRecordString(preparedConceptDefinitionViewModel.value, 'conceptBlockId')
-      || readFieldMappingBlockId(['concept']);
     const definitionBlockId = readRecordString(preparedConceptDefinitionViewModel.value, 'definitionBlockId')
       || readFieldMappingBlockId(['definition']);
-    appendEditableTarget(
-      targets,
-      seenBlockIds,
-      conceptBlockId,
-      t('editConceptSource', '编辑概念'),
-      'concept-definition',
-      'concept',
-    );
+    const conceptBlockId = readRecordString(preparedConceptDefinitionViewModel.value, 'conceptBlockId')
+      || readFieldMappingBlockId(['concept'])
+      || normalizeEditableBlockId(props.content.card?.meta?.conceptBlockId);
     appendEditableTarget(
       targets,
       seenBlockIds,
@@ -852,6 +880,14 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
       t('editDefinitionSource', '编辑定义'),
       'concept-definition',
       'definition',
+    );
+    appendConceptReferenceTarget(
+      targets,
+      conceptBlockId,
+      t('editConceptReference', '更换概念卡'),
+      'concept-definition',
+      readRecordString(preparedConceptDefinitionViewModel.value, 'conceptTitle')
+        || readRecordString(preparedConceptDefinitionViewModel.value, 'conceptName'),
     );
     if (targets.length === 0) {
       appendEditableTarget(
@@ -882,15 +918,9 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
   }
 
   if (shouldUseDescriptorCardRenderer.value) {
-    appendEditableTarget(
-      targets,
-      seenBlockIds,
-      readNestedRecordString(preparedDescriptorViewModel.value, ['parentConcept', 'blockId'])
-        || readFieldMappingBlockId(['concept']),
-      t('editConceptSource', '编辑概念'),
-      'descriptor',
-      'concept',
-    );
+    const conceptBlockId = readRecordString(preparedDescriptorViewModel.value, 'conceptBlockId')
+      || readFieldMappingBlockId(['concept'])
+      || normalizeEditableBlockId(props.content.card?.meta?.conceptBlockId);
     appendEditableTarget(
       targets,
       seenBlockIds,
@@ -900,6 +930,14 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
       t('editDescriptorSource', '编辑描述符'),
       'descriptor',
       'descriptor',
+    );
+    appendConceptReferenceTarget(
+      targets,
+      conceptBlockId,
+      t('editConceptReference', '更换概念卡'),
+      'descriptor',
+      readRecordString(preparedDescriptorViewModel.value, 'conceptTitle')
+        || readRecordString(preparedDescriptorViewModel.value, 'conceptName'),
     );
     return targets;
   }

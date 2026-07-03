@@ -6,7 +6,6 @@
     data-testid="review-editable-targets-panel"
   >
     <header class="review-editable-targets-panel__header">
-      <div class="review-editable-targets-panel__title">{{ title }}</div>
       <div class="review-editable-targets-panel__actions">
         <button class="b3-button b3-button--outline" type="button" :disabled="readonly" @click="emit('close')">
           {{ cancelLabel }}
@@ -14,6 +13,7 @@
         <button
           class="b3-button b3-button--text"
           type="button"
+          data-testid="review-editable-targets-confirm"
           :disabled="confirmDisabled"
           @click="emit('confirm')"
         >
@@ -27,6 +27,7 @@
         v-for="entry in entries"
         :key="entry.target.id"
         class="review-editable-targets-panel__target"
+        :class="{ 'review-editable-targets-panel__target--reference': entry.target.sourceKind === 'concept-reference' }"
       >
         <span class="review-editable-targets-panel__target-header">
           <span class="review-editable-targets-panel__target-title">{{ entry.target.title }}</span>
@@ -34,7 +35,24 @@
             {{ dirtyLabel }}
           </span>
         </span>
+        <div
+          v-if="entry.target.sourceKind === 'concept-reference'"
+          class="review-editable-targets-panel__reference"
+          data-testid="review-editable-target-concept-reference"
+        >
+          <input
+            class="b3-text-field review-editable-targets-panel__reference-input"
+            data-testid="review-editable-target-concept-reference-input"
+            :value="entry.value"
+            :readonly="readonly"
+            :placeholder="conceptReferencePlaceholder"
+            @input="emit('update-target', entry.target.id, ($event.target as HTMLInputElement).value)"
+            @keydown.enter.prevent="confirmIfEditable"
+          />
+          <span class="review-editable-targets-panel__reference-note">{{ conceptReferencePendingLabel }}</span>
+        </div>
         <textarea
+          v-else
           class="b3-text-field review-editable-targets-panel__textarea"
           :value="entry.value"
           :readonly="readonly"
@@ -79,10 +97,6 @@
         </div>
       </label>
     </div>
-
-    <footer class="review-editable-targets-panel__footer">
-      {{ hint }}
-    </footer>
   </section>
 </template>
 
@@ -91,25 +105,26 @@ import type { ReviewEditableTargetEditorEntry } from '../reviewCurrentContentEdi
 
 const props = withDefaults(defineProps<{
   open: boolean;
-  title: string;
   entries: ReviewEditableTargetEditorEntry[];
   readonly?: boolean;
   confirmDisabled?: boolean;
-  hint?: string;
   placeholder?: string;
   cancelLabel?: string;
   confirmLabel?: string;
   dirtyLabel?: string;
+  conceptReferencePendingLabel?: string;
+  conceptReferencePlaceholder?: string;
   sourceLatestConflictLabel?: string;
   draftOverwriteConflictLabel?: string;
 }>(), {
   readonly: false,
   confirmDisabled: false,
-  hint: '',
   placeholder: '',
   cancelLabel: '取消',
   confirmLabel: '保存',
   dirtyLabel: '已修改',
+  conceptReferencePendingLabel: '输入概念块 ID',
+  conceptReferencePlaceholder: '粘贴概念卡块 ID',
   sourceLatestConflictLabel: '使用源文档最新',
   draftOverwriteConflictLabel: '保留我的草稿',
 });
@@ -132,14 +147,13 @@ function confirmIfEditable(): void {
 <style scoped>
 .review-editable-targets-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 10px;
-  margin: 8px 12px 12px;
-  padding: 12px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
   max-height: min(420px, 46vh);
-  border: 1px solid var(--b3-border-color);
-  border-radius: 6px;
-  background: var(--b3-theme-background);
+  border: 0;
+  background: transparent;
 }
 
 .review-editable-targets-panel__header,
@@ -151,16 +165,8 @@ function confirmIfEditable(): void {
 }
 
 .review-editable-targets-panel__header {
-  justify-content: space-between;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--b3-border-color);
-}
-
-.review-editable-targets-panel__title {
-  min-width: 0;
-  color: var(--b3-theme-on-background);
-  font-size: 13px;
-  font-weight: 600;
+  justify-content: flex-end;
+  min-height: 28px;
 }
 
 .review-editable-targets-panel__actions {
@@ -200,6 +206,33 @@ function confirmIfEditable(): void {
   font-size: 11px;
 }
 
+.review-editable-targets-panel__reference {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-on-background);
+  text-align: left;
+}
+
+.review-editable-targets-panel__reference-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+}
+
+.review-editable-targets-panel__reference-note {
+  flex: 0 0 auto;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 11px;
+}
+
 .review-editable-targets-panel__error {
   color: var(--b3-theme-error);
   font-size: 11px;
@@ -233,13 +266,6 @@ function confirmIfEditable(): void {
   max-height: 240px;
   resize: vertical;
   line-height: 1.55;
-}
-
-.review-editable-targets-panel__footer {
-  padding-top: 4px;
-  color: var(--b3-theme-on-surface-light);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 @media (max-width: 640px) {

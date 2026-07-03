@@ -23,7 +23,7 @@ export type ReviewEditableTargetRole =
   | 'definition'
   | 'descriptor';
 
-export interface ReviewEditableTarget {
+export interface ReviewBlockMarkdownEditableTarget {
   id: string;
   blockId: string;
   title: string;
@@ -31,6 +31,20 @@ export interface ReviewEditableTarget {
   rendererKind: ReviewEditableRendererKind;
   role: ReviewEditableTargetRole;
 }
+
+export interface ReviewConceptReferenceEditableTarget {
+  id: string;
+  blockId: string;
+  title: string;
+  sourceKind: 'concept-reference';
+  rendererKind: Extract<ReviewEditableRendererKind, 'concept-definition' | 'descriptor'>;
+  role: 'concept';
+  referenceLabel?: string;
+}
+
+export type ReviewEditableTarget =
+  | ReviewBlockMarkdownEditableTarget
+  | ReviewConceptReferenceEditableTarget;
 
 export type ReviewNativeSplitGuardRendererKind =
   | ReviewEditableRendererKind

@@ -288,6 +288,62 @@ describe('reviewCurrentContentEditorRuntime', () => {
     expect(runtime.open.value).toBe(false);
   });
 
+  it('saves a concept-reference change by carrying the related markdown target through validation', async () => {
+    const markdownTarget = createTarget('definition:definition:source-block', 'source-block', 'Definition', 'definition');
+    const conceptTarget: ReviewEditableTarget = {
+      id: 'definition:concept-reference:concept-a',
+      blockId: 'concept-a',
+      title: 'Concept',
+      rendererKind: 'concept-definition',
+      role: 'concept',
+      sourceKind: 'concept-reference',
+      referenceLabel: 'Concept A',
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => '((concept-a)) :> old'),
+      getBlockKramdown: vi.fn(async () => '((concept-a)) :> old'),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+    };
+    const validatePendingWrites = vi.fn(async () => ({
+      updates: [{
+        targetId: markdownTarget.id,
+        value: '((concept-b)) :> old',
+      }],
+    }));
+    const suppress = vi.fn();
+    const runtime = createReviewCurrentContentEditorRuntime({
+      t,
+      showMessage: vi.fn(),
+      logger: {},
+      getReviewService: () => reviewService as never,
+      resolveEditableTargets: () => [markdownTarget, conceptTarget],
+      suppressSourceBlockRefresh: suppress,
+      refreshVisibleContent: vi.fn(async () => true),
+      validatePendingWrites,
+    });
+
+    await runtime.openEditor();
+    runtime.updateTargetValue(conceptTarget.id, 'concept-b');
+    const saved = await runtime.confirm();
+
+    expect(saved).toBe(true);
+    const validationWrites = validatePendingWrites.mock.calls[0]?.[0] ?? [];
+    expect(validationWrites).toEqual([
+      expect.objectContaining({
+        targetId: conceptTarget.id,
+        sourceKind: 'concept-reference',
+      }),
+      expect.objectContaining({
+        targetId: markdownTarget.id,
+        sourceKind: 'block-markdown',
+        originalValue: '((concept-a)) :> old',
+      }),
+    ]);
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledTimes(1);
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('source-block', '((concept-b)) :> old');
+    expect(suppress).toHaveBeenCalledWith('source-block');
+  });
+
   it('reports missing editable targets and missing review service', async () => {
     const showMessage = vi.fn();
     const runtime = createReviewCurrentContentEditorRuntime({

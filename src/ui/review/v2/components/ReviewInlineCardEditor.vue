@@ -25,10 +25,11 @@
         :class="{ 'review-inline-card-editor__content--with-context': showStructuredContext }"
         data-testid="review-structured-content-editor"
       >
-        <header class="review-inline-card-editor__content-header">
-          <div class="review-inline-card-editor__section-title">{{ contentTitle }}</div>
+        <header
+          v-if="sourceFallbackWarning"
+          class="review-inline-card-editor__content-header"
+        >
           <span
-            v-if="sourceFallbackWarning"
             class="review-inline-card-editor__field-warning"
             data-testid="review-structured-field-warning"
           >
@@ -70,14 +71,14 @@
           v-if="sourceOpen"
           class="review-inline-card-editor__source"
           :open="sourceOpen"
-          :title="sourceTitle"
           :entries="structuredSourceEntries"
           :readonly="sourceReadonly"
           :placeholder="sourcePlaceholder"
-          :hint="sourceHint"
           :confirm-label="saveLabel"
           :confirm-disabled="sourceConfirmDisabled"
           :cancel-label="cancelLabel"
+          :concept-reference-pending-label="t('conceptReferenceSelectorPending', '输入概念块 ID')"
+          :concept-reference-placeholder="t('conceptReferenceSelectorPlaceholder', '粘贴概念卡块 ID')"
           :source-latest-conflict-label="sourceLatestConflictLabel"
           :draft-overwrite-conflict-label="draftOverwriteConflictLabel"
           @update-target="(targetId, value) => emit('update-source-target', targetId, value)"
@@ -85,6 +86,16 @@
           @confirm="emit('confirm-source')"
           @close="emit('close')"
         />
+
+        <button
+          v-if="answerSideHidden"
+          type="button"
+          class="b3-button b3-button--outline review-inline-card-editor__answer-reveal"
+          data-testid="review-inline-card-editor-reveal-answer-fields"
+          @click="emit('reveal-answer-fields')"
+        >
+          {{ revealAnswerFieldsLabel }}
+        </button>
 
         <div
           v-else
@@ -121,13 +132,12 @@ const props = defineProps<{
   hint: string;
   i18n?: Record<string, string>;
   sourceOpen: boolean;
-  sourceTitle: string;
   sourceEntries: ReviewEditableTargetEditorEntry[];
   sourceReadonly: boolean;
   sourcePlaceholder: string;
-  sourceHint: string;
   sourceConfirmDisabled: boolean;
   structuredModel?: ReviewStructuredFieldModel | null;
+  answerRevealed?: boolean;
   cancelLabel: string;
   saveLabel: string;
   closeLabel: string;
@@ -139,6 +149,7 @@ const emit = defineEmits<{
   (e: 'update-source-target', targetId: string, value: string): void;
   (e: 'resolve-source-conflict', targetId: string, resolution: ReviewEditableTargetConflictResolution): void;
   (e: 'confirm-source'): void;
+  (e: 'reveal-answer-fields'): void;
   (e: 'close'): void;
 }>();
 
@@ -147,7 +158,6 @@ function t(key: string, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value : fallback;
 }
 
-const contentTitle = computed(() => t('reviewStructuredContentTitle', '内容'));
 const contentPlaceholder = computed(() => t('reviewStructuredContentNoFields', '当前卡片没有可编辑内容字段'));
 const relationChips = computed(() => props.structuredModel?.relationChips || []);
 const sourceFallbackWarning = computed(() => {
@@ -159,8 +169,20 @@ const sourceFallbackWarning = computed(() => {
 const directionKind = computed<ReviewStructuredDirectionKind>(() => (
   props.structuredModel?.direction.kind || 'unknown'
 ));
+const revealAnswerFieldsLabel = computed(() => t('reviewRevealAnswerFields', '显示答案字段'));
+const answerFieldRoles = new Set(['answer', 'definition', 'source']);
+const answerSideHidden = computed(() => (
+  props.answerRevealed !== true
+  && visibleHiddenAnswerFields.value.length > 0
+));
+const visibleHiddenAnswerFields = computed(() => {
+  const fields = props.structuredModel?.mode === 'structured' || props.structuredModel?.mode === 'source-fallback'
+    ? props.structuredModel.fields
+    : [];
+  return fields.filter(field => shouldHideAnswerSideField(field));
+});
 const structuredSourceEntries = computed<ReviewEditableTargetEditorEntry[]>(() => {
-  const fields = props.structuredModel?.mode === 'structured'
+  const fields = props.structuredModel?.mode === 'structured' || props.structuredModel?.mode === 'source-fallback'
     ? [...props.structuredModel.fields]
     : [];
   if (fields.length === 0) {
@@ -168,9 +190,13 @@ const structuredSourceEntries = computed<ReviewEditableTargetEditorEntry[]>(() =
   }
 
   return props.sourceEntries.flatMap((entry) => {
-    const matchingFields = fields.filter(field => field.origin.blockId === entry.target.blockId);
+    const sourceFields = fields.filter(field => field.origin.blockId === entry.target.blockId);
+    const matchingFields = sourceFields.filter(field => !shouldHideAnswerSideField(field));
     const field = matchingFields[0];
     if (!field) {
+      if (entry.target.sourceKind === 'block-markdown' && sourceFields.length > 0) {
+        return [];
+      }
       return [entry];
     }
 
@@ -194,7 +220,7 @@ const structuredSourceEntries = computed<ReviewEditableTargetEditorEntry[]>(() =
       ...entry,
       target: {
         ...entry.target,
-        title: field.label,
+        title: props.structuredModel?.mode === 'source-fallback' ? entry.target.title : field.label,
       },
     };
   });
@@ -217,6 +243,10 @@ function shouldUseStructuredFieldValue(field: ReviewStructuredField, sameBlockFi
   }
 
   return false;
+}
+
+function shouldHideAnswerSideField(field: ReviewStructuredField): boolean {
+  return props.answerRevealed !== true && answerFieldRoles.has(field.role);
 }
 
 function resolveStructuredFieldOriginalValue(
@@ -304,16 +334,12 @@ const directionLabel = computed(() => resolveDirectionLabel(directionKind.value)
 }
 
 .review-inline-card-editor__content {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   min-height: min(340px, 48vh);
   min-width: 0;
   overflow: hidden;
-}
-
-.review-inline-card-editor__content--with-context {
-  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .review-inline-card-editor__content-header {
@@ -347,14 +373,10 @@ const directionLabel = computed(() => resolveDirectionLabel(directionKind.value)
 }
 
 .review-inline-card-editor__source {
-  grid-row: 2;
+  flex: 1 1 auto;
   min-height: 0;
   margin: 0;
   max-height: none;
-}
-
-.review-inline-card-editor__content--with-context .review-inline-card-editor__source {
-  grid-row: 3;
 }
 
 .review-inline-card-editor__context {
@@ -402,7 +424,6 @@ const directionLabel = computed(() => resolveDirectionLabel(directionKind.value)
 }
 
 .review-inline-card-editor__content-placeholder {
-  grid-row: 2;
   display: flex;
   align-items: center;
   min-height: 132px;
@@ -413,10 +434,6 @@ const directionLabel = computed(() => resolveDirectionLabel(directionKind.value)
   border: 1px dashed var(--b3-border-color);
   border-radius: 6px;
   background: var(--b3-theme-surface);
-}
-
-.review-inline-card-editor__content--with-context .review-inline-card-editor__content-placeholder {
-  grid-row: 3;
 }
 
 @media (max-width: 760px) {
