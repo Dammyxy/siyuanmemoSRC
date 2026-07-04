@@ -93,6 +93,41 @@ class OpenSegmentReadWindowFileService extends MemorySqliteFileService {
   }
 }
 
+class CorruptOpenSegmentAfterReadFileService extends MemorySqliteFileService {
+  private openSegmentReads = 0;
+  corruptAfterOpenSegmentRead = false;
+  failOpenSegmentReadAfterFailedCheckpoint = false;
+
+  getOpenSegmentReadCount(): number {
+    return this.openSegmentReads;
+  }
+
+  async readBinary(fileName: string): Promise<Uint8Array | null> {
+    if (fileName === SQLITE_DELTA_V2_OPEN_SEGMENT && this.failOpenSegmentReadAfterFailedCheckpoint) {
+      throw new Error('unexpected corrupt open segment replay after failed checkpoint repair');
+    }
+    const bytes = await super.readBinary(fileName);
+    if (fileName === SQLITE_DELTA_V2_OPEN_SEGMENT) {
+      this.openSegmentReads += 1;
+      if (this.corruptAfterOpenSegmentRead && this.openSegmentReads === 1) {
+        this.binary.set(SQLITE_DELTA_V2_OPEN_SEGMENT, new Uint8Array([9, 8, 7, 6]));
+      }
+    }
+    return bytes;
+  }
+
+  async writeBinary(fileName: string, bytes: Uint8Array, options?: { diagnostics?: Record<string, unknown> }): Promise<void> {
+    try {
+      await super.writeBinary(fileName, bytes, options);
+    } catch (error) {
+      if (fileName === SQLITE_DB_FILE) {
+        this.failOpenSegmentReadAfterFailedCheckpoint = true;
+      }
+      throw error;
+    }
+  }
+}
+
 class SplitProjectionSqliteFileService implements JsonFileService {
   readonly json: Map<string, unknown>;
   readonly durableBinary: Map<string, Uint8Array>;
@@ -1295,6 +1330,114 @@ describe('SqliteDatabaseService', () => {
       { id: 'event-after-corrupt-delta' },
       { id: 'event-corrupt-before-transaction' },
     ]);
+  });
+
+  it('repairs a corrupted open sqlite delta segment discovered while appending review.feedback', async () => {
+    const fileService = new CorruptOpenSegmentAfterReadFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    await insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-corrupt-open-before-review-feedback',
+      1_700_000_000_201,
+    );
+    fileService.resetWriteCounts();
+    fileService.corruptAfterOpenSegmentRead = true;
+
+    await insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-after-corrupt-open-review-feedback',
+      1_700_000_000_202,
+    );
+
+    expect(fileService.writeBinaryFiles).toContain(SQLITE_DB_FILE);
+    expect(fileService.binary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeUndefined();
+    expect(fileService.deletedFiles).toContain(SQLITE_DELTA_V2_OPEN_SEGMENT);
+    expect(database.getAll<{ id: string }>(
+      `SELECT id FROM review_events
+       WHERE id IN ('event-corrupt-open-before-review-feedback', 'event-after-corrupt-open-review-feedback')
+       ORDER BY id`,
+    )).toEqual([
+      { id: 'event-after-corrupt-open-review-feedback' },
+      { id: 'event-corrupt-open-before-review-feedback' },
+    ]);
+
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastWrite: {
+        ok: true,
+        classification: 'checkpoint',
+        label: 'review.feedback',
+        hotPath: true,
+        reason: 'corrupt-open-segment-checkpoint-repair',
+      },
+      lastCheckpoint: {
+        ok: true,
+        cause: 'review.feedback:corrupt-open-segment-checkpoint-repair',
+        hotPath: true,
+        cleared: true,
+      },
+    });
+
+    const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await reloaded.init();
+
+    expect(reloaded.getAll<{ id: string }>(
+      `SELECT id FROM review_events
+       WHERE id IN ('event-corrupt-open-before-review-feedback', 'event-after-corrupt-open-review-feedback')
+       ORDER BY id`,
+    )).toEqual([
+      { id: 'event-after-corrupt-open-review-feedback' },
+      { id: 'event-corrupt-open-before-review-feedback' },
+    ]);
+  });
+
+  it('fails corrupt open segment checkpoint repair without replaying the corrupt segment during restore', async () => {
+    const fileService = new CorruptOpenSegmentAfterReadFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    await insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-corrupt-open-before-failed-repair',
+      1_700_000_000_301,
+    );
+    fileService.resetWriteCounts();
+    fileService.corruptAfterOpenSegmentRead = true;
+    fileService.failNextWriteBinary = true;
+
+    await expect(insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-after-corrupt-open-failed-repair',
+      1_700_000_000_302,
+    )).rejects.toThrow('SQLITE_DELTA_REPAIR_REQUIRED: corrupt open segment checkpoint repair failed');
+
+    expect(fileService.writeBinaryFiles).toEqual([SQLITE_DB_FILE]);
+    expect(database.getAll<{ id: string }>(
+      `SELECT id FROM review_events
+       WHERE id IN ('event-corrupt-open-before-failed-repair', 'event-after-corrupt-open-failed-repair')
+       ORDER BY id`,
+    )).toEqual([
+      { id: 'event-after-corrupt-open-failed-repair' },
+      { id: 'event-corrupt-open-before-failed-repair' },
+    ]);
+
+    fileService.failOpenSegmentReadAfterFailedCheckpoint = false;
+    await expect(database.getSqliteDeltaDiagnostics()).rejects.toThrow(
+      'SQLite delta segment checksum mismatch: sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack',
+    );
   });
 
   it('seals sqlite delta v2 open segments when the entry threshold is reached', async () => {

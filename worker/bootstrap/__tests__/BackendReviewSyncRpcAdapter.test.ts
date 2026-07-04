@@ -7640,7 +7640,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterDequeue);
   });
 
-  it('keeps persisted main DB reads when review feedback preflight sees conflict sources', async () => {
+  it('keeps persisted main DB reads out of ordinary review feedback even when conflict sources exist', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
     const conflictBridge = createInMemorySqlitePersistenceBridge();
@@ -7687,10 +7687,10 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
     expect('result' in second).toBe(true);
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length)
-      .toBeGreaterThan(mainDbReadsAfterFirst);
+      .toBe(mainDbReadsAfterFirst);
   });
 
-  it('invalidates review feedback main DB read fast path after a non-review mutating backend command', async () => {
+  it('keeps ordinary review feedback off persisted main DB reads after non-review backend commands', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
     const database = new WorkerSqliteDatabaseService({
@@ -7736,7 +7736,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
     expect('result' in second).toBe(true);
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length)
-      .toBeGreaterThan(mainDbReadsAfterUpdate);
+      .toBe(mainDbReadsAfterUpdate);
   });
 
   it('reports the backend method that invalidated review feedback main DB read fast path', async () => {
@@ -7783,7 +7783,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     });
   });
 
-  it('invalidates review feedback main DB read fast path after sync conflict reload even though it skips pre-request refresh', async () => {
+  it('keeps ordinary review feedback off persisted main DB reads after sync conflict reload', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
     const database = new WorkerSqliteDatabaseService({
@@ -7830,7 +7830,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
     expect('result' in second).toBe(true);
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length)
-      .toBeGreaterThan(mainDbReadsAfterReload);
+      .toBe(mainDbReadsAfterReload);
   });
 
   it('returns refresh-required queue impact when the projection generation is unavailable', async () => {

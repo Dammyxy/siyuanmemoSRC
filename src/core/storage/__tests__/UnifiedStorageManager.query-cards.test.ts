@@ -243,4 +243,36 @@ describe('UnifiedStorageManager queryCards', () => {
       deletedXiuyuans: {},
     });
   });
+
+  it('keeps Review answer read paths free of hidden canonical repair or save work', async () => {
+    await seedCards();
+    const save = vi.fn(async () => undefined);
+    const load = vi.fn(async () => ({
+      version: 1,
+      xiuyuans: {},
+      cards: {},
+      cardDTOs: {},
+      riffBlacklist: [],
+    }));
+    storage.setPersistenceCallbacks(save, load);
+    const autoFixSpy = vi.spyOn(storage, 'autoFix');
+    const validateSpy = vi.spyOn(storage, 'validateConsistency');
+
+    const byBlock = storage.getCardsByBlockId('block-b');
+    const byDue = storage.getDueCards(10);
+    const queried = storage.queryCards({
+      states: [CardState.Review],
+      dueDate: { lte: 1_700_000_003_000 },
+    });
+    const all = storage.getAllCards();
+
+    expect(byBlock.map(card => card.id)).toEqual(['card-b']);
+    expect(byDue.map(card => card.id)).toEqual(['card-a', 'card-b', 'card-c']);
+    expect(queried.map(card => card.id)).toEqual(['card-b', 'card-c']);
+    expect(all.map(card => card.id)).toEqual(['card-a', 'card-b', 'card-c']);
+    expect(autoFixSpy).not.toHaveBeenCalled();
+    expect(validateSpy).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(load).not.toHaveBeenCalled();
+  });
 });

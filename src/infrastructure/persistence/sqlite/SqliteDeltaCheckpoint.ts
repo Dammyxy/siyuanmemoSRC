@@ -219,6 +219,10 @@ function isSegmentChecksumMismatch(error: unknown): boolean {
   return describeError(error).startsWith('SQLite delta segment checksum mismatch:');
 }
 
+function isOpenSegmentChecksumMismatch(error: unknown): boolean {
+  return describeError(error) === `SQLite delta segment checksum mismatch: ${SQLITE_DELTA_OPEN_SEGMENT_FILE}`;
+}
+
 function emptyManifest(updatedAt = 0): SqliteDeltaSegmentManifest {
   return {
     version: SQLITE_DELTA_LOG_VERSION,
@@ -928,7 +932,9 @@ export class SqliteDeltaCheckpointLayer {
       }
       const diagnostics = normalizeDiagnosticsContext(input.diagnostics);
       const hotPath = diagnostics.hotPath || labelLooksHotPath(input.label);
-      const repairReason = 'pending-delta-unreadable';
+      const repairReason = isOpenSegmentChecksumMismatch(error)
+        ? 'corrupt-open-segment-checkpoint-repair'
+        : 'pending-delta-unreadable';
       this.checkpointOnlyTotal += 1;
       this.lastWrite = {
         ok: true,
@@ -1098,6 +1104,38 @@ export class SqliteDeltaCheckpointLayer {
       const writeResult = await this.appendDeltaEntryToSegments(snapshot.manifest, entry);
       nextSnapshot.manifest = writeResult.manifest;
     } catch (error) {
+      if (this.canClearDeltaAfterCheckpoint() && isOpenSegmentChecksumMismatch(error)) {
+        const reason = 'corrupt-open-segment-checkpoint-repair';
+        this.checkpointOnlyTotal += 1;
+        const checkpointDiagnostics: SqliteDeltaDiagnosticsContext = {
+          cause: input.label,
+          initiator: diagnostics.initiator,
+          projectionGeneration: diagnostics.projectionGeneration ?? maxProjectionGenerationFromEntries([entry]),
+          hotPath,
+        };
+        this.lastWrite = {
+          ok: true,
+          at: Date.now(),
+          classification: 'checkpoint',
+          label: input.label,
+          ...checkpointDiagnostics,
+          reason,
+          pendingCount: snapshot.entries.length,
+          pendingBytes,
+          deltaEntryId: entry.id,
+          deltaEntriesWritten: 0,
+          affectedTables: entry.tables,
+          skippedDerivedTables,
+          skippedDerivedChangeCount,
+          checkpointStorageClass: this.checkpointStorageClass,
+          error: describeError(error),
+        };
+        return {
+          mode: 'checkpoint',
+          reason,
+          diagnostics: checkpointDiagnostics,
+        };
+      }
       this.lastWrite = {
         ok: false,
         at: Date.now(),

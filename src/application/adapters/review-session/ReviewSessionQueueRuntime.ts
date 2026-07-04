@@ -67,6 +67,9 @@ export interface ReviewSessionQueueResult {
   counterSnapshot: QueueCounterSnapshot;
   undoToken: ReviewSessionUndoToken | null;
   reason?: string;
+  commitStatus?: 'pending' | 'applied' | 'failed';
+  commitIdempotencyKey?: string;
+  commit?: Promise<QueueReviewResult | void>;
 }
 
 export interface ReviewSessionIdempotencyRecord {

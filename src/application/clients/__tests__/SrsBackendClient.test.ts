@@ -317,6 +317,51 @@ describe('SrsBackendClient', () => {
     })).rejects.toThrow('BACKEND_UNAVAILABLE: review.feedback committed result failed durability gate');
   });
 
+  it('accepts committed feedback when derived truth flush and projection are unavailable diagnostics', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: createDurableReviewFeedbackResult({
+          storage: {
+            ...(createDurableReviewFeedbackResult().storage as Record<string, unknown>),
+            truthFlush: {
+              status: 'unavailable',
+              family: 'review-events',
+              syncVisible: false,
+              pendingCount: 1,
+              oldestPendingAgeMs: 0,
+              lastError: 'truth segment host unavailable',
+            },
+            sqlProjection: {
+              status: 'unavailable',
+              hotPatchable: false,
+              refreshRequired: true,
+              affectedQueueCount: 1,
+              projectionGeneration: null,
+            },
+          },
+        }),
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.reviewFeedback({
+      cardId: 'card-review-truth-derived-unavailable',
+      rating: 3,
+      queueType: 'retrieval-practice',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+      idempotencyKey: 'truth-derived-unavailable-key',
+    })).resolves.toMatchObject({
+      committed: true,
+      storage: {
+        truthFlush: { status: 'unavailable' },
+        sqlProjection: { status: 'unavailable' },
+      },
+    });
+  });
+
   it('bounds plugin unload Review truth flush wait to 1 second', async () => {
     vi.useFakeTimers();
     try {

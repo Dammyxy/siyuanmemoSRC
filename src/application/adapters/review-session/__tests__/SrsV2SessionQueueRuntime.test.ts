@@ -205,7 +205,7 @@ describe('SrsV2SessionQueueRuntime', () => {
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
 
-  it('keeps failing learning cards in remaining workload and serves them before main queue when due', async () => {
+  it('keeps failed answers pending and advances from the session frontier before commit settles', async () => {
     const first = createCard({ id: 'card-1', blockId: 'block-1' });
     const second = createCard({ id: 'card-2', blockId: 'block-2' });
     const failed = createCard({
@@ -233,11 +233,16 @@ describe('SrsV2SessionQueueRuntime', () => {
       feedback: { action: 'rate', rating: 2, commitIdempotencyKey: 'answer-2' },
     });
 
-    expect(result.nextCard).toMatchObject({ id: 'card-1', state: CardState.Learning });
+    expect(result.commitStatus).toBe('pending');
+    expect(result.commitIdempotencyKey).toBe('answer-2');
+    expect(result.nextCard).toMatchObject({ id: 'card-1', state: CardState.Review });
     expect(result.counterSnapshot.remaining).toBe(2);
+    await expect(result.commit).resolves.toMatchObject({
+      updatedCard: expect.objectContaining({ id: 'card-1', state: CardState.Learning }),
+    });
   });
 
-  it('returns waitingUntil when only future learning cards remain outside learn-ahead', async () => {
+  it('returns pending frontier advance without waiting for future learning commit evidence', async () => {
     const now = Date.now();
     const first = createCard({ id: 'card-1', blockId: 'block-1' });
     const futureDue = now + 30 * MINUTE_MS;
@@ -268,10 +273,14 @@ describe('SrsV2SessionQueueRuntime', () => {
       feedback: { action: 'rate', rating: 2, commitIdempotencyKey: 'future-learning' },
     });
 
-    expect(result.status).toBe('waiting');
-    expect(result.nextCard).toBeNull();
-    expect(result.waitingUntil).toBe(futureDue);
+    expect(result.status).toBe('advanced');
+    expect(result.nextCard).toMatchObject({ id: 'card-1' });
+    expect(result.waitingUntil).toBeNull();
+    expect(result.commitStatus).toBe('pending');
     expect(result.counterSnapshot.remaining).toBe(1);
+    await expect(result.commit).resolves.toMatchObject({
+      updatedCard: expect.objectContaining({ id: 'card-1', due: futureDue }),
+    });
   });
 
   it('replays duplicate idempotency keys without committing twice', async () => {

@@ -59,6 +59,9 @@ export type QueueFeedbackAdvanceResult<TItem extends import('../types').QueueIte
   status: 'advanced';
   nextItem: TItem | null;
   counterSnapshot?: QueueCounterSnapshot | null;
+  commitStatus?: 'pending' | 'applied' | 'failed';
+  commitIdempotencyKey?: string;
+  commit?: Promise<unknown>;
 };
 
 export type QueueFeedbackResult<TItem extends import('../types').QueueItem = import('../types').QueueItem> =

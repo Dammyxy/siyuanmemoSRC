@@ -260,6 +260,23 @@ export interface ReviewUIState {
       reason: ReviewAdvanceReason;
       startedAt: number;
     };
+    commitStatus?: {
+      state: 'commit-pending' | 'commit-applied' | 'commit-failed';
+      cardId: string;
+      idempotencyKey: string;
+      rating?: number;
+      updatedAt: number;
+      message?: string;
+      diagnostics?: Array<'projection-stale' | 'repair-required' | 'sync-divergent'>;
+      retry?: {
+        kind: 'retry-same-commit';
+        idempotencyKey: string;
+      };
+      repair?: {
+        kind: 'explicit-repair-required';
+        reason: string;
+      };
+    };
     renderContext?: ReviewRenderableContext;
   };
 }

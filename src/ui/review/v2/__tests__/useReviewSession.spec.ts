@@ -341,6 +341,101 @@ describe('useReviewSession', () => {
     wrapper.unmount();
   });
 
+  it('advances from session frontier while backend commit remains pending', async () => {
+    const queue = createQueue();
+    const frontierNext = hydrateItem(createItem('frontier-card-2'));
+    const delayedCommit = createDeferred<void>();
+    queue.onFeedback = vi.fn(async (_item, feedback) => ({
+      status: 'advanced' as const,
+      nextItem: frontierNext,
+      commitStatus: 'pending' as const,
+      commitIdempotencyKey: feedback.commitIdempotencyKey,
+      commit: delayedCommit.promise,
+    }));
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter });
+    await flushAsync();
+
+    const hook = getHook();
+    const gradePromise = hook.grade(3);
+    await gradePromise;
+    await flushAsync();
+
+    expect(hook.state.value.content.id).toBe('frontier-card-2');
+    expect(queue.next).toHaveBeenCalledTimes(1);
+    expect(hook.context.value.session?.answeredCount).toBe(1);
+    expect(hook.state.value.meta.commitStatus).toMatchObject({
+      state: 'commit-pending',
+      cardId: 'card-1',
+      rating: 3,
+    });
+
+    delayedCommit.resolve();
+    await flushAsync();
+    expect(hook.state.value.content.id).toBe('frontier-card-2');
+    expect(hook.state.value.meta.commitStatus).toMatchObject({
+      state: 'commit-applied',
+      cardId: 'card-1',
+      rating: 3,
+    });
+
+    wrapper.unmount();
+  });
+
+  it('surfaces failed async commit without rewinding the visible frontier card', async () => {
+    const queue = createQueue();
+    const frontierNext = hydrateItem(createItem('frontier-card-2'));
+    const failedCommit = createDeferred<void>();
+    queue.onFeedback = vi.fn(async (_item, feedback) => ({
+      status: 'advanced' as const,
+      nextItem: frontierNext,
+      commitStatus: 'pending' as const,
+      commitIdempotencyKey: feedback.commitIdempotencyKey,
+      commit: failedCommit.promise,
+    }));
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter });
+    await flushAsync();
+
+    const hook = getHook();
+    await hook.grade(3);
+    await flushAsync();
+
+    expect(hook.state.value.content.id).toBe('frontier-card-2');
+    expect(hook.state.value.meta.commitStatus).toMatchObject({
+      state: 'commit-pending',
+      cardId: 'card-1',
+    });
+
+    failedCommit.reject(new Error('durable commit failed'));
+    await flushAsync();
+
+    expect(hook.state.value.content.id).toBe('frontier-card-2');
+    expect(hook.state.value.meta.commitStatus).toMatchObject({
+      state: 'commit-failed',
+      cardId: 'card-1',
+      rating: 3,
+      message: 'durable commit failed',
+      diagnostics: ['repair-required'],
+      retry: {
+        kind: 'retry-same-commit',
+        idempotencyKey: expect.stringMatching(/^review-commit:/),
+      },
+      repair: {
+        kind: 'explicit-repair-required',
+        reason: 'async-review-commit-failed',
+      },
+    });
+
+    wrapper.unmount();
+  });
+
   it('advances past an unavailable graded item without counting it as reviewed', async () => {
     const queue = createQueue();
     queue.onFeedback = vi.fn(async () => {

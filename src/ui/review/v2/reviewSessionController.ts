@@ -439,6 +439,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
   let startPromise: Promise<void> | null = null;
   let serializedAction: Promise<void> = Promise.resolve();
   let queueCompletionNotified = false;
+  let latestCommitStatus: ReviewUIState['meta']['commitStatus'];
   const pendingCommitKeys = new Map<string, string>();
   const attachedSurfaceIds = new Set<string>();
   const subscribers = new Set<(snapshot: ReviewSessionControllerSnapshot<TItem>) => void>();
@@ -460,8 +461,67 @@ export function createReviewSessionController<TItem extends QueueItem>(
     meta: {
       ...uiState.meta,
       canBack: getCanBack(),
+      ...(latestCommitStatus ? { commitStatus: latestCommitStatus } : {}),
     },
   });
+
+  const setCommitStatus = (commitStatus: NonNullable<ReviewUIState['meta']['commitStatus']>): void => {
+    if (disposed) {
+      return;
+    }
+    latestCommitStatus = commitStatus;
+    state.value = withSessionMeta({
+      ...state.value,
+      meta: {
+        ...state.value.meta,
+        commitStatus,
+      },
+    });
+    notifySubscribers();
+  };
+
+  const watchPendingCommit = (
+    commit: Promise<unknown> | undefined,
+    input: {
+      cardId: string;
+      idempotencyKey: string;
+      rating: RatingValue;
+    },
+  ): void => {
+    if (!commit) {
+      return;
+    }
+    commit
+      .then(() => {
+        setCommitStatus({
+          state: 'commit-applied',
+          cardId: input.cardId,
+          idempotencyKey: input.idempotencyKey,
+          rating: input.rating,
+          updatedAt: Date.now(),
+        });
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setCommitStatus({
+          state: 'commit-failed',
+          cardId: input.cardId,
+          idempotencyKey: input.idempotencyKey,
+          rating: input.rating,
+          updatedAt: Date.now(),
+          message,
+          diagnostics: ['repair-required'],
+          retry: {
+            kind: 'retry-same-commit',
+            idempotencyKey: input.idempotencyKey,
+          },
+          repair: {
+            kind: 'explicit-repair-required',
+            reason: 'async-review-commit-failed',
+          },
+        });
+      });
+  };
 
   const markAdvancePending = (reason: ReviewAdvanceReason): void => {
     if (disposed) {
@@ -814,6 +874,21 @@ export function createReviewSessionController<TItem extends QueueItem>(
       currentItem.value = isFeedbackAdvanceResult(feedbackResult)
         ? feedbackResult.nextItem
         : await measureReviewPhase('next', reviewedCardId, () => queue.next());
+      if (isFeedbackAdvanceResult(feedbackResult) && feedbackResult.commitStatus === 'pending') {
+        const idempotencyKey = String(feedbackResult.commitIdempotencyKey || commitIdempotencyKey);
+        setCommitStatus({
+          state: 'commit-pending',
+          cardId: reviewedCardId,
+          idempotencyKey,
+          rating: normalized,
+          updatedAt: Date.now(),
+        });
+        watchPendingCommit(feedbackResult.commit, {
+          cardId: reviewedCardId,
+          idempotencyKey,
+          rating: normalized,
+        });
+      }
       context.value.showAnswer = false;
       await measureReviewPhase('update-state', reviewedCardId, () => updateState('grade'));
       status = 'graded';

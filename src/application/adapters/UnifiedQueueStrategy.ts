@@ -427,6 +427,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     status: 'advanced',
                     nextItem: advancedNextItem,
                     counterSnapshot: this.cloneCounterSnapshot(result.counterSnapshot),
+                    commitStatus: result.commitStatus,
+                    commitIdempotencyKey: result.commitIdempotencyKey ?? feedback.commitIdempotencyKey,
+                    commit: result.commit,
                 };
             }
 

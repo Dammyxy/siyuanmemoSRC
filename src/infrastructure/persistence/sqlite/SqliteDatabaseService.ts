@@ -23,6 +23,7 @@ import {
 } from './SqliteDeltaCheckpoint';
 
 const logger = createLogger('SqliteDatabaseService');
+const SQLITE_CORRUPT_OPEN_SEGMENT_REPAIR_REASON = 'corrupt-open-segment-checkpoint-repair';
 
 type SqlParams = SqlValue[] | ParamsObject;
 type TransactionOptions = {
@@ -152,6 +153,20 @@ function normalizePersistDiagnostics(
     projectionGeneration: options.diagnostics?.projectionGeneration ?? null,
     hotPath: options.diagnostics?.hotPath ?? reason.startsWith('review.feedback'),
   };
+}
+
+function isCorruptOpenSegmentRepairCheckpointReason(reason: string): boolean {
+  return reason.endsWith(`:${SQLITE_CORRUPT_OPEN_SEGMENT_REPAIR_REASON}`)
+    || reason === SQLITE_CORRUPT_OPEN_SEGMENT_REPAIR_REASON;
+}
+
+function createCorruptOpenSegmentRepairRequiredError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const repairError = new Error(
+    `SQLITE_DELTA_REPAIR_REQUIRED: corrupt open segment checkpoint repair failed; skipped restore replay: ${message}`,
+  );
+  (repairError as Error & { cause?: unknown }).cause = error;
+  return repairError;
 }
 
 function quoteSqliteIdentifier(identifier: string): string {
@@ -320,6 +335,7 @@ export class SqliteDatabaseService {
       }
       this.currentTransactionMutated = false;
       this.currentTransactionSchemaDirty = false;
+      let skipRestoreOnPersistFailure = false;
       if (persistAfterCommit) {
         try {
           if (this.deltaLayer && transactionMutated) {
@@ -338,8 +354,10 @@ export class SqliteDatabaseService {
               this.dirtySincePersist = false;
               persistAfterCommit = false;
             } else {
+              const checkpointReason = `${label}:${deltaResult.reason}`;
+              skipRestoreOnPersistFailure = isCorruptOpenSegmentRepairCheckpointReason(checkpointReason);
               await this.persist({
-                reason: `${label}:${deltaResult.reason}`,
+                reason: checkpointReason,
                 diagnostics: {
                   ...deltaResult.diagnostics,
                   cause: label,
@@ -350,7 +368,15 @@ export class SqliteDatabaseService {
             await this.persist({ reason: label });
           }
         } catch (persistError) {
-          await this.restoreFromPersistedStore(label, persistError);
+          if (skipRestoreOnPersistFailure) {
+            logger.warn('SQLite corrupt open-segment checkpoint repair failed; skipping restore replay of known corrupt delta segment', {
+              label,
+              persistError,
+            });
+            throw createCorruptOpenSegmentRepairRequiredError(persistError);
+          } else {
+            await this.restoreFromPersistedStore(label, persistError);
+          }
           throw persistError;
         }
       }
@@ -362,36 +388,30 @@ export class SqliteDatabaseService {
       recordRuntimePerformanceSpan('sqlite', 'transaction', Date.now() - startedAt, {
         label,
         persisted: persistAfterCommit,
-        shouldPersist,
         status: 'committed',
       });
       return result;
     } catch (error) {
       if (!committed) {
-        deltaCapture?.abort();
         try {
           db.run('ROLLBACK');
-        } catch (rollbackError) {
-          logger.warn('SQLite rollback failed', { rollbackError });
+        } catch {
+          // Ignore rollback errors; surface original failure.
         }
       }
+      deltaCapture?.abort();
       this.transactionDepth = 0;
-      this.pendingPersist = false;
       this.currentTransactionMutated = false;
       this.currentTransactionSchemaDirty = false;
+      this.pendingPersist = false;
       recordRuntimePerformanceSpan('sqlite', 'transaction', Date.now() - startedAt, {
         label,
         persisted: false,
-        shouldPersist,
-        status: committed ? 'persist-failed' : 'rolled-back',
-      }, {
-        ok: false,
-        errorName: error instanceof Error ? error.name : 'Error',
+        status: 'failed',
       });
       throw error;
     }
   }
-
   run(sql: string, params?: SqlParams): void {
     const changeMark = this.captureDatabaseChangeMark();
     this.requireDb().run(sql, params);

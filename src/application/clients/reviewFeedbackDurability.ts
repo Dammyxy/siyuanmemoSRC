@@ -26,14 +26,12 @@ export function assertCommittedReviewFeedbackDurability(
     throwDurabilityUnavailable(options.source, 'local journal is not projection-applied');
   }
 
-  const truthFlush = storage.truthFlush;
-  if (!isRecord(truthFlush) || truthFlush.status === 'unavailable') {
-    throwDurabilityUnavailable(options.source, 'Review truth v2 status is unavailable');
+  if (!isRecord(storage.truthFlush)) {
+    throwDurabilityUnavailable(options.source, 'missing Review truth v2 status');
   }
 
-  const sqlProjection = storage.sqlProjection;
-  if (!isRecord(sqlProjection) || sqlProjection.status === 'unavailable') {
-    throwDurabilityUnavailable(options.source, 'SQL projection impact is unavailable');
+  if (!isRecord(storage.sqlProjection)) {
+    throwDurabilityUnavailable(options.source, 'missing SQL projection impact');
   }
 
   const sqlCheckpoint = storage.sqlCheckpoint;

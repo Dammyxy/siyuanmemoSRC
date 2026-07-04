@@ -58,6 +58,12 @@ interface RuntimeUndoEntry {
   before: RuntimeStateSnapshot;
 }
 
+type PendingReviewCommit = {
+  reviewedCard: FSRSCard;
+  rating: number;
+  key: string;
+};
+
 const DEFAULT_LEARN_AHEAD_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_UNDO_ENTRIES = 20;
 
@@ -159,22 +165,21 @@ export class SrsV2SessionQueueRuntime implements ReviewSessionQueueRuntime {
     }
 
     const before = this.captureRuntimeState();
-    let reviewResult: QueueReviewResult;
-    try {
-      reviewResult = await this.queue.handleReview(input.card.id, input.feedback.rating, {
-        commitIdempotencyKey: input.feedback.commitIdempotencyKey,
-      });
-    } catch (error) {
-      this.restoreCurrentToFront();
-      return this.unavailableResult(error);
-    }
-
-    this.applyReviewResult(input.card, input.feedback.rating, reviewResult);
+    this.applyOptimisticRateAdvance(input.card, input.feedback.rating);
     const nextCard = await this.selectNextCard();
     this.currentCard = nextCard ? cloneCard(nextCard) : null;
     const undoToken = this.nextUndoToken();
     this.pushUndoEntry({ token: undoToken, before });
-    const result = this.buildAdvanceResult(nextCard, undoToken);
+    const pendingCommit = this.createPendingRateCommit({
+      reviewedCard: input.card,
+      rating: input.feedback.rating,
+      key,
+    });
+    const result = this.buildAdvanceResult(nextCard, undoToken, {
+      commitStatus: 'pending',
+      commitIdempotencyKey: key,
+      commit: pendingCommit,
+    });
     this.storeIdempotencyRecord(key, fingerprint, result);
     return cloneAnswerResult(result);
   }
@@ -531,6 +536,17 @@ export class SrsV2SessionQueueRuntime implements ReviewSessionQueueRuntime {
     this.counterSnapshot = this.repairCounterSnapshot(result.counterSnapshot, { decrement: false });
   }
 
+  private applyOptimisticRateAdvance(reviewedCard: FSRSCard, rating: number): void {
+    this.setAvoidOnce(reviewedCard);
+    this.removeEntriesForCard(reviewedCard.id);
+    if (rating < 3) {
+      this.learningQueue.push(this.toEntry(reviewedCard, 'learning'));
+      this.counterSnapshot = this.repairCounterSnapshot(this.counterSnapshot, { decrement: false });
+      return;
+    }
+    this.counterSnapshot = this.repairCounterSnapshot(this.counterSnapshot, { decrement: true });
+  }
+
   private rotateCurrentToTail(): void {
     if (!this.currentCard) {
       return;
@@ -614,6 +630,7 @@ export class SrsV2SessionQueueRuntime implements ReviewSessionQueueRuntime {
     undoToken: string | null,
     reason?: string,
     waitingUntil: number | null = null,
+    extra?: Pick<SrsV2AnswerAndAdvanceResult, 'commit' | 'commitIdempotencyKey' | 'commitStatus'>,
   ): SrsV2AnswerAndAdvanceResult {
     return {
       status,
@@ -622,17 +639,30 @@ export class SrsV2SessionQueueRuntime implements ReviewSessionQueueRuntime {
       counterSnapshot: cloneCounterSnapshot(this.counterSnapshot ?? this.buildCounterSnapshot(0)),
       undoToken,
       ...(reason ? { reason } : {}),
+      ...(extra?.commit ? { commit: extra.commit } : {}),
+      ...(extra?.commitIdempotencyKey ? { commitIdempotencyKey: extra.commitIdempotencyKey } : {}),
+      ...(extra?.commitStatus ? { commitStatus: extra.commitStatus } : {}),
     };
   }
 
-  private buildAdvanceResult(nextCard: FSRSCard | null, undoToken: string | null): SrsV2AnswerAndAdvanceResult {
+  private buildAdvanceResult(
+    nextCard: FSRSCard | null,
+    undoToken: string | null,
+    extra?: Pick<SrsV2AnswerAndAdvanceResult, 'commit' | 'commitIdempotencyKey' | 'commitStatus'>,
+  ): SrsV2AnswerAndAdvanceResult {
     if (nextCard) {
-      return this.buildResult('advanced', nextCard, undoToken);
+      return this.buildResult('advanced', nextCard, undoToken, undefined, null, extra);
     }
     const waitingUntil = this.getWaitingUntil();
     return waitingUntil === null
-      ? this.buildResult('exhausted', null, undoToken)
-      : this.buildResult('waiting', null, undoToken, undefined, waitingUntil);
+      ? this.buildResult('exhausted', null, undoToken, undefined, null, extra)
+      : this.buildResult('waiting', null, undoToken, undefined, waitingUntil, extra);
+  }
+
+  private createPendingRateCommit(input: PendingReviewCommit): Promise<QueueReviewResult | void> {
+    return this.queue.handleReview(input.reviewedCard.id, input.rating, {
+      commitIdempotencyKey: input.key,
+    });
   }
 
   private conflictResult(reason: string): SrsV2AnswerAndAdvanceResult {
@@ -753,6 +783,7 @@ function cloneAnswerResult(result: SrsV2AnswerAndAdvanceResult): SrsV2AnswerAndA
     nextCard: result.nextCard ? cloneCard(result.nextCard) : null,
     waitingUntil: result.waitingUntil ?? null,
     counterSnapshot: cloneCounterSnapshot(result.counterSnapshot),
+    ...(result.commit ? { commit: result.commit } : {}),
   };
 }
 

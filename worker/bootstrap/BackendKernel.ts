@@ -308,36 +308,31 @@ export class BackendKernel {
     if (!requiresStorageRefresh) {
       return;
     }
+    if (isReviewFeedback) {
+      recordReviewFeedbackInnerStep({
+        layer: 'kernel',
+        step: 'sync-divergent-diagnostic',
+        durationMs: 0,
+        cardId: reviewFeedbackCardId,
+        extra: {
+          diagnostic: 'sync-divergent',
+          backendMethod: method,
+          context: 'review-feedback-preflight',
+          fullMergeSkipped: true,
+          repairOwner: 'domainSync.repair.apply',
+        },
+      });
+      return;
+    }
     const mergeStartedAt = Date.now();
     const merge = await this.deps.database.mergeExternalDatabaseIfChanged(
       undefined,
-      isReviewFeedback
-        ? { context: 'review-feedback-preflight', cardId: reviewFeedbackCardId }
-        : shouldRefreshMainDbReadOnly
+      shouldRefreshMainDbReadOnly
           ? { context: 'read-only-preflight' }
         : shouldSkipPreflightMainDbRead
           ? { context: 'read-only-preflight', skipMainDbRead: true }
         : {},
     );
-    if (isReviewFeedback) {
-      this.logReviewFeedbackKernelStepIfSlow(
-        'pre-request-merge',
-        reviewFeedbackCardId,
-        Date.now() - mergeStartedAt,
-        {
-          changed: merge.changed,
-          mergedCards: merge.mergedCards,
-          mergedReviewEvents: merge.mergedReviewEvents,
-          importedOperations: merge.importedOperations,
-          sanityStatus: merge.sanityStatus,
-          sourceCount: merge.sourceIds.length,
-          mainDbReadSkipped: merge.mainDbReadSkipped,
-          mainDbReadSkipReason: merge.mainDbReadSkipReason,
-          conflictSourceCount: merge.conflictSourceCount,
-          nonEmptyConflictSourceCount: merge.nonEmptyConflictSourceCount,
-        },
-      );
-    }
     if (!isReviewFeedback && DIAGNOSTIC_TIMING_METHODS.has(method)) {
       recordBackendWorkerInnerStep({
         layer: 'kernel',

@@ -4,6 +4,26 @@ Last update: 2026-07-03 (Round 654)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-04 - Review feedback durable write P0/P1
+
+- Task: Implement `stabilize-review-feedback-durable-write-path`.
+- Touched slice: SQLite delta/checkpoint persistence in `src/infrastructure/persistence/sqlite/*`, Review backend durability gate in `src/application/clients/reviewFeedbackDurability.ts`, focused SQLite/Review client tests, and OpenSpec task state.
+- Debt fixed now: Corrupt `sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack` checksum mismatch is now a typed repair boundary. If the post-commit in-memory SQLite state is safe, delta persistence falls back to a full durable checkpoint, clears pending delta state, and deletes the corrupt open segment. If that checkpoint write fails, restore skips replaying the same corrupt open segment and returns explicit `SQLITE_DELTA_REPAIR_REQUIRED` instead of looping through slow restore/replay. Review committed-success gating now treats truth flush and SQL projection as derived diagnostics: their status must be reported, but `unavailable` there no longer blocks the minimum durable Review commit when local intent, review event/card state, queue impact, and SQLite delta/checkpoint durability are proven.
+- Debt deferred: Native SQLite/WAL, a native DB owner, kernel-side DB writing, richer corrupt-segment repair UI, and broader storage-topology migration remain outside this P0/P1 slice.
+- Why deferred: Current SiYuan plugin worker uses `sql.js` plus host-file MessagePack delta/checkpoint effects, so native WAL semantics need a separate storage-owner/migration design. This pass hardens the existing custom WAL-like layer and narrows ordinary Review answer durability without adding another mutation authority.
+- Next safe step: If live logs still show Review answer stalls after this repair boundary, add operator-visible repair UI around `SQLITE_DELTA_REPAIR_REQUIRED` and separately explore a native SQLite/WAL storage topology.
+- Validation: Focused SQLite corrupt-open/checkpoint tests, full SQLite service tests, Review client/usecase tests, Review session/UI commit-state tests, `pnpm run check:boundaries`, `pnpm build`, `git diff --check`, and `openspec validate stabilize-review-feedback-durable-write-path --strict` passed; build still reports existing non-blocking i18n hardcoded-string warnings and Sass legacy JS API deprecation warnings.
+
+### 2026-07-04 - Review answer frontier async commit split
+
+- Task: Start `decouple-review-answer-hot-path-from-projection-sync`.
+- Touched slice: Review session/controller hot path in `src/application/adapters/review-session/*`, `src/application/adapters/UnifiedQueueStrategy.ts`, `src/ui/review/v2/reviewSessionController.ts`, backend `worker/bootstrap/BackendKernel.ts`, Review session UI tests, worker Review projection/reconciler tests, storage query tests, `ARCHITECTURE.md`, and OpenSpec task state.
+- Debt fixed now: SRS v2 Review answers now advance from the session frontier and return `nextItem` before durable scheduler/review-event commit settles. `ReviewSessionController.grade()` surfaces `commit-pending`, `commit-applied`, and `commit-failed` diagnostics without rewinding the visible next card; failed async commits now expose `retry-same-commit` and `explicit-repair-required` metadata keyed by the same idempotency key instead of resubmitting duplicate review events. Backend `review.feedback` no longer runs a full pre-request main DB merge on ordinary answers; it records a typed `sync-divergent-diagnostic` bucket and keeps card-not-found retry as the fail-closed merge path. Storage read tests now prove Review answer read helpers do not call hidden canonical repair, validate/autoFix, load, or save work.
+- Debt deferred: Full product UI for commit retry/repair remains a later surface; current state exposes the typed metadata needed by that UI. Broader sync repair UX and non-Review storage repair screens remain out of this bounded hot-path change.
+- Why deferred: This pass completes the hot-path authority split and typed diagnostics without adding another local mutation authority or background auto-retry branch.
+- Next safe step: Wire the existing Review writer/recovery notice UI to the new async `commitStatus.retry` / `repair` metadata if product wants a visible retry badge.
+- Validation: Focused Review session/runtime tests, worker Review feedback/projection/reconciler/storage-envelope tests, backend Review pre-request fast-path tests, storage read-path repair test, `pnpm run check:boundaries`, and `pnpm build` passed; build still reports existing i18n warnings and Sass legacy JS API deprecation warnings.
+
 ### 2026-07-03 - Review/session storage hot-path cleanup
 
 - Task: Implement `optimize-review-session-storage-hot-paths` for the three current latency suspects plus the strong `getCardDTOsByXiuyuanId()` read-path debt.
