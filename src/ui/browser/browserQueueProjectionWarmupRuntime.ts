@@ -289,9 +289,11 @@ export function createBrowserQueueProjectionWarmupRuntime(
       targetQueueIds,
     );
     const reviewPressure = currentReviewPressure();
-    const { immediateQueueIds, deferredQueueIds } = options.fromReviewDeferral
-      ? { immediateQueueIds: queueIds, deferredQueueIds: [] }
-      : partitionWarmupQueueIdsForReviewPressure(queueIds, scope, reviewPressure);
+    const { immediateQueueIds, deferredQueueIds } = partitionWarmupQueueIdsForReviewPressure(
+      queueIds,
+      scope,
+      reviewPressure,
+    );
     if (reviewPressure && deferredQueueIds.length > 0) {
       logDeferredWarmup(reason, deferredQueueIds, ACTIVE_REVIEW_WARMUP_DEFER_MS, reviewPressure);
       scheduleTargeted(reason, ACTIVE_REVIEW_WARMUP_DEFER_MS, deferredQueueIds, { fromReviewDeferral: true });

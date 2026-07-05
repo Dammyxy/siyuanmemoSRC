@@ -1203,7 +1203,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private shouldInitializeSrsV2CounterBeforeProjection(): boolean {
-        return this.queueType === QueueType.IncrementalLearning
+        return (this.queueType === QueueType.IncrementalLearning
+            || this.queueType === QueueType.RetrievalPractice)
             && !this.learnAheadSession
             && this.isProjectionBackedQueue();
     }

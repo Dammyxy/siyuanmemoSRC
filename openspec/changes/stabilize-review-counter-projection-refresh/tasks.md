@@ -7,9 +7,10 @@
 
 - [x] 2.1 Cover runtime counter initialization without projection reads.
 - [x] 2.2 Cover initial `UnifiedQueueStrategy.getStats()` while projection counters are stale.
+- [x] 2.3 Cover `retrieval-practice` counter/stat reads while projection counters are stale.
 
 ## 3. Validation And Cleanup
 
-- [ ] 3.1 Run focused Review queue tests.
-- [ ] 3.2 Run boundary/build/OpenSpec validation and update debt ledger.
-- [ ] 3.3 Clean live plugin storage artifacts only after code validation.
+- [x] 3.1 Run focused Review queue tests.
+- [x] 3.2 Run boundary/build/OpenSpec validation and update debt ledger.
+- [x] 3.3 Clean live plugin storage artifacts only after code validation.

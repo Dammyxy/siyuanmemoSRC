@@ -1950,7 +1950,7 @@ export class WorkerSqliteDatabaseService {
       ...result,
       storage: await new ReviewFeedbackStorageEnvelope({
         readJournalDiagnostics: () => this.getReviewFeedbackJournalDiagnostics(),
-        readSqliteDeltaDiagnostics: () => this.getSqliteDeltaDiagnostics(),
+        readSqliteDeltaHotPathDiagnostics: async () => this.runtime.getSqliteDeltaHotPathDiagnostics(),
       }).build({
         result,
         journalEntryId: committedJournalEntryId,

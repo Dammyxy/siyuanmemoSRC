@@ -154,6 +154,11 @@ export interface SqliteDeltaDiagnostics {
   lastCheckpoint: SqliteDeltaOperationStatus | null;
 }
 
+export type SqliteDeltaHotPathDiagnostics = Pick<
+  SqliteDeltaDiagnostics,
+  'lastWrite' | 'lastCheckpoint'
+>;
+
 export interface SqliteDeltaTransactionCapture {
   finish(): SqliteDeltaCaptureResult;
   abort(): void;
@@ -1543,6 +1548,13 @@ export class SqliteDeltaCheckpointLayer {
       replayedEntriesTotal: this.replayedEntriesTotal,
       lastWrite: this.lastWrite,
       lastReplay: this.lastReplay,
+      lastCheckpoint: this.lastCheckpoint,
+    };
+  }
+
+  getHotPathDiagnostics(): SqliteDeltaHotPathDiagnostics {
+    return {
+      lastWrite: this.lastWrite,
       lastCheckpoint: this.lastCheckpoint,
     };
   }

@@ -1,4 +1,7 @@
-import type { SqliteDeltaDiagnostics } from '@/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint';
+import type {
+  SqliteDeltaDiagnostics,
+  SqliteDeltaHotPathDiagnostics,
+} from '@/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint';
 import type {
   BackendReviewFeedbackJournalDiagnostics,
   BackendReviewFeedbackResult,
@@ -7,7 +10,8 @@ import type {
 
 export interface ReviewFeedbackStorageEnvelopeDependencies {
   readJournalDiagnostics(): Promise<BackendReviewFeedbackJournalDiagnostics>;
-  readSqliteDeltaDiagnostics(): Promise<SqliteDeltaDiagnostics>;
+  readSqliteDeltaDiagnostics?: () => Promise<SqliteDeltaDiagnostics>;
+  readSqliteDeltaHotPathDiagnostics?: () => Promise<SqliteDeltaHotPathDiagnostics | null>;
 }
 
 export interface ReviewFeedbackStorageEnvelopeInput {
@@ -86,10 +90,22 @@ export class ReviewFeedbackStorageEnvelope {
   }
 
   private async tryReadSqliteDeltaDiagnostics(): Promise<{
-    diagnostics: SqliteDeltaDiagnostics | null;
+    diagnostics: SqliteDeltaHotPathDiagnostics | null;
     error: string | null;
   }> {
     try {
+      if (this.deps.readSqliteDeltaHotPathDiagnostics) {
+        return {
+          diagnostics: await this.deps.readSqliteDeltaHotPathDiagnostics(),
+          error: null,
+        };
+      }
+      if (!this.deps.readSqliteDeltaDiagnostics) {
+        return {
+          diagnostics: null,
+          error: null,
+        };
+      }
       return {
         diagnostics: await this.deps.readSqliteDeltaDiagnostics(),
         error: null,

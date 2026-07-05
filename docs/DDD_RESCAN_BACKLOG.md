@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-05 (Round 660)
+Last update: 2026-07-05 (Round 661)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-05 - Review feedback pressure latency
+
+- Task: Optimize remaining Review grading latency after live rerun logs showed `review.feedback` dominated by full SQLite delta diagnostics and `update-state` competing with Browser projection warmup.
+- Touched slice: Browser projection warmup in `src/ui/browser/browserQueueProjectionWarmupRuntime.ts`, Review feedback storage envelope in `worker/review/ReviewFeedbackStorageEnvelope.ts`, worker Review RPC in `worker/db/SqliteDatabaseService.ts`, SQLite delta diagnostics in `src/infrastructure/persistence/sqlite/*`, focused Browser and worker regressions, and OpenSpec `reduce-review-feedback-pressure-latency`.
+- Debt fixed now: Deferred non-current Browser warmup no longer bypasses active Review pressure when retry timers fire, so non-current `projection_stale` repair stays deferred until Review pressure clears. Ordinary `review.feedback` storage envelope now reads hot-path in-memory SQLite delta evidence (`lastWrite` / `lastCheckpoint`) instead of calling full delta diagnostics and manifest reads before returning; explicit diagnostics APIs still keep full-fidelity persisted manifest reads.
+- Debt deferred: Delta append itself still reads the SQLite delta manifest because it must merge durable pending entries before writing a new segment. Native SQLite/WAL, native DB ownership, kernel-side DB writer, and broader storage topology migration remain outside this pressure-latency pass.
+- Why deferred: The live bottleneck came from derived repair and post-commit diagnostics being on the answer path, not from the required durable delta append semantics. Changing storage topology crosses a larger persistence boundary and needs separate acceptance.
+- Next safe step: Rebuild/deploy, rerun live Review grading, and confirm slow `feedback` spans no longer include post-envelope full SQLite diagnostics while non-current Browser queue warmup waits until Review pressure clears.
+- Validation: Focused worker Review hot-path durability test, storage-envelope tests, and Browser warmup tests passed; boundary/build/OpenSpec validation run in this implementation pass.
 
 ### 2026-07-05 - Domain sync repair preview and Review gate
 
@@ -18,11 +28,11 @@ Last update: 2026-07-05 (Round 660)
 
 - Task: Diagnose latest live `QUEUE_COUNT_UNAVAILABLE` logs after SQLite delta cleanup and implement `stabilize-review-counter-projection-refresh`.
 - Touched slice: Review + Queue counter readiness in `src/application/adapters/UnifiedQueueStrategy.ts`, SRS v2 session counter contract in `src/application/adapters/review-session/*`, focused Review queue regressions, OpenSpec task state, and live plugin storage inspection under `H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo`.
-- Debt fixed now: `incremental-learning` Review mount-time stats no longer fall through to stale backend projection counters while the projection is `refreshing/projection_stale`. SRS v2 session runtime can initialize a counter snapshot from the same live queue cards used by Review navigation, without selecting the first card and without touching projection rows/counter snapshots. Non-session-backed projection queues and retrieval/static subset projection contracts remain fail-closed.
-- Debt deferred: Repeated Xiuyuan normalization persistence remains a monitored storage-shape issue, but the live `unified-cards.msgpack` inspection now shows 515 card DTOs, 489 Xiuyuans, and zero missing/mismatched Xiuyuan bindings. Existing unrelated Review runtime test failures on this dirty branch remain outside this counter patch.
-- Why deferred: The live error is a Review counter-read path bug, not a missing Xiuyuan binding after current storage inspection. Broader Review runtime async-commit behavior is already dirty in the worktree and needs a separate acceptance pass instead of being folded into this projection-refresh fix.
-- Next safe step: Rebuild/deploy, open Incremental Learning while projection is refreshing, and confirm stats render without `QUEUE_COUNT_UNAVAILABLE`; then smoke one Review rating.
-- Validation: New focused SRS v2 runtime and `UnifiedQueueStrategy.getStats()` regression tests passed; `openspec validate stabilize-review-counter-projection-refresh --strict` passed. Broader mixed Review suites still show pre-existing dirty-branch failures unrelated to this counter patch.
+- Debt fixed now: `incremental-learning` and `retrieval-practice` Review mount-time stats no longer fall through to stale backend projection counters while the projection is `refreshing/projection_stale`. SRS v2 session runtime can initialize a counter snapshot from the same live queue cards used by Review navigation, without selecting the first card and without touching projection rows/counter snapshots. Non-session-backed projection queues and retrieval/static subset projection contracts remain fail-closed.
+- Debt deferred: Repeated Xiuyuan normalization persistence remains a monitored storage-shape issue, but the live `unified-cards.msgpack` inspection now shows 515 card DTOs, 489 Xiuyuans, and zero missing/mismatched Xiuyuan bindings. `FilterGroupQueue` has a separate projection/local-read policy risk: dynamic filtered sessions can be incorrectly served by global backend projection rows when promoted to projection-backed reads. Existing unrelated Review runtime test failures on this dirty branch remain outside this counter patch.
+- Why deferred: The live counter error is an SRS v2 Review counter-read path bug, not a missing Xiuyuan binding after current storage inspection. `filter-group` uses dynamic filter/session semantics rather than the SRS v2 session counter authority, so it needs a separate queue read-policy change instead of being folded into this projection-refresh fix. Broader Review runtime async-commit behavior is already dirty in the worktree and needs a separate acceptance pass.
+- Next safe step: Rebuild/deploy, open Incremental Learning and Retrieval Practice while projection is refreshing, and confirm stats render without `QUEUE_COUNT_UNAVAILABLE`; then smoke one Review rating. Start a separate change for `filter-group` projection/local-read routing if the filtered review red test must be closed next.
+- Validation: New focused SRS v2 runtime and `UnifiedQueueStrategy.getStats()` regression tests passed; retrieval-practice counter/stat regression passed while projection counters throw `QUEUE_PROJECTION_NOT_READY`. Broader mixed Review suites still show pre-existing dirty-branch failures unrelated to this counter patch.
 
 ### 2026-07-05 - SQLite delta sealed segment recovery and live storage clean
 

@@ -193,6 +193,68 @@ describe('UnifiedQueueStrategy static subset projection policy', () => {
     strategy.cleanup();
   });
 
+  it('initializes retrieval-practice counters from the session runtime while projection counters are stale', async () => {
+    const cards = [
+      createCard('runtime-card-1', 'runtime-block-1'),
+      createCard('runtime-card-2', 'runtime-block-2'),
+    ];
+    const queue = {
+      getType: vi.fn(() => QueueType.RetrievalPractice),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      getCounterSnapshot: vi.fn(async () => {
+        throw new Error('QUEUE_PROJECTION_NOT_READY: counter snapshot for retrieval-practice requires backend projection but projection is still refreshing');
+      }),
+      getCards: vi.fn(async () => cards.map((card) => ({ ...card }))),
+      getNextCard: vi.fn(async () => null),
+      review: vi.fn(),
+      skip: vi.fn(),
+      addCard: vi.fn(),
+      removeCard: vi.fn(),
+      getSize: vi.fn(async () => 0),
+      getStats: vi.fn(async () => ({ size: 0, label: '0 due' })),
+      getUIConfig: vi.fn(),
+      getCommands: vi.fn(() => []),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      getQueueProjectionRolloutDiagnostics: vi.fn((queueType?: QueueType) => (
+        queueType === QueueType.RetrievalPractice
+          ? [{
+            queueType: QueueType.RetrievalPractice,
+            projectionBacked: true,
+            state: 'backend-projection',
+            readPath: 'backend-projection',
+            reason: 'rollout-enabled',
+            nextCoverageTask: null,
+          }]
+          : []
+      )),
+    };
+    const strategy = new UnifiedQueueStrategy(
+      queue as never,
+      manager as never,
+      { subscribe: vi.fn(), unsubscribe: vi.fn() } as never,
+      null,
+    );
+
+    await expect(strategy.getCounterSnapshot()).resolves.toMatchObject({
+      remaining: 2,
+      due: 2,
+      total: 2,
+    });
+    await expect(strategy.getStats()).resolves.toMatchObject({
+      size: 2,
+      label: '2 due',
+    });
+    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(queue.getCounterSnapshot).not.toHaveBeenCalled();
+
+    strategy.cleanup();
+  });
+
   it('keeps mutable filter-group review on the live filtered queue instead of stale projection rows', async () => {
     const projectedItem = createCard('projected-item', 'projected-block', CardType.Item);
     const filteredConcept = createCard('filtered-concept', 'concept-block', CardType.Concept);

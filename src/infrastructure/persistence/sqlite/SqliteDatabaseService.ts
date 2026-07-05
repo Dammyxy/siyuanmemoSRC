@@ -19,6 +19,7 @@ import {
   SqliteDeltaCheckpointLayer,
   type SqliteDeltaDiagnosticsContext,
   type SqliteDeltaDiagnostics,
+  type SqliteDeltaHotPathDiagnostics,
   type SqliteCheckpointStorageClass,
 } from './SqliteDeltaCheckpoint';
 
@@ -618,6 +619,10 @@ export class SqliteDatabaseService {
 
   async getSqliteDeltaDiagnostics(): Promise<SqliteDeltaDiagnostics | null> {
     return this.deltaLayer ? this.deltaLayer.getDiagnostics() : null;
+  }
+
+  getSqliteDeltaHotPathDiagnostics(): SqliteDeltaHotPathDiagnostics | null {
+    return this.deltaLayer ? this.deltaLayer.getHotPathDiagnostics() : null;
   }
 
   private async loadStoredDatabaseBytes(): Promise<{

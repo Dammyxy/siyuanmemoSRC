@@ -67,7 +67,7 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     vi.useRealTimers();
   });
 
-  it('coalesces repeated non-active live identity warmups during active Review', async () => {
+  it('coalesces repeated non-active live identity warmups until active Review pressure clears', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({
       status: 'ready',
@@ -110,6 +110,11 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     expect(ensureQueueReadModelReady).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
+    expect(ensureQueueReadModelReady).not.toHaveBeenCalled();
+
+    deps.reviewPressure.value = { active: false, activeQueueType: null };
+    await vi.advanceTimersByTimeAsync(750);
+
     expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
     expect(ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
       queueType: QueueType.FinalDrill,
@@ -126,7 +131,7 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     vi.useRealTimers();
   });
 
-  it('defers repairable non-active projection repair during active Review', async () => {
+  it('defers repairable non-active projection repair until active Review pressure clears', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({
       status: 'refreshing',
@@ -159,12 +164,57 @@ describe('browserQueueProjectionWarmupRuntime', () => {
 
     await vi.advanceTimersByTimeAsync(750);
 
-    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(repairQueueReadModel).not.toHaveBeenCalled();
-    expect(runtime.getStatus('filter-group')).toMatchObject({
+
+    deps.reviewPressure.value = { active: false, activeQueueType: null };
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(repairQueueReadModel).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
+
+  it('keeps deferred non-active warmup deferred when Review pressure is still active', async () => {
+    vi.useFakeTimers();
+    const ensureQueueReadModelReady = vi.fn(async (request) => ({
       status: 'refreshing',
+      queueId: request.queueType,
+      policyId: `policy-${request.queueType}`,
       cause: 'projection_stale',
+      retryAfterMs: 300,
+    }));
+    const repairQueueReadModel = vi.fn(async () => true);
+    const reviewPressure = ref({
+      active: true,
+      activeQueueType: QueueType.RetrievalPractice,
     });
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      browserAppService: ref({ ensureQueueReadModelReady, repairQueueReadModel }),
+      reviewPressure,
+    });
+    const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.schedule('browser-open', 0);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
+      QueueType.RetrievalPractice,
+    ]);
+    expect(repairQueueReadModel).toHaveBeenCalledTimes(1);
+
+    reviewPressure.value = { active: false, activeQueueType: null };
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
+      QueueType.RetrievalPractice,
+      QueueType.IncrementalLearning,
+      QueueType.FinalDrill,
+      QueueType.FilterGroup,
+    ]);
 
     vi.useRealTimers();
   });

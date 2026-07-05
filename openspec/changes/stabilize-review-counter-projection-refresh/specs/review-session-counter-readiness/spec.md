@@ -7,6 +7,10 @@ The system SHALL serve Review session counter and stats reads for SRS v2 queues 
 - **WHEN** an SRS v2 Review dialog requests stats before the first card is selected and the backend projection counter is not ready
 - **THEN** the stats read SHALL initialize the session runtime from the live queue cards and return a counter without reading projection counters
 
+#### Scenario: Retrieval practice counter during projection refresh
+- **WHEN** a `retrieval-practice` Review dialog requests stats or a counter snapshot while the backend projection counter is not ready
+- **THEN** the read SHALL initialize the SRS v2 session runtime from live queue cards and return the runtime counter without forcing projection counter refresh
+
 #### Scenario: Projection-owned queues still fail closed
 - **WHEN** a non-session-backed projection queue cannot provide a counter snapshot
 - **THEN** the system SHALL keep returning `QUEUE_COUNT_UNAVAILABLE` rather than silently inventing counts

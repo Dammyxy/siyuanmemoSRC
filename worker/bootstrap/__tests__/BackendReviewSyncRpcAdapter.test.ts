@@ -4819,17 +4819,21 @@ describe('BackendReviewSyncRpcAdapter', () => {
   it('persists formal review feedback to non-SiYuan journal with required sqlite delta durability on the hot path', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
+    const readJSON = vi.fn(persistenceBridge.readJSON!.bind(persistenceBridge));
     const writeJSON = vi.fn(persistenceBridge.writeJSON!.bind(persistenceBridge));
     const database = new WorkerSqliteDatabaseService({
       ...persistenceBridge,
       writeBinary,
+      readJSON,
       writeJSON,
     });
     const reviewedAt = 1_779_187_889_000;
     await database.upsertCards([buildCard({ id: 'card-review-journal-hot-path', due: reviewedAt - 10_000 })]);
     await database.persist();
     writeBinary.mockClear();
+    readJSON.mockClear();
     writeJSON.mockClear();
+    const fullDeltaDiagnostics = vi.spyOn(database, 'getSqliteDeltaDiagnostics');
     const kernel = new BackendKernel({
       database,
       resolveExistingBlockIds: async (blockIds) => blockIds,
@@ -4882,6 +4886,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     });
     expect(writeBinary.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(true);
     expect(writeBinary.mock.calls.some(([path]) => path === 'siyuanmemo.db')).toBe(false);
+    expect(fullDeltaDiagnostics).not.toHaveBeenCalled();
     expect(writeJSON.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_MANIFEST)).toBe(true);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
       pendingCount: 1,

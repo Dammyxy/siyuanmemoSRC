@@ -8,6 +8,7 @@
 - Initialize SRS v2 session counters from the same live-card source used by `next()`.
 - Avoid projection reads for Review mount-time stats while preserving fail-closed projection behavior elsewhere.
 - Add regression coverage for runtime and strategy seams.
+- Keep the SRS v2 scope explicit: `incremental-learning` and `retrieval-practice` share the session runtime; `filter-group`, `final-drill`, `leech`, and `neural-roam` have separate queue semantics and must not receive invented counters from this path.
 
 **Non-Goals:**
 - Rebuild projection readiness lifecycle.
@@ -19,6 +20,7 @@
 - Add `ensureCounterSnapshot()` to session runtime instead of making `getCounterSnapshot()` async. Existing callers keep sync snapshot reads; only Review strategy needs the async initialization path.
 - Initialize via `profile.buildInitialCards(queue)`, the same authority as `next()`. This avoids a second queue/projection path and keeps session ordering semantics intact.
 - Keep stale projection read failures untouched outside session-backed queues.
+- Treat `filter-group` projection/local-read mismatches as a separate queue read-policy problem, not as part of this counter readiness change.
 
 ## Risks / Trade-offs
 
