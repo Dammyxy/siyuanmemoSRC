@@ -32,9 +32,11 @@ import {
     ReviewSessionProjectionAdvancePolicy,
     ReviewTransactionRuntime,
     SrsV2SessionQueueRuntime,
+    WorkerReviewSessionQueueRuntime,
     type ReviewSessionAnswerCommand,
     type ReviewSessionCommandAuthority,
     type ReviewSessionQueueResult,
+    type WorkerReviewSessionBackendClient,
     type ReviewTransaction,
 } from './review-session';
 import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
@@ -87,6 +89,7 @@ type ReviewSessionAuthorityRuntime = {
 
 type ReviewSessionAuthorityContext = {
     getFrontendInstanceRuntime?: () => ReviewSessionAuthorityRuntime | null | undefined;
+    getSrsBackendClient?: () => WorkerReviewSessionBackendClient | null | undefined;
 };
 
 type CdfLiveRelationReviewOpenRefresher = {
@@ -158,6 +161,18 @@ function resolveNeuralRoamBatchSnapshot(queue: IReviewQueue): NeuralRoamBatchSna
     return candidate.getCurrentBatchSnapshot();
 }
 
+function createUnavailableWorkerReviewSessionBackend(): WorkerReviewSessionBackendClient {
+    const fail = async (): Promise<never> => {
+        throw new Error('BACKEND_UNAVAILABLE: worker Review session backend is unavailable');
+    };
+    return {
+        reviewSessionStart: fail,
+        reviewSessionCurrent: fail,
+        reviewSessionFeedback: fail,
+        reviewSessionSkip: fail,
+    };
+}
+
 export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSourceObserver {
     private manager: UnifiedDataSourceManager;
     private schedulerRouter: ISchedulerRouter | null;
@@ -177,7 +192,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private readonly neuralRoamAdvanceOutcomePolicy = new NeuralRoamAdvanceOutcomePolicy();
     private readonly feedbackAdvancement: ReviewFeedbackAdvancementCoordinator;
     private readonly neuralRoamAdvance: NeuralRoamAdvanceCoordinator;
-    private readonly srsV2SessionQueueRuntime: SrsV2SessionQueueRuntime | null;
+    private readonly srsV2SessionQueueRuntime: SrsV2SessionQueueRuntime | WorkerReviewSessionQueueRuntime | null;
     private pendingSrsV2NextCard: FSRSCard | null | undefined;
     private pendingSrsV2CounterSnapshot: QueueCounterSnapshot | null = null;
     private lastNeuralRoamViewState: BackendNeuralRoamViewState | null = null;
@@ -238,11 +253,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             addNextDues: (card) => this.maybeAddNextDues(card),
         });
         this.srsV2SessionQueueRuntime = this.shouldUseSrsV2SessionRuntime()
-            ? new SrsV2SessionQueueRuntime({
-                queueType: this.queueType,
-                queue: this.queue,
-                commandAuthority: this.createSrsV2CommandAuthority(),
-            })
+            ? this.createWorkerReviewSessionRuntime()
             : null;
 
         this.queue.subscribe(this.cacheManager);
@@ -387,14 +398,17 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             }
 
             if (this.srsV2SessionQueueRuntime && !this.learnAheadSession && (feedback.action === 'rate' || feedback.action === 'skip')) {
-                activeTransaction = await this.measureReviewFeedbackStep(
-                    'transaction-capture',
-                    activeItem,
-                    feedback,
-                    () => this.createReviewTransaction(activeItem, feedback, {
-                        includeCardSnapshot: feedback.action === 'rate',
-                    })
-                );
+                const workerSessionOwnsAuthority = this.srsV2SessionQueueRuntime instanceof WorkerReviewSessionQueueRuntime;
+                if (!workerSessionOwnsAuthority) {
+                    activeTransaction = await this.measureReviewFeedbackStep(
+                        'transaction-capture',
+                        activeItem,
+                        feedback,
+                        () => this.createReviewTransaction(activeItem, feedback, {
+                            includeCardSnapshot: feedback.action === 'rate',
+                        })
+                    );
+                }
                 const result = await this.measureReviewFeedbackStep(
                     'session-runtime-answer',
                     activeItem,
@@ -419,8 +433,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 this.cursor.counterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
                 this.pendingSrsV2CounterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
                 const advancedNextItem = await this.consumeSrsV2FeedbackAdvanceResult(result.nextCard);
-                this.recordReviewHistory(activeItem, activeTransaction);
-                activeTransactionPushed = true;
+                if (!workerSessionOwnsAuthority) {
+                    this.recordReviewHistory(activeItem, activeTransaction);
+                    activeTransactionPushed = true;
+                }
                 activeTransaction = null;
                 activeTransactionPushed = false;
                 return {
@@ -720,12 +736,18 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     canGoBack(): boolean {
+        if (this.srsV2SessionQueueRuntime instanceof WorkerReviewSessionQueueRuntime) {
+            return false;
+        }
         return this.transactionRuntime.canGoBack();
     }
 
     async goBack(currentItem: FSRSCard | null): Promise<FSRSCard | null> {
         this.cursor.clearPendingRotation();
         this.clearAvoidOnceIdentity();
+        if (this.srsV2SessionQueueRuntime instanceof WorkerReviewSessionQueueRuntime) {
+            return null;
+        }
         const activeItem = this.currentItemCommand.resolveActive(currentItem);
         if (!this.transactionRuntime.canGoBack()) {
             return activeItem;
@@ -954,6 +976,33 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private shouldUseSrsV2SessionRuntime(): boolean {
         return this.queueType === QueueType.IncrementalLearning
             || this.queueType === QueueType.RetrievalPractice;
+    }
+
+    private createWorkerReviewSessionRuntime(): SrsV2SessionQueueRuntime | WorkerReviewSessionQueueRuntime {
+        const backend = this.resolveWorkerReviewSessionBackend();
+        if (!backend) {
+            return new WorkerReviewSessionQueueRuntime({
+                queueType: this.queueType,
+                backend: createUnavailableWorkerReviewSessionBackend(),
+            });
+        }
+        return new WorkerReviewSessionQueueRuntime({
+            queueType: this.queueType,
+            backend,
+        });
+    }
+
+    private resolveWorkerReviewSessionBackend(): WorkerReviewSessionBackendClient | null {
+        const backend = this.resolveReviewSessionAuthorityContext()?.getSrsBackendClient?.() ?? null;
+        if (
+            typeof backend?.reviewSessionStart !== 'function'
+            || typeof backend.reviewSessionCurrent !== 'function'
+            || typeof backend.reviewSessionFeedback !== 'function'
+            || typeof backend.reviewSessionSkip !== 'function'
+        ) {
+            return null;
+        }
+        return backend;
     }
 
     private createSrsV2CommandAuthority(): ReviewSessionCommandAuthority | null {
@@ -1186,20 +1235,25 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private isProjectionBackedQueue(): boolean {
-        if (shouldReadQueueLocally(this.queue)) {
-            return false;
-        }
-
         const manager = this.manager as unknown as {
             getQueueProjectionRolloutDiagnostics?: (queueType?: QueueType) => unknown[];
         };
         const diagnostics = manager.getQueueProjectionRolloutDiagnostics?.(this.queueType);
-        return Array.isArray(diagnostics)
+        const explicitlyProjectionBacked = Array.isArray(diagnostics)
             && diagnostics.some((entry) => (
                 isRecord(entry)
                 && String(entry.queueType || '') === this.queueType
                 && (entry.state === 'backend-projection' || entry.readPath === 'backend-projection')
             ));
+        if (explicitlyProjectionBacked) {
+            return true;
+        }
+
+        if (shouldReadQueueLocally(this.queue)) {
+            return false;
+        }
+
+        return false;
     }
 
     private shouldInitializeSrsV2CounterBeforeProjection(): boolean {

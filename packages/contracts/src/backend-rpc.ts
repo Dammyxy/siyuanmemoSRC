@@ -98,6 +98,10 @@ export const BACKEND_RPC_METHODS = [
   'autocard.execute',
   'autocard.executeBatch',
   'review.feedback',
+  'review.session.start',
+  'review.session.current',
+  'review.session.feedback',
+  'review.session.skip',
   'review.truth.flush',
   'review.truth.backfill',
   'private.health',
@@ -224,6 +228,10 @@ export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_AUTOCARD_RPC_METHOD_CONTRACT_BY_METHOD['autocard.execute'],
   BACKEND_AUTOCARD_RPC_METHOD_CONTRACT_BY_METHOD['autocard.executeBatch'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.feedback'],
+  BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.session.start'],
+  BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.session.current'],
+  BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.session.feedback'],
+  BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.session.skip'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.flush'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.backfill'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['private.health'],
@@ -2837,6 +2845,62 @@ export interface BackendReviewFeedbackResult {
   duplicate?: boolean;
   queueImpact?: BackendReviewFeedbackQueueImpact | null;
   storage?: BackendReviewFeedbackStorageState;
+}
+
+export interface BackendReviewSessionStartRequest {
+  sessionId?: string | null;
+  queueType?: string | null;
+  limit?: number | null;
+}
+
+export interface BackendReviewSessionCurrentRequest {
+  sessionId: string;
+}
+
+export interface BackendReviewSessionFeedbackRequest {
+  sessionId: string;
+  cardId: string;
+  rating: 1 | 2 | 3 | 4;
+  reviewedAt?: number | null;
+  idempotencyKey?: string | null;
+}
+
+export interface BackendReviewSessionSkipRequest {
+  sessionId: string;
+  cardId: string;
+}
+
+export interface BackendReviewSessionCounterSnapshot {
+  remaining: number;
+  due: number;
+  total: number;
+  source: 'worker-session';
+}
+
+export type BackendReviewSessionProjectionState =
+  | 'ready'
+  | 'stale'
+  | 'deferred'
+  | 'refresh-required'
+  | 'not-used';
+
+export interface BackendReviewSessionState {
+  sessionId: string;
+  queueType: string;
+  current: unknown | null;
+  counters: BackendReviewSessionCounterSnapshot;
+  projectionState: BackendReviewSessionProjectionState;
+  projectionGeneration: number | null;
+  projectionPolicyHash: string | null;
+}
+
+export interface BackendReviewSessionFeedbackResult extends BackendReviewSessionState {
+  answeredCardId: string;
+  feedback: BackendReviewFeedbackResult;
+}
+
+export interface BackendReviewSessionSkipResult extends BackendReviewSessionState {
+  skippedCardId: string;
 }
 
 export interface BackendPreRequestMergeDiagnostic {

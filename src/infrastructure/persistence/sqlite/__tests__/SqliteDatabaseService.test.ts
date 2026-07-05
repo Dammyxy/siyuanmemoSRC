@@ -35,11 +35,14 @@ class MemorySqliteFileService implements JsonFileService {
   readonly binary = new Map<string, Uint8Array>();
   readonly writeBinaryFiles: string[] = [];
   readonly deletedFiles: string[] = [];
+  readonly readJSONFiles: string[] = [];
+  readonly readBinaryFiles: string[] = [];
   writeBinaryCount = 0;
   failNextWriteBinary = false;
   lastWriteBinaryDiagnostics: Record<string, unknown> | null = null;
 
   async readJSON<T>(fileName: string): Promise<T | null> {
+    this.readJSONFiles.push(fileName);
     return (this.json.get(fileName) as T | undefined) ?? null;
   }
 
@@ -48,6 +51,7 @@ class MemorySqliteFileService implements JsonFileService {
   }
 
   async readBinary(fileName: string): Promise<Uint8Array | null> {
+    this.readBinaryFiles.push(fileName);
     const bytes = this.binary.get(fileName);
     return bytes ? new Uint8Array(bytes) : null;
   }
@@ -72,6 +76,8 @@ class MemorySqliteFileService implements JsonFileService {
   resetWriteCounts(): void {
     this.writeBinaryCount = 0;
     this.writeBinaryFiles.length = 0;
+    this.readJSONFiles.length = 0;
+    this.readBinaryFiles.length = 0;
     this.lastWriteBinaryDiagnostics = null;
   }
 }
@@ -886,6 +892,54 @@ describe('SqliteDatabaseService', () => {
     )).toEqual({ id: 'event-open-window-2' });
   });
 
+  it('reuses verified sqlite delta open-segment evidence on consecutive review feedback appends', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    fileService.resetWriteCounts();
+
+    await insertReviewEventForSqliteDeltaWindow(database, 'event-hot-cache-1', 1_783_060_000_101);
+    await insertReviewEventForSqliteDeltaWindow(database, 'event-hot-cache-2', 1_783_060_000_102);
+
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(0);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 2,
+    });
+    expect(fileService.readJSONFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_MANIFEST)).toHaveLength(2);
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(1);
+  });
+
+  it('reuses verified sqlite delta sealed-segment evidence after the open segment rolls over', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    fileService.resetWriteCounts();
+
+    for (let index = 1; index <= 17; index += 1) {
+      await insertReviewEventForSqliteDeltaWindow(
+        database,
+        `event-hot-sealed-${index}`,
+        1_783_060_000_200 + index,
+      );
+    }
+
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(0);
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(0);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 17,
+    });
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(1);
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(1);
+  });
+
   it('excludes queue projection cache from review feedback sqlite delta while retaining canonical writes', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
@@ -1288,6 +1342,9 @@ describe('SqliteDatabaseService', () => {
       );
     });
 
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+    });
     fileService.binary.set(SQLITE_DELTA_V2_OPEN_SEGMENT, new Uint8Array([5, 6, 7, 8]));
 
     await database.runTransaction('queue.projection.replace', (db) => {
@@ -1347,8 +1404,11 @@ describe('SqliteDatabaseService', () => {
       'event-corrupt-open-before-review-feedback',
       1_700_000_000_201,
     );
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+    });
     fileService.resetWriteCounts();
-    fileService.corruptAfterOpenSegmentRead = true;
+    fileService.binary.set(SQLITE_DELTA_V2_OPEN_SEGMENT, new Uint8Array([9, 8, 7, 6]));
 
     await insertReviewEventForSqliteDeltaWindow(
       database,
@@ -1415,8 +1475,11 @@ describe('SqliteDatabaseService', () => {
       'event-corrupt-open-before-failed-repair',
       1_700_000_000_301,
     );
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+    });
     fileService.resetWriteCounts();
-    fileService.corruptAfterOpenSegmentRead = true;
+    fileService.binary.set(SQLITE_DELTA_V2_OPEN_SEGMENT, new Uint8Array([9, 8, 7, 6]));
     fileService.failNextWriteBinary = true;
 
     await expect(insertReviewEventForSqliteDeltaWindow(
@@ -1859,6 +1922,9 @@ describe('SqliteDatabaseService', () => {
       1_700_000_002_001,
     );
     expect(fileService.durableBinary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeTruthy();
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+    });
     fileService.durableBinary.set(SQLITE_DELTA_V2_OPEN_SEGMENT, new Uint8Array([9, 8, 7, 6]));
 
     await insertReviewEventForSqliteDeltaWindow(

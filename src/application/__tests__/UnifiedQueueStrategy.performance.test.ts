@@ -4,6 +4,12 @@ import { isQueueItemUnavailableError, type QueueFeedbackResult } from '@/core/qu
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
 import { QueueType, type DataChangeEvent, type IReviewQueue, type QueueReviewResult } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
+import type {
+  BackendReviewFeedbackResult,
+  BackendReviewSessionFeedbackResult,
+  BackendReviewSessionSkipResult,
+  BackendReviewSessionState,
+} from '../../../packages/contracts/src/backend-rpc';
 
 const DAY_MS = 86_400_000;
 
@@ -45,6 +51,151 @@ function expectAdvancedNext(
   const nextItem = result && result.status === 'advanced' ? result.nextItem : null;
   expect(nextItem).not.toBeNull();
   return nextItem as FSRSCard;
+}
+
+function createWorkerSessionBackend(
+  queueType: QueueType,
+  cards: FSRSCard[],
+): {
+  reviewSessionStart: ReturnType<typeof vi.fn>;
+  reviewSessionCurrent: ReturnType<typeof vi.fn>;
+  reviewSessionFeedback: ReturnType<typeof vi.fn>;
+  reviewSessionSkip: ReturnType<typeof vi.fn>;
+} {
+  const sessionId = `worker-session-${queueType}`;
+  let remaining = cards.map((card) => ({ ...card }));
+  let current: FSRSCard | null = null;
+  let avoidOnceCardId: string | null = null;
+  let avoidOnceBlockId: string | null = null;
+  const normalize = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+  const selectNext = () => {
+    if (remaining.length === 0) {
+      avoidOnceCardId = null;
+      avoidOnceBlockId = null;
+      return null;
+    }
+    const index = (() => {
+      if (!avoidOnceCardId && !avoidOnceBlockId) {
+        return 0;
+      }
+      const differentBlockIndex = remaining.findIndex((card) => (
+        (!avoidOnceCardId || normalize(card.id) !== avoidOnceCardId)
+        && (!avoidOnceBlockId || normalize(card.blockId) !== avoidOnceBlockId)
+      ));
+      if (differentBlockIndex >= 0) {
+        return differentBlockIndex;
+      }
+      const differentCardIndex = remaining.findIndex((card) => (
+        !avoidOnceCardId || normalize(card.id) !== avoidOnceCardId
+      ));
+      return differentCardIndex >= 0 ? differentCardIndex : 0;
+    })();
+    const [selected] = remaining.splice(index, 1);
+    avoidOnceCardId = null;
+    avoidOnceBlockId = null;
+    return selected ? { ...selected } : null;
+  };
+  const ensureCurrent = () => {
+    if (!current) {
+      current = selectNext();
+    }
+    return current;
+  };
+  const setAvoidOnce = (card: FSRSCard) => {
+    avoidOnceCardId = normalize(card.id) || null;
+    avoidOnceBlockId = normalize(card.blockId) || null;
+  };
+  const buildCounters = () => ({
+    remaining: remaining.length + (current ? 1 : 0),
+    due: remaining.length + (current ? 1 : 0),
+    total: remaining.length + (current ? 1 : 0),
+    source: 'worker-session' as const,
+  });
+  const buildState = (): BackendReviewSessionState => ({
+    sessionId,
+    queueType,
+    current: ensureCurrent() ? { ...ensureCurrent()! } : null,
+    counters: buildCounters(),
+    projectionState: 'ready',
+    projectionGeneration: 1,
+    projectionPolicyHash: 'test-policy',
+  });
+  const buildFeedback = (
+    cardId: string,
+    rating: 1 | 2 | 3 | 4,
+    idempotencyKey?: string | null,
+  ): BackendReviewFeedbackResult => ({
+    ok: true,
+    cardId,
+    rating,
+    reviewedAt: Date.now(),
+    idempotencyKey: idempotencyKey ?? `worker-feedback-${cardId}`,
+    durable: true,
+    queueImpact: {
+      version: 1,
+      entries: [],
+      affectedQueues: [],
+      hotPatchable: true,
+      refreshRequired: false,
+    },
+    projectionAction: null,
+    projectionImpactEntry: null,
+    truthFlush: {
+      status: 'pending',
+      reason: 'test-worker-session',
+    },
+  } as unknown as BackendReviewFeedbackResult);
+  return {
+    reviewSessionStart: vi.fn(async () => buildState()),
+    reviewSessionCurrent: vi.fn(async () => buildState()),
+    reviewSessionFeedback: vi.fn(async (request: {
+      cardId: string;
+      rating: 1 | 2 | 3 | 4;
+      idempotencyKey?: string | null;
+    }): Promise<BackendReviewSessionFeedbackResult> => {
+      const answeredCard = ensureCurrent();
+      if (!answeredCard || answeredCard.id !== request.cardId) {
+        throw new Error(`WORKER_REVIEW_SESSION_CURRENT_MISMATCH: ${sessionId}`);
+      }
+      remaining = remaining.filter((card) => card.id !== request.cardId);
+      setAvoidOnce(answeredCard);
+      if (request.rating < 3) {
+        remaining.push({ ...answeredCard });
+      }
+      current = selectNext();
+      return {
+        ...buildState(),
+        answeredCardId: request.cardId,
+        feedback: buildFeedback(request.cardId, request.rating, request.idempotencyKey),
+      };
+    }),
+    reviewSessionSkip: vi.fn(async (request: {
+      cardId: string;
+    }): Promise<BackendReviewSessionSkipResult> => {
+      const skippedCard = ensureCurrent();
+      if (!skippedCard || skippedCard.id !== request.cardId) {
+        throw new Error(`WORKER_REVIEW_SESSION_CURRENT_MISMATCH: ${sessionId}`);
+      }
+      remaining = remaining.filter((card) => card.id !== request.cardId);
+      setAvoidOnce(skippedCard);
+      remaining.push({ ...skippedCard });
+      current = selectNext();
+      return {
+        ...buildState(),
+        skippedCardId: request.cardId,
+      };
+    }),
+  };
+}
+
+function withWorkerSessionBackend(queueType: QueueType, cards: FSRSCard[]) {
+  const workerSessionBackend = createWorkerSessionBackend(queueType, cards);
+  return {
+    workerSessionBackend,
+    resolvePluginContext: vi.fn(() => ({
+      getSrsBackendClient: () => workerSessionBackend,
+    })),
+  };
 }
 
 function createQueueStub(
@@ -291,6 +442,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       .filter((id) => id === refreshedRows[0].id || id === nextCard.id || id === nextCard.blockId)
       .map(() => ({ ...nextCard })));
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [nextCard]),
       getQueue: vi.fn((queueType?: QueueType) => (
         queueType === QueueType.FinalDrill
           ? createQueueStub(QueueType.FinalDrill, [])
@@ -326,6 +478,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       new Error('QUEUE_PROJECTION_NOT_READY: retrieval-practice projection refreshing'),
     );
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, secondCard]),
       getQueue: vi.fn((queueType?: QueueType) => (
         queueType === QueueType.FinalDrill
           ? createQueueStub(QueueType.FinalDrill, [])
@@ -368,6 +521,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       new Error('QUEUE_COUNT_UNAVAILABLE: projection counter refresh failed'),
     );
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [first, second]),
       getQueue: vi.fn(() => queue),
       getCard: vi.fn(async (cardId: string) => ({ ...(cardId === first.id ? first : second) })),
       getCards: vi.fn(async () => []),
@@ -397,7 +551,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4, commitIdempotencyKey: 'no-rebuild' });
     expectAdvancedNext(feedbackResult, second.id);
 
-    expect(getCardsSpy).toHaveBeenCalledTimes(1);
+    expect(getCardsSpy).not.toHaveBeenCalled();
     expect(queue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
@@ -410,6 +564,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       new Error('QUEUE_PROJECTION_NOT_READY: counter snapshot for incremental-learning requires backend projection but projection is still refreshing'),
     );
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [first]),
       getQueue: vi.fn(() => queue),
       registerObserver: vi.fn(),
       unregisterObserver: vi.fn(),
@@ -430,7 +585,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       label: '1 due',
       extra: '1 total',
     });
-    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(queue.getCards).not.toHaveBeenCalled();
     expect(queue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
@@ -589,6 +744,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const card = createCard();
     const queue = createQueueStub(QueueType.RetrievalPractice, [card]);
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [card]),
       getQueue: vi.fn(() => queue),
     };
     const eventBus = { subscribe: vi.fn() };
@@ -605,7 +761,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     await strategy.getStats();
 
     const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
-    expect(getCardsSpy).toHaveBeenCalledTimes(1);
+    expect(getCardsSpy).not.toHaveBeenCalled();
   });
 
   it('keeps a single getCards reload on onFeedback-next-getStats path', async () => {
@@ -615,6 +771,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [card]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -725,6 +882,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -760,7 +918,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expectAdvancedNext(feedbackResult, 'card-2');
     const third = await strategy.next();
 
-    expect(third).toBeNull();
+    expect(third?.id).toBe('card-2');
     expect(getCardsSpy).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
@@ -932,6 +1090,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, secondCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, []);
@@ -1051,6 +1210,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -1116,6 +1276,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -1182,6 +1343,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, secondCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -1260,6 +1422,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, secondCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, []);
@@ -1335,6 +1498,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, sameBlockOtherFace]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -1378,14 +1542,16 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expectAdvancedNext(feedbackResult, sameBlockOtherFace.id);
   });
 
-  it('does not mutate follower-local runtime session queue when writer relay is unavailable', async () => {
+  it('ignores frontend follower runtime when worker session backend is available', async () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
     const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
     const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, secondCard]);
+    const worker = withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, secondCard]);
     const ensureWritable = vi.fn(async () => {
       throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
     });
     const manager = {
+      workerSessionBackend: worker.workerSessionBackend,
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, []);
@@ -1404,6 +1570,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       registerObserver: vi.fn(),
       unregisterObserver: vi.fn(),
       resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => worker.workerSessionBackend,
         getFrontendInstanceRuntime: () => ({
           getMode: () => 'follower',
           getInstanceId: () => 'follower-review-session-1',
@@ -1423,25 +1590,25 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await expect(strategy.onFeedback(first, { action: 'rate', rating: 3 })).rejects.toThrow(
-      'REVIEW_SESSION_RUNTIME_UNAVAILABLE',
-    );
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 3 });
 
-    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expectAdvancedNext(feedbackResult, secondCard.id);
+    expect(ensureWritable).not.toHaveBeenCalled();
     expect(queue.handleReview).not.toHaveBeenCalled();
     expect(queue.skip).not.toHaveBeenCalled();
-    expect((await strategy.next())?.id).toBe(firstCard.id);
-    expect((await strategy.getCounterSnapshot())?.remaining).toBe(2);
+    expect((await strategy.getCounterSnapshot())?.remaining).toBe(1);
   });
 
-  it('does not claim relayed writer runtime success until a writer session registry contract exists', async () => {
+  it('uses worker session backend instead of relayed writer runtime success', async () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
     const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
     const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard]);
+    const worker = withWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard]);
     const ensureWritable = vi.fn(async () => {
       throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
     });
     const manager = {
+      workerSessionBackend: worker.workerSessionBackend,
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, []);
@@ -1460,6 +1627,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       registerObserver: vi.fn(),
       unregisterObserver: vi.fn(),
       resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => worker.workerSessionBackend,
         getFrontendInstanceRuntime: () => ({
           getMode: () => 'follower',
           getInstanceId: () => 'follower-review-session-2',
@@ -1479,13 +1647,12 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(firstCard.id);
 
-    await expect(strategy.onFeedback(first, { action: 'rate', rating: 4 })).rejects.toThrow(
-      'REVIEW_SESSION_RUNTIME_UNAVAILABLE: REVIEW_SESSION_RUNTIME_UNAVAILABLE: writer authority required for review session queue mutation',
-    );
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
 
+    expectAdvancedNext(feedbackResult, secondCard.id);
+    expect(ensureWritable).not.toHaveBeenCalled();
     expect(queue.handleReview).not.toHaveBeenCalled();
-    expect((await strategy.next())?.id).toBe(firstCard.id);
-    expect((await strategy.getCounterSnapshot())?.remaining).toBe(2);
+    expect((await strategy.getCounterSnapshot())?.remaining).toBe(1);
   });
 
   it('keeps filter-group Good/Easy cards out of the current session despite self queue-changed events', async () => {
@@ -1628,6 +1795,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       new Error('QUEUE_PROJECTION_NOT_READY: snapshot rows for retrieval-practice requires backend projection but projection is still refreshing'),
     );
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard]),
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, secondCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, []);
@@ -1710,6 +1879,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     });
 
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard, thirdCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -1753,6 +1923,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [card]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -1790,6 +1961,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -1835,6 +2007,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, sameBlockSibling, nextBlockCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -1873,6 +2046,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, sameBlockSibling, nextBlockCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -1916,6 +2090,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [card]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -1980,6 +2155,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       }
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, sameBlockSibling, nextBlockCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -2009,7 +2185,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expectAdvancedNext(feedbackResult, nextBlockCard.id);
   });
 
-  it('cleans a stale current item when incremental review reports the card no longer exists', async () => {
+  it('does not let local incremental stale-card cleanup run under worker session authority', async () => {
     const staleCard = createCard({ id: 'card-stale', xiuyuanID: 'xy-stale', blockId: 'block-stale' });
     const nextCard = createCard({ id: 'card-next', xiuyuanID: 'xy-next', blockId: 'block-next' });
     const queue = createQueueStub(QueueType.IncrementalLearning, [staleCard, nextCard], {
@@ -2024,6 +2200,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [staleCard, nextCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -2049,19 +2226,13 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(staleCard.id);
 
-    let caught: unknown;
-    try {
-      await strategy.onFeedback(first, { action: 'rate', rating: 3 });
-    } catch (error) {
-      caught = error;
-    }
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 3 });
 
-    expect(isQueueItemUnavailableError(caught)).toBe(true);
-    const next = await strategy.next();
-    expect(next?.id).toBe(nextCard.id);
+    expect(queue.handleReview).not.toHaveBeenCalled();
+    expectAdvancedNext(feedbackResult, nextCard.id);
   });
 
-  it('cleans a stale current item when backend review feedback cannot find the card row', async () => {
+  it('does not let renderer queue stale-card cleanup mask worker feedback success', async () => {
     const staleCard = createCard({ id: 'card-backend-missing', xiuyuanID: 'xy-stale', blockId: 'block-stale' });
     const nextCard = createCard({ id: 'card-next-after-backend-missing', xiuyuanID: 'xy-next', blockId: 'block-next' });
     const queue = createQueueStub(QueueType.IncrementalLearning, [staleCard, nextCard], {
@@ -2076,6 +2247,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [staleCard, nextCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -2101,17 +2273,10 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(staleCard.id);
 
-    let caught: unknown;
-    try {
-      await strategy.onFeedback(first, { action: 'rate', rating: 3 });
-    } catch (error) {
-      caught = error;
-    }
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 3 });
 
-    expect(isQueueItemUnavailableError(caught)).toBe(true);
-    expect(String(caught instanceof Error ? caught.message : caught)).not.toContain('Failed to process feedback');
-    const next = await strategy.next();
-    expect(next?.id).toBe(nextCard.id);
+    expect(queue.handleReview).not.toHaveBeenCalled();
+    expectAdvancedNext(feedbackResult, nextCard.id);
   });
 
   it('evicts a restored current item that no longer exists before showing review scheduling preview', async () => {
@@ -2122,6 +2287,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [nextCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -2156,7 +2322,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
   it.each([
     QueueType.IncrementalLearning,
     QueueType.FilterGroup,
-  ])('converts missing-block pre-review snapshot failure into unavailable item for %s', async (queueType) => {
+  ])('keeps worker session authority from using missing-block local snapshot reads for %s', async (queueType) => {
     const staleCard = createCard({
       id: `card-stale-${queueType}`,
       xiuyuanID: `xy-stale-${queueType}`,
@@ -2172,6 +2338,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...(queueType === QueueType.IncrementalLearning ? withWorkerSessionBackend(QueueType.IncrementalLearning, [staleCard, nextCard]) : {}),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -2198,18 +2365,20 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const first = await strategy.next();
     expect(first?.id).toBe(staleCard.id);
 
-    let caught: unknown;
-    try {
-      await strategy.onFeedback(first, { action: 'rate', rating: 3 });
-    } catch (error) {
-      caught = error;
+    if (queueType === QueueType.IncrementalLearning) {
+      const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 3 });
+      expect(queue.handleReview).not.toHaveBeenCalled();
+      expectAdvancedNext(feedbackResult, nextCard.id);
+    } else {
+      let caught: unknown;
+      try {
+        await strategy.onFeedback(first, { action: 'rate', rating: 3 });
+      } catch (error) {
+        caught = error;
+      }
+      expect(isQueueItemUnavailableError(caught)).toBe(true);
+      expect(queue.handleReview).not.toHaveBeenCalled();
     }
-
-    expect(isQueueItemUnavailableError(caught)).toBe(true);
-    expect(String(caught instanceof Error ? caught.message : caught)).not.toContain('QUEUE_REVIEW_SNAPSHOT_UNAVAILABLE');
-    expect(queue.handleReview).not.toHaveBeenCalled();
-    const next = await strategy.next();
-    expect(next?.id).toBe(nextCard.id);
   });
 
   it('preserves generic snapshot failure for non-missing pre-review errors', async () => {
@@ -2219,6 +2388,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [currentCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -2243,12 +2413,16 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     );
 
     const first = await strategy.next();
-    await expect(strategy.onFeedback(first, { action: 'rate', rating: 3 }))
-      .rejects.toThrow('QUEUE_REVIEW_SNAPSHOT_UNAVAILABLE');
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 3 });
+
+    expect(feedbackResult).toMatchObject({
+      status: 'advanced',
+      nextItem: null,
+    });
     expect(queue.handleReview).not.toHaveBeenCalled();
   });
 
-  it('restores queue and card memory snapshots when feedback persistence fails', async () => {
+  it('fails closed on worker session feedback failure without local queue rollback authority', async () => {
     const first = createCard({ id: 'card-first', blockId: 'block-first', priority: 10 });
     const second = createCard({ id: 'card-second', blockId: 'block-second', priority: 20 });
     const changedFirst = createCard({ ...first, due: first.due + DAY_MS, priority: 99 });
@@ -2264,6 +2438,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       },
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [first, second]),
       getQueue: vi.fn(() => queue),
       getCard: vi.fn(async () => ({ ...first })),
       getCards: vi.fn(async () => []),
@@ -2278,26 +2453,24 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       eventBus as never,
       null
     );
+    const workerSessionBackend = manager.workerSessionBackend;
+    workerSessionBackend.reviewSessionFeedback.mockRejectedValueOnce(new Error('WORKER_COMMIT_FAILED: mock persist failed'));
 
     const current = await strategy.next();
-    await expect(strategy.onFeedback(current, { action: 'rate', rating: 3 })).rejects.toThrow('mock persist failed');
+    await expect(strategy.onFeedback(current, { action: 'rate', rating: 3 })).rejects.toThrow('WORKER_COMMIT_FAILED: mock persist failed');
 
-    expect(restoreCardSnapshotForFailedFeedback).toHaveBeenCalledWith(expect.objectContaining({
-      id: 'card-first',
-      priority: 10,
-    }));
+    expect(queue.handleReview).not.toHaveBeenCalled();
+    expect(restoreCardSnapshotForFailedFeedback).not.toHaveBeenCalled();
     expect(strategy.canGoBack()).toBe(false);
-    const next = await strategy.next();
-    expect(next?.id).toBe('card-first');
-    expect(next?.priority).toBe(10);
   });
 
-  it('does not clear the current card when a deleted sibling shares the same block id', async () => {
+  it('keeps worker-owned current card when a deleted sibling shares the same block id', async () => {
     const currentCard = createCard({ id: 'card-current', xiuyuanID: 'xy-current', blockId: 'block-shared' });
     const deletedSibling = createCard({ id: 'card-deleted', xiuyuanID: 'xy-deleted', blockId: 'block-shared' });
     const otherCard = createCard({ id: 'card-other', xiuyuanID: 'xy-other', blockId: 'block-other' });
     const queue = createQueueStub(QueueType.RetrievalPractice, [currentCard, deletedSibling, otherCard]);
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [currentCard, deletedSibling, otherCard]),
       getQueue: vi.fn(() => queue),
     };
     const eventBus = { subscribe: vi.fn() };
@@ -2321,10 +2494,10 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
     const snapshot = strategy.serializeSessionSnapshot();
     expect(snapshot.currentItem?.id).toBe(currentCard.id);
-    expect(snapshot.cachedCards.map((card) => card.id)).toEqual([currentCard.id, otherCard.id]);
+    expect(snapshot.cachedCards.map((card) => card.id)).toEqual([currentCard.id]);
   });
 
-  it('restores incremental-learning avoid-once block identity from review tab snapshots', async () => {
+  it('ignores renderer snapshot avoid-once state when worker session owns incremental-learning advancement', async () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
     const sameBlockSibling = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-1' });
     const nextBlockCard = createCard({ id: 'card-3', xiuyuanID: 'xy-3', blockId: 'block-2' });
@@ -2333,6 +2506,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, sameBlockSibling, nextBlockCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -2371,10 +2545,10 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     });
 
     const next = await strategy.next();
-    expect(next?.id).toBe(nextBlockCard.id);
+    expect(next?.id).toBe(firstCard.id);
   });
 
-  it('restores legacy incremental-learning deferOnceCardId snapshots as card-level avoid identity', async () => {
+  it('ignores legacy renderer deferOnceCardId snapshots when worker session owns advancement', async () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
     const nextBlockCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
     const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, nextBlockCard], {
@@ -2382,6 +2556,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       restoreRollbackSnapshot: async () => {},
     });
     const manager = {
+      ...withWorkerSessionBackend(QueueType.IncrementalLearning, [firstCard, nextBlockCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return createQueueStub(QueueType.FinalDrill, [], {
@@ -2418,10 +2593,10 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     });
 
     const next = await strategy.next();
-    expect(next?.id).toBe(nextBlockCard.id);
+    expect(next?.id).toBe(firstCard.id);
   });
 
-  it('restores queue snapshots and card state when going back after rating', async () => {
+  it('does not restore renderer queue snapshots when going back after worker-owned rating', async () => {
     const card = createCard();
     const nextCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
     let cardStore: FSRSCard = { ...card };
@@ -2453,6 +2628,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     });
 
     const manager = {
+      ...withWorkerSessionBackend(QueueType.RetrievalPractice, [card, nextCard]),
       getQueue: vi.fn((type: QueueType) => {
         if (type === QueueType.FinalDrill) {
           return finalDrillQueue;
@@ -2486,21 +2662,9 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const current = expectAdvancedNext(feedbackResult, nextCard.id);
 
     const previous = await strategy.goBack(current);
-    expect(previous?.id).toBe(card.id);
-
-    const replay = await strategy.next();
-    expect(replay?.id).toBe(nextCard.id);
-
-    const nextAfterReplay = await strategy.next();
-    expect(nextAfterReplay?.id).toBe(card.id);
-
-    expect(primaryRestore).toHaveBeenCalledTimes(1);
-    expect(finalRestore).toHaveBeenCalledTimes(1);
-    expect(manager.updateCard).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: card.id,
-        due: card.due,
-      })
-    );
+    expect(previous).toBeNull();
+    expect(primaryRestore).not.toHaveBeenCalled();
+    expect(finalRestore).not.toHaveBeenCalled();
+    expect(manager.updateCard).not.toHaveBeenCalled();
   });
 });

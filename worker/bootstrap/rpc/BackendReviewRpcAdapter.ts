@@ -2,6 +2,13 @@ import {
   MESSAGEPACK_TRUTH_SCHEMA_VERSION,
   type BackendReviewFeedbackRequest,
   type BackendReviewFeedbackResult,
+  type BackendReviewSessionCurrentRequest,
+  type BackendReviewSessionFeedbackRequest,
+  type BackendReviewSessionFeedbackResult,
+  type BackendReviewSessionSkipRequest,
+  type BackendReviewSessionSkipResult,
+  type BackendReviewSessionStartRequest,
+  type BackendReviewSessionState,
   type BackendReviewFeedbackTruthFlushDiagnostics,
   type BackendReviewFeedbackTruthFlushRequest,
   type BackendReviewFeedbackTruthFlushResult,
@@ -28,6 +35,7 @@ import {
 } from '../../truth/ReviewSqlTruthBackfillRuntime';
 import type { BackendRpcHandlerContext } from './BackendRpcHandlerContext';
 import type { BackendRpcHandlerRegistration } from './BackendRpcRegistry';
+import type { WorkerReviewSessionRuntime } from '../../review/WorkerReviewSessionRuntime';
 
 export interface BackendReviewRpcDatabase {
   reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> | BackendReviewFeedbackResult;
@@ -55,6 +63,7 @@ export interface BackendReviewRpcDatabase {
 export interface BackendReviewRpcRuntimeOptions {
   readonly database: BackendReviewRpcDatabase;
   readonly truthFileStore?: MessagePackTruthSegmentFileStore;
+  readonly sessionRuntime?: WorkerReviewSessionRuntime | null;
   executeReviewRiffFeedback?(
     request: BackendReviewRiffFeedbackExecuteRequest,
   ): Promise<BackendReviewRiffFeedbackExecuteResult> | BackendReviewRiffFeedbackExecuteResult;
@@ -84,6 +93,42 @@ export class BackendReviewRpcRuntime {
       this.options.database.markReviewFeedbackOwnPersistedMainDbClean();
     }
     return result;
+  }
+
+  async handleReviewSessionStart(params: unknown): Promise<BackendReviewSessionState> {
+    const named = readRequiredNamedParams<BackendReviewSessionStartRequest>(
+      params,
+      'review.session.start requires named params',
+    );
+    return this.requireSessionRuntime().startSession(named);
+  }
+
+  handleReviewSessionCurrent(params: unknown): BackendReviewSessionState {
+    const named = readRequiredNamedParams<BackendReviewSessionCurrentRequest>(
+      params,
+      'review.session.current requires named params',
+    );
+    const sessionId = String(named.sessionId || '').trim();
+    if (!sessionId) {
+      throw new Error('INVALID_REQUEST: review.session.current requires sessionId');
+    }
+    return this.requireSessionRuntime().getSessionState(sessionId);
+  }
+
+  async handleReviewSessionFeedback(params: unknown): Promise<BackendReviewSessionFeedbackResult> {
+    const named = readRequiredNamedParams<BackendReviewSessionFeedbackRequest>(
+      params,
+      'review.session.feedback requires named params',
+    );
+    return this.requireSessionRuntime().feedback(named);
+  }
+
+  handleReviewSessionSkip(params: unknown): BackendReviewSessionSkipResult {
+    const named = readRequiredNamedParams<BackendReviewSessionSkipRequest>(
+      params,
+      'review.session.skip requires named params',
+    );
+    return this.requireSessionRuntime().skip(named);
   }
 
   async handleReviewTruthFlush(params: unknown): Promise<BackendReviewFeedbackTruthFlushResult> {
@@ -364,6 +409,13 @@ export class BackendReviewRpcRuntime {
       },
     };
   }
+
+  private requireSessionRuntime(): WorkerReviewSessionRuntime {
+    if (!this.options.sessionRuntime) {
+      throw new Error('BACKEND_UNAVAILABLE: worker Review session runtime unavailable');
+    }
+    return this.options.sessionRuntime;
+  }
 }
 
 export interface BackendReviewRpcHandlerContext extends BackendRpcHandlerContext {
@@ -398,6 +450,34 @@ const BACKEND_REVIEW_RPC_HANDLER_ADAPTERS: {
         );
       }
       return result;
+    },
+  },
+  'review.session.start': {
+    method: 'review.session.start',
+    family: 'review',
+    handle(params, context): Promise<BackendReviewSessionState> {
+      return context.review.handleReviewSessionStart(params);
+    },
+  },
+  'review.session.current': {
+    method: 'review.session.current',
+    family: 'review',
+    handle(params, context): BackendReviewSessionState {
+      return context.review.handleReviewSessionCurrent(params);
+    },
+  },
+  'review.session.feedback': {
+    method: 'review.session.feedback',
+    family: 'review',
+    handle(params, context): Promise<BackendReviewSessionFeedbackResult> {
+      return context.review.handleReviewSessionFeedback(params);
+    },
+  },
+  'review.session.skip': {
+    method: 'review.session.skip',
+    family: 'review',
+    handle(params, context): BackendReviewSessionSkipResult {
+      return context.review.handleReviewSessionSkip(params);
     },
   },
   'review.truth.flush': {

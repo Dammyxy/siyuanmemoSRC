@@ -4,6 +4,46 @@ Last update: 2026-07-05 (Round 661)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-05 - Worker-owned Review session cutover
+
+- Task: Implement `cutover-review-session-authority-to-worker` for RetrievalPractice / IncrementalLearning with no renderer cursor fallback.
+- Touched slice: Worker Review session runtime in `worker/review/WorkerReviewSessionRuntime.ts`, backend Review RPC adapter/client contracts, `UnifiedQueueStrategy`, `WorkerReviewSessionQueueRuntime`, focused worker/RPC/client/UQS tests, OpenSpec task state, and `ARCHITECTURE.md`.
+- Debt fixed now: Worker session now owns active SRS Review current card, next-card advancement, low-rating/skip rotation, avoid-once identity, session-local counters, and projection-state diagnostics. Renderer `UnifiedQueueStrategy` became a thin adapter to `review.session.*` RPC for SRS queues, no longer captures local rollback snapshots, rehydrates projection rows, or compensates failed worker feedback via local queue authority. Missing worker backend fails closed with `BACKEND_UNAVAILABLE`.
+- Debt deferred: Formal after-state journal expansion, full projection reconciliation/backgrounding, and proof that ordinary worker `review.feedback` never waits on SQLite delta manifest/sealed reads remain open tasks inside this change. Non-SRS queues such as FilterGroup keep their explicit local queue semantics until separate worker-session support exists.
+- Why deferred: This pass removes the root dual-authority Review session path first without changing durable journal schema or storage topology. Journal/projection/checkpoint reshaping crosses worker storage and reconciler contracts and needs its own focused validation.
+- Next safe step: Finish remaining tasks 1.3 / 3.x / 4.1 / 4.3 / 4.4 / 7.3-7.5 by proving journal fact boundaries and moving projection/checkpoint maintenance fully behind background reconciliation.
+- Validation: Targeted worker Review session, backend RPC adapter, backend client facet/catalog, and `UnifiedQueueStrategy.performance` tests passed together. `openspec validate cutover-review-session-authority-to-worker --strict`, `pnpm run check:boundaries`, and `pnpm build` passed; build still reports existing non-blocking i18n hardcoded-string warnings and Sass legacy JS API deprecation warnings.
+
+### 2026-07-05 - Review feedback host-effect path observability
+
+- Task: Implement `diagnose-review-feedback-host-effect-path` so slow Review grading logs reveal which host SQLite file dominates `review.feedback`.
+- Touched slice: Review feedback transport diagnostics in `src/application/clients/BrowserSrsBackendWorkerTransport.ts`, focused transport regressions in `src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`, and OpenSpec change `diagnose-review-feedback-host-effect-path`.
+- Debt fixed now: Copyable slow `review.feedback` worker-handle summaries now include slowest host effect `path` and `storageClass` alongside kind/duration, with explicit `unknown` formatting when path evidence is absent. The structured payload already had this evidence, but copied plugin logs collapsed nested objects and made root-cause classification impossible.
+- Debt deferred: The actual latency root cause remains deferred until live logs from the rebuilt plugin show whether the slow read is delta manifest, open segment, sealed segment, `siyuanmemo.db`, diagnostics, or another SQLite-backed file.
+- Why deferred: The current evidence was path-blind. Fixing storage/cache behavior before seeing the concrete file would be speculative and could disturb fail-closed persistence paths.
+- Next safe step: Restart/reload the rebuilt plugin, rerun slow Review grading, copy the new slow `review.feedback` summary lines, and classify the `path=` / `storage=` values before opening the follow-up fix change.
+- Validation: Focused `BrowserSrsBackendWorkerTransport` test file passed; `pnpm run check:boundaries`, `pnpm build`, `openspec validate diagnose-review-feedback-host-effect-path --strict`, and `git diff --check` passed in this implementation pass.
+
+### 2026-07-05 - SQLite delta sealed-segment evidence reuse
+
+- Task: Deepen the SQLite delta append hot path so Review feedback stays fast after the open segment rolls over into a sealed segment.
+- Touched slice: SQLite delta persistence in `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, focused SQLite regressions in `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, and OpenSpec change `preserve-sqlite-delta-hot-evidence-through-persist-preflight`.
+- Debt fixed now: `SqliteDeltaCheckpointLayer` now owns runtime-local verified segment evidence keyed by exact manifest identity, not just open-segment evidence. Ordinary durable-checkpoint appends reuse the just-written sealed segment envelope after open rollover, so later Review feedback writes no longer cold-read `sqlite-delta-log.v2.sealed-1.msgpack` from persisted storage. The append-preserving persist preflight remains inside the delta layer, and worker/host adapters stay plain persistence adapters.
+- Debt deferred: Native SQLite/WAL, native DB ownership, kernel-side DB writer, broader append-planning redesign, and cross-runtime storage coordination remain out of scope.
+- Why deferred: This slice removes the live same-runtime host-effect hot path without changing storage topology or weakening fail-closed replay/repair semantics. Volatile-projection sealed segments still cold-read persisted bytes so checksum mismatch remains detectable.
+- Next safe step: Rebuild/deploy, rerun live Review grading logs, and confirm later `review.feedback` spans no longer show repeated `sqlite.readBinary` reads for the same newly sealed delta segment while explicit diagnostics still cold-read durable evidence.
+- Validation: Focused open/rollover hot-path regressions passed; full SQLite service test file passed with corrupt open repair, failed repair, sealed checksum mismatch, and volatile corrupt-open coverage preserved. OpenSpec strict validation, boundary check, and build run in this implementation pass.
+
+### 2026-07-05 - FilterGroup review routing and SQLite delta hot snapshot
+
+- Task: Investigate and implement the follow-up changes for FilterGroup projection/local-read routing and SQLite delta append hot-path manifest reads.
+- Touched slice: Review queue routing in `src/application/adapters/UnifiedQueueStrategy.ts`, SQLite delta persistence in `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, focused SQLite regressions in `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, focused queue strategy regressions, and OpenSpec changes `fix-filter-group-projection-read-routing` / `cache-sqlite-delta-hot-path-snapshot`.
+- Debt fixed now: Dynamic `filter-group` Review navigation no longer hydrates from global projection rows when projection-backed reads are enabled; it stays on the live filtered queue, while Browser/projection-owned FilterGroup reads keep their projection-backed behavior. Consecutive SQLite delta appends now reuse a runtime-local manifest-backed hot snapshot to avoid repeated manifest `readJSON` reconstruction, but still cold-verify segment bytes/checksums before each append so corrupt open/sealed segment recovery remains fail-closed.
+- Debt deferred: Broader queue projection read-policy cleanup across non-Review Browser surfaces, native SQLite/WAL, native DB ownership, and kernel-side DB writer remain out of scope.
+- Why deferred: This pass fixes two bounded live bottlenecks without changing storage topology or Browser projection ownership contracts. Broader queue/storage redesign crosses larger runtime boundaries and needs separate acceptance.
+- Next safe step: Rebuild/deploy, rerun live Review grading logs, and verify FilterGroup sessions draw from the selected filtered scope while repeated `review.feedback` appends stop showing repeated manifest `sqlite.readJSON` cost on the hot path.
+- Validation: Focused FilterGroup strategy tests passed; SQLite hot-cache red test failed before the cache and passed after implementation; full SQLite service test file passed after tightening the cache to reuse manifest routing while still cold-validating segment checksums. OpenSpec strict validation passed for both changes; boundary/build validation run in this implementation pass.
+
 ### 2026-07-05 - Review feedback pressure latency
 
 - Task: Optimize remaining Review grading latency after live rerun logs showed `review.feedback` dominated by full SQLite delta diagnostics and `update-state` competing with Browser projection warmup.

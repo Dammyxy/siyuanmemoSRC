@@ -49,6 +49,7 @@ import {
 } from './rpc/BackendRpcRegistry';
 import { BackendTopicDerivedCommandRuntime } from './rpc/BackendTopicDerivedRpcAdapter';
 import { BackendXiuyuanSyncRuntime } from './rpc/BackendXiuyuanRpcAdapter';
+import { WorkerReviewSessionRuntime } from '../review/WorkerReviewSessionRuntime';
 
 const logger = createLogger('BackendKernel');
 const REVIEW_FEEDBACK_KERNEL_STEP_SLOW_MS = 120;
@@ -149,6 +150,7 @@ export class BackendKernel {
   private readonly xiuyuanSyncRuntime: BackendXiuyuanSyncRuntime;
   private readonly progressiveCommandRuntime: BackendProgressiveCommandRuntime;
   private readonly topicDerivedCommandRuntime: BackendTopicDerivedCommandRuntime;
+  private readonly reviewSessionRuntime: WorkerReviewSessionRuntime;
   private readonly reviewRuntime: BackendReviewRpcRuntime;
   private readonly rpcDispatcher: BackendRpcDispatcher<BackendKernelRpcHandlerContext>;
 
@@ -180,9 +182,22 @@ export class BackendKernel {
     });
     this.progressiveCommandRuntime = new BackendProgressiveCommandRuntime(this.deps.executeProgressiveCommand);
     this.topicDerivedCommandRuntime = new BackendTopicDerivedCommandRuntime(this.deps.executeTopicDerivedCommand);
+    this.reviewSessionRuntime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: (cardId) => this.deps.database.getCard(cardId),
+      },
+      queueProjection: {
+        readGeneration: (queueType) => this.deps.database.getQueueProjectionGeneration(queueType),
+        readRows: (query) => this.deps.database.readQueueProjectionRows(query),
+      },
+      feedbackRuntime: {
+        reviewFeedback: (request) => this.deps.database.reviewFeedback(request),
+      },
+    });
     this.reviewRuntime = new BackendReviewRpcRuntime({
       database: this.deps.database,
       truthFileStore: this.deps.truthFileStore,
+      sessionRuntime: this.reviewSessionRuntime,
       executeReviewRiffFeedback: this.deps.executeReviewRiffFeedback,
     });
     this.rpcDispatcher = new BackendRpcDispatcher(

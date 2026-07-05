@@ -508,7 +508,7 @@ export class SqliteDatabaseService {
     const startedAt = Date.now();
     let checkpointablePendingDelta = false;
     try {
-      checkpointablePendingDelta = await this.deltaLayer?.hasCheckpointablePendingDeltas() ?? false;
+      checkpointablePendingDelta = await this.deltaLayer?.hasCheckpointablePendingDeltasForPersistPreflight() ?? false;
     } catch (error) {
       if (!this.deltaLayer?.canClearPendingAfterCheckpoint()) {
         throw error;

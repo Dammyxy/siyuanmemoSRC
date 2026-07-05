@@ -73,6 +73,11 @@ export {
   type SrsV2SessionQueueRuntimeOptions,
 } from './SrsV2SessionQueueRuntime';
 export {
+  WorkerReviewSessionQueueRuntime,
+  type WorkerReviewSessionBackendClient,
+  type WorkerReviewSessionQueueRuntimeOptions,
+} from './WorkerReviewSessionQueueRuntime';
+export {
   IncrementalLearningProfile,
   RetrievalPracticeProfile,
   createSrsV2QueueProfile,

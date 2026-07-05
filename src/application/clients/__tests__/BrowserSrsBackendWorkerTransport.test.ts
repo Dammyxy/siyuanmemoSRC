@@ -256,6 +256,9 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         slowestHostEffect: {
           kind: 'sqlite.writeBinary',
           durationMs: 140,
+          path: 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack',
+          byteLength: 42_000,
+          storageClass: 'sqlite-delta-log',
         },
         innerSteps: [{
           layer: 'database',
@@ -282,7 +285,9 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       }),
     );
     expect(transportLoggerMocks.info).toHaveBeenCalledWith(
-      expect.stringContaining('[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback worker-handle summary'),
+      expect.stringContaining(
+        'host=sqlite.writeBinary 140ms path=sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack storage=sqlite-delta-log',
+      ),
       expect.objectContaining({
         step: 'worker-handle-summary',
         cardId: 'card-1',
@@ -318,6 +323,9 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         slowestHostEffect: {
           kind: 'sqlite.writeBinary',
           durationMs: 140,
+          path: 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack',
+          byteLength: 42_000,
+          storageClass: 'sqlite-delta-log',
         },
       }),
     );
@@ -409,7 +417,9 @@ describe('BrowserSrsBackendWorkerTransport', () => {
 
     await expect(pending).resolves.toEqual(response);
     expect(transportLoggerMocks.info).toHaveBeenCalledWith(
-      expect.stringContaining('[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback worker-handle summary'),
+      expect.stringContaining(
+        'host=sqlite.readBinary 210ms path=unknown storage=unknown',
+      ),
       expect.objectContaining({
         step: 'worker-handle-summary',
         cardId: 'card-1',
@@ -595,7 +605,9 @@ describe('BrowserSrsBackendWorkerTransport', () => {
 
     await expect(pending).resolves.toEqual(response);
     expect(transportLoggerMocks.info).toHaveBeenCalledWith(
-      expect.stringContaining('[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback worker-handle summary'),
+      expect.stringContaining(
+        'host=sqlite.readSyncConflictDatabaseSources 4ms path=unknown storage=unknown',
+      ),
       expect.objectContaining({
         step: 'worker-handle-summary',
         cardId: 'card-1',

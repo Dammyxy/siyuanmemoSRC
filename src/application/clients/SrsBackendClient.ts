@@ -41,6 +41,13 @@ import type {
   BackendStorageProjectionRebuildResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendReviewSessionCurrentRequest,
+  BackendReviewSessionFeedbackRequest,
+  BackendReviewSessionFeedbackResult,
+  BackendReviewSessionSkipRequest,
+  BackendReviewSessionSkipResult,
+  BackendReviewSessionStartRequest,
+  BackendReviewSessionState,
   BackendReviewFeedbackTruthFlushRequest,
   BackendReviewFeedbackTruthFlushResult,
   BackendReviewTruthBackfillRequest,
@@ -369,6 +376,28 @@ export class SrsBackendClient {
     });
     this.scheduleReviewTruthFlushAfterFeedback(result);
     return result;
+  }
+
+  async reviewSessionStart(request: BackendReviewSessionStartRequest): Promise<BackendReviewSessionState> {
+    return this.reviewClient.reviewSessionStart(request);
+  }
+
+  async reviewSessionCurrent(request: BackendReviewSessionCurrentRequest): Promise<BackendReviewSessionState> {
+    return this.reviewClient.reviewSessionCurrent(request);
+  }
+
+  async reviewSessionFeedback(
+    request: BackendReviewSessionFeedbackRequest,
+  ): Promise<BackendReviewSessionFeedbackResult> {
+    const result = await this.reviewClient.reviewSessionFeedback(request);
+    this.scheduleReviewTruthFlushAfterFeedback(result.feedback);
+    return result;
+  }
+
+  async reviewSessionSkip(
+    request: BackendReviewSessionSkipRequest,
+  ): Promise<BackendReviewSessionSkipResult> {
+    return this.reviewClient.reviewSessionSkip(request);
   }
 
   async reviewTruthFlush(

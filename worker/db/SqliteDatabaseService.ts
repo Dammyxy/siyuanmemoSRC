@@ -17,7 +17,11 @@ import {
   type ReviewLogV2FactInput,
 } from '@/core/scheduler/reviewEventFact';
 import { QueueType } from '@/types/unified-data-source';
-import type { QueueProjectionGeneration } from '@/application/ports/QueueProjectionPort';
+import type {
+  QueueProjectionGeneration,
+  QueueProjectionRow,
+  QueueProjectionRowsQuery,
+} from '@/application/ports/QueueProjectionPort';
 import type {
   BrowserDeckCardPageResult,
   BrowserDocumentCountsResult,
@@ -1868,6 +1872,18 @@ export class WorkerSqliteDatabaseService {
       return null;
     }
     return this.queueProjection.readGeneration(projectionQueueType);
+  }
+
+  async readQueueProjectionRows(query: QueueProjectionRowsQuery): Promise<QueueProjectionRow[]> {
+    await this.init();
+    const projectionQueueType = resolveProjectionQueueType(query.queueType);
+    if (!projectionQueueType || !this.queueProjection) {
+      return [];
+    }
+    return this.queueProjection.readRows({
+      ...query,
+      queueType: projectionQueueType,
+    });
   }
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {

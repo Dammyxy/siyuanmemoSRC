@@ -1,6 +1,13 @@
 import type {
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendReviewSessionCurrentRequest,
+  BackendReviewSessionFeedbackRequest,
+  BackendReviewSessionFeedbackResult,
+  BackendReviewSessionSkipRequest,
+  BackendReviewSessionSkipResult,
+  BackendReviewSessionStartRequest,
+  BackendReviewSessionState,
   BackendReviewFeedbackTruthFlushRequest,
   BackendReviewFeedbackTruthFlushResult,
   BackendReviewRiffFeedbackExecuteRequest,
@@ -14,6 +21,10 @@ import type { BackendRpcCaller } from './BackendRpcCaller';
 
 export interface BackendReviewClientFacet {
   reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult>;
+  reviewSessionStart(request: BackendReviewSessionStartRequest): Promise<BackendReviewSessionState>;
+  reviewSessionCurrent(request: BackendReviewSessionCurrentRequest): Promise<BackendReviewSessionState>;
+  reviewSessionFeedback(request: BackendReviewSessionFeedbackRequest): Promise<BackendReviewSessionFeedbackResult>;
+  reviewSessionSkip(request: BackendReviewSessionSkipRequest): Promise<BackendReviewSessionSkipResult>;
   reviewTruthFlush(request: BackendReviewFeedbackTruthFlushRequest): Promise<BackendReviewFeedbackTruthFlushResult>;
   reviewTruthBackfill(request: BackendReviewTruthBackfillRequest): Promise<BackendReviewTruthBackfillResult>;
   executeReviewRiffFeedback(
@@ -29,6 +40,22 @@ export class BackendReviewRpcClient implements BackendReviewClientFacet {
 
   reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     return this.rpcCaller.call<BackendReviewFeedbackResult>('review.feedback', request);
+  }
+
+  reviewSessionStart(request: BackendReviewSessionStartRequest): Promise<BackendReviewSessionState> {
+    return this.rpcCaller.call<BackendReviewSessionState>('review.session.start', request);
+  }
+
+  reviewSessionCurrent(request: BackendReviewSessionCurrentRequest): Promise<BackendReviewSessionState> {
+    return this.rpcCaller.call<BackendReviewSessionState>('review.session.current', request);
+  }
+
+  reviewSessionFeedback(request: BackendReviewSessionFeedbackRequest): Promise<BackendReviewSessionFeedbackResult> {
+    return this.rpcCaller.call<BackendReviewSessionFeedbackResult>('review.session.feedback', request);
+  }
+
+  reviewSessionSkip(request: BackendReviewSessionSkipRequest): Promise<BackendReviewSessionSkipResult> {
+    return this.rpcCaller.call<BackendReviewSessionSkipResult>('review.session.skip', request);
   }
 
   reviewTruthFlush(request: BackendReviewFeedbackTruthFlushRequest): Promise<BackendReviewFeedbackTruthFlushResult> {

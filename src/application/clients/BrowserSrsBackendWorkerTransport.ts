@@ -729,7 +729,11 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     innerStepSummary: ReturnType<BrowserSrsBackendWorkerTransport['summarizeReviewFeedbackInnerSteps']>;
   }): string {
     const host = input.timing.slowestHostEffect
-      ? `${input.timing.slowestHostEffect.kind} ${Math.round(input.timing.slowestHostEffect.durationMs)}ms`
+      ? [
+        `${input.timing.slowestHostEffect.kind} ${Math.round(input.timing.slowestHostEffect.durationMs)}ms`,
+        `path=${input.timing.slowestHostEffect.path || 'unknown'}`,
+        `storage=${input.timing.slowestHostEffect.storageClass || 'unknown'}`,
+      ].join(' ')
       : 'none';
     const top = input.innerStepSummary.topInnerStepSummary.slice(0, 3).join(' | ') || 'none';
     return [

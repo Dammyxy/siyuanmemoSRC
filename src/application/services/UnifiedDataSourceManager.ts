@@ -152,6 +152,23 @@ interface UnifiedManagerPluginContextLike {
         neuralRoamCommand?: (
             request: BackendNeuralRoamCommandRequest,
         ) => Promise<BackendNeuralRoamCommandResult>;
+        reviewSessionStart?: (request: {
+            sessionId?: string | null;
+            queueType?: string | null;
+            limit?: number | null;
+        }) => Promise<unknown>;
+        reviewSessionCurrent?: (request: { sessionId: string }) => Promise<unknown>;
+        reviewSessionFeedback?: (request: {
+            sessionId: string;
+            cardId: string;
+            rating: 1 | 2 | 3 | 4;
+            reviewedAt?: number | null;
+            idempotencyKey?: string | null;
+        }) => Promise<unknown>;
+        reviewSessionSkip?: (request: {
+            sessionId: string;
+            cardId: string;
+        }) => Promise<unknown>;
     } | null | undefined;
     getReviewLogService?: () => {
         addDrillLogV2?: (log: DrillLogV2) => Promise<void>;

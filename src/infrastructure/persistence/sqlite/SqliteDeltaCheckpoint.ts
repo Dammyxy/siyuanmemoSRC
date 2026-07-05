@@ -111,6 +111,11 @@ interface SqliteDeltaSegmentEnvelope {
   entries: SqliteDeltaEntry[];
 }
 
+interface VerifiedSegmentEvidence {
+  manifestEntry: SqliteDeltaSegmentManifestEntry;
+  envelope: SqliteDeltaSegmentEnvelope;
+}
+
 export interface SqliteDeltaOperationStatus {
   ok: boolean;
   at: number;
@@ -737,6 +742,18 @@ function manifestReadSignature(manifest: SqliteDeltaSegmentManifest): string {
   });
 }
 
+function segmentManifestIdentityMatches(
+  left: SqliteDeltaSegmentManifestEntry,
+  right: SqliteDeltaSegmentManifestEntry,
+): boolean {
+  return left.path === right.path
+    && left.sequence === right.sequence
+    && left.sealed === right.sealed
+    && left.checksum === right.checksum
+    && left.entryCount === right.entryCount
+    && left.byteSize === right.byteSize;
+}
+
 function normalizeChange(value: unknown, entryIndex: number, changeIndex: number): SqliteDeltaChange {
   if (!isRecord(value)) {
     throw new Error(`SQLite delta log corrupt: entry ${entryIndex} change ${changeIndex} must be an object`);
@@ -819,6 +836,8 @@ export class SqliteDeltaCheckpointLayer {
   private checkpointWritesTotal = 0;
   private checkpointOnlyTotal = 0;
   private replayedEntriesTotal = 0;
+  private appendHotPathSnapshot: SqliteDeltaLogSnapshot | null = null;
+  private verifiedSegmentEvidenceByPath = new Map<string, VerifiedSegmentEvidence>();
 
   constructor(
     private readonly fileService: SqliteDeltaFileService,
@@ -842,6 +861,82 @@ export class SqliteDeltaCheckpointLayer {
 
   private canUseCheckpointForThreshold(): boolean {
     return this.checkpointStorageClass === 'durable-checkpoint';
+  }
+
+  private rememberAppendHotPathSnapshot(snapshot: SqliteDeltaLogSnapshot): void {
+    this.appendHotPathSnapshot = snapshot;
+  }
+
+  private clearAppendHotPathSnapshot(): void {
+    this.appendHotPathSnapshot = null;
+    this.clearVerifiedSegmentEvidence();
+  }
+
+  private rememberVerifiedSegmentEvidence(
+    manifestEntry: SqliteDeltaSegmentManifestEntry,
+    envelope: SqliteDeltaSegmentEnvelope,
+  ): void {
+    if (
+      envelope.path !== manifestEntry.path
+      || envelope.sequence !== manifestEntry.sequence
+      || envelope.sealed !== manifestEntry.sealed
+      || envelope.entries.length !== manifestEntry.entryCount
+    ) {
+      this.verifiedSegmentEvidenceByPath.delete(manifestEntry.path);
+      return;
+    }
+    this.verifiedSegmentEvidenceByPath.set(manifestEntry.path, {
+      manifestEntry: { ...manifestEntry },
+      envelope,
+    });
+  }
+
+  private clearVerifiedSegmentEvidence(): void {
+    this.verifiedSegmentEvidenceByPath.clear();
+  }
+
+  private readVerifiedSegmentEvidence(
+    manifestEntry: SqliteDeltaSegmentManifestEntry,
+  ): SqliteDeltaSegmentEnvelope | null {
+    if (manifestEntry.sealed && this.checkpointStorageClass !== 'durable-checkpoint') {
+      return null;
+    }
+    const evidence = this.verifiedSegmentEvidenceByPath.get(manifestEntry.path);
+    if (!evidence) {
+      return null;
+    }
+    if (!segmentManifestIdentityMatches(evidence.manifestEntry, manifestEntry)) {
+      this.verifiedSegmentEvidenceByPath.delete(manifestEntry.path);
+      return null;
+    }
+    if (
+      evidence.envelope.path !== manifestEntry.path
+      || evidence.envelope.sequence !== manifestEntry.sequence
+      || evidence.envelope.sealed !== manifestEntry.sealed
+      || evidence.envelope.entries.length !== manifestEntry.entryCount
+    ) {
+      this.verifiedSegmentEvidenceByPath.delete(manifestEntry.path);
+      return null;
+    }
+    return evidence.envelope;
+  }
+
+  private async readAppendHotPathSnapshot(): Promise<SqliteDeltaLogSnapshot | null> {
+    const cached = this.appendHotPathSnapshot;
+    if (!cached) {
+      return null;
+    }
+    try {
+      return await this.readSnapshotFromManifest(cached.manifest, {
+        allowVerifiedOpenSegmentEvidence: true,
+      });
+    } catch (error) {
+      this.clearAppendHotPathSnapshot();
+      if (!isSegmentChecksumMismatch(error)) {
+        throw error;
+      }
+      return this.readSnapshot();
+    }
   }
 
   private isDerivedCacheTable(tableName: string): boolean {
@@ -959,8 +1054,9 @@ export class SqliteDeltaCheckpointLayer {
   }): Promise<SqliteDeltaPersistResult> {
     let snapshot: SqliteDeltaLogSnapshot;
     try {
-      snapshot = await this.readSnapshot();
+      snapshot = await this.readAppendHotPathSnapshot() ?? await this.readSnapshot();
     } catch (error) {
+      this.clearAppendHotPathSnapshot();
       if (!this.canClearDeltaAfterCheckpoint() && !isOpenSegmentChecksumMismatch(error)) {
         throw error;
       }
@@ -1040,6 +1136,7 @@ export class SqliteDeltaCheckpointLayer {
       };
     }
     if (checkpointReason) {
+      this.clearAppendHotPathSnapshot();
       if (hotPath && checkpointReason !== 'delta-threshold-exceeded') {
         const error = new Error(
           `BACKEND_UNAVAILABLE: SQLite delta durability unavailable for hot path ${input.label}: ${checkpointReason}`,
@@ -1107,6 +1204,7 @@ export class SqliteDeltaCheckpointLayer {
     if (this.canUseCheckpointForThreshold()
       && (nextEntries.length > MAX_PENDING_DELTA_ENTRIES || nextPendingBytes > MAX_PENDING_DELTA_BYTES)) {
       const reason = 'delta-threshold-exceeded';
+      this.clearAppendHotPathSnapshot();
       this.checkpointOnlyTotal += 1;
       const checkpointDiagnostics: SqliteDeltaDiagnosticsContext = {
         cause: input.label,
@@ -1138,6 +1236,7 @@ export class SqliteDeltaCheckpointLayer {
       const writeResult = await this.appendDeltaEntryToSegments(snapshot.manifest, entry);
       nextSnapshot.manifest = writeResult.manifest;
     } catch (error) {
+      this.clearAppendHotPathSnapshot();
       if (isOpenSegmentChecksumMismatch(error)) {
         const reason = 'corrupt-open-segment-checkpoint-repair';
         this.checkpointOnlyTotal += 1;
@@ -1187,6 +1286,7 @@ export class SqliteDeltaCheckpointLayer {
       };
       throw error;
     }
+    this.rememberAppendHotPathSnapshot(nextSnapshot);
     this.deltaWritesTotal += 1;
     this.lastWrite = {
       ok: true,
@@ -1218,7 +1318,9 @@ export class SqliteDeltaCheckpointLayer {
     entry: SqliteDeltaEntry,
   ): Promise<{ manifest: SqliteDeltaSegmentManifest }> {
     const openEnvelope = manifest.openSegment
-      ? await this.readSegmentEnvelope(manifest.openSegment)
+      ? await this.readSegmentEnvelope(manifest.openSegment, {
+        allowVerifiedOpenSegmentEvidence: true,
+      })
       : null;
     const openEntries = openEnvelope?.entries ?? [];
     const candidateEntries = [...openEntries, entry];
@@ -1237,6 +1339,10 @@ export class SqliteDeltaCheckpointLayer {
     let sealedSegments = manifest.sealedSegments;
     let nextSequence = Math.max(manifest.nextSequence, candidateSequence + 1);
     let openSegmentEntry: SqliteDeltaSegmentManifestEntry | null = null;
+    let sealedSegmentEvidence: {
+      manifestEntry: SqliteDeltaSegmentManifestEntry;
+      envelope: SqliteDeltaSegmentEnvelope;
+    } | null = null;
 
     if (shouldSealCandidate) {
       const sealedPath = sqliteDeltaSealedSegmentFile(candidateSequence);
@@ -1260,6 +1366,10 @@ export class SqliteDeltaCheckpointLayer {
           sealedAt: Date.now(),
         }),
       ].sort((left, right) => left.sequence - right.sequence);
+      sealedSegmentEvidence = {
+        manifestEntry: sealedSegments.find((segment) => segment.path === sealedPath)!,
+        envelope: sealedEnvelope,
+      };
     } else {
       await this.fileService.writeBinary(SQLITE_DELTA_OPEN_SEGMENT_FILE, candidateBytes);
       openSegmentEntry = buildSegmentManifestEntry({
@@ -1279,10 +1389,22 @@ export class SqliteDeltaCheckpointLayer {
       checkpoint: null,
     };
     await this.fileService.writeJSON(this.fileName, nextManifest);
+    if (openSegmentEntry) {
+      this.rememberVerifiedSegmentEvidence(openSegmentEntry, candidateEnvelope);
+    } else {
+      this.verifiedSegmentEvidenceByPath.delete(SQLITE_DELTA_OPEN_SEGMENT_FILE);
+    }
+    if (sealedSegmentEvidence) {
+      this.rememberVerifiedSegmentEvidence(
+        sealedSegmentEvidence.manifestEntry,
+        sealedSegmentEvidence.envelope,
+      );
+    }
     return { manifest: nextManifest };
   }
 
   async replayPending(db: Database): Promise<SqliteDeltaOperationStatus> {
+    this.clearAppendHotPathSnapshot();
     const snapshot = await this.readSnapshot();
     const pendingBytes = estimateJsonByteLength(snapshot);
     if (snapshot.entries.length === 0) {
@@ -1327,17 +1449,28 @@ export class SqliteDeltaCheckpointLayer {
   }
 
   async hasPendingDeltas(): Promise<boolean> {
+    this.clearAppendHotPathSnapshot();
     return (await this.readSnapshot()).entries.length > 0;
   }
 
   async hasCheckpointablePendingDeltas(): Promise<boolean> {
+    this.clearAppendHotPathSnapshot();
     return this.canClearDeltaAfterCheckpoint() && (await this.readSnapshot()).entries.length > 0;
+  }
+
+  async hasCheckpointablePendingDeltasForPersistPreflight(): Promise<boolean> {
+    if (!this.canClearDeltaAfterCheckpoint()) {
+      return false;
+    }
+    const snapshot = await this.readAppendHotPathSnapshot() ?? await this.readSnapshot();
+    return snapshot.entries.length > 0;
   }
 
   async discardPending(
     reason: string,
     diagnosticsContext?: SqliteDeltaDiagnosticsContext,
   ): Promise<void> {
+    this.clearAppendHotPathSnapshot();
     let snapshot: SqliteDeltaLogSnapshot | null = null;
     let snapshotReadError: unknown = null;
     try {
@@ -1384,6 +1517,7 @@ export class SqliteDeltaCheckpointLayer {
     byteLength: number | null,
     diagnosticsContext?: SqliteDeltaDiagnosticsContext,
   ): Promise<void> {
+    this.clearAppendHotPathSnapshot();
     const snapshot = await this.readSnapshot().catch(async (snapshotReadError) => {
       const canClearUnreadablePending = this.canClearDeltaAfterCheckpoint()
         || (
@@ -1445,6 +1579,7 @@ export class SqliteDeltaCheckpointLayer {
     diagnosticsContext: SqliteDeltaDiagnosticsContext | undefined,
     snapshotReadError: unknown,
   ): Promise<void> {
+    this.clearAppendHotPathSnapshot();
     const manifest = await this.readManifest().catch(() => emptyManifest(Date.now()));
     const coveredSegmentPaths = uniqueStrings([
       ...manifest.sealedSegments.map((segment) => segment.path),
@@ -1493,6 +1628,7 @@ export class SqliteDeltaCheckpointLayer {
     error: unknown,
     diagnosticsContext?: SqliteDeltaDiagnosticsContext,
   ): Promise<void> {
+    this.clearAppendHotPathSnapshot();
     const snapshot = await this.readSnapshot().catch(() => null);
     const diagnostics = normalizeDiagnosticsContext(diagnosticsContext);
     this.lastCheckpoint = {
@@ -1528,6 +1664,7 @@ export class SqliteDeltaCheckpointLayer {
   }
 
   async getDiagnostics(): Promise<SqliteDeltaDiagnostics> {
+    this.clearAppendHotPathSnapshot();
     const snapshot = await this.readSnapshot();
     return {
       fileName: this.fileName,
@@ -1575,7 +1712,10 @@ export class SqliteDeltaCheckpointLayer {
     }
   }
 
-  private async readSnapshotFromManifest(manifest: SqliteDeltaSegmentManifest): Promise<SqliteDeltaLogSnapshot> {
+  private async readSnapshotFromManifest(
+    manifest: SqliteDeltaSegmentManifest,
+    options: { allowVerifiedOpenSegmentEvidence?: boolean } = {},
+  ): Promise<SqliteDeltaLogSnapshot> {
     const segmentRefs = [
       ...manifest.sealedSegments,
       ...(manifest.openSegment ? [manifest.openSegment] : []),
@@ -1585,7 +1725,9 @@ export class SqliteDeltaCheckpointLayer {
     const recoveredSealedSegments: SqliteDeltaSegmentManifestEntry[] = [];
     let recoveredOpenSegment: SqliteDeltaSegmentManifestEntry | null = null;
     for (const segment of segmentRefs) {
-      envelopes.push(await this.readSegmentEnvelope(segment));
+      envelopes.push(await this.readSegmentEnvelope(segment, {
+        allowVerifiedOpenSegmentEvidence: options.allowVerifiedOpenSegmentEvidence,
+      }));
       seenPaths.add(segment.path);
     }
     if (this.shouldReplayVolatileCheckpointSegments(manifest)) {
@@ -1647,7 +1789,16 @@ export class SqliteDeltaCheckpointLayer {
       && manifest.checkpoint.coveredSegmentPaths.length > 0;
   }
 
-  private async readSegmentEnvelope(segment: SqliteDeltaSegmentManifestEntry): Promise<SqliteDeltaSegmentEnvelope> {
+  private async readSegmentEnvelope(
+    segment: SqliteDeltaSegmentManifestEntry,
+    options: { allowVerifiedOpenSegmentEvidence?: boolean } = {},
+  ): Promise<SqliteDeltaSegmentEnvelope> {
+    if (options.allowVerifiedOpenSegmentEvidence) {
+      const evidence = this.readVerifiedSegmentEvidence(segment);
+      if (evidence) {
+        return evidence;
+      }
+    }
     const bytes = await this.readSegmentBytes(segment);
     const envelope = normalizeSegmentEnvelope(decode(bytes), segment.path);
     if (envelope.entries.length !== segment.entryCount) {

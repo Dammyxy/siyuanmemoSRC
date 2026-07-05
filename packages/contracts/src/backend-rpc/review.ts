@@ -1,6 +1,13 @@
 import type {
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendReviewSessionCurrentRequest,
+  BackendReviewSessionFeedbackRequest,
+  BackendReviewSessionFeedbackResult,
+  BackendReviewSessionSkipRequest,
+  BackendReviewSessionSkipResult,
+  BackendReviewSessionStartRequest,
+  BackendReviewSessionState,
   BackendReviewFeedbackTruthFlushRequest,
   BackendReviewFeedbackTruthFlushResult,
   BackendReviewRiffFeedbackExecuteRequest,
@@ -15,6 +22,10 @@ import type {
 
 export const BACKEND_REVIEW_RPC_METHODS = [
   'review.feedback',
+  'review.session.start',
+  'review.session.current',
+  'review.session.feedback',
+  'review.session.skip',
   'review.truth.flush',
   'review.truth.backfill',
   'review.riffFeedback.execute',
@@ -28,6 +39,26 @@ export type BackendReviewRpcMethodContractMap = {
     'review.feedback',
     BackendReviewFeedbackRequest,
     BackendReviewFeedbackResult
+  >;
+  readonly 'review.session.start': BackendRpcMethodContract<
+    'review.session.start',
+    BackendReviewSessionStartRequest,
+    BackendReviewSessionState
+  >;
+  readonly 'review.session.current': BackendRpcMethodContract<
+    'review.session.current',
+    BackendReviewSessionCurrentRequest,
+    BackendReviewSessionState
+  >;
+  readonly 'review.session.feedback': BackendRpcMethodContract<
+    'review.session.feedback',
+    BackendReviewSessionFeedbackRequest,
+    BackendReviewSessionFeedbackResult
+  >;
+  readonly 'review.session.skip': BackendRpcMethodContract<
+    'review.session.skip',
+    BackendReviewSessionSkipRequest,
+    BackendReviewSessionSkipResult
   >;
   readonly 'review.truth.flush': BackendRpcMethodContract<
     'review.truth.flush',
@@ -53,6 +84,10 @@ export type BackendReviewRpcMethodContractMap = {
 
 export const BACKEND_REVIEW_RPC_METHOD_FAMILY_CATALOG = [
   { method: 'review.feedback', family: 'review', clientExposure: 'facade' },
+  { method: 'review.session.start', family: 'review', clientExposure: 'facade' },
+  { method: 'review.session.current', family: 'review', clientExposure: 'facade' },
+  { method: 'review.session.feedback', family: 'review', clientExposure: 'facade' },
+  { method: 'review.session.skip', family: 'review', clientExposure: 'facade' },
   { method: 'review.truth.flush', family: 'review', clientExposure: 'facade' },
   { method: 'review.truth.backfill', family: 'review', clientExposure: 'facade' },
   { method: 'review.riffFeedback.execute', family: 'review', clientExposure: 'facade' },
