@@ -162,7 +162,7 @@ function handleHostEffectResult(message: BackendWorkerHostEffectResultMessage): 
 }
 
 function extractReviewFeedbackCardId(message: BackendWorkerMainToWorkerMessage): string | null {
-  if (message.kind !== 'request' || message.request.method !== 'review.feedback') {
+  if (message.kind !== 'request' || !isReviewFeedbackTimingMethod(message.request.method)) {
     return null;
   }
   const params = Array.isArray(message.request.params) ? message.request.params[0] : null;
@@ -189,14 +189,19 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'browser.deck.page',
   'browser.stats',
   'browser.deck.documentCounts',
+  'review.session.feedback',
   'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
   'queue.projection.replace',
 ]);
 
+function isReviewFeedbackTimingMethod(method: string): boolean {
+  return method === 'review.feedback' || method === 'review.session.feedback';
+}
+
 function shouldCaptureBackendWorkerTiming(method: string): boolean {
-  return method === 'review.feedback' || DIAGNOSTIC_TIMING_METHODS.has(method);
+  return isReviewFeedbackTimingMethod(method) || DIAGNOSTIC_TIMING_METHODS.has(method);
 }
 
 function logReviewFeedbackWorkerEntryStepIfSlow(
@@ -343,7 +348,8 @@ scope.onmessage = (event) => {
   }
   if (message.kind === 'request') {
     const isReviewFeedback = message.request.method === 'review.feedback';
-    const cardId = isReviewFeedback ? extractReviewFeedbackCardId(message) : null;
+    const isReviewFeedbackTiming = isReviewFeedbackTimingMethod(message.request.method);
+    const cardId = isReviewFeedbackTiming ? extractReviewFeedbackCardId(message) : null;
     const queueType = extractQueueType(message);
     const captureTiming = shouldCaptureBackendWorkerTiming(message.request.method);
     const receivedAt = Date.now();

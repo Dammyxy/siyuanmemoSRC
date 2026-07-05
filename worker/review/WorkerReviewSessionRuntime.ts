@@ -9,6 +9,9 @@ import type {
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
 } from '../../packages/contracts/src/backend-rpc';
+import { recordBackendWorkerInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
+
+const REVIEW_SESSION_FEEDBACK_STEP_SLOW_MS = 120;
 
 type WorkerReviewSessionQueueProjection = {
   readGeneration(queueType: QueueType): QueueProjectionGeneration | null | Promise<QueueProjectionGeneration | null>;
@@ -144,10 +147,15 @@ export class WorkerReviewSessionRuntime {
   }
 
   async feedback(request: WorkerReviewSessionFeedbackRequest): Promise<WorkerReviewSessionFeedbackResult> {
+    const totalStartedAt = Date.now();
     const session = this.requireSession(request.sessionId);
     this.requireCurrentCard(session, request.cardId);
 
-    const feedback = await this.deps.feedbackRuntime.reviewFeedback({
+    const feedback = await this.measureFeedbackStep(
+      'session-feedback-commit',
+      session,
+      request,
+      () => this.deps.feedbackRuntime.reviewFeedback({
       cardId: request.cardId,
       rating: request.rating,
       queueType: session.queueType,
@@ -156,18 +164,83 @@ export class WorkerReviewSessionRuntime {
       sessionId: session.sessionId,
       reviewedAt: request.reviewedAt ?? Date.now(),
       idempotencyKey: request.idempotencyKey ?? null,
-    });
+      }),
+    );
     if (!feedback.committed) {
       throw new Error(`WORKER_REVIEW_SESSION_COMMIT_FAILED: ${request.sessionId}`);
     }
 
-    this.advanceAfterRating(session, request.cardId, request.rating);
+    this.measureFeedbackStep(
+      'session-feedback-advance',
+      session,
+      request,
+      () => this.advanceAfterRating(session, request.cardId, request.rating),
+    );
+    this.recordFeedbackStep('session-feedback-total', session, request, Date.now() - totalStartedAt);
 
     return {
       ...this.toState(session, resolveProjectionState(feedback)),
       answeredCardId: request.cardId,
       feedback,
     };
+  }
+
+  private async measureFeedbackStep<TResult>(
+    step: string,
+    session: WorkerReviewSession,
+    request: WorkerReviewSessionFeedbackRequest,
+    task: () => Promise<TResult>,
+  ): Promise<TResult>;
+  private measureFeedbackStep<TResult>(
+    step: string,
+    session: WorkerReviewSession,
+    request: WorkerReviewSessionFeedbackRequest,
+    task: () => TResult,
+  ): TResult;
+  private measureFeedbackStep<TResult>(
+    step: string,
+    session: WorkerReviewSession,
+    request: WorkerReviewSessionFeedbackRequest,
+    task: () => TResult | Promise<TResult>,
+  ): TResult | Promise<TResult> {
+    const startedAt = Date.now();
+    const record = (): void => {
+      this.recordFeedbackStep(step, session, request, Date.now() - startedAt);
+    };
+    try {
+      const result = task();
+      if (result && typeof (result as Promise<TResult>).then === 'function') {
+        return (result as Promise<TResult>).finally(record);
+      }
+      record();
+      return result;
+    } catch (error) {
+      record();
+      throw error;
+    }
+  }
+
+  private recordFeedbackStep(
+    step: string,
+    session: WorkerReviewSession,
+    request: WorkerReviewSessionFeedbackRequest,
+    durationMs: number,
+  ): void {
+    if (durationMs < REVIEW_SESSION_FEEDBACK_STEP_SLOW_MS) {
+      return;
+    }
+    recordBackendWorkerInnerStep({
+      layer: 'session',
+      step,
+      durationMs,
+      cardId: request.cardId,
+      queueType: session.queueType,
+      extra: {
+        backendMethod: 'review.session.feedback',
+        sessionId: session.sessionId,
+        rating: request.rating,
+      },
+    });
   }
 
   skip(request: WorkerReviewSessionSkipRequest): WorkerReviewSessionSkipResult {

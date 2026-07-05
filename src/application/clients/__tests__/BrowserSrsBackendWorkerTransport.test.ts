@@ -71,6 +71,21 @@ function createReviewFeedbackRequest(id = 1): BackendRpcRequest {
   };
 }
 
+function createReviewSessionFeedbackRequest(id = 1): BackendRpcRequest {
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'review.session.feedback',
+    params: [{
+      sessionId: 'session-a',
+      cardId: 'card-1',
+      rating: 3,
+      reviewedAt: 1_700_000_000_000,
+      idempotencyKey: 'session-feedback-key',
+    }],
+  };
+}
+
 function createReviewTruthFlushRequest(id = 1): BackendRpcRequest {
   return {
     jsonrpc: BACKEND_RPC_VERSION,
@@ -805,6 +820,120 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         message: 'BACKEND_UNAVAILABLE: sqlite.writeBinary host effect unavailable',
       },
     });
+    transport.dispose();
+  });
+
+  it('logs worker-returned review session feedback timing so grading latency can be split', async () => {
+    vi.setSystemTime(4_000);
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+    });
+    const request = createReviewSessionFeedbackRequest(18);
+    const pending = transport.request(request);
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    vi.setSystemTime(4_900);
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 18,
+      result: { ok: true },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+      timing: {
+        sentAt: 4_000,
+        receivedAt: 4_210,
+        receivedDelayMs: 210,
+        handleStartedAt: 4_220,
+        handledAt: 4_820,
+        handleDurationMs: 600,
+        hostEffectCount: 1,
+        hostEffectTotalMs: 180,
+        hostEffectAttribution: 'complete',
+        slowestHostEffect: {
+          kind: 'sqlite.readJSON',
+          durationMs: 180,
+          path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
+          storageClass: 'sqlite-delta-log',
+        },
+        innerSteps: [
+          {
+            layer: 'kernel',
+            step: 'pre-request-merge',
+            durationMs: 240,
+            cardId: 'card-1',
+            extra: {
+              backendMethod: 'review.session.feedback',
+              changed: false,
+              sourceCount: 0,
+              sanityStatus: 'clean',
+              mainDbReadSkipped: true,
+              mainDbReadSkipReason: 'read-only-preflight',
+              conflictSourceCount: 0,
+              nonEmptyConflictSourceCount: 0,
+            },
+          },
+          {
+            layer: 'session',
+            step: 'session-feedback-commit',
+            durationMs: 220,
+            cardId: 'card-1',
+            queueType: 'retrieval-practice',
+            extra: {
+              backendMethod: 'review.session.feedback',
+              sessionId: 'session-a',
+            },
+          },
+          {
+            layer: 'transaction',
+            step: 'transaction',
+            durationMs: 160,
+            cardId: 'card-1',
+            queueType: 'retrieval-practice',
+            extra: {
+              backendMethod: 'review.session.feedback',
+            },
+          },
+        ],
+        innerStepAttribution: 'complete',
+        innerStepsTruncated: false,
+      },
+    });
+
+    await expect(pending).resolves.toEqual(response);
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.session.feedback transport step',
+      expect.objectContaining({
+        step: 'worker-received-delay',
+        cardId: 'card-1',
+        durationMs: 210,
+      }),
+    );
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'slow review.session.feedback worker-handle summary card=card-1 duration=600ms',
+      ),
+      expect.objectContaining({
+        step: 'worker-handle-summary',
+        cardId: 'card-1',
+        durationMs: 600,
+        dominantInnerStepSummary: expect.stringContaining('kernel:pre-request-merge 240ms'),
+        topInnerStepSummary: expect.arrayContaining([
+          expect.stringContaining('kernel:pre-request-merge 240ms'),
+          'session:session-feedback-commit 220ms',
+          'transaction:transaction 160ms',
+        ]),
+        slowestHostEffect: expect.objectContaining({
+          path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
+          storageClass: 'sqlite-delta-log',
+        }),
+      }),
+    );
     transport.dispose();
   });
 

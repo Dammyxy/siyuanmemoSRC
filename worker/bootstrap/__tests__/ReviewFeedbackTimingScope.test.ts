@@ -106,6 +106,41 @@ describe('ReviewFeedbackTimingScope', () => {
     }
   });
 
+  it('keeps review session feedback inner steps by backend method under overlapping requests', () => {
+    const sessionTiming = beginBackendWorkerTiming('review.session.feedback', 'card-1', {
+      queueType: 'retrieval-practice',
+    });
+    const browserTiming = beginBackendWorkerTiming('browser.deck.page');
+
+    try {
+      recordBackendWorkerInnerStep({
+        layer: 'session',
+        step: 'session-feedback-commit',
+        durationMs: 222,
+        cardId: 'card-1',
+        queueType: 'retrieval-practice',
+        extra: {
+          backendMethod: 'review.session.feedback',
+          queueType: 'retrieval-practice',
+        },
+      });
+
+      expect(sessionTiming.innerSteps).toEqual([
+        expect.objectContaining({
+          layer: 'session',
+          step: 'session-feedback-commit',
+          durationMs: 222,
+          cardId: 'card-1',
+        }),
+      ]);
+      expect(browserTiming.innerSteps).toEqual([]);
+      expect(sessionTiming.innerStepAttribution).toBe('ambiguous-concurrency');
+    } finally {
+      endBackendWorkerRequest(browserTiming);
+      endBackendWorkerRequest(sessionTiming);
+    }
+  });
+
   it('keeps slowest host effect path and byte length metadata', () => {
     const timing = beginBackendWorkerTiming('queue.projection.replace');
 

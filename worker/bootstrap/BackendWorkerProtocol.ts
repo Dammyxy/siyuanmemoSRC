@@ -55,7 +55,7 @@ export interface BackendWorkerHostEffectTiming {
 }
 
 export interface BackendWorkerInnerStepTiming {
-  layer: 'worker-entry' | 'kernel' | 'database' | 'transaction' | 'queue-impact';
+  layer: 'worker-entry' | 'kernel' | 'database' | 'transaction' | 'queue-impact' | 'session';
   step: string;
   durationMs: number;
   cardId?: string | null;

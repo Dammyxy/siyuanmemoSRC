@@ -442,11 +442,13 @@ const BACKEND_REVIEW_RPC_HANDLER_ADAPTERS: {
       const result = await context.review.handleReviewFeedback(params);
       const timing = context.reviewFeedbackTiming;
       if (timing) {
-        timing.logStep('handler', Date.now() - handlerStartedAt, {});
+        timing.logStep('handler', Date.now() - handlerStartedAt, {
+          backendMethod: 'review.feedback',
+        });
         timing.logStep(
           'request-total',
           Date.now() - (timing.requestStartedAt ?? handlerStartedAt),
-          {},
+          { backendMethod: 'review.feedback' },
         );
       }
       return result;
@@ -469,8 +471,21 @@ const BACKEND_REVIEW_RPC_HANDLER_ADAPTERS: {
   'review.session.feedback': {
     method: 'review.session.feedback',
     family: 'review',
-    handle(params, context): Promise<BackendReviewSessionFeedbackResult> {
-      return context.review.handleReviewSessionFeedback(params);
+    async handle(params, context): Promise<BackendReviewSessionFeedbackResult> {
+      const handlerStartedAt = Date.now();
+      const result = await context.review.handleReviewSessionFeedback(params);
+      const timing = context.reviewFeedbackTiming;
+      if (timing) {
+        timing.logStep('handler', Date.now() - handlerStartedAt, {
+          backendMethod: 'review.session.feedback',
+        });
+        timing.logStep(
+          'request-total',
+          Date.now() - (timing.requestStartedAt ?? handlerStartedAt),
+          { backendMethod: 'review.session.feedback' },
+        );
+      }
+      return result;
     },
   },
   'review.session.skip': {

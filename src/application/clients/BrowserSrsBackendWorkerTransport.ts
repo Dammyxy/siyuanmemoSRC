@@ -41,6 +41,7 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'browser.deck.page',
   'browser.stats',
   'browser.deck.documentCounts',
+  'review.session.feedback',
   'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
@@ -360,7 +361,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       if (pending.timer) {
         clearTimeout(pending.timer);
       }
-      if (pending.method === 'review.feedback') {
+      if (this.isReviewFeedbackTimingMethod(pending.method)) {
         const now = Date.now();
         this.logReviewFeedbackWorkerTiming(pending, message.timing, now);
         const roundtripMs = now - (pending.postedAt ?? pending.queuedAt);
@@ -583,7 +584,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   }
 
   private extractReviewFeedbackCardId(request: BackendRpcRequest): string | null {
-    if (request.method !== 'review.feedback') {
+    if (!this.isReviewFeedbackTimingMethod(request.method)) {
       return null;
     }
     const params = Array.isArray(request.params) ? request.params[0] : null;
@@ -622,12 +623,12 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     extra?: Record<string, unknown>,
   ): void {
     if (
-      method !== 'review.feedback'
+      !this.isReviewFeedbackTimingMethod(method)
       || durationMs < REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS
     ) {
       return;
     }
-    logger.info('[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step', {
+    logger.info(`[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow ${method} transport step`, {
       step,
       cardId,
       durationMs,
@@ -763,7 +764,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       innerStepSummary,
     });
     logger.info(
-      `[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback worker-handle summary ${copySummary}`,
+      `[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow ${pending.method} worker-handle summary ${copySummary}`,
       {
         step: 'worker-handle-summary',
         cardId: pending.cardId,
@@ -797,7 +798,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     timing: BackendWorkerResponseTiming | null | undefined,
     receivedAt: number,
   ): void {
-    if (pending.method !== 'review.feedback' || !timing) {
+    if (!this.isReviewFeedbackTimingMethod(pending.method) || !timing) {
       return;
     }
     const innerStepSummary = this.summarizeReviewFeedbackInnerSteps(timing);
@@ -822,6 +823,10 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         pendingRequests: this.pendingRequests.size,
       },
     );
+  }
+
+  private isReviewFeedbackTimingMethod(method: BackendRpcRequest['method']): boolean {
+    return method === 'review.feedback' || method === 'review.session.feedback';
   }
 
   private recordDiagnosticWorkerTiming(

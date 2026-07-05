@@ -4,6 +4,16 @@ Last update: 2026-07-05 (Round 661)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-05 - Review session feedback layered timing
+
+- Task: Implement方案 C for the still-slow Review grading path by adding layered timing diagnostics to `review.session.feedback`.
+- Touched slice: Worker Review session feedback timing in `worker/bootstrap/backend-worker.entry.ts`, `worker/bootstrap/BackendKernel.ts`, `worker/bootstrap/rpc/BackendReviewRpcAdapter.ts`, `worker/review/WorkerReviewSessionRuntime.ts`, `worker/review/WorkerReviewCardMutationPersistenceModule.ts`, renderer transport summary in `src/application/clients/BrowserSrsBackendWorkerTransport.ts`, focused tests, and OpenSpec `diagnose-review-feedback-host-effect-path`.
+- Debt fixed now: Slow `session-runtime-answer` logs now have matching copyable worker evidence for `review.session.feedback`, including worker receive delay, worker-handle summary, pre-request lifecycle, handler/request-total, session commit/advance/total steps, nested transaction/queue-impact attribution, and slowest host-effect path/storage class. This removes the observability blind spot where only nested `review.feedback` or renderer outer timing was visible.
+- Debt deferred: Actual speed optimization remains deferred until the next live log shows whether time sits in worker queue delay, pre-request merge, session commit/transaction, session advance, queue-impact, or host SQLite reads.
+- Why deferred: This pass is diagnostic-only by design. Changing worker scheduling, pre-request refresh policy, or persistence topology without the new split evidence would be speculative and could disturb fail-closed Review persistence.
+- Next safe step: Rebuild/reload the plugin, rerun slow Retrieval Practice grading, copy the new `slow review.session.feedback worker-handle summary` line, and use `dominant=`, `top=`, `host=`, `preMerge=`, and `duration=` to pick the follow-up architecture fix.
+- Validation: Focused transport/timing/session tests passed; `openspec validate diagnose-review-feedback-host-effect-path --strict`, `pnpm run check:boundaries`, and `pnpm build` passed. Build still reports existing non-blocking i18n hardcoded-string warnings and Sass legacy JS API deprecation warnings.
+
 ### 2026-07-05 - Worker-owned Review session cutover
 
 - Task: Implement `cutover-review-session-authority-to-worker` for RetrievalPractice / IncrementalLearning with no renderer cursor fallback.

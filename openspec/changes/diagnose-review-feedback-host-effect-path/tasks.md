@@ -18,3 +18,10 @@
 - [x] 3.2 Run `pnpm run check:boundaries` or the relevant fallback-boundary check.
 - [x] 3.3 Run `pnpm build`.
 - [x] 3.4 Validate `diagnose-review-feedback-host-effect-path` with OpenSpec strict validation.
+
+## 4. Session Feedback Layered Timing
+
+- [x] 4.1 Extend the change artifacts to cover `review.session.feedback` layered timing diagnostics.
+- [x] 4.2 Add focused coverage for copyable slow `review.session.feedback` timing summaries.
+- [x] 4.3 Record worker/session inner steps for `review.session.feedback` without changing rating behavior.
+- [x] 4.4 Run focused tests, boundary checks, build, and strict OpenSpec validation.

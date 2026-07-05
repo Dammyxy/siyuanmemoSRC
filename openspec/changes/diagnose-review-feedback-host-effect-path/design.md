@@ -46,11 +46,18 @@ The diagnostic output should help operators classify the root cause, but it must
 
 Alternative considered: immediately optimize the most likely SQLite path. Rejected because current logs are path-blind and would make the next fix speculative.
 
+### Decision 4: Treat `review.session.feedback` as a first-class timing method
+
+The latest slow logs are emitted from the renderer `session-runtime-answer` step, which waits on the worker `review.session.feedback` RPC. The worker timing envelope and copyable summary therefore need to cover `review.session.feedback`, not only the nested `review.feedback` mutation call. The summary should keep the same shape as the existing `review.feedback` slow summary, but include session-layer steps for commit, advance, and total time.
+
+Alternative considered: rely on the existing nested `review.feedback` transaction/queue-impact steps. Rejected because it cannot distinguish worker queue delay, pre-request lifecycle, session runtime overhead, and handler time when the outer RPC is slow.
+
 ## Risks / Trade-offs
 
 - Path may contain long plugin storage names -> Mitigation: include the path in copyable logs and allow later implementation to shorten only if full paths are too noisy.
 - Additional log fields may expose local storage layout -> Mitigation: only log in existing slow Review feedback diagnostics, not every feedback call.
 - Timing attribution may still group async host effects under `review.feedback` -> Mitigation: include path/storage class first; if ambiguity remains, follow with top host-effect list instrumentation in this same capability.
+- `review.session.feedback` diagnostics may expose pre-request lifecycle cost that was previously hidden by the renderer-only `session-runtime-answer` log -> Mitigation: keep this diagnostic-only and use the copied summary to decide the follow-up behavior change.
 
 ## Migration Plan
 

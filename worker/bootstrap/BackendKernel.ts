@@ -57,6 +57,7 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'browser.deck.page',
   'browser.stats',
   'browser.deck.documentCounts',
+  'review.session.feedback',
   'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
@@ -99,6 +100,10 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'queue.projection.replace',
   'kernel.transaction.dequeue',
 ]);
+
+function isReviewFeedbackTimingMethod(method: string): boolean {
+  return method === 'review.feedback' || method === 'review.session.feedback';
+}
 
 const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS = new Set<string>([
   'system.health',
@@ -229,7 +234,7 @@ export class BackendKernel {
       lifecycle: {
         beforeHandle: async ({ method, params }) => {
           reviewFeedbackRequestStartedAt = Date.now();
-          reviewFeedbackCardId = method === 'review.feedback'
+          reviewFeedbackCardId = isReviewFeedbackTimingMethod(method)
             ? this.extractReviewFeedbackCardId(params)
             : null;
           await this.runPreRequestLifecycle(method, params, reviewFeedbackCardId);

@@ -5,6 +5,7 @@ Latest live Review grading logs still show `review.feedback` worker time around 
 ## What Changes
 
 - Add Review feedback slow-log observability that includes the slowest host effect path and storage class.
+- Add layered slow-log observability for `review.session.feedback`, so `session-runtime-answer` latency can be split into worker receive delay, pre-request lifecycle, handler, session commit, session advance, transaction, queue-impact, and host effects.
 - Include enough host-effect detail to classify the next root cause without requiring users to expand collapsed console objects.
 - Preserve existing Review feedback behavior, durability policy, sync safety, and SQLite persistence behavior.
 - Keep this change diagnostic-only; no cache, scheduler, queue, or domain sync behavior is changed by this proposal.
@@ -20,6 +21,10 @@ Latest live Review grading logs still show `review.feedback` worker time around 
 
 - Affected code:
   - `src/application/clients/BrowserSrsBackendWorkerTransport.ts`
+  - `worker/bootstrap/backend-worker.entry.ts`
+  - `worker/bootstrap/BackendKernel.ts`
+  - `worker/bootstrap/rpc/BackendReviewRpcAdapter.ts`
+  - `worker/review/WorkerReviewSessionRuntime.ts`
   - `worker/bootstrap/ReviewFeedbackTimingScope.ts` if host-effect shaping needs a narrow extension
 - Affected systems:
   - Review feedback slow-path diagnostics

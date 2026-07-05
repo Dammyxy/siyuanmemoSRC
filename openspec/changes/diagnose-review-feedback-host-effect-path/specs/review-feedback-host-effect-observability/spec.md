@@ -28,3 +28,14 @@ The system SHALL provide enough slow Review feedback evidence to classify the do
 #### Scenario: Operator can classify a slow SQLite read
 - **WHEN** an operator copies a slow `review.feedback` console line after this change
 - **THEN** the line includes enough host-effect path information to decide which storage path needs the next fix or which path remains unknown
+
+### Requirement: Session feedback logs expose layered timing
+The system SHALL include copyable layered timing diagnostics for slow `review.session.feedback` worker calls that appear to the renderer as slow `session-runtime-answer` grading latency.
+
+#### Scenario: Session feedback summary splits worker and session costs
+- **WHEN** `review.session.feedback` emits a slow worker-handle summary
+- **THEN** the copyable summary SHALL include worker receive delay when slow, the dominant inner step, top inner steps, pre-request merge evidence, slowest host effect path/storage class, and session-layer steps such as `session-feedback-commit` or `session-feedback-advance`
+
+#### Scenario: Session feedback diagnostics remain behavior-neutral
+- **WHEN** a card rating completes through worker session authority
+- **THEN** the card rating result, session advancement result, persistence policy, queue membership behavior, and sync-safety behavior remain unchanged except for additional timing diagnostics

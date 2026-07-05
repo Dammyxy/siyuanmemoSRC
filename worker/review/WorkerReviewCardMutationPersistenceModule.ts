@@ -273,6 +273,7 @@ export class WorkerReviewCardMutationPersistenceModule {
           queueType: input.queueType,
           durationMs,
           extra: {
+            backendMethod: input.request.sessionId ? 'review.session.feedback' : 'review.feedback',
             queueMode: input.queueMode,
             commitPolicy: input.commitPolicy,
             rating: input.rating,
