@@ -41,16 +41,17 @@ function createProjectionRow(
   card: FSRSCard,
   index: number,
   generation = 2,
+  queueType = QueueType.FinalDrill,
 ): QueueProjectionRow {
   return {
-    queueType: QueueType.FinalDrill,
+    queueType,
     rowId: card.id,
     cardId: card.id,
     blockId: card.blockId,
     deckId: null,
-    membershipReason: 'manual',
+    membershipReason: queueType === QueueType.FinalDrill ? 'manual' : 'due',
     dueAt: card.due,
-    dueBucket: 'manual',
+    dueBucket: queueType === QueueType.FinalDrill ? 'manual' : 'review',
     priorityScore: card.priority,
     sortKey: `${String(index).padStart(9, '0')}:${card.id}`,
     queueIndexHint: index,
@@ -61,14 +62,14 @@ function createProjectionRow(
   };
 }
 
-function createRuntimeFixture(cards: FSRSCard[]) {
+function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDrill) {
   const storedCards = new Map(cards.map((card) => [card.id, card] as const));
   const reviewed = cards[0];
-  const readRows = vi.fn(() => cards.map((card, index) => createProjectionRow(card, index + 1)));
+  const readRows = vi.fn(() => cards.map((card, index) => createProjectionRow(card, index + 1, 2, queueType)));
   const applyQueueProjectionDelta = vi.fn((_delta: QueueProjectionDelta) => undefined);
   const queueProjection = {
     readGeneration: vi.fn(() => ({
-      queueType: QueueType.FinalDrill,
+      queueType,
       policyHash: 'policy-a',
       generation: 2,
       status: 'ready' as const,
@@ -114,6 +115,58 @@ async function flushDeferredMaintenance(): Promise<void> {
 }
 
 describe('WorkerReviewFeedbackRuntime', () => {
+  it('returns deferred impact before SRS projection maintenance reads rows', async () => {
+    const reviewed = createCard({ id: 'card-srs-deferred', blockId: 'block-srs-deferred' });
+    const peer = createCard({ id: 'card-srs-peer', blockId: 'block-srs-peer' });
+    const {
+      reviewRuntime,
+      readRows,
+      applyQueueProjectionDelta,
+    } = createRuntimeFixture([reviewed, peer], QueueType.RetrievalPractice);
+
+    const result = await reviewRuntime.reviewFeedback({
+      cardId: reviewed.id,
+      rating: 3,
+      queueType: QueueType.RetrievalPractice,
+      projectionGeneration: 2,
+      projectionPolicyHash: 'policy-a',
+      reviewedAt: REVIEWED_AT,
+      idempotencyKey: 'srs-deferred-1',
+    });
+
+    expect(readRows).not.toHaveBeenCalled();
+    expect(applyQueueProjectionDelta).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      committed: true,
+      queueImpact: {
+        hotPatchable: false,
+        refreshRequired: false,
+        affectedQueues: [{
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'policy-a',
+          generation: 2,
+          currentGeneration: 2,
+          requestedGeneration: 2,
+          outcome: 'deferred',
+          reason: 'review-feedback-deferred',
+          deferred: expect.objectContaining({
+            reason: 'review-feedback',
+            scheduled: true,
+          }),
+        }],
+      },
+    });
+
+    await flushDeferredMaintenance();
+
+    expect(readRows).toHaveBeenCalledOnce();
+    expect(applyQueueProjectionDelta).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.RetrievalPractice,
+      policyHash: 'policy-a',
+      generation: 3,
+    }));
+  });
+
   it('returns deferred impact before non-SRS projection maintenance reads rows', async () => {
     const reviewed = createCard({ id: 'card-deferred', blockId: 'block-deferred' });
     const peer = createCard({ id: 'card-peer', blockId: 'block-peer' });
@@ -184,6 +237,51 @@ describe('WorkerReviewFeedbackRuntime', () => {
         }),
       }),
     }));
+  });
+
+  it('returns feedback before slow projection maintenance host effects run', async () => {
+    const reviewed = createCard({ id: 'card-slow-host-effect', blockId: 'block-slow-host-effect' });
+    const peer = createCard({ id: 'card-slow-host-peer', blockId: 'block-slow-host-peer' });
+    const {
+      reviewRuntime,
+      readRows,
+      applyQueueProjectionDelta,
+    } = createRuntimeFixture([reviewed, peer], QueueType.RetrievalPractice);
+    readRows.mockImplementation(() => {
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 150) {
+        // Simulates a blocking host read such as sqlite delta manifest/sealed segment IO.
+      }
+      return [reviewed, peer].map((card, index) => (
+        createProjectionRow(card, index + 1, 2, QueueType.RetrievalPractice)
+      ));
+    });
+
+    const startedAt = Date.now();
+    const result = await reviewRuntime.reviewFeedback({
+      cardId: reviewed.id,
+      rating: 3,
+      queueType: QueueType.RetrievalPractice,
+      projectionGeneration: 2,
+      projectionPolicyHash: 'policy-a',
+      reviewedAt: REVIEWED_AT,
+      idempotencyKey: 'slow-host-effect-1',
+    });
+    const feedbackDurationMs = Date.now() - startedAt;
+
+    expect(readRows).not.toHaveBeenCalled();
+    expect(applyQueueProjectionDelta).not.toHaveBeenCalled();
+    expect(feedbackDurationMs).toBeLessThan(120);
+    expect(result.queueImpact?.affectedQueues[0]).toMatchObject({
+      queueType: QueueType.RetrievalPractice,
+      outcome: 'deferred',
+      reason: 'review-feedback-deferred',
+    });
+
+    await flushDeferredMaintenance();
+
+    expect(readRows).toHaveBeenCalledOnce();
+    expect(applyQueueProjectionDelta).toHaveBeenCalledOnce();
   });
 
   it('coalesces deferred projection maintenance by queue and policy identity', async () => {

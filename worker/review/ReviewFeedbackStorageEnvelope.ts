@@ -51,9 +51,7 @@ export class ReviewFeedbackStorageEnvelope {
         storage: journal.storage ?? 'unavailable',
         entryId: input.journalEntryId ?? journal.lastWrite?.entryId ?? null,
         idempotencyKey: input.result.idempotencyKey ?? null,
-        journalStatus: input.journalEntryId
-          ? 'projection-applied'
-          : journal.lastWrite?.status ?? null,
+        journalStatus: resolveLocalIntentJournalStatus(input, journal),
         pendingCount,
         pendingBytes: typeof journal.pendingBytes === 'number' ? journal.pendingBytes : null,
         error: journal.lastWrite?.error ?? null,
@@ -117,6 +115,18 @@ export class ReviewFeedbackStorageEnvelope {
       };
     }
   }
+}
+
+function resolveLocalIntentJournalStatus(
+  input: ReviewFeedbackStorageEnvelopeInput,
+  journal: BackendReviewFeedbackJournalDiagnostics,
+): BackendReviewFeedbackStorageState['localIntent']['journalStatus'] {
+  if (!input.journalEntryId) {
+    return journal.lastWrite?.status ?? null;
+  }
+  return journal.lastWrite?.entryId === input.journalEntryId
+    ? journal.lastWrite.status ?? 'prepared'
+    : 'prepared';
 }
 
 export function resolveReviewFeedbackSqlProjectionStatus(

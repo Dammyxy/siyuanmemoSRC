@@ -4807,7 +4807,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       storage: 'non-siyuan',
       pendingCount: 1,
       statusCounts: {
-        'projection-applied': 1,
+        prepared: 1,
       },
       lastCheckpoint: {
         ok: true,
@@ -4863,7 +4863,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
         storage: 'non-siyuan',
         entryId: 'review-feedback:review-hot-path-journal-key',
         idempotencyKey: 'review-hot-path-journal-key',
-        journalStatus: 'projection-applied',
+        journalStatus: 'prepared',
       },
       truthFlush: {
         status: 'pending',
@@ -4918,7 +4918,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
         version: 1,
         pendingCount: 1,
         statusCounts: {
-          'projection-applied': 1,
+          prepared: 1,
         },
         backpressure: {
           state: 'ok',
@@ -5320,7 +5320,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       storage: {
         localIntent: {
           durable: true,
-          journalStatus: 'projection-applied',
+          journalStatus: 'prepared',
         },
         truthFlush: {
           status: 'pending',
@@ -5333,7 +5333,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     expect(journalEntries).toHaveLength(1);
     expect(journalEntries[0]).toMatchObject({
       id: 'review-feedback:review-truth-v2-key',
-      status: 'projection-applied',
+      status: 'prepared',
       truthCandidate: {
         family: 'review-events',
         type: 'review.feedback.v2',
@@ -5531,7 +5531,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
         status: 'recorded',
         durable: true,
         entryId: 'review-feedback:review-storage-patch-key',
-        journalStatus: 'projection-applied',
+        journalStatus: 'prepared',
       },
       truthFlush: {
         status: 'pending',
@@ -5539,11 +5539,11 @@ describe('BackendReviewSyncRpcAdapter', () => {
         pendingCount: 1,
       },
       sqlProjection: {
-        status: 'patched',
-        hotPatchable: true,
+        status: 'deferred',
+        hotPatchable: false,
         refreshRequired: false,
         affectedQueueCount: 1,
-        projectionGeneration: 4,
+        projectionGeneration: 3,
       },
       sqlCheckpoint: {
         status: 'delta-recorded',
@@ -5553,8 +5553,12 @@ describe('BackendReviewSyncRpcAdapter', () => {
       },
     });
     expect(response.result.queueImpact).toMatchObject({
-      hotPatchable: true,
+      hotPatchable: false,
       refreshRequired: false,
+      affectedQueues: [expect.objectContaining({
+        outcome: 'deferred',
+        reason: 'review-feedback-deferred',
+      })],
     });
   });
 
@@ -6567,7 +6571,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     expect(writeSnapshotCalls).toBe(0);
     expect(journalEntries.has('review-feedback:review-journal-indexed-key')).toBe(true);
     expect(journalEntries.get('review-feedback:review-journal-indexed-key')).toMatchObject({
-      status: 'projection-applied',
+      status: 'prepared',
     });
     expect(journalEntries.size).toBe(10_001);
   });
@@ -6905,8 +6909,8 @@ describe('BackendReviewSyncRpcAdapter', () => {
     }
     expect(response.result.storage).toMatchObject({
       sqlProjection: {
-        status: 'patched',
-        hotPatchable: true,
+        status: 'deferred',
+        hotPatchable: false,
         refreshRequired: false,
       },
       sqlCheckpoint: {
@@ -6993,9 +6997,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     expect(writeJSON).not.toHaveBeenCalled();
   });
 
-  // Debt: this storage durability scenario currently fails below the RPC adapter seam.
-  // Keep it visible here, but do not mix the storage fix into the family-routing migration.
-  it('keeps projection-applied review feedback journal entries after explicit checkpoint for async truth flush', async () => {
+  it('keeps prepared review feedback journal entries after failed checkpoint while projection is deferred', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     let failMainDbWrite = false;
     const database = new WorkerSqliteDatabaseService({
@@ -7036,7 +7038,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       storage: 'non-siyuan',
       pendingCount: 1,
       statusCounts: {
-        'projection-applied': 1,
+        prepared: 1,
       },
       lastCheckpoint: {
         ok: false,
@@ -7907,7 +7909,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
           affectedQueues: [{
             queueType: 'retrieval-practice',
             reason: 'generation-mismatch',
-            currentGeneration: 6,
+            currentGeneration: 5,
             requestedGeneration: 4,
             refreshRequired: true,
           }],
@@ -7918,10 +7920,10 @@ describe('BackendReviewSyncRpcAdapter', () => {
       'SELECT generation, version FROM queue_projection_counters WHERE queue_type = ? AND policy_hash = ?',
       ['retrieval-practice', 'policy-a'],
     );
-    expect(counters).toMatchObject({ generation: 6, version: 6 });
+    expect(counters).toMatchObject({ generation: 5, version: 5 });
   });
 
-  it('updates projection rows and counter generation when reviewed card leaves retrieval queue', async () => {
+  it('defers projection rows and counter generation when reviewed card leaves retrieval queue', async () => {
     const reviewedAt = Date.now();
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -7961,18 +7963,15 @@ describe('BackendReviewSyncRpcAdapter', () => {
       expect(response.result).toMatchObject({
         committed: true,
         queueImpact: {
-          hotPatchable: true,
+          hotPatchable: false,
           refreshRequired: false,
           affectedQueues: [{
             queueType: 'retrieval-practice',
-            generation: 2,
-            removedRowIds: ['card-impact-remove'],
-            counterGeneration: 2,
-            counters: {
-              version: 2,
-              remaining: 0,
-              total: 0,
-            },
+            generation: 1,
+            outcome: 'deferred',
+            removedRowIds: [],
+            counterGeneration: null,
+            counters: null,
           }],
         },
       });
@@ -7981,10 +7980,10 @@ describe('BackendReviewSyncRpcAdapter', () => {
       'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ? AND card_id = ?',
       ['retrieval-practice', 'card-impact-remove'],
     );
-    expect(remainingRow?.count).toBe(0);
+    expect(remainingRow?.count).toBe(1);
   });
 
-  it('updates projection rows and counter generation when reviewed card leaves incremental queue', async () => {
+  it('defers projection rows and counter generation when reviewed card leaves incremental queue', async () => {
     const reviewedAt = Date.now();
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -8025,18 +8024,15 @@ describe('BackendReviewSyncRpcAdapter', () => {
       expect(response.result).toMatchObject({
         committed: true,
         queueImpact: {
-          hotPatchable: true,
+          hotPatchable: false,
           refreshRequired: false,
           affectedQueues: [{
             queueType: 'incremental-learning',
-            generation: 2,
-            removedRowIds: ['card-impact-incremental-remove'],
-            counterGeneration: 2,
-            counters: {
-              version: 2,
-              remaining: 0,
-              total: 0,
-            },
+            generation: 1,
+            outcome: 'deferred',
+            removedRowIds: [],
+            counterGeneration: null,
+            counters: null,
           }],
         },
       });
@@ -8045,7 +8041,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ? AND card_id = ?',
       ['incremental-learning', 'card-impact-incremental-remove'],
     );
-    expect(remainingRow?.count).toBe(0);
+    expect(remainingRow?.count).toBe(1);
   });
 
   // Debt: restart replay currently reports a missing derived cache below the RPC adapter seam.
@@ -8113,7 +8109,8 @@ describe('BackendReviewSyncRpcAdapter', () => {
         queueImpact: expect.objectContaining({
           affectedQueues: [expect.objectContaining({
             queueType: 'incremental-learning',
-            counters: expect.objectContaining({ remaining: 0 }),
+            outcome: 'deferred',
+            counters: null,
           })],
         }),
       }),
@@ -8131,8 +8128,10 @@ describe('BackendReviewSyncRpcAdapter', () => {
     });
     expect(afterReview).toEqual(expect.objectContaining({
       result: expect.objectContaining({
-        status: 'ready',
-        counters: expect.objectContaining({ remaining: 0 }),
+        status: 'refreshing',
+        cacheState: 'missing-derived-cache',
+        counters: null,
+        rows: [],
       }),
     }));
 
@@ -8156,6 +8155,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
     database.dispose();
     const restartedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    await restartedDatabase.load({ truthDeviceId: 'device-A' });
     const restartedKernel = new BackendKernel({
       database: restartedDatabase,
       truthFileStore: persistenceBridge.truthFileStore,
@@ -8438,10 +8438,17 @@ describe('BackendReviewSyncRpcAdapter', () => {
     const failingJournalStore = {
       ...persistenceBridge.reviewFeedbackJournalStore,
       async listEntriesByStatus(status: Parameters<typeof persistenceBridge.reviewFeedbackJournalStore.listEntriesByStatus>[0], limit: number) {
-        if (status === 'projection-applied' || status === 'truth-flushed') {
+        if (status === 'projection-applied' || status === 'truth-flushed' || status === 'prepared') {
           throw new Error('BACKEND_UNAVAILABLE: review journal projection reconciliation unavailable');
         }
         return persistenceBridge.reviewFeedbackJournalStore.listEntriesByStatus(status, limit);
+      },
+      async updateEntryStatus(
+        id: string,
+        status: Parameters<typeof persistenceBridge.reviewFeedbackJournalStore.updateEntryStatus>[1],
+        patch?: Record<string, unknown>,
+      ) {
+        return persistenceBridge.reviewFeedbackJournalStore.updateEntryStatus(id, status, patch);
       },
     };
     const restartedDatabase = new WorkerSqliteDatabaseService({
@@ -8469,7 +8476,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     }));
   });
 
-  it('rolls back review feedback card and log writes when projection impact persistence fails', async () => {
+  it('commits review feedback when deferred projection impact persistence later fails', async () => {
     const reviewedAt = Date.now();
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -8510,30 +8517,40 @@ describe('BackendReviewSyncRpcAdapter', () => {
       }],
     });
 
-    expect('error' in response).toBe(true);
+    expect('result' in response).toBe(true);
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result).toMatchObject({
+      committed: true,
+      queueImpact: {
+        hotPatchable: false,
+        affectedQueues: [expect.objectContaining({
+          queueType: 'retrieval-practice',
+          outcome: 'deferred',
+        })],
+      },
+    });
     const storedCard = await database.getCard(card.id);
     expect(storedCard).toMatchObject({
       id: card.id,
-      due: card.due,
-      reps: card.reps,
-      stability: card.stability,
-      difficulty: card.difficulty,
+      lastReview: reviewedAt,
     });
     expect(database.getOne<{ count: number }>(
       'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
       [card.id],
-    )?.count).toBe(0);
+    )?.count).toBe(1);
     expect(database.getOne<{ count: number }>(
       'SELECT COUNT(*) AS count FROM domain_sync_operations WHERE entity_id = ?',
       [card.id],
-    )?.count).toBe(0);
+    )?.count).toBe(1);
     expect(database.getOne<{ generation: number }>(
       'SELECT generation FROM queue_projection_counters WHERE queue_type = ? AND policy_hash = ?',
       ['retrieval-practice', 'policy-a'],
     )?.generation).toBe(1);
   });
 
-  it('rebuilds projection feedback impact from active-source cards only', async () => {
+  it('defers projection feedback impact rebuild from active-source cards', async () => {
     const reviewedAt = Date.now();
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -8581,26 +8598,21 @@ describe('BackendReviewSyncRpcAdapter', () => {
       const affectedQueue = response.result.queueImpact?.affectedQueues[0];
       expect(affectedQueue).toMatchObject({
         queueType: 'retrieval-practice',
-        generation: 2,
-        counters: {
-          remaining: 0,
-          total: 0,
-        },
+        generation: 1,
+        outcome: 'deferred',
+        counters: null,
       });
-      expect(affectedQueue?.removedRowIds).toEqual(expect.arrayContaining([
-        reviewed.id,
-        staleMissing.id,
-      ]));
+      expect(affectedQueue?.removedRowIds).toEqual([]);
     }
 
     const missingRow = database.getOne<{ count: number }>(
       'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ? AND card_id = ?',
       ['retrieval-practice', staleMissing.id],
     );
-    expect(missingRow?.count).toBe(0);
+    expect(missingRow?.count).toBe(1);
   });
 
-  it('returns updated row and reorder hint when remaining retrieval row moves forward', async () => {
+  it('defers updated row and reorder hint when remaining retrieval row moves forward', async () => {
     const reviewedAt = Date.now();
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -8646,28 +8658,20 @@ describe('BackendReviewSyncRpcAdapter', () => {
       expect(response.result).toMatchObject({
         committed: true,
         queueImpact: {
-          hotPatchable: true,
+          hotPatchable: false,
           refreshRequired: false,
           affectedQueues: [{
             queueType: 'retrieval-practice',
-            generation: 2,
-            removedRowIds: ['card-impact-reorder'],
-            counterGeneration: 2,
+            generation: 1,
+            outcome: 'deferred',
+            removedRowIds: [],
+            counterGeneration: null,
           }],
         },
       });
       const affectedQueue = response.result.queueImpact?.affectedQueues[0];
-      expect(affectedQueue?.updatedRows).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          rowId: 'card-impact-reorder-peer',
-          cardId: 'card-impact-reorder-peer',
-        }),
-      ]));
-      expect(affectedQueue?.reorderHints).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          rowId: 'card-impact-reorder-peer',
-        }),
-      ]));
+      expect(affectedQueue?.updatedRows).toEqual([]);
+      expect(affectedQueue?.reorderHints).toEqual([]);
     }
   });
 

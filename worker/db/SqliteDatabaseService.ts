@@ -1945,7 +1945,7 @@ export class WorkerSqliteDatabaseService {
       this.markReviewFeedbackOwnPersistedMainDbClean();
       if (committedJournalEntryId) {
         this.appliedReviewFeedbackJournalEntryIds.add(committedJournalEntryId);
-        await this.markReviewFeedbackJournalEntryProjectionApplied(
+        await this.markReviewFeedbackJournalEntryTruthRecorded(
           committedJournalEntryId,
           result.reviewedAt,
           truthCandidate,
@@ -2153,7 +2153,7 @@ export class WorkerSqliteDatabaseService {
     return this.reviewFeedbackJournalStore.appendEntry(entry);
   }
 
-  private async markReviewFeedbackJournalEntryProjectionApplied(
+  private async markReviewFeedbackJournalEntryTruthRecorded(
     entryId: string,
     appliedAt: number,
     truthCandidate?: MessagePackReviewEventTruthRecord | null,
@@ -2161,10 +2161,24 @@ export class WorkerSqliteDatabaseService {
     if (!this.reviewFeedbackJournalStore) {
       return;
     }
+    await this.reviewFeedbackJournalStore.updateEntryStatus(entryId, 'prepared', {
+      appliedAt,
+      ...(truthCandidate ? { truthCandidate: { ...truthCandidate, journalEntryId: entryId } } : {}),
+      projectionFailedAt: null,
+      lastError: null,
+    });
+  }
+
+  private async markReviewFeedbackJournalEntryProjectionApplied(
+    entryId: string,
+    appliedAt: number,
+  ): Promise<void> {
+    if (!this.reviewFeedbackJournalStore) {
+      return;
+    }
     await this.reviewFeedbackJournalStore.updateEntryStatus(entryId, 'projection-applied', {
       appliedAt,
       projectionAppliedAt: Date.now(),
-      ...(truthCandidate ? { truthCandidate: { ...truthCandidate, journalEntryId: entryId } } : {}),
       projectionFailedAt: null,
       lastError: null,
     });

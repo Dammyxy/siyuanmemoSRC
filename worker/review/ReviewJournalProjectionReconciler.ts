@@ -108,21 +108,25 @@ export class ReviewJournalProjectionReconciler {
       if (!reconciliation) {
         continue;
       }
-      if (entry.status === 'prepared') {
-        await this.markPreparedEntryProjectionApplied(entry.id, reconciliation.reviewedAt);
-      }
       for (const expanded of this.expandReconciliationPolicies(reconciliation)) {
         this.mergeReconciliation(groups, expanded);
       }
     }
 
+    const appliedPreparedEntries = new Map<string, number>();
     for (const reconciliation of groups.values()) {
-      if (!this.needsReconciliation(reconciliation)) {
-        continue;
+      if (this.needsReconciliation(reconciliation)) {
+        await this.deps.runTransaction('reviewFeedback.journal-projection-reconcile', () => {
+          this.replaceProjection(reconciliation);
+        }, { persist: false });
       }
-      await this.deps.runTransaction('reviewFeedback.journal-projection-reconcile', () => {
-        this.replaceProjection(reconciliation);
-      }, { persist: false });
+      for (const entryId of reconciliation.preparedEntryIds) {
+        appliedPreparedEntries.set(entryId, reconciliation.reviewedAt);
+      }
+    }
+
+    for (const [entryId, appliedAt] of appliedPreparedEntries) {
+      await this.markPreparedEntryProjectionApplied(entryId, appliedAt);
     }
   }
 

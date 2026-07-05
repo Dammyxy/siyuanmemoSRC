@@ -1,9 +1,6 @@
-import { buildQueueProjectionRows } from '@/application/services/queue-projection/QueueProjectionBuilder';
 import type { QueueProjectionRow } from '@/application/ports/QueueProjectionPort';
 import { QueueType } from '@/types/unified-data-source';
-import { CardType, type FSRSCard } from '@/types/card';
-import { DEFAULT_SETTINGS } from '@/types/settings';
-import type { StructuredCardQuery } from '@/types/card-query';
+import type { FSRSCard } from '@/types/card';
 import type { SqliteDatabaseService as RuntimeSqliteDatabaseService } from '@/infrastructure/persistence/sqlite';
 import type { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
 import type { SqlQueueProjectionRepository } from '@/infrastructure/persistence/sqlite/SqlQueueProjectionRepository';
@@ -33,10 +30,6 @@ type ProjectionWorkerQueueType =
   | QueueType.FinalDrill
   | QueueType.Leech
   | QueueType.NeuralRoam;
-
-type SrsProjectionWorkerQueueType =
-  | QueueType.RetrievalPractice
-  | QueueType.IncrementalLearning;
 
 type WorkerReviewFeedbackTransactionOptions = {
   persist?: boolean;
@@ -204,7 +197,7 @@ export class WorkerReviewFeedbackRuntime {
     if (!projectionQueueType) {
       return null;
     }
-    if (isSrsProjectionQueueType(projectionQueueType) && (!input.committed || !input.updatedCard)) {
+    if (isFormalSrsProjectionQueueType(projectionQueueType) && (!input.committed || !input.updatedCard)) {
       return null;
     }
 
@@ -243,128 +236,18 @@ export class WorkerReviewFeedbackRuntime {
     );
 
     const policyHash = currentGeneration.policyHash;
-    if (!isSrsProjectionQueueType(projectionQueueType)) {
-      return this.buildDeferredReviewFeedbackQueueImpact({
-        queueType: projectionQueueType,
-        policyHash,
-        requestedGeneration,
-        requestedCurrentGeneration: currentGeneration.generation,
-        hasGenerationMismatch,
-        request: input.request,
-        reviewedCard: input.reviewedCard,
-        committed: input.committed,
-        reviewedAt: input.reviewedAt,
-      });
-    }
-
-    const previousRows = this.measureQueueImpactStep(
-      'projection-read-rows',
-      input.queueType,
-      input.reviewedCard.id,
-      () => this.deps.queueProjection!.readRows({
-        queueType: projectionQueueType,
-        policyHash,
-        limit: 5000,
-      }),
-    );
-    const nextGeneration = currentGeneration.generation + 1;
-    const updatedAt = input.reviewedAt;
-    const dayEnd = getDayEndForTimestamp(
-      input.reviewedAt,
-      normalizeDayStartHour(DEFAULT_SETTINGS.fsrs.dayStartHour),
-    );
-    const baseCards = this.measureQueueImpactStep(
-      'projection-read-source-cards',
-      input.queueType,
-      input.reviewedCard.id,
-      () => this.readProjectionSourceCards(projectionQueueType, dayEnd),
-    );
-    const buildResult = this.measureQueueImpactStep(
-      'projection-build-rows',
-      input.queueType,
-      input.reviewedCard.id,
-      () => buildQueueProjectionRows({
-        queueType: projectionQueueType,
-        baseCards,
-        now: input.reviewedAt,
-        dayEnd,
-        newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
-        reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
-        priorityRandomness: DEFAULT_SETTINGS.priorityRandomness,
-        learnAheadWindowEnd: input.reviewedAt
-          + DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.windowMinutes * 60 * 1000,
-        learnAheadMaxCards: DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.maxCards,
-        stableSalt: `${projectionQueueType}:${policyHash}`,
-        policyHash,
-        sourceGeneration: nextGeneration,
-        updatedAt,
-      }),
-    );
-
-    const nextRows = buildResult.rows;
-    const delta = buildQueueProjectionDelta({
-      previousRows,
-      nextRows,
-    });
-
-    this.measureQueueImpactStep(
-      'projection-apply-delta',
-      input.queueType,
-      input.reviewedCard.id,
-      () => this.deps.queueProjection!.applyQueueProjectionDelta({
-        queueType: projectionQueueType,
-        policyHash,
-        generation: nextGeneration,
-        removeRowIds: delta.removedRowIds,
-        upsertRows: nextRows,
-        counters: buildResult.counters,
-        invalidation: {
-          queueType: projectionQueueType,
-          reason: 'review-feedback',
-          affectedCardIds: [input.updatedCard.id],
-          affectedBlockIds: input.updatedCard.blockId ? [input.updatedCard.blockId] : [],
-          generation: nextGeneration,
-          metadata: {
-            reviewedCardId: input.updatedCard.id,
-            hotPatchable: true,
-          },
-        },
-      }),
-    );
-
-    if (hasGenerationMismatch) {
-      return buildRefreshRequiredQueueImpact({
-        queueType: projectionQueueType,
-        reason: 'generation-mismatch',
-        policyHash,
-        currentGeneration: nextGeneration,
-        requestedGeneration,
-      });
-    }
-
-    const affectedQueue: BackendReviewFeedbackQueueImpactEntry = {
+    return this.buildDeferredReviewFeedbackQueueImpact({
       queueType: projectionQueueType,
       policyHash,
-      generation: nextGeneration,
-      currentGeneration: nextGeneration,
-      requestedGeneration: requestedGeneration ?? currentGeneration.generation,
-      outcome: 'patch-applied',
-      hotPatchable: true,
-      refreshRequired: false,
-      reason: 'review-feedback',
-      removedRowIds: delta.removedRowIds,
-      insertedRows: delta.insertedRows,
-      updatedRows: delta.updatedRows,
-      reorderHints: delta.reorderHints,
-      counterGeneration: buildResult.counters.generation,
-      counters: buildResult.counters,
-    };
+      requestedGeneration,
+      requestedCurrentGeneration: currentGeneration.generation,
+      hasGenerationMismatch,
+      request: input.request,
+      reviewedCard: input.updatedCard ?? input.reviewedCard,
+      committed: input.committed,
+      reviewedAt: input.reviewedAt,
+    });
 
-    return {
-      hotPatchable: true,
-      refreshRequired: false,
-      affectedQueues: [affectedQueue],
-    };
   }
 
   private buildDeferredReviewFeedbackQueueImpact(input: {
@@ -624,28 +507,6 @@ export class WorkerReviewFeedbackRuntime {
     return true;
   }
 
-  private readProjectionSourceCards(
-    queueType: SrsProjectionWorkerQueueType,
-    dayEnd: number,
-  ): FSRSCard[] {
-    const cardTypes = queueType === QueueType.RetrievalPractice
-      ? [CardType.Item, CardType.Descriptor]
-      : [
-        CardType.Item,
-        CardType.Descriptor,
-        CardType.Topic,
-        CardType.Concept,
-        CardType.Incremental,
-        CardType.Webpage,
-      ];
-    return this.deps.repository.queryCards({
-      cardTypes,
-      dueDate: { lte: dayEnd },
-      includeSuspended: false,
-      sourceStatus: 'active',
-    } satisfies StructuredCardQuery);
-  }
-
   private measureQueueImpactStep<TResult>(
     step: string,
     queueType: string,
@@ -685,15 +546,15 @@ function isProjectionWorkerQueueType(queueType: string): queueType is Projection
     || queueType === QueueType.NeuralRoam;
 }
 
-function isSrsProjectionQueueType(queueType: ProjectionWorkerQueueType): queueType is SrsProjectionWorkerQueueType {
-  return queueType === QueueType.RetrievalPractice || queueType === QueueType.IncrementalLearning;
-}
-
 function resolveProjectionQueueType(queueType: string): ProjectionWorkerQueueType | null {
   if (isProjectionWorkerQueueType(queueType)) {
     return queueType;
   }
   return null;
+}
+
+function isFormalSrsProjectionQueueType(queueType: ProjectionWorkerQueueType): boolean {
+  return queueType === QueueType.RetrievalPractice || queueType === QueueType.IncrementalLearning;
 }
 
 function resolveDeferredReviewFeedbackProjectionMaintenanceQueue(
@@ -963,22 +824,6 @@ function buildProjectionSortKeyFromRow(row: QueueProjectionRow, queueIndexHint: 
   const duePart = String(Math.max(0, Number(row.dueAt) || 0)).padStart(16, '0');
   const priorityPart = String(Math.max(0, Math.min(100, Math.floor(Number(row.priorityScore) || 0)))).padStart(3, '0');
   return `${indexPart}:${duePart}:${priorityPart}:${row.rowId || row.cardId}`;
-}
-
-function getDayEndForTimestamp(timestamp: number, dayStartHour: number): number {
-  const now = new Date(timestamp);
-  const start = new Date(now);
-  if (now.getHours() < dayStartHour) {
-    start.setDate(start.getDate() - 1);
-  }
-  start.setHours(dayStartHour, 0, 0, 0);
-  start.setDate(start.getDate() + 1);
-  return start.getTime();
-}
-
-function normalizeDayStartHour(value: unknown): number {
-  const hour = Math.floor(Number(value));
-  return Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : 4;
 }
 
 function normalizeOptionalInteger(value: unknown): number | null {

@@ -248,9 +248,10 @@ export class ReviewFeedbackTruthFlushRuntime {
 
   async flushProjectionApplied(): Promise<ReviewFeedbackTruthFlushResult> {
     const at = this.now();
-    const projectionApplied = (await this.journalStore.listEntriesByStatus('projection-applied', this.batchLimit))
+    const projectionApplied = (await this.readFlushableEntries())
       .map(normalizeEntry)
       .filter((entry): entry is ReviewFeedbackJournalEntry => entry !== null)
+      .filter((entry) => entry.status === 'projection-applied' || entry.truthCandidate !== null)
       .sort((left, right) => left.recordedAt - right.recordedAt)
       .slice(0, this.batchLimit);
     if (projectionApplied.length === 0) {
@@ -332,5 +333,14 @@ export class ReviewFeedbackTruthFlushRuntime {
       };
       return this.lastResult;
     }
+  }
+
+  private async readFlushableEntries(): Promise<unknown[]> {
+    const projectionApplied = await this.journalStore.listEntriesByStatus('projection-applied', this.batchLimit);
+    if (projectionApplied.length >= this.batchLimit) {
+      return projectionApplied.slice(0, this.batchLimit);
+    }
+    const prepared = await this.journalStore.listEntriesByStatus('prepared', this.batchLimit - projectionApplied.length);
+    return [...projectionApplied, ...prepared];
   }
 }
