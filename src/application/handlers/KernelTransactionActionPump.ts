@@ -278,7 +278,9 @@ export class KernelTransactionActionPump {
     } catch (error) {
       pollStatus = 'error';
       this.resetEmptyPollBackoff();
-      if (this.recordNoWriterUnavailableBackoff(error)) {
+      if (this.recordFollowerWriterLeaseContentionBackoff(error)) {
+        incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-follower-writer-lease-contention-skips');
+      } else if (this.recordNoWriterUnavailableBackoff(error)) {
         logger.warn('Kernel transaction action polling failed', {
           message: error instanceof Error ? error.message : String(error || ''),
         });
@@ -364,6 +366,19 @@ export class KernelTransactionActionPump {
       this.pollIntervalMs * (2 ** this.backendHealthUnavailableStreak),
     );
     this.nextBackendHealthUnavailablePollAllowedAt = Date.now() + delayMs;
+    return true;
+  }
+
+  private recordFollowerWriterLeaseContentionBackoff(error: unknown): boolean {
+    if (!this.isFollowerWriterLeaseContentionError(error)) {
+      return false;
+    }
+    this.noWriterUnavailableStreak += 1;
+    const delayMs = Math.min(
+      this.emptyPollBackoffMaxMs,
+      this.pollIntervalMs * (2 ** this.noWriterUnavailableStreak),
+    );
+    this.nextNoWriterUnavailablePollAllowedAt = Date.now() + delayMs;
     return true;
   }
 
@@ -568,6 +583,15 @@ export class KernelTransactionActionPump {
     }
     const message = error instanceof Error ? error.message : String(error || '');
     return message.includes('writer command unavailable: no active writer lease');
+  }
+
+  private isFollowerWriterLeaseContentionError(error: unknown): boolean {
+    if (this.runtime?.getMode?.() === 'writer') {
+      return false;
+    }
+    const message = error instanceof Error ? error.message : String(error || '');
+    return message.startsWith('BACKEND_UNAVAILABLE:')
+      && message.includes('writer lease held by another instance');
   }
 
   private markNoActiveWriterRelayUnavailable(error: unknown): void {

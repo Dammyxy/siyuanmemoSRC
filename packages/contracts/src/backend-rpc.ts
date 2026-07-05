@@ -2784,6 +2784,7 @@ export type BackendReviewFeedbackSqlProjectionStatus =
 
 export type BackendReviewFeedbackSqlCheckpointStatus =
   | 'not-run'
+  | 'delta-recorded'
   | 'checkpointed'
   | 'failed'
   | 'unknown';

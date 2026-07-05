@@ -32,6 +32,143 @@ function createDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('browserQueueProjectionWarmupRuntime', () => {
+  it('defers broad sidebar warmup during active Review and warms only the visible queue immediately', async () => {
+    vi.useFakeTimers();
+    const ensureQueueReadModelReady = vi.fn(async (request) => ({
+      status: 'ready',
+      queueId: request.queueType,
+      policyId: `policy-${request.queueType}`,
+      generation: 12,
+    }));
+    const deps = createDeps({
+      activeQueueId: ref('incremental-learning'),
+      browserAppService: ref({ ensureQueueReadModelReady }),
+      reviewPressure: ref({
+        active: true,
+        activeQueueType: QueueType.IncrementalLearning,
+      }),
+    });
+    const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.schedule('browser-open', 0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
+      QueueType.IncrementalLearning,
+    ]);
+    expect(deps.logger.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][SRSBrowser] Queue projection warmup deferred during active Review',
+      expect.objectContaining({
+        reason: 'browser-open',
+        deferredQueueIds: ['retrieval', 'final-drill', 'filter-group'],
+      }),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it('coalesces repeated non-active live identity warmups during active Review', async () => {
+    vi.useFakeTimers();
+    const ensureQueueReadModelReady = vi.fn(async (request) => ({
+      status: 'ready',
+      queueId: request.queueType,
+      policyId: `policy-${request.queueType}`,
+      generation: 13,
+    }));
+    const deps = createDeps({
+      activeQueueId: ref('incremental-learning'),
+      browserAppService: ref({ ensureQueueReadModelReady }),
+      reviewPressure: ref({
+        active: true,
+        activeQueueType: QueueType.IncrementalLearning,
+      }),
+    });
+    const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.handleLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: 'final-drill',
+      queueType: QueueType.FinalDrill,
+      policyId: 'policy-final-drill',
+      generation: 10,
+      reason: 'refreshed',
+      source: 'runtime',
+      timestamp: 1,
+    });
+    runtime.handleLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: 'final-drill',
+      queueType: QueueType.FinalDrill,
+      policyId: 'policy-final-drill',
+      generation: 11,
+      reason: 'materialized',
+      source: 'runtime',
+      timestamp: 2,
+    });
+
+    await vi.advanceTimersByTimeAsync(749);
+    expect(ensureQueueReadModelReady).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.FinalDrill,
+      source: 'browser',
+    }));
+    expect(deps.logger.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][SRSBrowser] Queue projection warmup deferred during active Review',
+      expect.objectContaining({
+        reason: 'live-identity:materialized',
+        deferredQueueIds: ['final-drill'],
+      }),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it('defers repairable non-active projection repair during active Review', async () => {
+    vi.useFakeTimers();
+    const ensureQueueReadModelReady = vi.fn(async (request) => ({
+      status: 'refreshing',
+      queueId: request.queueType,
+      policyId: `policy-${request.queueType}`,
+      cause: 'projection_stale',
+      retryAfterMs: 300,
+    }));
+    const repairQueueReadModel = vi.fn(async () => true);
+    const deps = createDeps({
+      activeQueueId: ref('incremental-learning'),
+      browserAppService: ref({ ensureQueueReadModelReady, repairQueueReadModel }),
+      reviewPressure: ref({
+        active: true,
+        activeQueueType: QueueType.IncrementalLearning,
+      }),
+    });
+    const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.handleLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: 'filter-group',
+      queueType: QueueType.FilterGroup,
+      policyId: null,
+      generation: null,
+      reason: 'invalidated',
+      source: 'runtime',
+      timestamp: 1,
+    });
+
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(repairQueueReadModel).not.toHaveBeenCalled();
+    expect(runtime.getStatus('filter-group')).toMatchObject({
+      status: 'refreshing',
+      cause: 'projection_stale',
+    });
+
+    vi.useRealTimers();
+  });
+
   it('warms the active queue first and then every sidebar projection-backed queue on browser open', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({

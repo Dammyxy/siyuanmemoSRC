@@ -204,6 +204,53 @@ describe('ReviewFeedbackStorageEnvelope', () => {
     });
   });
 
+  it('treats committed journal plus unapplied SQL delta as durable when no hot checkpoint ran', async () => {
+    const envelope = new ReviewFeedbackStorageEnvelope({
+      readJournalDiagnostics: vi.fn(async () => createJournalDiagnostics()),
+      readSqliteDeltaDiagnostics: vi.fn(async () => createSqliteDeltaDiagnostics({
+        pendingCount: 3,
+        pendingBytes: 789,
+        deltaWritesTotal: 3,
+        checkpointWritesTotal: 0,
+        lastWrite: {
+          ok: true,
+          at: REVIEWED_AT + 2,
+          classification: 'delta',
+          label: 'review.feedback',
+          cause: 'review.feedback',
+          initiator: 'review.feedback',
+          projectionGeneration: 7,
+          hotPath: true,
+          pendingCount: 3,
+          pendingBytes: 789,
+          affectedTables: ['cards', 'review_events'],
+          skippedDerivedTables: [],
+          skippedDerivedChangeCount: 0,
+          deltaEntryId: 'delta-entry-a',
+          deltaEntriesWritten: 1,
+          checkpointStorageClass: 'volatile-projection',
+          error: null,
+        },
+        lastCheckpoint: null,
+      })),
+    });
+
+    const storage = await envelope.build({
+      result: createResult(),
+      journalEntryId: 'entry-a',
+    });
+
+    expect(storage.sqlCheckpoint).toMatchObject({
+      status: 'delta-recorded',
+      hotPath: true,
+      cause: 'review.feedback',
+      initiator: 'review.feedback',
+      projectionGeneration: 7,
+      byteLength: 789,
+      error: null,
+    });
+  });
+
   it('maps queue impact outcomes to SQL projection status', () => {
     expect(resolveReviewFeedbackSqlProjectionStatus(createQueueImpact({ hotPatchable: true }))).toBe('patched');
     expect(resolveReviewFeedbackSqlProjectionStatus(createQueueImpact({ refreshRequired: true }))).toBe('refresh-required');

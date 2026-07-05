@@ -211,6 +211,197 @@ describe('SrsBackendClient', () => {
     }
   });
 
+  it('accepts committed feedback when truth flush and projection maintenance are still pending', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        if (request.method === 'review.feedback') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: createDurableReviewFeedbackResult({
+              queueImpact: {
+                hotPatchable: false,
+                refreshRequired: true,
+                affectedQueues: [{
+                  queueId: 'incremental-learning',
+                  queueType: 'incremental-learning',
+                  outcome: 'deferred',
+                }],
+              },
+              storage: {
+                ...(createDurableReviewFeedbackResult().storage as Record<string, unknown>),
+                localIntent: {
+                  status: 'recorded',
+                  durable: true,
+                  storage: 'non-siyuan',
+                  entryId: 'review-feedback:pending-secondary-key',
+                  idempotencyKey: 'pending-secondary-key',
+                  journalStatus: 'prepared',
+                  pendingCount: 1,
+                  pendingBytes: 256,
+                  error: null,
+                },
+                truthFlush: {
+                  status: 'pending',
+                  family: 'review-events',
+                  syncVisible: false,
+                  pendingCount: 1,
+                  oldestPendingAgeMs: 0,
+                  lastError: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect truth.writeBinary',
+                },
+                sqlProjection: {
+                  status: 'deferred',
+                  hotPatchable: false,
+                  refreshRequired: true,
+                  affectedQueueCount: 1,
+                  projectionGeneration: null,
+                },
+              },
+            }),
+          };
+        }
+        throw new Error(`Unexpected backend method ${request.method}`);
+      }),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.reviewFeedback({
+      cardId: 'card-review-pending-secondary',
+      rating: 3,
+      queueType: 'incremental-learning',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+      idempotencyKey: 'pending-secondary-key',
+    })).resolves.toMatchObject({
+      committed: true,
+      storage: {
+        localIntent: expect.objectContaining({ journalStatus: 'prepared' }),
+        truthFlush: expect.objectContaining({ status: 'pending' }),
+        sqlProjection: expect.objectContaining({ status: 'deferred' }),
+      },
+    });
+  });
+
+  it('retries queued Review truth flush when feedback pressure suppresses truth persistence', async () => {
+    vi.useFakeTimers();
+    try {
+      const requests: Array<{ method: string; params: unknown }> = [];
+      let truthFlushAttempts = 0;
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          requests.push({ method: request.method, params: request.params });
+          if (request.method === 'review.feedback') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: createDurableReviewFeedbackResult(),
+            };
+          }
+          if (request.method === 'review.truth.flush') {
+            truthFlushAttempts += 1;
+            if (truthFlushAttempts === 1) {
+              throw new Error('BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect truth.writeBinary');
+            }
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                at: 1_700_000_000_200,
+                journalQueued: 1,
+                recordsWritten: 1,
+                segmentWritten: true,
+                manifestUpdated: true,
+                projectionRefreshScheduled: true,
+                idempotencyDuplicateSkipped: 0,
+                flushedEntryIds: ['review-feedback:truth-flush-key'],
+                segmentPaths: ['truth/review-events/review-events-v1/device-device-A/seg-000002-test.msgpack'],
+                error: null,
+              },
+            };
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 8,
+          delayMs: 50,
+        },
+      });
+
+      await client.reviewFeedback({
+        cardId: 'card-review-truth-flush-pressure',
+        rating: 3,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        idempotencyKey: 'truth-flush-key',
+      });
+
+      await vi.advanceTimersByTimeAsync(50);
+      await vi.waitFor(() => expect(truthFlushAttempts).toBe(2));
+      expect(requests.map((request) => request.method)).toEqual([
+        'review.feedback',
+        'review.truth.flush',
+        'review.truth.flush',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not retry queued Review truth flush for non-pressure persistence errors', async () => {
+    vi.useFakeTimers();
+    try {
+      let truthFlushAttempts = 0;
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          if (request.method === 'review.feedback') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: createDurableReviewFeedbackResult(),
+            };
+          }
+          if (request.method === 'review.truth.flush') {
+            truthFlushAttempts += 1;
+            throw new Error('BACKEND_UNAVAILABLE: truth.writeBinary host effect unavailable');
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 8,
+          delayMs: 50,
+        },
+      });
+
+      await client.reviewFeedback({
+        cardId: 'card-review-truth-flush-real-error',
+        rating: 3,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        idempotencyKey: 'truth-flush-real-error-key',
+      });
+
+      await vi.advanceTimersByTimeAsync(50);
+      await vi.waitFor(() => expect(truthFlushAttempts).toBe(1));
+      await vi.advanceTimersByTimeAsync(500);
+      expect(truthFlushAttempts).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('flushes Review truth immediately when pending feedback reaches threshold 8', async () => {
     vi.useFakeTimers();
     try {

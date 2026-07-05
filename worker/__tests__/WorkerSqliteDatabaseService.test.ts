@@ -625,6 +625,89 @@ describe('WorkerSqliteDatabaseService', () => {
     });
   });
 
+  it('previews domain sync repair without missing hash helper errors', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(bridge);
+    await database.init();
+    await database.upsertCards([{
+      id: 'repair-preview-card',
+      blockId: 'repair-preview-block',
+      due: 1_700_000_000_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_699_900_000_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_699_800_000_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'repair preview card' },
+    }]);
+    await database.runTransaction('seed.repair-preview-review-history', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'repair-preview-event',
+          'repair-preview-card',
+          'repair-preview-attempt',
+          3,
+          1_700_100_000_000,
+          'repair-preview-commit',
+          2026,
+          5,
+          'review-v2',
+          JSON.stringify({
+            rating: 3,
+            reviewedAt: 1_700_100_000_000,
+            after: {
+              due: 1_700_200_000_000,
+              stability: 6,
+              difficulty: 4,
+              lastReview: 1_700_100_000_000,
+              reps: 2,
+              lapses: 0,
+              state: CardState.Review,
+              elapsedDays: 2,
+              scheduledDays: 5,
+              schedulerType: 'fsrs',
+            },
+          }),
+        ],
+      );
+    });
+
+    await expect(database.previewDomainSyncRepair({
+      cardIds: ['repair-preview-card'],
+      includeUnrepairable: true,
+      limit: 10,
+    }, 1_700_300_000_000)).resolves.toMatchObject({
+      ok: true,
+      status: 'preview',
+      affectedCardCount: 1,
+      plannedMutations: [
+        expect.objectContaining({ cardId: 'repair-preview-card' }),
+      ],
+      schedulerEvidence: expect.objectContaining({
+        configHash: expect.any(String),
+      }),
+    });
+    expect(database.getOne<{ plan_id: string }>(
+      'SELECT plan_id FROM domain_sync_repair_plans WHERE affected_card_count = ?',
+      [1],
+    )?.plan_id).toContain('domain-sync-repair-preview:1700300000000:');
+  });
+
   it('replays registered table deletes by primary key rather than rowid', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));

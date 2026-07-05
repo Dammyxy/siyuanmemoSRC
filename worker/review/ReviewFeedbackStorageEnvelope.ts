@@ -22,13 +22,19 @@ export class ReviewFeedbackStorageEnvelope {
     const journal = await this.deps.readJournalDiagnostics();
     const sqliteDelta = await this.tryReadSqliteDeltaDiagnostics();
     const checkpoint = sqliteDelta.diagnostics?.lastCheckpoint ?? null;
+    const lastDeltaWrite = sqliteDelta.diagnostics?.lastWrite ?? null;
     const queueImpact = input.result.queueImpact ?? null;
     const pendingCount = typeof journal.pendingCount === 'number' ? journal.pendingCount : null;
     const hotPathCheckpoint = checkpoint?.hotPath === true;
+    const hotPathDelta = lastDeltaWrite?.hotPath === true
+      && lastDeltaWrite.ok === true
+      && lastDeltaWrite.classification === 'delta';
     const checkpointStatus = sqliteDelta.error
       ? 'unknown'
       : hotPathCheckpoint
       ? (checkpoint?.ok === true ? 'checkpointed' : 'failed')
+      : hotPathDelta
+      ? 'delta-recorded'
       : 'not-run';
     const localIntentStatus = input.result.committed
       ? (journal.storage === 'non-siyuan' ? 'recorded' : 'unavailable')
@@ -65,12 +71,16 @@ export class ReviewFeedbackStorageEnvelope {
       },
       sqlCheckpoint: {
         status: checkpointStatus,
-        hotPath: hotPathCheckpoint,
-        cause: hotPathCheckpoint ? checkpoint?.cause ?? null : null,
-        initiator: hotPathCheckpoint ? checkpoint?.initiator ?? null : null,
-        projectionGeneration: hotPathCheckpoint ? checkpoint?.projectionGeneration ?? null : null,
-        byteLength: hotPathCheckpoint ? checkpoint?.byteLength ?? null : null,
-        error: sqliteDelta.error ?? (hotPathCheckpoint ? checkpoint?.error ?? null : null),
+        hotPath: hotPathCheckpoint || hotPathDelta,
+        cause: hotPathCheckpoint ? checkpoint?.cause ?? null : hotPathDelta ? lastDeltaWrite?.cause ?? null : null,
+        initiator: hotPathCheckpoint ? checkpoint?.initiator ?? null : hotPathDelta ? lastDeltaWrite?.initiator ?? null : null,
+        projectionGeneration: hotPathCheckpoint
+          ? checkpoint?.projectionGeneration ?? null
+          : hotPathDelta
+          ? lastDeltaWrite?.projectionGeneration ?? null
+          : null,
+        byteLength: hotPathCheckpoint ? checkpoint?.byteLength ?? null : hotPathDelta ? lastDeltaWrite?.pendingBytes ?? null : null,
+        error: sqliteDelta.error ?? (hotPathCheckpoint ? checkpoint?.error ?? null : hotPathDelta ? lastDeltaWrite?.error ?? null : null),
       },
     };
   }

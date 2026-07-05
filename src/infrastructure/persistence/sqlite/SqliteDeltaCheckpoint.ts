@@ -223,6 +223,11 @@ function isOpenSegmentChecksumMismatch(error: unknown): boolean {
   return describeError(error) === `SQLite delta segment checksum mismatch: ${SQLITE_DELTA_OPEN_SEGMENT_FILE}`;
 }
 
+function isCorruptOpenSegmentCheckpointRepairReason(reason: string): boolean {
+  return normalizeString(reason) === 'corrupt-open-segment-checkpoint-repair'
+    || normalizeString(reason).endsWith(':corrupt-open-segment-checkpoint-repair');
+}
+
 function emptyManifest(updatedAt = 0): SqliteDeltaSegmentManifest {
   return {
     version: SQLITE_DELTA_LOG_VERSION,
@@ -237,6 +242,30 @@ function emptyManifest(updatedAt = 0): SqliteDeltaSegmentManifest {
 
 function sqliteDeltaSealedSegmentFile(sequence: number): string {
   return `${SQLITE_DELTA_LOG_DIR}/sqlite-delta-log.v2.sealed-${sequence}.msgpack`;
+}
+
+function legacySqliteDeltaSegmentPath(path: string): string {
+  const normalized = normalizeString(path).replace(/\\/g, '/');
+  const slashIndex = normalized.lastIndexOf('/');
+  return slashIndex >= 0 ? normalized.slice(slashIndex + 1) : normalized;
+}
+
+function describeSegmentCandidateMismatch(input: {
+  path: string;
+  candidatePath: string;
+  expectedChecksum: string;
+  expectedByteSize: number;
+  actualChecksum: string | null;
+  actualByteSize: number | null;
+}): string {
+  return [
+    `SQLite delta sealed segment unrecoverable: ${input.path}`,
+    `candidate=${input.candidatePath}`,
+    `expectedChecksum=${input.expectedChecksum || '<empty>'}`,
+    `actualChecksum=${input.actualChecksum ?? '<missing>'}`,
+    `expectedByteSize=${input.expectedByteSize}`,
+    `actualByteSize=${input.actualByteSize ?? '<missing>'}`,
+  ].join(' ');
 }
 
 function normalizeManifest(value: unknown): SqliteDeltaSegmentManifest {
@@ -927,7 +956,7 @@ export class SqliteDeltaCheckpointLayer {
     try {
       snapshot = await this.readSnapshot();
     } catch (error) {
-      if (!this.canClearDeltaAfterCheckpoint()) {
+      if (!this.canClearDeltaAfterCheckpoint() && !isOpenSegmentChecksumMismatch(error)) {
         throw error;
       }
       const diagnostics = normalizeDiagnosticsContext(input.diagnostics);
@@ -1104,7 +1133,7 @@ export class SqliteDeltaCheckpointLayer {
       const writeResult = await this.appendDeltaEntryToSegments(snapshot.manifest, entry);
       nextSnapshot.manifest = writeResult.manifest;
     } catch (error) {
-      if (this.canClearDeltaAfterCheckpoint() && isOpenSegmentChecksumMismatch(error)) {
+      if (isOpenSegmentChecksumMismatch(error)) {
         const reason = 'corrupt-open-segment-checkpoint-repair';
         this.checkpointOnlyTotal += 1;
         const checkpointDiagnostics: SqliteDeltaDiagnosticsContext = {
@@ -1351,7 +1380,12 @@ export class SqliteDeltaCheckpointLayer {
     diagnosticsContext?: SqliteDeltaDiagnosticsContext,
   ): Promise<void> {
     const snapshot = await this.readSnapshot().catch(async (snapshotReadError) => {
-      if (!this.canClearDeltaAfterCheckpoint()) {
+      const canClearUnreadablePending = this.canClearDeltaAfterCheckpoint()
+        || (
+          isCorruptOpenSegmentCheckpointRepairReason(reason)
+          && isOpenSegmentChecksumMismatch(snapshotReadError)
+        );
+      if (!canClearUnreadablePending) {
         throw snapshotReadError;
       }
       await this.clearUnreadablePendingAfterCheckpoint(reason, byteLength, diagnosticsContext, snapshotReadError);
@@ -1361,7 +1395,8 @@ export class SqliteDeltaCheckpointLayer {
       return;
     }
     const pendingBytes = estimateJsonByteLength(snapshot);
-    const clearCoveredDeltas = this.canClearDeltaAfterCheckpoint();
+    const clearCoveredDeltas = this.canClearDeltaAfterCheckpoint()
+      || isCorruptOpenSegmentCheckpointRepairReason(reason);
     let cleanupError: string | null = null;
     if (snapshot.entries.length > 0 && clearCoveredDeltas) {
       const coveredSegmentPaths = [
@@ -1595,24 +1630,67 @@ export class SqliteDeltaCheckpointLayer {
 
   private shouldReplayVolatileCheckpointSegments(manifest: SqliteDeltaSegmentManifest): boolean {
     return this.checkpointStorageClass === 'volatile-projection'
+      && !isCorruptOpenSegmentCheckpointRepairReason(manifest.checkpoint?.reason ?? '')
       && Array.isArray(manifest.checkpoint?.coveredSegmentPaths)
       && manifest.checkpoint.coveredSegmentPaths.length > 0;
   }
 
   private async readSegmentEnvelope(segment: SqliteDeltaSegmentManifestEntry): Promise<SqliteDeltaSegmentEnvelope> {
-    const bytes = await this.fileService.readBinary(segment.path);
-    if (!bytes) {
-      throw new Error(`SQLite delta segment missing: ${segment.path}`);
-    }
-    const checksum = checksumBytes(bytes);
-    if (segment.checksum && checksum !== segment.checksum) {
-      throw new Error(`SQLite delta segment checksum mismatch: ${segment.path}`);
-    }
+    const bytes = await this.readSegmentBytes(segment);
     const envelope = normalizeSegmentEnvelope(decode(bytes), segment.path);
     if (envelope.entries.length !== segment.entryCount) {
       throw new Error(`SQLite delta segment entry count mismatch: ${segment.path}`);
     }
     return envelope;
+  }
+
+  private async readSegmentBytes(segment: SqliteDeltaSegmentManifestEntry): Promise<Uint8Array> {
+    const bytes = await this.fileService.readBinary(segment.path);
+    if (!bytes) {
+      return this.recoverMissingSealedSegmentBytes(segment);
+    }
+    const checksum = checksumBytes(bytes);
+    if (segment.checksum && checksum !== segment.checksum) {
+      throw new Error(`SQLite delta segment checksum mismatch: ${segment.path}`);
+    }
+    return bytes;
+  }
+
+  private async recoverMissingSealedSegmentBytes(segment: SqliteDeltaSegmentManifestEntry): Promise<Uint8Array> {
+    if (!segment.sealed) {
+      throw new Error(`SQLite delta segment missing: ${segment.path}`);
+    }
+    const candidatePath = legacySqliteDeltaSegmentPath(segment.path);
+    if (!candidatePath || candidatePath === segment.path) {
+      throw new Error(`SQLite delta segment missing: ${segment.path}`);
+    }
+    const candidateBytes = await this.fileService.readBinary(candidatePath);
+    if (!candidateBytes) {
+      throw new Error(describeSegmentCandidateMismatch({
+        path: segment.path,
+        candidatePath,
+        expectedChecksum: segment.checksum,
+        expectedByteSize: segment.byteSize,
+        actualChecksum: null,
+        actualByteSize: null,
+      }));
+    }
+    const candidateChecksum = checksumBytes(candidateBytes);
+    if (
+      candidateBytes.byteLength !== segment.byteSize
+      || (segment.checksum && candidateChecksum !== segment.checksum)
+    ) {
+      throw new Error(describeSegmentCandidateMismatch({
+        path: segment.path,
+        candidatePath,
+        expectedChecksum: segment.checksum,
+        expectedByteSize: segment.byteSize,
+        actualChecksum: candidateChecksum,
+        actualByteSize: candidateBytes.byteLength,
+      }));
+    }
+    await this.fileService.writeBinary(segment.path, candidateBytes);
+    return candidateBytes;
   }
 
   private async readSegmentEnvelopeByPath(path: string): Promise<{

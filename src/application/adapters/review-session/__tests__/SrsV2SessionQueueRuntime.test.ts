@@ -205,6 +205,29 @@ describe('SrsV2SessionQueueRuntime', () => {
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
 
+  it('initializes counter snapshot from the session queue without selecting the first card', async () => {
+    const first = createCard({ id: 'card-1', blockId: 'block-1' });
+    const second = createCard({ id: 'card-2', blockId: 'block-2' });
+    const queue = createQueue([first, second]);
+    const runtime = new SrsV2SessionQueueRuntime({
+      queueType: QueueType.IncrementalLearning,
+      queue,
+    });
+
+    await expect(runtime.ensureCounterSnapshot()).resolves.toMatchObject({
+      remaining: 2,
+      due: 2,
+      total: 2,
+    });
+    expect(runtime.getSessionCards().map((card) => card.id)).toEqual(['card-1', 'card-2']);
+    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(queue.getCounterSnapshot).not.toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+
+    await expect(runtime.next()).resolves.toMatchObject({ id: 'card-1' });
+  });
+
   it('keeps failed answers pending and advances from the session frontier before commit settles', async () => {
     const first = createCard({ id: 'card-1', blockId: 'block-1' });
     const second = createCard({ id: 'card-2', blockId: 'block-2' });

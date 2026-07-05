@@ -97,6 +97,11 @@ export interface IDialogManager {
    * 在当前对话框表面内切换主复习队列
    */
   switchStandardReviewDialogQueue(queueType: QueueType): Promise<void>;
+
+  /**
+   * 读取当前打开的 Review 对话框队列类型
+   */
+  getActiveReviewQueueType?(): QueueType | null;
   
   /**
    * 打开难点攻坚对话框

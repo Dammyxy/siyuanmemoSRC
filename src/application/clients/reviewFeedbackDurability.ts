@@ -2,48 +2,103 @@ import type { BackendReviewFeedbackResult } from '../../../packages/contracts/sr
 
 type ReviewFeedbackDurabilityInput = Pick<
   BackendReviewFeedbackResult,
-  'committed' | 'queueImpact' | 'storage'
+  'committed' | 'duplicate' | 'queueImpact' | 'storage'
 >;
 
-export function assertCommittedReviewFeedbackDurability(
+export type ReviewFeedbackOutcomeClassification =
+  | 'committed'
+  | 'duplicate-committed'
+  | 'retryable-pending'
+  | 'unavailable'
+  | 'conflict'
+  | 'repair-required';
+
+export interface ReviewFeedbackOutcomeState {
+  outcome: ReviewFeedbackOutcomeClassification;
+  committed: boolean;
+  retryable: boolean;
+  reason: string | null;
+}
+
+export function classifyReviewFeedbackOutcome(
   result: ReviewFeedbackDurabilityInput,
-  options: { source: string; requireQueueImpact?: boolean },
-): void {
+  options: { requireQueueImpact?: boolean } = {},
+): ReviewFeedbackOutcomeState {
   if (result.committed !== true) {
-    return;
+    return {
+      outcome: 'retryable-pending',
+      committed: false,
+      retryable: true,
+      reason: 'backend did not report committed rating',
+    };
   }
 
   const storage = result.storage;
   if (!isRecord(storage)) {
-    throwDurabilityUnavailable(options.source, 'missing durable storage status');
+    return unavailableOutcome('missing durable storage status');
   }
 
   const localIntent = storage.localIntent;
   if (!isRecord(localIntent)
     || localIntent.status !== 'recorded'
-    || localIntent.durable !== true
-    || localIntent.journalStatus !== 'projection-applied') {
-    throwDurabilityUnavailable(options.source, 'local journal is not projection-applied');
+    || localIntent.durable !== true) {
+    return unavailableOutcome('minimum durable local intent is not recorded');
   }
 
   if (!isRecord(storage.truthFlush)) {
-    throwDurabilityUnavailable(options.source, 'missing Review truth v2 status');
+    return unavailableOutcome('missing Review truth v2 status');
   }
 
   if (!isRecord(storage.sqlProjection)) {
-    throwDurabilityUnavailable(options.source, 'missing SQL projection impact');
+    return unavailableOutcome('missing SQL projection impact');
   }
 
   const sqlCheckpoint = storage.sqlCheckpoint;
-  if (!isRecord(sqlCheckpoint)
-    || sqlCheckpoint.status === 'failed'
-    || sqlCheckpoint.status === 'unknown') {
-    throwDurabilityUnavailable(options.source, 'SQL delta/checkpoint durability failed');
+  if (!isRecord(sqlCheckpoint)) {
+    return unavailableOutcome('SQL delta/checkpoint durability failed');
+  }
+  if (sqlCheckpoint.status === 'failed') {
+    const error = typeof sqlCheckpoint.error === 'string' ? sqlCheckpoint.error : '';
+    return {
+      outcome: error.includes('REPAIR_REQUIRED') ? 'repair-required' : 'unavailable',
+      committed: false,
+      retryable: false,
+      reason: 'SQL delta/checkpoint durability failed',
+    };
+  }
+  if (sqlCheckpoint.status === 'unknown') {
+    return unavailableOutcome('SQL delta/checkpoint durability failed');
   }
 
   if (options.requireQueueImpact === true && !isRecord(result.queueImpact)) {
-    throwDurabilityUnavailable(options.source, 'missing queue impact result');
+    return unavailableOutcome('missing queue impact result');
   }
+
+  return {
+    outcome: result.duplicate === true ? 'duplicate-committed' : 'committed',
+    committed: true,
+    retryable: false,
+    reason: null,
+  };
+}
+
+export function assertCommittedReviewFeedbackDurability(
+  result: ReviewFeedbackDurabilityInput,
+  options: { source: string; requireQueueImpact?: boolean },
+): void {
+  const outcome = classifyReviewFeedbackOutcome(result, options);
+  if (result.committed === true && outcome.committed !== true) {
+    throwDurabilityUnavailable(options.source, outcome.reason ?? outcome.outcome);
+  }
+}
+
+function unavailableOutcome(reason: string): ReviewFeedbackOutcomeState {
+  return {
+    outcome: 'unavailable',
+    committed: false,
+    retryable: true,
+    reason,
+  };
 }
 
 function throwDurabilityUnavailable(source: string, reason: string): never {

@@ -591,7 +591,10 @@ import {
   createBrowserLoadDataRuntime,
   type BrowserLoadDataOptions,
 } from './browserLoadDataRuntime';
-import { createBrowserQueueProjectionWarmupRuntime } from './browserQueueProjectionWarmupRuntime';
+import {
+  createBrowserQueueProjectionWarmupRuntime,
+  type BrowserQueueProjectionReviewPressure,
+} from './browserQueueProjectionWarmupRuntime';
 import { createBrowserSourceExistenceRuntime } from './browserSourceExistenceRuntime';
 import { openBrowserSpreadDialog } from './browserSpreadDialog';
 import {
@@ -682,6 +685,7 @@ type BrowserTabApplicationServicePort = {
 };
 
 type BrowserDialogManagerPort = {
+  getActiveReviewQueueType?: () => QueueType | null;
   hasOpenNeuralReviewDialog?: () => boolean;
   openNeuralRoamDialog?: (options?: {
     focusBlockId?: string;
@@ -693,6 +697,7 @@ type BrowserDialogManagerPort = {
 };
 
 type BrowserTabManagerPort = {
+  getActiveReviewQueueType?: () => QueueType | null;
   hasOpenNeuralReviewTab?: () => boolean;
   syncExistingNeuralReviewTabToCurrentNode?: (options?: {
     fallbackNodeId?: string | null;
@@ -750,6 +755,15 @@ const browserSiyuanApi = computed(() => browserAppServiceRef.value?.getSiyuanApi
 const browserPreviewSiyuanApi = computed(() => (
   browserSiyuanApi.value as unknown as BrowserPreviewSiyuanPort | undefined
 ));
+const browserQueueProjectionReviewPressure = computed<BrowserQueueProjectionReviewPressure>(() => {
+  const dialogQueueType = pluginContext.value?.getDialogManager?.()?.getActiveReviewQueueType?.() ?? null;
+  const tabQueueType = pluginContext.value?.getTabManager?.()?.getActiveReviewQueueType?.() ?? null;
+  const activeQueueType = dialogQueueType ?? tabQueueType;
+  return {
+    active: Boolean(activeQueueType),
+    activeQueueType,
+  };
+});
 const {
   getQueueById: resolveQueueById,
   refreshQueueCounts: refreshQueueCountsBridge,
@@ -3537,6 +3551,7 @@ const browserQueueProjectionWarmupRuntime = createBrowserQueueProjectionWarmupRu
   currentCardType,
   currentPreset,
   logger,
+  reviewPressure: browserQueueProjectionReviewPressure,
   onQueueReady: (status) => {
     if (normalizeBrowserQueueId(activeQueueId.value) === status.queueId) {
       browserQueueViewLifecycle.setProjectionIdentity({

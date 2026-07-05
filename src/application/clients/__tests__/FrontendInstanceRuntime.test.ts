@@ -2969,4 +2969,98 @@ describe('FrontendInstanceRuntime', () => {
     );
     await runtime.dispose();
   });
+
+  it('quiesces heartbeat, relay polling, and push relay callbacks before unload', async () => {
+    vi.useFakeTimers();
+    let stateChange: ((diagnostics: { state: 'open' | 'degraded'; reconnectAttempts: number }) => void) | null = null;
+    let pushEvent: ((event: {
+      method: 'memo.writer.command';
+      params: {
+        commandId: string;
+      };
+    }) => void) | null = null;
+    const closeSubscription = vi.fn();
+    const warn = vi.fn();
+    const writerRenewLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'instance-a',
+        acquiredAt: 1,
+        expiresAt: 2,
+        lastHeartbeatAt: 2,
+      },
+      now: 2,
+    }));
+    const writerTakeCommand = vi.fn(async () => ({
+      command: {
+        commandId: 'cmd-after-unload',
+        requesterInstanceId: 'follower-1',
+        method: 'review.feedback',
+        requestedAt: Date.now(),
+      },
+      pendingCommandCount: 0,
+      now: 3,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-a',
+          acquiredAt: 1,
+          expiresAt: 2,
+          lastHeartbeatAt: 1,
+        },
+        now: 1,
+      })),
+      writerRenewLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+      writerTakeCommand,
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+      subscribeBroadcast: vi.fn((handlers) => {
+        stateChange = handlers.onStateChange as typeof stateChange;
+        pushEvent = handlers.onEvent as typeof pushEvent;
+        return {
+          close: closeSubscription,
+          getDiagnostics: () => ({ state: 'closed', reconnectAttempts: 0 }),
+        };
+      }),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      leaseTtlMs: 9_000,
+      relayPollIntervalMs: 250,
+      writerCommandHandler: vi.fn(async () => ({ ok: true })),
+      logger: {
+        info: vi.fn(),
+        warn,
+        error: vi.fn(),
+      },
+    });
+
+    await runtime.start();
+    runtime.prepareForUnload();
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    stateChange?.({ state: 'degraded', reconnectAttempts: 1 });
+    stateChange?.({ state: 'open', reconnectAttempts: 2 });
+    pushEvent?.({
+      method: 'memo.writer.command',
+      params: {
+        commandId: 'cmd-after-unload',
+      },
+    });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(closeSubscription).toHaveBeenCalledTimes(1);
+    expect(writerRenewLease).not.toHaveBeenCalled();
+    expect(writerTakeCommand).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] push relay degraded',
+      expect.anything(),
+    );
+
+    await runtime.dispose();
+  });
 });

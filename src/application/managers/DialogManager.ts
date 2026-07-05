@@ -339,7 +339,9 @@ export class DialogManager implements IDialogManager {
   }): Promise<boolean> {
     try {
       const status = await this.context.readDomainSyncDiagnostics();
-      const decision = buildReviewDomainSyncSafetyDecision(status);
+      const decision = buildReviewDomainSyncSafetyDecision(status, undefined, {
+        surface: 'review-entry',
+      });
       if (decision.canOpenReview) {
         return true;
       }
@@ -1006,6 +1008,10 @@ export class DialogManager implements IDialogManager {
 
   hasOpenNeuralReviewDialog(): boolean {
     return this.currentReviewDialog !== null && this.currentReviewDialogQueueType === QueueType.NeuralRoam;
+  }
+
+  getActiveReviewQueueType(): QueueType | null {
+    return this.currentReviewDialog ? this.currentReviewDialogQueueType : null;
   }
   
   /**

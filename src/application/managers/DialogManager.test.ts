@@ -57,6 +57,7 @@ function buildDomainStatus(
     divergentCardCount?: number;
     skippedSourceCount?: number;
     pendingImportCount?: number;
+    reasonCounts?: Record<string, number>;
   } = {},
 ) {
   const repairableDivergenceCount = overrides.repairableDivergenceCount ?? 0;
@@ -83,7 +84,7 @@ function buildDomainStatus(
       skippedSourceCount,
       repairableDivergenceCount,
       divergentCardCount: overrides.divergentCardCount ?? repairableDivergenceCount,
-      reasonCounts: {},
+      reasonCounts: overrides.reasonCounts ?? {},
       affectedCardIds: [],
       truncated: false,
     },
@@ -149,6 +150,11 @@ describe('DialogManager', () => {
 
     mockContext = {
       getStorage: vi.fn(() => mockStorage),
+      getBackendMigrationRuntimePolicy: vi.fn(() => ({
+        capabilities: {
+          backendWorkerAvailable: false,
+        },
+      })),
       getSettingsService: vi.fn(() => mockSettingsService),
       getScheduler: vi.fn(() => mockScheduler),
       getBrowserService: vi.fn(() => ({})),
@@ -306,21 +312,21 @@ describe('DialogManager', () => {
       expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalled();
     });
 
-    it('blocks standard Review before dialog creation when domain sync is repairable', async () => {
+    it('allows standard Review entry when domain sync repairable drift is reps-only', async () => {
       mockReadDomainSyncDiagnostics.mockResolvedValueOnce(buildDomainStatus('repairable', {
         repairableDivergenceCount: 2,
+        reasonCounts: {
+          'review-history-newer-than-card-state': 0,
+          'review-event-count-exceeds-card-reps': 2,
+        },
       }));
 
       await dialogManager.openReviewDialog();
 
-      expect(createUnifiedReviewDialogMock).not.toHaveBeenCalled();
-      expect(mockContext.getReviewQueuePreparationService).not.toHaveBeenCalled();
-      expect(openManualSyncConflictResolutionDialogMock).toHaveBeenCalledWith(
-        mockContext,
-        expect.objectContaining({
-          reviewBlockDecision: expect.objectContaining({ kind: 'block-repairable' }),
-        }),
-      );
+      expect(createUnifiedReviewDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+        queueType: QueueType.RetrievalPractice,
+      }));
+      expect(openManualSyncConflictResolutionDialogMock).not.toHaveBeenCalled();
     });
 
     it('blocks tab-mode Review before opening a Review tab', async () => {

@@ -1,8 +1,99 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-03 (Round 654)
+Last update: 2026-07-05 (Round 660)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-05 - Domain sync repair preview and Review gate
+
+- Task: Diagnose live `Domain sync repair preview failed: this.fnv1a32 is not a function` and Review entry blocked by repairable domain sync diagnostics despite no active sync.
+- Touched slice: Domain sync repair/diagnostics in `worker/db/SqliteDatabaseService.ts`, Review safety decisions in `src/application/services/ReviewDomainSyncSafetyService.ts`, Review entry/feed preflight in `src/application/managers/DialogManager.ts` and `src/ui/review/v2/ReviewView.vue`, focused regressions, OpenSpec `repair-domain-sync-review-gate`, and live storage inspection under `H:\SiYuanXY\data\storage\petal`.
+- Debt fixed now: Worker SQLite now owns the FNV-1a hash helper used by domain sync repair plan IDs, scheduler config hashes, plan fingerprints, legacy review import operations, and repair-applied operation fingerprints, so repair preview no longer crashes before showing a plan. Review safety now distinguishes broad Review entry from current-card Review feedback: entry no longer hard-blocks known reps-only or unrelated repairable drift, while feedback still blocks current-card/newer-history risk, source errors, direction conflicts, and ledger divergence.
+- Debt deferred: Domain sync remains in product because it still protects mobile/desktop or multi-instance review/card divergence. Product-visible repair UX simplification, old migration backup retention policy, and cleanup of historical `migration-backups` remain outside this emergency bug fix.
+- Why deferred: Removing the feature would drop the only guard for real cross-device Review state conflicts. The live incident was caused by a missing worker hash method plus an overbroad Review-entry gate, not by active SiYuan cloud sync itself. Historical backups may still be needed for rollback/audit and are safer to prune under a separate retention task.
+- Next safe step: Rebuild/deploy, open Incremental Learning/Review with current local storage, click domain repair preview if shown, and confirm no `this.fnv1a32` or global repairable entry block appears. If diagnostics still show repairable drift, use the now-working preview to decide whether to apply repair.
+- Validation: Focused worker repair-preview regression, Review safety tests, and DialogManager entry tests passed before final validation sweep. Live storage inspection found no active conflict/quarantine/temp `siyuanmemo.db`; prior cleanup/backup directories were moved under `H:\SiYuanXY\data\storage\petal\_siyuanmemo-cleanup-archives` while active `truth/`, `sqlite-delta/`, `unified-cards.msgpack`, journal, and settings were left untouched.
+
+### 2026-07-05 - Review counter projection refresh gate
+
+- Task: Diagnose latest live `QUEUE_COUNT_UNAVAILABLE` logs after SQLite delta cleanup and implement `stabilize-review-counter-projection-refresh`.
+- Touched slice: Review + Queue counter readiness in `src/application/adapters/UnifiedQueueStrategy.ts`, SRS v2 session counter contract in `src/application/adapters/review-session/*`, focused Review queue regressions, OpenSpec task state, and live plugin storage inspection under `H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo`.
+- Debt fixed now: `incremental-learning` Review mount-time stats no longer fall through to stale backend projection counters while the projection is `refreshing/projection_stale`. SRS v2 session runtime can initialize a counter snapshot from the same live queue cards used by Review navigation, without selecting the first card and without touching projection rows/counter snapshots. Non-session-backed projection queues and retrieval/static subset projection contracts remain fail-closed.
+- Debt deferred: Repeated Xiuyuan normalization persistence remains a monitored storage-shape issue, but the live `unified-cards.msgpack` inspection now shows 515 card DTOs, 489 Xiuyuans, and zero missing/mismatched Xiuyuan bindings. Existing unrelated Review runtime test failures on this dirty branch remain outside this counter patch.
+- Why deferred: The live error is a Review counter-read path bug, not a missing Xiuyuan binding after current storage inspection. Broader Review runtime async-commit behavior is already dirty in the worktree and needs a separate acceptance pass instead of being folded into this projection-refresh fix.
+- Next safe step: Rebuild/deploy, open Incremental Learning while projection is refreshing, and confirm stats render without `QUEUE_COUNT_UNAVAILABLE`; then smoke one Review rating.
+- Validation: New focused SRS v2 runtime and `UnifiedQueueStrategy.getStats()` regression tests passed; `openspec validate stabilize-review-counter-projection-refresh --strict` passed. Broader mixed Review suites still show pre-existing dirty-branch failures unrelated to this counter patch.
+
+### 2026-07-05 - SQLite delta sealed segment recovery and live storage clean
+
+- Task: Implement `repair-sqlite-delta-sealed-segment-recovery` and clean the local SiYuanMemo plugin storage that was blocking Review card rating.
+- Touched slice: SQLite delta replay/recovery in `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, focused SQLite regressions in `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, Review durability classification coverage in `src/application/clients/__tests__/reviewFeedbackDurability.test.ts`, live storage under `H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo`, `ARCHITECTURE.md`, and OpenSpec task state.
+- Debt fixed now: Missing versioned sealed delta segments can recover only from a legacy same-name candidate whose bytes exactly match manifest checksum and byte size; successful recovery rewrites the validated bytes to `sqlite-delta/v2`. Mismatched sealed candidates and existing manifest-path sealed checksum mismatch still fail closed, preserving durable replay integrity. Live corrupted/mismatched SQLite delta artifacts were backed up and quarantined, while `unified-cards.msgpack`, `queues.msgpack`, `truth/`, journal, settings, and other plugin data were left in place.
+- Debt deferred: Product-visible repair/reset UI, native SQLite/WAL, native DB owner, kernel-side DB writer, and any synthetic rebuild of lost sealed delta evidence remain outside this bounded repair.
+- Why deferred: The incident's root cause was broken SQLite delta replay evidence: the manifest referenced versioned sealed/open segments that were absent, and root legacy sealed segments had mismatched checksum/size. Silently deleting or replaying mismatched sealed segments would create false Review success and possible data loss, so only provable recovery plus explicit quarantine is allowed.
+- Next safe step: Restart SiYuan with the rebuilt plugin, let SiYuanMemo regenerate SQLite projection/delta state from retained msgpack/truth data, then smoke one Review rating and confirm no `sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack` checksum error appears.
+- Validation: Focused Review durability and full SQLite service tests passed; boundary/build/OpenSpec validation run in this implementation pass.
+
+### 2026-07-05 - Card rating feedback secondary-work gate
+
+- Task: Implement `stabilize-card-rating-feedback-path` for slow/error Review card rating reports.
+- Touched slice: Review feedback durability/outcome gate in `src/application/clients/reviewFeedbackDurability.ts`, client/use-case regressions in `src/application/clients/__tests__/reviewFeedbackDurability.test.ts`, `src/application/clients/__tests__/SrsBackendClient.test.ts`, `src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`, and backend Review RPC storage assertions in `worker/bootstrap/__tests__/BackendReviewSyncRpcAdapter.test.ts`.
+- Debt fixed now: Committed Review feedback now gates on minimum durable local intent plus required storage/queue diagnostics instead of requiring journal projection completion. Truth flush, SQL projection maintenance, and hot-path SQL delta/checkpoint state remain visible as diagnostics, but pending/deferred secondary work no longer turns a proven rating into false failure. Backend hot-path delta assertions now match the `delta-recorded` storage contract. Client durability now classifies rating outcomes as committed, duplicate committed, retryable pending, unavailable, conflict, or repair-required before enforcing the fail-closed committed gate.
+- Debt deferred: A broader backend RPC discriminated union that carries this outcome classification over the wire remains deferred; current wire contract still uses existing `committed`/`duplicate`, thrown unavailable/conflict errors, storage diagnostics, and repair-required SQLite diagnostics.
+- Why deferred: The production severity was false failure/slow rating caused by secondary maintenance being treated as part of the synchronous success gate. Changing the backend RPC payload shape crosses backend contract, client mapping, and UI copy, so it should be a separate narrow contract pass.
+- Next safe step: Promote the client-side `ReviewFeedbackOutcomeClassification` into a backend RPC `BackendReviewFeedbackOutcome` discriminated union without adding renderer scheduler fallback.
+- Validation: Focused client/use-case, backend Review RPC, and SQLite transaction tests passed; `pnpm run check:boundaries`, `pnpm build`, and `openspec validate stabilize-card-rating-feedback-path --strict` passed in this implementation pass.
+
+
+### 2026-07-04 - Background action pump and review delta durability
+
+- Task: Investigate live logs where background SiYuan windows warn about writer lease connection and some Review grading remains slow/fails durability gate.
+- Touched slice: Kernel transaction action pump in `src/application/handlers/KernelTransactionActionPump.ts`, Review feedback storage envelope in `worker/review/ReviewFeedbackStorageEnvelope.ts`, backend RPC storage contract in `packages/contracts/src/backend-rpc.ts`, and focused regressions.
+- Debt fixed now: Follower/background runtimes now treat `writer lease held by another instance` during `kernel.transaction.dequeue` as expected writer-lease contention: they report writer-unavailable diagnostics and back off without warning spam or local dequeue fallback. Review feedback storage diagnostics now distinguish successful hot-path SQL delta writes (`delta-recorded`) from missing/unknown checkpoint diagnostics, so committed Review feedback with durable journal + SQL delta no longer fails the durability gate merely because no full hot checkpoint ran.
+- Debt deferred: Native SQLite/WAL, native DB owner, kernel-side DB writer, product repair UI, and broader storage topology migration remain outside this bounded active-path fix.
+- Why deferred: The live logs point to frontend follower contention and SQL delta diagnostic classification, not a need for a second DB writer. This pass keeps fail-closed durability while reducing false warning/failure pressure.
+- Next safe step: Rebuild and smoke in SiYuan with a background window plus several Review ratings; confirm no repeated `Kernel transaction action polling failed` for writer lease contention and no `SQL delta/checkpoint durability failed` when the worker records a hot-path delta write.
+- Validation: Focused action-pump and Review storage-envelope tests passed; boundary/build checks run in this implementation pass.
+
+### 2026-07-04 - Frontend runtime unload quiesce
+
+- Task: Diagnose and fix SiYuan shutdown/update conflict where the kernel companion is unloaded but SiYuanMemo frontend runtime keeps reconnecting/renewing.
+- Touched slice: Frontend runtime lifecycle in `src/application/clients/FrontendInstanceRuntime.ts`, unload ordering in `src/application/ApplicationContext.ts`, focused regressions in `src/application/clients/__tests__/FrontendInstanceRuntime.test.ts` and `src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts`, `ARCHITECTURE.md`, and OpenSpec `quiesce-frontend-runtime-before-unload`.
+- Debt fixed now: `ApplicationContext.dispose()` now quiesces `FrontendInstanceRuntime` before later unload cleanup. The runtime synchronously stops heartbeat, writer relay polling, relay continuation timers, visibility refresh, push relay subscription callbacks, and registry membership, so stale WebSocket close/reconnect callbacks and heartbeat/visibility renewals no longer issue fresh kernel companion RPC after SiYuan reports `Plugin not loaded`.
+- Debt deferred: Product-level shutdown/install UI copy, native SQLite/WAL, native DB owner, kernel-side DB writer, and full storage topology migration remain outside this lifecycle fix.
+- Why deferred: The live symptom is a renderer lifecycle leak during SiYuan update/unload, not corruption of Review truth or the SQLite projection store. The safe fix is to stop background work at the unload boundary while keeping final lease release best-effort.
+- Next safe step: Rebuild/deploy and repeat the SiYuan update/exit flow; confirm logs stop showing repeated `push relay degraded`, WebSocket reconnect failures, and `writer lease observe failed` after the kernel companion has unloaded.
+- Validation: Focused `FrontendInstanceRuntime` and `ApplicationContext` unload tests passed; boundary/build/OpenSpec validation run in this implementation pass.
+
+### 2026-07-04 - Review truth flush pressure retry
+
+- Task: Implement `retry-review-truth-flush-after-feedback-pressure`.
+- Touched slice: Review truth flush scheduling in `src/application/clients/SrsBackendClient.ts`, focused client regressions in `src/application/clients/__tests__/SrsBackendClient.test.ts`, `ARCHITECTURE.md`, and OpenSpec task state.
+- Debt fixed now: Queued Review truth flush no longer treats `review.feedback suppressed SiYuan persistence host effect truth.writeBinary/writeJSON` as a terminal pending error. Pressure-suppressed truth flush keeps queued journal work pending, re-arms the existing flush timer, and retries after Review feedback pressure clears. Non-pressure truth write failures still stay visible as explicit errors.
+- Debt deferred: Native SQLite/WAL, native DB owner, kernel-side DB writer, broad kernel handler latency attribution, and product repair UI remain outside this client retry slice.
+- Why deferred: The live symptom is a renderer-side scheduling mistake after the transport correctly protected active Review feedback requests. Retrying deferred truth flush fixes the queue drain path without relaxing synchronous Review durability or adding another writer.
+- Next safe step: Rebuild and run Review smoke; confirm logs no longer show `Review truth flush finished with pending error` for pressure-suppressed `truth.writeBinary`, then profile remaining `kernel:handler` slow spans separately if needed.
+- Validation: Focused `SrsBackendClient` tests passed; boundary/build/OpenSpec validation run in this implementation pass.
+
+### 2026-07-04 - SQLite delta open segment repair
+
+- Task: Implement `repair-sqlite-delta-open-segment-checksum`.
+- Touched slice: SQLite delta checkpoint repair in `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, focused SQLite service regressions in `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, `ARCHITECTURE.md`, and OpenSpec task state.
+- Debt fixed now: `volatile-projection` no longer lets a corrupt durable open delta segment trap Review writes in repeated checksum mismatch. `corrupt-open-segment-checkpoint-repair` can clear the corrupt open segment by manifest metadata after a full checkpoint, records checkpoint diagnostics, deletes the covered open segment, and prevents reload/diagnostics from replaying that known-corrupt open path. A guard regression keeps sealed segment checksum mismatch fail-closed.
+- Debt deferred: Native SQLite/WAL, native DB owner, kernel-side DB writer, product repair UI, and full storage topology migration remain outside this repair slice.
+- Why deferred: Current production still uses `sql.js` plus host-file delta/checkpoint effects with `siyuanmemo.db` as volatile projection storage. This task hardens the existing delta module without adding a second DB writer or changing durable ownership.
+- Next safe step: If live logs still show `SQLITE_DELTA_REPAIR_REQUIRED`, add operator-visible repair UI and collect segment/manifest diagnostics before considering native SQLite/WAL topology migration.
+- Validation: Focused SQLite service tests passed; boundary/build/OpenSpec validation run in this implementation pass.
+
+### 2026-07-04 - Browser projection warmup Review pressure budget
+
+- Task: Implement `defer-browser-projection-warmup-during-review`.
+- Touched slice: Browser warmup runtime in `src/ui/browser/browserQueueProjectionWarmupRuntime.ts`, Browser wiring in `src/ui/browser/SRSBrowser.vue`, read-only Review surface pressure in `DialogManager` / `TabManager`, focused Browser/Review manager tests, `ARCHITECTURE.md`, and OpenSpec task state.
+- Debt fixed now: Browser projection warmup now has locality for Review-aware budgeting. While a Review surface is active, broad Browser warmup immediately warms only the visible or Review-relevant queue, defers non-critical sidebar queues by a bounded 750ms quiet window, coalesces repeated targeted live-identity/retry warmups per queue, and suppresses non-active repairable projection repair from competing with `review.feedback`. Browser readiness remains explicit/fail-closed and `onQueueReady` still refreshes counts only for the affected queue type.
+- Debt deferred: Native SQLite/WAL, native DB owner, kernel-side DB writer, full storage topology migration, and product repair UI for persistent projection unavailable states remain outside this Browser scheduling slice.
+- Why deferred: The live logs no longer show SQLite corrupt-open repair pressure; the remaining jank is derived Browser projection preparation competing with Review answer work. This pass deepens the Browser warmup module without adding another writer or stale snapshot fallback.
+- Next safe step: Rebuild and run live SiYuan Review smoke: answer several cards with Browser open, then confirm `QUEUE_PROJECTION_UNAVAILABLE` and warmup readiness bursts no longer cluster inside `review.feedback` slow spans.
+- Validation: Focused Browser warmup tests, Browser queue lifecycle/read-model tests, Review session advancement tests, Review surface manager tests, `pnpm run check:boundaries`, `pnpm build`, and `openspec validate defer-browser-projection-warmup-during-review --strict` run in this implementation pass.
 
 ### 2026-07-04 - Review feedback durable write P0/P1
 

@@ -102,7 +102,7 @@ describe('ReviewDomainSyncSafetyService', () => {
     });
   });
 
-  it('still blocks Review when review history is newer than card state', () => {
+  it('allows Review entry when repairable newer history is not tied to a current card', () => {
     expect(buildReviewDomainSyncSafetyDecision(status({
       status: 'repairable',
       repairable: 1,
@@ -111,7 +111,44 @@ describe('ReviewDomainSyncSafetyService', () => {
         'review-history-newer-than-card-state': 1,
         'review-event-count-exceeds-card-reps': 0,
       },
-    }))).toMatchObject({
+    }), undefined, {
+      surface: 'review-entry',
+    })).toMatchObject({
+      kind: 'allow',
+      canOpenReview: true,
+    });
+  });
+
+  it('still blocks Review feedback when review history is newer than card state and no card scope is available', () => {
+    expect(buildReviewDomainSyncSafetyDecision(status({
+      status: 'repairable',
+      repairable: 1,
+      divergent: 1,
+      reasonCounts: {
+        'review-history-newer-than-card-state': 1,
+        'review-event-count-exceeds-card-reps': 0,
+      },
+    }), undefined, {
+      surface: 'review-feedback',
+    })).toMatchObject({
+      kind: 'block-repairable',
+      canOpenReview: false,
+    });
+  });
+
+  it('blocks Review when current card has newer review history', () => {
+    expect(buildReviewDomainSyncSafetyDecision(status({
+      status: 'repairable',
+      repairable: 2,
+      divergent: 2,
+      affectedCardIds: ['card-current', 'card-other'],
+      reasonCounts: {
+        'review-history-newer-than-card-state': 2,
+        'review-event-count-exceeds-card-reps': 0,
+      },
+    }), undefined, {
+      currentCardId: 'card-current',
+    })).toMatchObject({
       kind: 'block-repairable',
       canOpenReview: false,
     });

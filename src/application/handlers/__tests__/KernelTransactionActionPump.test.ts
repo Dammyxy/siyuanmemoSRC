@@ -403,6 +403,53 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('quietly backs off follower dequeue when another instance holds the writer lease', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [],
+      remaining: 0,
+    }));
+    const onWriterUnavailable = vi.fn();
+    const submitAndWait = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer lease held by another instance: primary-app');
+    });
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      {
+        getMode: () => 'follower',
+        getInstanceId: () => 'background-window-instance',
+      },
+      { submitAndWait },
+      () => undefined,
+      () => undefined,
+      {
+        pollIntervalMs: 250,
+        emptyPollBackoffMaxMs: 1_000,
+        onWriterUnavailable,
+      },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(dequeueKernelTransactions).not.toHaveBeenCalled();
+    expect(onWriterUnavailable).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'kernel.transaction.dequeue',
+      message: 'BACKEND_UNAVAILABLE: writer lease held by another instance: primary-app',
+      runtimeMode: 'follower',
+      instanceId: 'background-window-instance',
+    }));
+    expect(actionPumpLoggerMocks.warn).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(actionPumpLoggerMocks.warn).not.toHaveBeenCalled();
+
+    await pump.dispose();
+  });
+
   it('dequeues locally after no-active-writer follower relay recovery restores writer mode', async () => {
     let mode: 'follower' | 'writer' = 'follower';
     const dequeueKernelTransactions = vi.fn(async () => ({

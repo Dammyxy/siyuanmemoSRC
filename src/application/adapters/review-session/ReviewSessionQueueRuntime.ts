@@ -110,6 +110,7 @@ export interface ReviewSessionQueueRuntime {
   answerAndAdvance(input: ReviewSessionAnswerCommand): Promise<ReviewSessionQueueResult>;
   rebuild(trigger: ReviewSessionRebuildTrigger): Promise<void>;
   getCounterSnapshot(): QueueCounterSnapshot | null;
+  ensureCounterSnapshot?(): Promise<QueueCounterSnapshot | null>;
   getSessionCards(): FSRSCard[];
   appendCardsToTail?(cards: FSRSCard[]): number;
   replaceCurrentCard?(card: FSRSCard): boolean;

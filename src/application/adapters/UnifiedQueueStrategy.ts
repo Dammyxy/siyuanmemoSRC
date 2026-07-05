@@ -1202,6 +1202,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             ));
     }
 
+    private shouldInitializeSrsV2CounterBeforeProjection(): boolean {
+        return this.queueType === QueueType.IncrementalLearning
+            && !this.learnAheadSession
+            && this.isProjectionBackedQueue();
+    }
+
     private async nextFromNeuralRoamAdvance(): Promise<FSRSCard | null> {
         const boundary = await this.syncAndReadActiveNeuralRoamRouteBoundary();
         this.neuralRoamAdvance.setActiveRouteBoundary(boundary.routeId, boundary.engineMode);
@@ -1536,6 +1542,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             if (runtimeSnapshot) {
                 this.cursor.counterSnapshot = runtimeSnapshot;
                 return this.cloneCounterSnapshot(runtimeSnapshot);
+            }
+            if (this.shouldInitializeSrsV2CounterBeforeProjection()) {
+                const ensuredRuntimeSnapshot = await this.srsV2SessionQueueRuntime.ensureCounterSnapshot?.();
+                if (ensuredRuntimeSnapshot) {
+                    this.cursor.counterSnapshot = ensuredRuntimeSnapshot;
+                    return this.cloneCounterSnapshot(ensuredRuntimeSnapshot);
+                }
             }
         }
 

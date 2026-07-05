@@ -26,6 +26,7 @@ export interface ReviewDomainSyncSafetyDecision {
 
 export interface ReviewDomainSyncSafetyDecisionOptions {
   currentCardId?: string | null;
+  surface?: 'review-entry' | 'review-feedback';
 }
 
 function toErrorMessage(error: unknown): string {
@@ -61,6 +62,7 @@ function toNonNegativeCount(value: unknown): number {
 function hasBlockingRepairableDivergence(
   status: BackendDomainSyncStatusResult,
   currentCardId?: string | null,
+  surface: ReviewDomainSyncSafetyDecisionOptions['surface'] = 'review-entry',
 ): boolean {
   const repairableDivergenceCount = toNonNegativeCount(status.sanity.repairableDivergenceCount);
   if (repairableDivergenceCount <= 0) {
@@ -74,6 +76,10 @@ function hasBlockingRepairableDivergence(
 
   if (!hasKnownRepairableReasons) {
     return true;
+  }
+
+  if (surface === 'review-entry' && !currentCardId) {
+    return false;
   }
 
   if (!currentCardId) {
@@ -118,7 +124,11 @@ export function buildReviewDomainSyncSafetyDecision(
   const skippedSourceCount = status.sanity.skippedSourceCount;
   const pendingImportCount = status.sanity.pendingImportCount;
   const divergentCardCount = status.sanity.divergentCardCount;
-  const blockingRepairableDivergence = hasBlockingRepairableDivergence(status, options.currentCardId);
+  const blockingRepairableDivergence = hasBlockingRepairableDivergence(
+    status,
+    options.currentCardId,
+    options.surface,
+  );
 
   let kind: ReviewDomainSyncSafetyDecisionKind = 'allow';
   switch (status.sanity.status) {

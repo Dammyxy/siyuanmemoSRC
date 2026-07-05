@@ -244,6 +244,11 @@ export class SrsV2SessionQueueRuntime implements ReviewSessionQueueRuntime {
     return this.counterSnapshot ? cloneCounterSnapshot(this.counterSnapshot) : null;
   }
 
+  async ensureCounterSnapshot(): Promise<QueueCounterSnapshot | null> {
+    await this.ensureLoaded();
+    return this.getCounterSnapshot();
+  }
+
   getSessionCards(): FSRSCard[] {
     return [
       ...(this.currentCard ? [this.currentCard] : []),

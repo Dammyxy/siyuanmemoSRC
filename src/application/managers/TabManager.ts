@@ -898,6 +898,19 @@ export class TabManager {
     return this.getLatestNeuralReviewTabRuntime() !== null;
   }
 
+  getActiveReviewQueueType(): QueueType | null {
+    let selected: ReviewTabRuntimeHandle | null = null;
+    for (const runtime of this.reviewTabRuntimes.values()) {
+      if (!runtime.queueType) {
+        continue;
+      }
+      if (!selected || runtime.lastActiveAt > selected.lastActiveAt) {
+        selected = runtime;
+      }
+    }
+    return selected?.queueType ?? null;
+  }
+
   private getPluginI18n(): Record<string, string> {
     const candidate = (this.plugin as PluginWithI18n).i18n;
     return candidate && typeof candidate === 'object' ? candidate : {};

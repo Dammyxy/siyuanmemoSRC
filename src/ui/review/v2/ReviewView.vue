@@ -1490,6 +1490,7 @@ async function ensureReviewDomainSyncSafeForAction(input: {
     });
     const decision = buildReviewDomainSyncSafetyDecision(status as never, undefined, {
       currentCardId,
+      surface: 'review-feedback',
     });
     if (decision.canOpenReview) {
       return;

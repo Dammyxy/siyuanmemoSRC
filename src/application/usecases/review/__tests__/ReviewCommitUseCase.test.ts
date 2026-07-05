@@ -192,6 +192,49 @@ describe('ReviewCommitUseCase', () => {
     })).rejects.toThrow('BACKEND_UNAVAILABLE: review.feedback committed result failed durability gate');
   });
 
+  it('fails closed when committed backend feedback reports unavailable local intent', async () => {
+    const before = createCard({ id: 'card-unavailable-local-intent' });
+    const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
+    const result = createDurableReviewFeedbackResult(after, {
+      storage: {
+        ...createDurableReviewFeedbackResult(after).storage,
+        localIntent: {
+          status: 'unavailable',
+          durable: false,
+          storage: 'unavailable',
+          entryId: null,
+          idempotencyKey: 'review-commit:unavailable-local-intent',
+          journalStatus: 'unavailable',
+          pendingCount: null,
+          pendingBytes: null,
+          error: 'BACKEND_UNAVAILABLE: backend worker host effect sqlite.writeJSON timed out after 5000ms',
+        },
+      },
+    });
+    const reviewFeedback = vi.fn(async () => result);
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      commitIdempotencyKey: 'review-commit:unavailable-local-intent',
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    })).rejects.toThrow('minimum durable local intent is not recorded');
+  });
+
   it('has no Review block-attribute write dependency on the ordinary feedback success path', async () => {
     const before = createCard({ id: 'card-no-attrs' });
     const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });

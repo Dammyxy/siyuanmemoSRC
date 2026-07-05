@@ -4874,7 +4874,10 @@ describe('BackendReviewSyncRpcAdapter', () => {
         affectedQueueCount: 1,
       },
       sqlCheckpoint: {
-        status: 'not-run',
+        status: 'delta-recorded',
+        hotPath: true,
+        cause: 'review.feedback',
+        initiator: 'review.feedback',
       },
     });
     expect(writeBinary.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(true);
@@ -5538,10 +5541,10 @@ describe('BackendReviewSyncRpcAdapter', () => {
         projectionGeneration: 4,
       },
       sqlCheckpoint: {
-        status: 'not-run',
-        hotPath: false,
-        cause: null,
-        initiator: null,
+        status: 'delta-recorded',
+        hotPath: true,
+        cause: 'review.feedback',
+        initiator: 'review.feedback',
       },
     });
     expect(response.result.queueImpact).toMatchObject({
@@ -6902,9 +6905,9 @@ describe('BackendReviewSyncRpcAdapter', () => {
         refreshRequired: false,
       },
       sqlCheckpoint: {
-        status: 'not-run',
-        hotPath: false,
-        initiator: null,
+        status: 'delta-recorded',
+        hotPath: true,
+        initiator: 'review.feedback',
       },
     });
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);

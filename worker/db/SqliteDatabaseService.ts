@@ -4842,6 +4842,15 @@ export class WorkerSqliteDatabaseService {
     );
   }
 
+  private fnv1a32(input: string): string {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
+
   private applyIncomingMissingSourceProjection(row: ConflictCardRow, incoming: FSRSCard): boolean {
     if (Number(row.source_exists) !== 0) {
       return false;

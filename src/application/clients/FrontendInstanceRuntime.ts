@@ -306,6 +306,7 @@ export class FrontendInstanceRuntime {
   private readonly isMobile: boolean | null;
   private mode: FrontendInstanceMode = 'follower';
   private started = false;
+  private unloading = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private relayTimer: ReturnType<typeof setInterval> | null = null;
   private visibilityRefreshDisposer: (() => void) | null = null;
@@ -407,6 +408,7 @@ export class FrontendInstanceRuntime {
     if (this.started) {
       return;
     }
+    this.unloading = false;
     await this.disposePreviousRuntimesInSameContext();
     await this.waitForKernelCompanionRunning();
     this.started = true;
@@ -463,13 +465,12 @@ export class FrontendInstanceRuntime {
     }
   }
 
+  prepareForUnload(): void {
+    this.stopRuntimeBackgroundActivity();
+  }
+
   async dispose(): Promise<void> {
-    this.started = false;
-    this.stopHeartbeat();
-    this.stopPushRelay();
-    this.stopRelayPump();
-    this.stopVisibilityRefresh();
-    this.unregisterCurrentRuntimeInScope();
+    this.stopRuntimeBackgroundActivity();
     if (this.mode === 'writer') {
       try {
         await this.sidecarClient.writerReleaseLease({ instanceId: this.instanceId });
@@ -478,6 +479,16 @@ export class FrontendInstanceRuntime {
       }
     }
     this.mode = 'follower';
+  }
+
+  private stopRuntimeBackgroundActivity(): void {
+    this.unloading = true;
+    this.started = false;
+    this.stopHeartbeat();
+    this.stopPushRelay();
+    this.stopRelayPump();
+    this.stopVisibilityRefresh();
+    this.unregisterCurrentRuntimeInScope();
   }
 
   private startHeartbeat(): void {
@@ -537,7 +548,13 @@ export class FrontendInstanceRuntime {
     }
     this.relayDrainContinuationTimer = setTimeout(() => {
       this.relayDrainContinuationTimer = null;
+      if (!this.started) {
+        return;
+      }
       this.drainPendingWriterCommands(reason).catch((error) => {
+        if (!this.started) {
+          return;
+        }
         this.logger.warn('[FrontendInstanceRuntime] relay drain continuation failed', {
           instanceId: this.instanceId,
           runtimeScopeId: this.runtimeScopeId,
@@ -557,9 +574,17 @@ export class FrontendInstanceRuntime {
       return;
     }
     const subscription = this.sidecarClient.subscribeBroadcast?.({
-      onEvent: (event) => this.handleKernelBroadcastEvent(event),
+      onEvent: (event) => {
+        if (!this.started) {
+          return;
+        }
+        this.handleKernelBroadcastEvent(event);
+      },
       onStateChange: (diagnostics) => {
         this.pushRelayDiagnostics = diagnostics;
+        if (!this.started) {
+          return;
+        }
         if (diagnostics.state === 'degraded' || diagnostics.state === 'unavailable') {
           this.logger.warn('[FrontendInstanceRuntime] push relay degraded', {
             instanceId: this.instanceId,
@@ -597,6 +622,9 @@ export class FrontendInstanceRuntime {
   }
 
   private handleKernelBroadcastEvent(event: KernelBroadcastEvent): void {
+    if (!this.started) {
+      return;
+    }
     if (event.method === 'memo.queueProjection.identityChanged') {
       this.handleQueueProjectionIdentityBroadcast(event);
       return;
@@ -793,6 +821,9 @@ export class FrontendInstanceRuntime {
   }
 
   private async refreshOwnership(reason = 'manual'): Promise<FrontendOwnershipSnapshot> {
+    if (this.shouldSkipBackgroundOwnershipWork(reason)) {
+      return this.buildLocalOwnershipSnapshot();
+    }
     const backendUnavailableReason = this.getBackendWorkerUnavailableReason();
     if (backendUnavailableReason) {
       return this.handleBackendWorkerUnavailableForOwnership(reason, backendUnavailableReason);
@@ -888,8 +919,14 @@ export class FrontendInstanceRuntime {
         surfaceId: this.runtimeScopeId,
         ...this.buildWriterLeaseClientState(),
       });
+      if (this.shouldSkipBackgroundOwnershipWork(reason)) {
+        return this.buildLocalOwnershipSnapshot();
+      }
       return this.applyLeaseOwnership(lease, reason);
     } catch (error) {
+      if (this.shouldSkipBackgroundOwnershipWork(reason)) {
+        return this.buildLocalOwnershipSnapshot();
+      }
       const observedOwnership = await this.observeCurrentLease(`${reason}:acquire-failed`);
       if (!this.isExpectedOwnershipAcquireContention(reason, error, observedOwnership)) {
         this.logger.warn('[FrontendInstanceRuntime] writer lease acquire failed', {
@@ -917,8 +954,14 @@ export class FrontendInstanceRuntime {
         surfaceId: this.runtimeScopeId,
         ...this.buildWriterLeaseClientState(),
       });
+      if (this.shouldSkipBackgroundOwnershipWork(reason)) {
+        return this.buildLocalOwnershipSnapshot();
+      }
       return this.applyLeaseOwnership(lease, reason);
     } catch (error) {
+      if (this.shouldSkipBackgroundOwnershipWork(reason)) {
+        return this.buildLocalOwnershipSnapshot();
+      }
       const observedOwnership = await this.observeCurrentLease(`${reason}:renew-failed`, {
         preserveWriterModeForEmptyPrimaryLeaseGap: true,
       });
@@ -1017,6 +1060,9 @@ export class FrontendInstanceRuntime {
     try {
       lease = await this.sidecarClient.writerGetLease();
     } catch (error) {
+      if (this.shouldSkipBackgroundOwnershipWork(reason)) {
+        return this.buildLocalOwnershipSnapshot();
+      }
       this.logger.warn('[FrontendInstanceRuntime] writer lease observe failed', {
         instanceId: this.instanceId,
         runtimeScopeId: this.runtimeScopeId,
@@ -1024,6 +1070,9 @@ export class FrontendInstanceRuntime {
         error,
       });
       throw new Error(`BACKEND_UNAVAILABLE: writer lease observation failed: ${formatUnknownError(error)}`);
+    }
+    if (this.shouldSkipBackgroundOwnershipWork(reason)) {
+      return this.buildLocalOwnershipSnapshot();
     }
     const ownership = this.buildOwnershipSnapshot(lease);
     if (
@@ -1080,6 +1129,21 @@ export class FrontendInstanceRuntime {
     };
   }
 
+  private buildLocalOwnershipSnapshot(): FrontendOwnershipSnapshot {
+    const now = Date.now();
+    return {
+      leaseHolder: this.mode === 'writer' ? this.instanceId : null,
+      leaseSurfaceId: this.mode === 'writer' ? this.runtimeScopeId : null,
+      leaseVisibilityState: resolveDocumentVisibilityState(),
+      leaseDocumentHasFocus: resolveDocumentHasFocus(),
+      leaseLocationHref: resolveWindowLocationHref(),
+      leaseOwnerChangedAt: null,
+      leaseAcquiredAt: null,
+      leaseLastHeartbeatAt: null,
+      leaseObservedAt: now,
+    };
+  }
+
   private async drainPendingWriterCommands(reason = 'watchdog', coalescedCommandId?: string): Promise<void> {
     if (!this.started || this.mode !== 'writer' || !this.writerCommandHandler) {
       return;
@@ -1129,6 +1193,10 @@ export class FrontendInstanceRuntime {
     try {
       for (let i = 0; i < WRITER_RELAY_DRAIN_MAX_COMMANDS_PER_WAKE; i += 1) {
         const pulled = await this.takeWriterRelayCommand(reason);
+        if (!this.started) {
+          status = 'shutdown';
+          break;
+        }
         pendingCommandCount = Math.max(0, Math.trunc(Number(pulled.pendingCommandCount) || 0));
         if (!pulled.command) {
           break;
@@ -1174,6 +1242,10 @@ export class FrontendInstanceRuntime {
             method: command.method,
             wakeReason: reason,
           });
+          if (!this.started) {
+            status = 'shutdown';
+            break;
+          }
           await this.completeWriterRelayCommand(reason, command, result);
           const completionDiagnostics = getRelayCompletionExtraDiagnostics(command.method, result);
           if (completionDiagnostics) {
@@ -1194,6 +1266,10 @@ export class FrontendInstanceRuntime {
           }
         } catch (error) {
           status = 'command-failed';
+          if (!this.started) {
+            status = 'shutdown';
+            break;
+          }
           const message = error instanceof Error ? error.message : String(error);
           await measureRuntimePerformance('relay', 'writer.fail-command', () => this.sidecarClient.writerFailCommand({
             instanceId: this.instanceId,
@@ -1236,6 +1312,10 @@ export class FrontendInstanceRuntime {
       }
     } catch (error) {
       status = 'error';
+      if (!this.started) {
+        status = 'shutdown';
+        return;
+      }
       if (this.isWriterLeaseUnavailableError(error)) {
         const ownership = await this.observeCurrentLease(`${reason}:lost-writer`, {
           preserveWriterModeForEmptyPrimaryLeaseGap: true,
@@ -1595,6 +1675,16 @@ export class FrontendInstanceRuntime {
 
   private isWatchdogRelayWake(reason: string): boolean {
     return reason === 'watchdog' || reason.startsWith('watchdog:');
+  }
+
+  private shouldSkipBackgroundOwnershipWork(reason: string): boolean {
+    if (!this.unloading) {
+      return false;
+    }
+    return reason === 'heartbeat'
+      || reason.startsWith('heartbeat:')
+      || reason === 'visibility'
+      || reason.startsWith('visibility:');
   }
 
   private isWriterLeaseUnavailableError(error: unknown): boolean {

@@ -403,6 +403,39 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
 
+  it('uses the session runtime for initial stats when projection counter refresh is still stale', async () => {
+    const first = createCard({ id: 'runtime-stats-card-1', blockId: 'runtime-stats-block-1' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [first]);
+    (queue.getCounterSnapshot as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('QUEUE_PROJECTION_NOT_READY: counter snapshot for incremental-learning requires backend projection but projection is still refreshing'),
+    );
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: QueueType.IncrementalLearning,
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+        nextCoverageTask: null,
+      }]),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(QueueType.IncrementalLearning, manager as never, eventBus as never, null);
+
+    await expect(strategy.getStats()).resolves.toMatchObject({
+      size: 1,
+      label: '1 due',
+      extra: '1 total',
+    });
+    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(queue.getCounterSnapshot).not.toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+  });
+
   it('recomputes nextDues for the same card id when scheduling fields change', async () => {
     const card = createCard({ id: 'cache-card', blockId: 'cache-block' });
     const changedCard = createCard({

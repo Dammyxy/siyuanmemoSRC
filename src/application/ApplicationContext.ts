@@ -2817,6 +2817,13 @@ export class ApplicationContext {
     try {
       logger.info('[ApplicationContext] Starting disposal...');
 
+      try {
+        this.frontendInstanceRuntime?.prepareForUnload?.();
+      } catch (error) {
+        logger.warn('[ApplicationContext] FrontendInstanceRuntime unload quiesce failed; continuing disposal', error);
+        errors.push({ service: 'frontendInstanceRuntime.prepareForUnload', error });
+      }
+
       if (this.progressiveExcerptCompletionRepairTimer) {
         try {
           clearTimeout(this.progressiveExcerptCompletionRepairTimer);

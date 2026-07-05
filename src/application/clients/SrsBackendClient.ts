@@ -132,6 +132,12 @@ const REVIEW_TRUTH_FLUSH_UNLOAD_WAIT_MS = 1000;
 const REVIEW_TRUTH_BACKFILL_DEFAULT_BATCH_LIMIT = 64;
 const REVIEW_TRUTH_BACKFILL_MAX_STARTUP_BATCHES = 16;
 
+function isReviewTruthFlushPressureSuppressed(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('review.feedback suppressed SiYuan persistence host effect truth.writeBinary')
+    || message.includes('review.feedback suppressed SiYuan persistence host effect truth.writeJSON');
+}
+
 export type { SrsBackendTransport } from './backend/BackendRpcCaller';
 
 export interface SrsBackendReviewTruthFlushSchedulerOptions {
@@ -738,6 +744,17 @@ export class SrsBackendClient {
       }
       const result = await this.reviewTruthFlush(request);
       if (!result.ok) {
+        if (isReviewTruthFlushPressureSuppressed(result.error)) {
+          this.reviewTruthFlushQueued = true;
+          this.reviewTruthBackfillQueued = shouldBackfill;
+          this.reviewTruthBackfillPendingRows = pendingBackfillRows;
+          logger.info('[SiYuanMemo][SrsBackendClient] Review truth flush deferred under feedback pressure', {
+            error: result.error,
+            journalQueued: result.journalQueued,
+            recordsWritten: result.recordsWritten,
+          });
+          return;
+        }
         logger.warn('[SiYuanMemo][SrsBackendClient] Review truth flush finished with pending error', {
           error: result.error,
           journalQueued: result.journalQueued,
@@ -745,6 +762,15 @@ export class SrsBackendClient {
         });
       }
     } catch (error) {
+      if (isReviewTruthFlushPressureSuppressed(error)) {
+        this.reviewTruthFlushQueued = true;
+        this.reviewTruthBackfillQueued = shouldBackfill;
+        this.reviewTruthBackfillPendingRows = pendingBackfillRows;
+        logger.info('[SiYuanMemo][SrsBackendClient] Review truth flush deferred under feedback pressure', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
       logger.warn('[SiYuanMemo][SrsBackendClient] Review truth flush failed', {
         error: error instanceof Error ? error.message : String(error),
       });

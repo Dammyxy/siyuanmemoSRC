@@ -285,6 +285,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
         dispose: vi.fn(),
       };
       const frontendInstanceRuntime = {
+        prepareForUnload: vi.fn(),
         dispose: vi.fn(() => new Promise<void>(() => {})),
         getMode: () => 'writer',
         getInstanceId: () => 'instance-hanging-dispose',
@@ -339,6 +340,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       await Promise.resolve();
 
       expect(disposeCompleted).toHaveBeenCalledTimes(1);
+      expect(frontendInstanceRuntime.prepareForUnload).toHaveBeenCalledTimes(1);
       expect(frontendInstanceRuntime.dispose).toHaveBeenCalledTimes(1);
       expect(srsBackendClient.dispose).toHaveBeenCalledTimes(1);
       expect(srsBackendTransport.dispose).toHaveBeenCalledTimes(1);

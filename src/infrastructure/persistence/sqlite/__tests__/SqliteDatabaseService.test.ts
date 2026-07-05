@@ -22,6 +22,7 @@ const SQLITE_DELTA_V2_OPEN_SEGMENT = `${SQLITE_DELTA_V2_DIR}/sqlite-delta-log.v2
 const SQLITE_DELTA_V2_SEALED_1 = `${SQLITE_DELTA_V2_DIR}/sqlite-delta-log.v2.sealed-1.msgpack`;
 const LEGACY_SQLITE_DELTA_V2_MANIFEST = 'sqlite-delta-log.v2.manifest.json';
 const LEGACY_SQLITE_DELTA_V2_OPEN_SEGMENT = 'sqlite-delta-log.v2.open.msgpack';
+const LEGACY_SQLITE_DELTA_V2_SEALED_1 = 'sqlite-delta-log.v2.sealed-1.msgpack';
 
 type TestSqliteDeltaEntry = {
   tables: string[];
@@ -1521,6 +1522,160 @@ describe('SqliteDatabaseService', () => {
     ).toHaveLength(1);
   });
 
+  it('fails closed when a sealed sqlite delta segment checksum mismatches', async () => {
+    const fileService = new SplitProjectionSqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    for (let index = 0; index < 17; index += 1) {
+      await database.runTransaction(`delta-corrupt-sealed-${index}`, (db) => {
+        db.run(
+          `INSERT INTO review_events
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            `event-corrupt-sealed-${index}`,
+            'card-corrupt-sealed',
+            `attempt-corrupt-sealed-${index}`,
+            3,
+            1_700_000_003_000 + index,
+            `commit-corrupt-sealed-${index}`,
+            2026,
+            5,
+            'review-v2',
+            '{}',
+          ],
+        );
+      });
+    }
+
+    expect(fileService.durableBinary.get(SQLITE_DELTA_V2_SEALED_1)).toBeTruthy();
+    fileService.durableBinary.set(SQLITE_DELTA_V2_SEALED_1, new Uint8Array([6, 6, 6, 6]));
+    fileService.writeBinaryFiles.length = 0;
+
+    await expect(insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-after-corrupt-sealed',
+      1_700_000_003_099,
+    )).rejects.toThrow(
+      'SQLite delta segment checksum mismatch: sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
+    );
+
+    expect(fileService.writeBinaryFiles).not.toContain(SQLITE_DB_FILE);
+    expect(fileService.durableBinary.get(SQLITE_DELTA_V2_SEALED_1)).toBeTruthy();
+    expect(fileService.deletedFiles).not.toContain(SQLITE_DELTA_V2_SEALED_1);
+  });
+
+  it('recovers a missing versioned sealed sqlite delta segment from an exact legacy candidate', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    for (let index = 0; index < 16; index += 1) {
+      await database.runTransaction(`delta-legacy-sealed-source-${index}`, (db) => {
+        db.run(
+          `INSERT INTO review_events
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            `event-legacy-sealed-${index}`,
+            'card-legacy-sealed',
+            `attempt-legacy-sealed-${index}`,
+            3,
+            1_700_000_004_000 + index,
+            `commit-legacy-sealed-${index}`,
+            2026,
+            7,
+            'review-v2',
+            '{}',
+          ],
+        );
+      });
+    }
+
+    const sealedBytes = fileService.binary.get(SQLITE_DELTA_V2_SEALED_1);
+    expect(sealedBytes).toBeTruthy();
+    fileService.binary.delete(SQLITE_DELTA_V2_SEALED_1);
+    fileService.binary.set(LEGACY_SQLITE_DELTA_V2_SEALED_1, sealedBytes!);
+    fileService.writeBinaryFiles.length = 0;
+
+    const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await reloaded.init();
+
+    expect(reloaded.getOne<{ id: string }>(
+      'SELECT id FROM review_events WHERE id = ?',
+      ['event-legacy-sealed-15'],
+    )).toEqual({ id: 'event-legacy-sealed-15' });
+    expect(fileService.binary.get(SQLITE_DELTA_V2_SEALED_1)).toEqual(sealedBytes);
+    expect(fileService.writeBinaryFiles).toContain(SQLITE_DELTA_V2_SEALED_1);
+    await expect(reloaded.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 16,
+      lastReplay: {
+        ok: true,
+        replayedCount: 16,
+      },
+    });
+  });
+
+  it('fails closed when a missing sealed sqlite delta segment has a mismatched legacy candidate', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    for (let index = 0; index < 16; index += 1) {
+      await database.runTransaction(`delta-mismatched-legacy-sealed-${index}`, (db) => {
+        db.run(
+          `INSERT INTO review_events
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            `event-mismatched-legacy-sealed-${index}`,
+            'card-mismatched-legacy-sealed',
+            `attempt-mismatched-legacy-sealed-${index}`,
+            3,
+            1_700_000_005_000 + index,
+            `commit-mismatched-legacy-sealed-${index}`,
+            2026,
+            7,
+            'review-v2',
+            '{}',
+          ],
+        );
+      });
+    }
+
+    fileService.binary.delete(SQLITE_DELTA_V2_SEALED_1);
+    fileService.binary.set(LEGACY_SQLITE_DELTA_V2_SEALED_1, new Uint8Array([1, 2, 3, 4]));
+    fileService.writeBinaryFiles.length = 0;
+
+    const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+
+    await expect(reloaded.init()).rejects.toThrow(
+      'SQLite delta sealed segment unrecoverable: sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
+    );
+    expect(fileService.binary.get(SQLITE_DELTA_V2_SEALED_1)).toBeUndefined();
+    expect(fileService.writeBinaryFiles).not.toContain(SQLITE_DELTA_V2_SEALED_1);
+  });
+
   it('checkpoints a hot review.feedback transaction when sqlite delta v2 reaches the pending threshold', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
@@ -1686,6 +1841,77 @@ describe('SqliteDatabaseService', () => {
       'SELECT id FROM review_events WHERE id = ?',
       ['event-volatile-hot-threshold'],
     )).toEqual({ id: 'event-volatile-hot-threshold' });
+  });
+
+  it('repairs a corrupt volatile open sqlite delta segment with a full checkpoint', async () => {
+    const fileService = new SplitProjectionSqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-volatile-corrupt-open-schema');
+
+    await insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-volatile-corrupt-open-before',
+      1_700_000_002_001,
+    );
+    expect(fileService.durableBinary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeTruthy();
+    fileService.durableBinary.set(SQLITE_DELTA_V2_OPEN_SEGMENT, new Uint8Array([9, 8, 7, 6]));
+
+    await insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-volatile-corrupt-open-after',
+      1_700_000_002_002,
+    );
+
+    expect(fileService.writeBinaryFiles).toContain(SQLITE_DB_FILE);
+    expect(fileService.durableBinary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeUndefined();
+    expect(fileService.deletedFiles).toContain(SQLITE_DELTA_V2_OPEN_SEGMENT);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastWrite: {
+        ok: true,
+        classification: 'checkpoint',
+        label: 'review.feedback',
+        reason: 'corrupt-open-segment-checkpoint-repair',
+      },
+      lastCheckpoint: {
+        ok: true,
+        cause: 'review.feedback:corrupt-open-segment-checkpoint-repair',
+        cleared: true,
+      },
+    });
+    expect(database.getAll<{ id: string }>(
+      `SELECT id FROM review_events
+       WHERE id IN ('event-volatile-corrupt-open-before', 'event-volatile-corrupt-open-after')
+       ORDER BY id`,
+    )).toEqual([
+      { id: 'event-volatile-corrupt-open-after' },
+      { id: 'event-volatile-corrupt-open-before' },
+    ]);
+
+    const reloadedWithoutTemp = new SplitProjectionSqliteFileService({
+      json: fileService.json,
+      durableBinary: fileService.durableBinary,
+    });
+    const reloaded = new SqliteDatabaseService(reloadedWithoutTemp, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await reloaded.init();
+
+    await expect(reloaded.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+    });
+    expect(reloaded.getAll<{ id: string }>(
+      `SELECT id FROM review_events
+       WHERE id IN ('event-volatile-corrupt-open-before', 'event-volatile-corrupt-open-after')
+       ORDER BY id`,
+    )).toEqual([]);
   });
 
   it('recovers volatile projection deltas from a manifest cleared by an old temp checkpoint', async () => {
