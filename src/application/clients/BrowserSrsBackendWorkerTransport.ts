@@ -667,6 +667,11 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     const preRequestMerge = innerSteps.find((innerStep) => (
       innerStep.layer === 'kernel' && innerStep.step === 'pre-request-merge'
     )) ?? null;
+    const preRequestMergeSkip = innerSteps.find((innerStep) => (
+      innerStep.layer === 'kernel'
+      && innerStep.step === 'sync-divergent-diagnostic'
+      && Boolean((innerStep.extra as { fullMergeSkipped?: unknown } | undefined)?.fullMergeSkipped)
+    )) ?? null;
     const mainDbRead = innerSteps.find((innerStep) => (
       innerStep.layer === 'database' && innerStep.step === 'merge.read-main-db'
     )) ?? null;
@@ -681,10 +686,10 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       topInnerSteps,
       topInnerStepSummary,
       dominantInnerStepSummary: topInnerStepSummary[0] ?? null,
-      preRequestMergeSummary: preRequestMerge
+      preRequestMergeSummary: (preRequestMerge ?? preRequestMergeSkip)
         ? this.formatReviewFeedbackInnerStepSummary({
-          ...preRequestMerge,
-          ...(preRequestMerge.extra ?? {}),
+          ...(preRequestMerge ?? preRequestMergeSkip),
+          ...((preRequestMerge ?? preRequestMergeSkip)?.extra ?? {}),
         })
         : null,
       mainDbReadSummary: mainDbRead
@@ -720,6 +725,17 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         + ` sources=${sourceCount}`
         + ` conflicts=${nonEmptyConflictSourceCount}/${conflictSourceCount}`
         + ` sanity=${sanityStatus}`;
+    }
+    if (layer === 'kernel' && step === 'sync-divergent-diagnostic') {
+      const fullMergeSkipped = String((innerStep as { fullMergeSkipped?: unknown }).fullMergeSkipped);
+      const repairOwner = String((innerStep as { repairOwner?: unknown }).repairOwner ?? 'unknown');
+      const backendMethod = String((innerStep as { backendMethod?: unknown }).backendMethod ?? 'unknown');
+      const context = String((innerStep as { context?: unknown }).context ?? 'unknown');
+      summary += ` skipped=${fullMergeSkipped}`
+        + ' reason=review-rating-repair-gate'
+        + ` repairOwner=${repairOwner}`
+        + ` method=${backendMethod}`
+        + ` context=${context}`;
     }
     return summary;
   }

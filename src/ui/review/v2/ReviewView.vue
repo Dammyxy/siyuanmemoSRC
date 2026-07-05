@@ -564,6 +564,7 @@ import { createReviewFilterRuntime, type ReviewFilterCommandClient, type ReviewF
 import { createReviewDataObserverRuntime } from './reviewDataObserverRuntime';
 import { createReviewNativeSplitRuntime } from './reviewNativeSplitRuntime';
 import { buildReviewDomainSyncSafetyDecision } from '@/application/services/ReviewDomainSyncSafetyService';
+import type { BackendReviewSessionRepairGateEvidence } from '../../../../packages/contracts/src/backend-rpc';
 import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 
 const logger = createLogger('ReviewView');
@@ -1475,7 +1476,7 @@ async function handleReviewArenaFeedback(payload: { cardId: string; rating: numb
 async function ensureReviewDomainSyncSafeForAction(input: {
   action: ReviewSessionRetryAction;
   item: ActiveReviewItem | null;
-}): Promise<void> {
+}): Promise<BackendReviewSessionRepairGateEvidence> {
   const context = getPluginContext(props.plugin);
   const currentCardId = input.item?.id || input.item?.cardID || null;
   if (typeof context?.readDomainSyncDiagnostics !== 'function') {
@@ -1493,7 +1494,7 @@ async function ensureReviewDomainSyncSafeForAction(input: {
       surface: 'review-feedback',
     });
     if (decision.canOpenReview) {
-      return;
+      return buildReviewRepairGateEvidence(decision, currentCardId, 'domain-sync-safe');
     }
     if (
       currentCardId
@@ -1507,7 +1508,7 @@ async function ensureReviewDomainSyncSafeForAction(input: {
           cardId: currentCardId,
           auditReasons: audit.reasons,
         });
-        return;
+        return buildReviewRepairGateEvidence(decision, currentCardId, 'current-card-audit-accepted-repairable');
       }
     }
     blockedDecisionMessage = decision.message;
@@ -1532,6 +1533,20 @@ async function ensureReviewDomainSyncSafeForAction(input: {
     });
     throw error instanceof Error ? error : new Error(String(error));
   }
+}
+
+function buildReviewRepairGateEvidence(
+  decision: ReturnType<typeof buildReviewDomainSyncSafetyDecision>,
+  currentCardId: string | null,
+  reason: string,
+): BackendReviewSessionRepairGateEvidence {
+  return {
+    state: decision.sanityStatus === 'repairable' ? 'accepted-repairable' : 'clean',
+    reason,
+    createdAt: Date.now(),
+    cardId: currentCardId,
+    sanityStatus: decision.sanityStatus ?? null,
+  };
 }
 
 function createReviewSessionControllerInstance(): ReviewSessionController<ActiveReviewItem> {

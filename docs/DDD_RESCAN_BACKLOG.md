@@ -4,6 +4,36 @@ Last update: 2026-07-05 (Round 661)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-06 - Review rating repair gate hot path
+
+- Task: Implement architecture optimization 1+2 for slow Review rating by decoupling ordinary `review.session.feedback` from repeated full domain-sync `pre-request-merge` and requiring explicit Review-session repair gate evidence.
+- Touched slice: Review hot path in `ReviewView.vue`, `reviewSessionController.ts`, `WorkerReviewSessionQueueRuntime.ts`, `BackendKernel.ts`, `WorkerReviewSessionRuntime.ts`, backend RPC contracts, transport timing summaries, focused worker/application tests, and OpenSpec `decouple-review-rating-hot-path-from-repair-gate`.
+- Debt fixed now: Ordinary worker-backed Review session ratings now consume `clean` / `accepted-repairable` gate evidence and skip full pre-request merge; unsafe, missing, stale, unavailable, or current-card mismatched gates fail closed before scheduler commit. Copyable `slow review.session.feedback worker-handle summary` now reports `preMerge=kernel:sync-divergent-diagnostic ... skipped=true reason=review-rating-repair-gate repairOwner=domainSync.repair.apply` instead of hiding the skip as `preMerge=none`.
+- Debt deferred: Review Card Preparation Module and Session Read Model remain deferred; CDF live-relation refresh / `consume-advance.prepare-selected-review-card` optimization stays outside this change until rebuilt live logs prove the remaining frontend cost.
+- Why deferred: This change removes the proven worker-side repeated repair merge cost. Next-card preparation and read-model prewindowing cross Review render/preparation ownership and need a separate acceptance loop.
+- Next safe step: Rebuild/reload, rerun slow Retrieval Practice grading, and compare worker `preMerge=` with frontend `consume-advance.*` to decide whether the next change should extract Review Card Preparation first or build a Session Read Model.
+- Validation: Focused transport skip summary test passed; full focused worker/application/domain-sync tests, boundaries, build, and OpenSpec strict validation run in this implementation pass.
+
+### 2026-07-06 - Consume advance substep timing
+
+- Task: Continue frontend Review feedback diagnostics by splitting the `consume-advance` black box after live logs showed it accounts for roughly half of slow rating time.
+- Touched slice: Runtime-backed Review feedback advancement in `src/application/adapters/UnifiedQueueStrategy.ts`, focused coverage in `src/application/__tests__/UnifiedQueueStrategy.performance.test.ts`, and OpenSpec `diagnose-review-feedback-host-effect-path`.
+- Debt fixed now: Copyable frontend feedback summaries now include nested `consume-advance.*` evidence for `prepare-selected-review-card`, `refresh-cdf-live-relation`, `add-next-dues`, current-card replacement, current-item set, cursor sync, and pending counter application. Nested child steps are ranked for diagnosis but excluded from top-level unattributed math to avoid double-counting the parent `consume-advance` duration.
+- Debt deferred: Actual next-card preparation optimization remains deferred until the rebuilt plugin identifies whether live `consume-advance` is dominated by CDF live-relation refresh, scheduler preview/nextDues, or another substep.
+- Why deferred: Current evidence proves `consume-advance` is slow, but not yet which nested responsibility owns the cost. Optimizing the wrong half could disturb Review card preparation or duplicate-exit semantics.
+- Next safe step: Rebuild/reload the plugin, rerun slow Retrieval Practice grading, and copy the new `slow review feedback frontend summary` line showing `consume-advance.*` top steps.
+- Validation: Focused red/green consume-advance timing test passed; boundary/build/OpenSpec validation run in this implementation pass.
+
+### 2026-07-06 - Frontend Review feedback layered timing
+
+- Task: Add renderer-side layered diagnostics to the slow Review grading path so the `ReviewSessionController` feedback phase can be split after worker timing already identified pre-request merge pressure.
+- Touched slice: Review queue feedback orchestration in `src/application/adapters/UnifiedQueueStrategy.ts`, focused coverage in `src/application/__tests__/UnifiedQueueStrategy.performance.test.ts`, and OpenSpec `diagnose-review-feedback-host-effect-path`.
+- Debt fixed now: Slow runtime-backed Review feedback now emits a copyable frontend summary from `UnifiedQueueStrategy`, splitting the renderer `queue.onFeedback` envelope into `session-runtime-answer`, `sync-cursor-from-runtime`, `sync-counter-snapshot`, `consume-advance`, top steps, dominant step, and unattributed time. This removes the remaining blind spot between worker `review.session.feedback` handle time and `ReviewSessionController` feedback phase time.
+- Debt deferred: Actual latency optimization remains deferred until the rebuilt plugin produces live frontend + worker paired logs that prove whether the remaining gap is transport/host-effect waiting, next-card preparation, render preparation, or the already-confirmed pre-request merge path.
+- Why deferred: This pass is diagnostic-only and intentionally avoids changing Review session authority, scheduler behavior, CDF refresh, cursor semantics, or domain-sync safety while the exact frontend gap is still unclassified.
+- Next safe step: Rebuild/reload the plugin, rerun slow Retrieval Practice grading, and copy both `slow review.session.feedback worker-handle summary` and `slow review feedback frontend summary` lines for the same card.
+- Validation: Focused `UnifiedQueueStrategy.performance` test file passed; boundary/build/OpenSpec validation run in this implementation pass.
+
 ### 2026-07-05 - Review session feedback layered timing
 
 - Task: Implement方案 C for the still-slow Review grading path by adding layered timing diagnostics to `review.session.feedback`.

@@ -305,7 +305,7 @@ export class BackendKernel {
     params: unknown,
     reviewFeedbackCardId: string | null,
   ): Promise<void> {
-    const isReviewFeedback = method === 'review.feedback';
+    const isReviewFeedback = isReviewFeedbackTimingMethod(method);
     const isReviewDomainSyncStatusPreflight = this.isDomainSyncStatusPreflight(
       method,
       params,

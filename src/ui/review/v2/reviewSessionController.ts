@@ -141,7 +141,7 @@ export interface CreateReviewSessionControllerOptions<TItem extends QueueItem = 
   ensureActionSafe?: (input: {
     action: ReviewSessionRetryAction;
     item: TItem | null;
-  }) => Promise<void>;
+  }) => Promise<QueueFeedback['repairGate'] | void>;
   onQueueCompleted?: (input: { reason: Extract<ReviewSessionUpdateReason, 'grade' | 'skip' | 'custom'> }) => void | Promise<void>;
 }
 
@@ -847,7 +847,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
       markAdvancePending('grade');
       const reviewedItem = currentItem.value;
       reviewedCardId = extractCardId(reviewedItem);
-      await measureReviewPhase('domain-sync-safety', reviewedCardId, () => options?.ensureActionSafe?.({
+      const repairGate = await measureReviewPhase('domain-sync-safety', reviewedCardId, () => options?.ensureActionSafe?.({
         action: { type: 'grade', rating: normalized },
         item: reviewedItem,
       }) ?? Promise.resolve());
@@ -855,7 +855,12 @@ export function createReviewSessionController<TItem extends QueueItem>(
       const commitIdempotencyKey = pendingCommitKeys.get(pendingKey)
         ?? createReviewCommitIdempotencyKey(reviewedCardId, normalized);
       pendingCommitKeys.set(pendingKey, commitIdempotencyKey);
-      const feedback: QueueFeedback = { action: 'rate', rating: normalized, commitIdempotencyKey };
+      const feedback: QueueFeedback = {
+        action: 'rate',
+        rating: normalized,
+        commitIdempotencyKey,
+        repairGate: repairGate ?? null,
+      };
 
       const feedbackResult = await measureReviewPhase('feedback', reviewedCardId, () => queue.onFeedback(reviewedItem, feedback));
       pendingCommitKeys.delete(pendingKey);

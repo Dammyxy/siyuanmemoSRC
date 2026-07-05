@@ -52,19 +52,35 @@ The latest slow logs are emitted from the renderer `session-runtime-answer` step
 
 Alternative considered: rely on the existing nested `review.feedback` transaction/queue-impact steps. Rejected because it cannot distinguish worker queue delay, pre-request lifecycle, session runtime overhead, and handler time when the outer RPC is slow.
 
+### Decision 5: Add renderer-side frontend feedback layer summaries
+
+Live logs showed `ReviewSessionController` `feedback` phase can exceed the worker `review.session.feedback` handle time by roughly 1.8-2.1s. `UnifiedQueueStrategy` should therefore emit a copyable frontend summary for runtime-backed feedback that splits the renderer-side `queue.onFeedback` envelope into `session-runtime-answer`, cursor/counter synchronization, and `consume-advance`.
+
+Alternative considered: rely on `ReviewSessionController` phase timing and worker transport timing only. Rejected because that leaves the renderer-side gap unattributed and cannot distinguish transport wait from next-card preparation.
+
+### Decision 6: Split `consume-advance` before optimizing next-card preparation
+
+The next live logs showed `consume-advance` itself can take roughly 1.7-1.8s, matching the remaining frontend gap after worker `session-runtime-answer`. `UnifiedQueueStrategy` should expose nested `consume-advance.*` substeps in the same frontend summary so the next loop can distinguish CDF live-relation refresh, scheduler `nextDues`, state replacement, cursor sync, and pending counter application.
+
+Alternative considered: optimize `prepareSelectedReviewCard` immediately. Rejected because the current evidence shows the black-box `consume-advance` cost but not whether the cost comes from CDF relation refresh or scheduler preview.
+
 ## Risks / Trade-offs
 
 - Path may contain long plugin storage names -> Mitigation: include the path in copyable logs and allow later implementation to shorten only if full paths are too noisy.
 - Additional log fields may expose local storage layout -> Mitigation: only log in existing slow Review feedback diagnostics, not every feedback call.
 - Timing attribution may still group async host effects under `review.feedback` -> Mitigation: include path/storage class first; if ambiguity remains, follow with top host-effect list instrumentation in this same capability.
 - `review.session.feedback` diagnostics may expose pre-request lifecycle cost that was previously hidden by the renderer-only `session-runtime-answer` log -> Mitigation: keep this diagnostic-only and use the copied summary to decide the follow-up behavior change.
+- Frontend summaries may add one more slow-log line for already-slow feedback -> Mitigation: only emit when the frontend feedback envelope crosses the existing slow threshold, and keep the copyable string compact.
+- Nested `consume-advance` child steps can double-count time if summed with the parent step -> Mitigation: child steps are included for ranking/copyable evidence but excluded from the top-level unattributed calculation.
 
 ## Migration Plan
 
 1. Add a focused test or assertion around slow summary formatting.
 2. Include `slowestHostEffect.path` and `storageClass` in the Review feedback slow summary.
 3. Optionally include a compact top-host-effects list if one slowest path is insufficient.
-4. Build and deploy the plugin, rerun a slow Review grading session, and classify the path.
+4. Add frontend timing split for the renderer `queue.onFeedback` envelope if worker evidence does not explain the full `ReviewSessionController` feedback phase.
+5. Add nested `consume-advance` timing if frontend evidence shows next-card preparation is a peer bottleneck.
+6. Build and deploy the plugin, rerun a slow Review grading session, and classify the path.
 
 Rollback strategy: revert the summary formatting change. Runtime behavior and persisted data are unaffected.
 

@@ -81,6 +81,19 @@ type FeedbackMutationContext = {
     rating?: number;
 };
 
+type ReviewFeedbackFrontendTimingStep = {
+    step: string;
+    durationMs: number;
+    parentStep?: string;
+    countsTowardTotal?: boolean;
+};
+
+type ReviewFeedbackFrontendTimingContext = {
+    activeItem: FSRSCard;
+    feedback: QueueFeedback;
+    frontendTimingSteps: ReviewFeedbackFrontendTimingStep[];
+};
+
 type ReviewSessionAuthorityRuntime = {
     getMode?: () => 'writer' | 'follower' | string;
     getInstanceId?: () => string;
@@ -390,6 +403,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
         let activeTransaction: ReviewTransaction | null = null;
         let activeTransactionPushed = false;
+        const frontendTimingSteps: ReviewFeedbackFrontendTimingStep[] = [];
+        const frontendStartedAt = Date.now();
 
         try {
             if (this.queueType === QueueType.NeuralRoam) {
@@ -404,6 +419,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                         'transaction-capture',
                         activeItem,
                         feedback,
+                        frontendTimingSteps,
                         () => this.createReviewTransaction(activeItem, feedback, {
                             includeCardSnapshot: feedback.action === 'rate',
                         })
@@ -413,6 +429,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     'session-runtime-answer',
                     activeItem,
                     feedback,
+                    frontendTimingSteps,
                     () => this.withFeedbackMutation(activeItem, feedback, () => this.srsV2SessionQueueRuntime!.answerAndAdvance({
                         card: activeItem,
                         feedback,
@@ -429,10 +446,24 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     }
                     throw new Error(`REVIEW_SESSION_RUNTIME_UNAVAILABLE: ${result.reason ?? 'answer unavailable'}`);
                 }
-                this.syncCursorFromSrsV2Runtime();
-                this.cursor.counterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
-                this.pendingSrsV2CounterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
-                const advancedNextItem = await this.consumeSrsV2FeedbackAdvanceResult(result.nextCard);
+                this.measureReviewFeedbackSyncStep('sync-cursor-from-runtime', activeItem, feedback, frontendTimingSteps, () => {
+                    this.syncCursorFromSrsV2Runtime();
+                });
+                this.measureReviewFeedbackSyncStep('sync-counter-snapshot', activeItem, feedback, frontendTimingSteps, () => {
+                    this.cursor.counterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
+                    this.pendingSrsV2CounterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
+                });
+                const advancedNextItem = await this.measureReviewFeedbackStep(
+                    'consume-advance',
+                    activeItem,
+                    feedback,
+                    frontendTimingSteps,
+                    () => this.consumeSrsV2FeedbackAdvanceResult(result.nextCard, {
+                        activeItem,
+                        feedback,
+                        frontendTimingSteps,
+                    }),
+                );
                 if (!workerSessionOwnsAuthority) {
                     this.recordReviewHistory(activeItem, activeTransaction);
                     activeTransactionPushed = true;
@@ -630,6 +661,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             }
             await this.compensateFailedFeedback(activeItem, activeTransaction);
             throw new Error(`Failed to process feedback: ${errorMessage}`);
+        } finally {
+            this.logReviewFeedbackFrontendSummaryIfSlow(activeItem, feedback, frontendTimingSteps, Date.now() - frontendStartedAt);
         }
     }
 
@@ -1174,13 +1207,24 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         step: string,
         activeItem: FSRSCard,
         feedback: QueueFeedback,
-        task: () => Promise<TResult>
+        frontendTimingSteps: ReviewFeedbackFrontendTimingStep[] | null,
+        task: () => Promise<TResult>,
+        options: {
+            parentStep?: string;
+            countsTowardTotal?: boolean;
+        } = {},
     ): Promise<TResult> {
         const startedAt = Date.now();
         try {
             return await task();
         } finally {
             const durationMs = Date.now() - startedAt;
+            frontendTimingSteps?.push({
+                step,
+                durationMs,
+                parentStep: options.parentStep,
+                countsTowardTotal: options.countsTowardTotal ?? true,
+            });
             if (durationMs >= REVIEW_FEEDBACK_STEP_SLOW_MS) {
                 logger.info('[SiYuanMemo][UnifiedQueueStrategy] slow review feedback step', {
                     queueType: this.queueType,
@@ -1193,6 +1237,132 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 });
             }
         }
+    }
+
+    private measureReviewFeedbackSyncStep<TResult>(
+        step: string,
+        activeItem: FSRSCard,
+        feedback: QueueFeedback,
+        frontendTimingSteps: ReviewFeedbackFrontendTimingStep[] | null,
+        task: () => TResult,
+        options: {
+            parentStep?: string;
+            countsTowardTotal?: boolean;
+        } = {},
+    ): TResult {
+        const startedAt = Date.now();
+        try {
+            return task();
+        } finally {
+            const durationMs = Date.now() - startedAt;
+            frontendTimingSteps?.push({
+                step,
+                durationMs,
+                parentStep: options.parentStep,
+                countsTowardTotal: options.countsTowardTotal ?? true,
+            });
+            if (durationMs >= REVIEW_FEEDBACK_STEP_SLOW_MS) {
+                logger.info('[SiYuanMemo][UnifiedQueueStrategy] slow review feedback step', {
+                    queueType: this.queueType,
+                    step,
+                    cardId: activeItem.id,
+                    blockId: activeItem.blockId,
+                    action: feedback.action,
+                    rating: feedback.rating,
+                    durationMs,
+                });
+            }
+        }
+    }
+
+    private async measureConsumeAdvanceStep<TResult>(
+        step: string,
+        timingContext: ReviewFeedbackFrontendTimingContext | null | undefined,
+        task: () => Promise<TResult>,
+    ): Promise<TResult> {
+        if (!timingContext) {
+            return task();
+        }
+        return this.measureReviewFeedbackStep(
+            `consume-advance.${step}`,
+            timingContext.activeItem,
+            timingContext.feedback,
+            timingContext.frontendTimingSteps,
+            task,
+            {
+                parentStep: 'consume-advance',
+                countsTowardTotal: false,
+            },
+        );
+    }
+
+    private measureConsumeAdvanceSyncStep<TResult>(
+        step: string,
+        timingContext: ReviewFeedbackFrontendTimingContext | null | undefined,
+        task: () => TResult,
+    ): TResult {
+        if (!timingContext) {
+            return task();
+        }
+        return this.measureReviewFeedbackSyncStep(
+            `consume-advance.${step}`,
+            timingContext.activeItem,
+            timingContext.feedback,
+            timingContext.frontendTimingSteps,
+            task,
+            {
+                parentStep: 'consume-advance',
+                countsTowardTotal: false,
+            },
+        );
+    }
+
+    private logReviewFeedbackFrontendSummaryIfSlow(
+        activeItem: FSRSCard,
+        feedback: QueueFeedback,
+        frontendTimingSteps: ReviewFeedbackFrontendTimingStep[],
+        durationMs: number
+    ): void {
+        if (durationMs < REVIEW_FEEDBACK_STEP_SLOW_MS || frontendTimingSteps.length === 0) {
+            return;
+        }
+
+        const topFrontendSteps = [...frontendTimingSteps]
+            .sort((left, right) => right.durationMs - left.durationMs)
+            .slice(0, 5);
+        const topFrontendStepSummary = topFrontendSteps
+            .map((step) => `${step.step} ${Math.round(step.durationMs)}ms`);
+        const dominantFrontendStepSummary = topFrontendStepSummary[0] ?? 'none';
+        const frontendStepTotalMs = frontendTimingSteps
+            .filter((step) => step.countsTowardTotal !== false)
+            .reduce((total, step) => total + step.durationMs, 0);
+        const copySummary = [
+            `card=${activeItem.id || 'unknown'}`,
+            `duration=${Math.round(durationMs)}ms`,
+            `dominant=${dominantFrontendStepSummary}`,
+            `top=${topFrontendStepSummary.slice(0, 3).join(' | ') || 'none'}`,
+            `unattributed=${Math.max(0, Math.round(durationMs - frontendStepTotalMs))}ms`,
+        ].join(' ');
+
+        logger.info(
+            `[SiYuanMemo][UnifiedQueueStrategy] slow review feedback frontend summary ${copySummary}`,
+            {
+                step: 'frontend-feedback-summary',
+                queueType: this.queueType,
+                cardId: activeItem.id,
+                blockId: activeItem.blockId,
+                action: feedback.action,
+                rating: feedback.rating,
+                durationMs,
+                copySummary,
+                frontendStepCount: frontendTimingSteps.length,
+                frontendStepTotalMs,
+                topFrontendSteps,
+                topFrontendStepSummary,
+                dominantFrontendStepSummary,
+                unattributedMs: Math.max(0, durationMs - frontendStepTotalMs),
+            },
+        );
     }
 
     private clearAvoidOnceIdentity(): void {
@@ -1865,17 +2035,35 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
     }
 
-    private async maybeAddNextDues(card: FSRSCard): Promise<CardWithNextDues> {
-        const result = await this.refreshCdfLiveRelationOnReviewOpen(card);
+    private async maybeAddNextDues(
+        card: FSRSCard,
+        timingContext?: ReviewFeedbackFrontendTimingContext | null,
+    ): Promise<CardWithNextDues> {
+        const result = await this.measureConsumeAdvanceStep(
+            'refresh-cdf-live-relation',
+            timingContext,
+            () => this.refreshCdfLiveRelationOnReviewOpen(card),
+        );
         const refreshedCard = result.updatedCard ?? card;
         if (!this.shouldComputeNextDues(refreshedCard)) {
             return refreshedCard;
         }
-        return this.addNextDues(refreshedCard);
+        return this.measureConsumeAdvanceStep(
+            'add-next-dues',
+            timingContext,
+            () => this.addNextDues(refreshedCard),
+        );
     }
 
-    private async prepareSelectedReviewCard(card: FSRSCard): Promise<CardWithNextDues | null> {
-        const result = await this.refreshCdfLiveRelationOnReviewOpen(card);
+    private async prepareSelectedReviewCard(
+        card: FSRSCard,
+        timingContext?: ReviewFeedbackFrontendTimingContext | null,
+    ): Promise<CardWithNextDues | null> {
+        const result = await this.measureConsumeAdvanceStep(
+            'refresh-cdf-live-relation',
+            timingContext,
+            () => this.refreshCdfLiveRelationOnReviewOpen(card),
+        );
         if (this.shouldExitCurrentCdfDuplicate(card, result.currentReviewDuplicateOutcome ?? null)) {
             this.discardCurrentCdfDuplicateWithoutScoring(card, result.currentReviewDuplicateOutcome!);
             return null;
@@ -1885,10 +2073,17 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         if (!this.shouldComputeNextDues(refreshedCard)) {
             return refreshedCard;
         }
-        return this.addNextDues(refreshedCard);
+        return this.measureConsumeAdvanceStep(
+            'add-next-dues',
+            timingContext,
+            () => this.addNextDues(refreshedCard),
+        );
     }
 
-    private async consumeSrsV2FeedbackAdvanceResult(nextCard: FSRSCard | null): Promise<FSRSCard | null> {
+    private async consumeSrsV2FeedbackAdvanceResult(
+        nextCard: FSRSCard | null,
+        timingContext?: ReviewFeedbackFrontendTimingContext | null,
+    ): Promise<FSRSCard | null> {
         this.pendingSrsV2NextCard = undefined;
         if (!nextCard) {
             this.clearCurrentItem();
@@ -1896,16 +2091,28 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return null;
         }
 
-        const cardWithNextDues = await this.prepareSelectedReviewCard(nextCard);
+        const cardWithNextDues = await this.measureConsumeAdvanceStep(
+            'prepare-selected-review-card',
+            timingContext,
+            () => this.prepareSelectedReviewCard(nextCard, timingContext),
+        );
         if (!cardWithNextDues) {
             return await this.next();
         }
 
-        this.srsV2SessionQueueRuntime?.replaceCurrentCard?.(cardWithNextDues);
-        this.setCurrentItem(cardWithNextDues);
-        this.syncCursorFromSrsV2Runtime();
+        this.measureConsumeAdvanceSyncStep('replace-current-card', timingContext, () => {
+            this.srsV2SessionQueueRuntime?.replaceCurrentCard?.(cardWithNextDues);
+        });
+        this.measureConsumeAdvanceSyncStep('set-current-item', timingContext, () => {
+            this.setCurrentItem(cardWithNextDues);
+        });
+        this.measureConsumeAdvanceSyncStep('sync-cursor-from-runtime', timingContext, () => {
+            this.syncCursorFromSrsV2Runtime();
+        });
         if (this.pendingSrsV2CounterSnapshot) {
-            this.cursor.counterSnapshot = this.cloneCounterSnapshot(this.pendingSrsV2CounterSnapshot);
+            this.measureConsumeAdvanceSyncStep('apply-pending-counter-snapshot', timingContext, () => {
+                this.cursor.counterSnapshot = this.cloneCounterSnapshot(this.pendingSrsV2CounterSnapshot);
+            });
         }
         return cardWithNextDues;
     }

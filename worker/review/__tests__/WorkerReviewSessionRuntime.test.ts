@@ -104,6 +104,12 @@ describe('WorkerReviewSessionRuntime', () => {
       rating: 3,
       reviewedAt: NOW,
       idempotencyKey: 'feedback-key',
+      repairGate: {
+        state: 'clean',
+        reason: 'test-clean-gate',
+        createdAt: NOW,
+        cardId: first.id,
+      },
     });
 
     expect(result.answeredCardId).toBe(first.id);
@@ -202,6 +208,63 @@ describe('WorkerReviewSessionRuntime', () => {
       counters: expect.objectContaining({ remaining: 2, total: 2, source: 'worker-session' }),
     });
     expect(readRows).toHaveBeenCalledOnce();
+    expect(feedbackRuntime.reviewFeedback).not.toHaveBeenCalled();
+  });
+
+  it('fails closed before commit when repair gate is missing or unsafe', async () => {
+    const first = createCard('card-1');
+    const cardsById = new Map([[first.id, first] as const]);
+    const readRows = vi.fn(() => [createProjectionRow(first, 1)]);
+    const feedbackRuntime = {
+      reviewFeedback: vi.fn(async () => ({
+        cardId: first.id,
+        committed: true,
+        reviewedAt: NOW,
+        queueType: QueueType.RetrievalPractice,
+        updatedCard: null,
+      })),
+    };
+    const runtime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'retrieval-policy',
+          generation: 7,
+          status: 'ready',
+        })),
+        readRows,
+      },
+      feedbackRuntime,
+    });
+
+    const started = await runtime.startSession({
+      sessionId: 'session-gate',
+      queueType: QueueType.RetrievalPractice,
+    });
+
+    await expect(runtime.feedback({
+      sessionId: started.sessionId,
+      cardId: first.id,
+      rating: 3,
+      reviewedAt: NOW,
+    })).rejects.toThrow('WORKER_REVIEW_SESSION_REPAIR_GATE_UNAVAILABLE: missing repair gate');
+
+    await expect(runtime.feedback({
+      sessionId: started.sessionId,
+      cardId: first.id,
+      rating: 3,
+      reviewedAt: NOW,
+      repairGate: {
+        state: 'blocking',
+        reason: 'current-card-conflict',
+        createdAt: NOW,
+        cardId: first.id,
+      },
+    })).rejects.toThrow('WORKER_REVIEW_SESSION_REPAIR_GATE_BLOCKED: current-card-conflict');
+
     expect(feedbackRuntime.reviewFeedback).not.toHaveBeenCalled();
   });
 });

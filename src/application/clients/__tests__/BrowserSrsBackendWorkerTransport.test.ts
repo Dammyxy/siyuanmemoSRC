@@ -937,6 +937,98 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('logs review session pre-request merge skip evidence in copyable summaries', async () => {
+    vi.setSystemTime(5_000);
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+    });
+    const request = createReviewSessionFeedbackRequest(19);
+    const pending = transport.request(request);
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    vi.setSystemTime(5_360);
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 19,
+      result: { ok: true },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+      timing: {
+        sentAt: 5_000,
+        receivedAt: 5_010,
+        receivedDelayMs: 10,
+        handleStartedAt: 5_020,
+        handledAt: 5_300,
+        handleDurationMs: 280,
+        hostEffectCount: 0,
+        hostEffectTotalMs: 0,
+        hostEffectAttribution: 'complete',
+        slowestHostEffect: null,
+        innerSteps: [
+          {
+            layer: 'kernel',
+            step: 'sync-divergent-diagnostic',
+            durationMs: 0,
+            cardId: 'card-1',
+            extra: {
+              diagnostic: 'sync-divergent',
+              backendMethod: 'review.session.feedback',
+              context: 'review-feedback-preflight',
+              fullMergeSkipped: true,
+              repairOwner: 'domainSync.repair.apply',
+            },
+          },
+          {
+            layer: 'session',
+            step: 'session-feedback-commit',
+            durationMs: 180,
+            cardId: 'card-1',
+            queueType: 'retrieval-practice',
+            extra: {
+              backendMethod: 'review.session.feedback',
+              sessionId: 'session-a',
+            },
+          },
+        ],
+        innerStepAttribution: 'complete',
+        innerStepsTruncated: false,
+      },
+    });
+
+    await expect(pending).resolves.toEqual(response);
+    const expectedSkipSummary = 'kernel:sync-divergent-diagnostic 0ms skipped=true'
+      + ' reason=review-rating-repair-gate'
+      + ' repairOwner=domainSync.repair.apply'
+      + ' method=review.session.feedback'
+      + ' context=review-feedback-preflight';
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      expect.stringContaining(`preMerge=${expectedSkipSummary}`),
+      expect.objectContaining({
+        step: 'worker-handle-summary',
+        cardId: 'card-1',
+        durationMs: 280,
+        preRequestMergeSummary: expectedSkipSummary,
+        mainDbReadSummary: null,
+        topInnerStepSummary: expect.arrayContaining([
+          'session:session-feedback-commit 180ms',
+          expectedSkipSummary,
+        ]),
+      }),
+    );
+    expect(transportLoggerMocks.info.mock.calls.some(([message]) => (
+      typeof message === 'string'
+      && message.includes('slow review.session.feedback worker-handle summary card=card-1 duration=280ms')
+      && message.includes('preMerge=none')
+    ))).toBe(false);
+    transport.dispose();
+  });
+
   it('posts host-effect timeout failures before backend request deadlines expire', async () => {
     const worker = new FakeWorker();
     const transport = new BrowserSrsBackendWorkerTransport({

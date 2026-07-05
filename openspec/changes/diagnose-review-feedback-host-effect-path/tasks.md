@@ -25,3 +25,17 @@
 - [x] 4.2 Add focused coverage for copyable slow `review.session.feedback` timing summaries.
 - [x] 4.3 Record worker/session inner steps for `review.session.feedback` without changing rating behavior.
 - [x] 4.4 Run focused tests, boundary checks, build, and strict OpenSpec validation.
+
+## 5. Frontend Feedback Layered Timing
+
+- [x] 5.1 Add focused coverage for copyable frontend `queue.onFeedback` timing summaries.
+- [x] 5.2 Split runtime-backed Review feedback into `session-runtime-answer`, cursor/counter sync, and `consume-advance` layers.
+- [x] 5.3 Run focused tests, boundary checks, build, and strict OpenSpec validation.
+- [ ] 5.4 Rebuild/reload and classify whether the remaining frontend gap is transport wait or next-card preparation.
+
+## 6. Consume Advance Substep Timing
+
+- [x] 6.1 Add focused coverage for nested `consume-advance` timing evidence.
+- [x] 6.2 Split `consume-advance` into prepare-card, CDF refresh, nextDues, state replacement, cursor sync, and pending counter steps.
+- [x] 6.3 Run focused tests, boundary checks, build, and strict OpenSpec validation.
+- [ ] 6.4 Rebuild/reload and classify whether `consume-advance` is dominated by CDF live relation refresh or scheduler nextDues.

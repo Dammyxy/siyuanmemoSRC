@@ -2857,12 +2857,27 @@ export interface BackendReviewSessionCurrentRequest {
   sessionId: string;
 }
 
+export type BackendReviewSessionRepairGateState =
+  | 'clean'
+  | 'accepted-repairable'
+  | 'blocking'
+  | 'unavailable';
+
+export interface BackendReviewSessionRepairGateEvidence {
+  state: BackendReviewSessionRepairGateState;
+  reason: string;
+  createdAt: number;
+  cardId?: string | null;
+  sanityStatus?: BackendDomainSyncSanityStatus | null;
+}
+
 export interface BackendReviewSessionFeedbackRequest {
   sessionId: string;
   cardId: string;
   rating: 1 | 2 | 3 | 4;
   reviewedAt?: number | null;
   idempotencyKey?: string | null;
+  repairGate?: BackendReviewSessionRepairGateEvidence | null;
 }
 
 export interface BackendReviewSessionSkipRequest {

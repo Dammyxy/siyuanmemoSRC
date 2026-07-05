@@ -8,6 +8,7 @@ import { QueueType } from '@/types/unified-data-source';
 import type {
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendReviewSessionRepairGateEvidence,
 } from '../../packages/contracts/src/backend-rpc';
 import { recordBackendWorkerInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
 
@@ -38,6 +39,7 @@ export interface WorkerReviewSessionFeedbackRequest {
   rating: 1 | 2 | 3 | 4;
   reviewedAt?: number | null;
   idempotencyKey?: string | null;
+  repairGate?: BackendReviewSessionRepairGateEvidence | null;
 }
 
 export interface WorkerReviewSessionSkipRequest {
@@ -150,6 +152,7 @@ export class WorkerReviewSessionRuntime {
     const totalStartedAt = Date.now();
     const session = this.requireSession(request.sessionId);
     this.requireCurrentCard(session, request.cardId);
+    this.requireValidRepairGate(request);
 
     const feedback = await this.measureFeedbackStep(
       'session-feedback-commit',
@@ -273,6 +276,30 @@ export class WorkerReviewSessionRuntime {
     }
     session.current = current;
     return current;
+  }
+
+  private requireValidRepairGate(request: WorkerReviewSessionFeedbackRequest): void {
+    const gate = request.repairGate;
+    if (!gate) {
+      throw new Error('WORKER_REVIEW_SESSION_REPAIR_GATE_UNAVAILABLE: missing repair gate');
+    }
+    const reason = normalizeString(gate.reason) ?? 'unsafe repair gate';
+    if (gate.state === 'blocking') {
+      throw new Error(`WORKER_REVIEW_SESSION_REPAIR_GATE_BLOCKED: ${reason}`);
+    }
+    if (gate.state === 'unavailable') {
+      throw new Error(`WORKER_REVIEW_SESSION_REPAIR_GATE_UNAVAILABLE: ${reason}`);
+    }
+    if (gate.state !== 'clean' && gate.state !== 'accepted-repairable') {
+      throw new Error(`WORKER_REVIEW_SESSION_REPAIR_GATE_UNAVAILABLE: unknown repair gate state ${String(gate.state)}`);
+    }
+    if (!Number.isFinite(Number(gate.createdAt)) || Number(gate.createdAt) <= 0) {
+      throw new Error(`WORKER_REVIEW_SESSION_REPAIR_GATE_UNAVAILABLE: stale repair gate ${reason}`);
+    }
+    const gateCardId = normalizeString(gate.cardId);
+    if (gateCardId && gateCardId !== request.cardId) {
+      throw new Error(`WORKER_REVIEW_SESSION_REPAIR_GATE_BLOCKED: current-card-conflict ${gateCardId}`);
+    }
   }
 
   private advanceAfterRating(session: WorkerReviewSession, cardId: string, rating: 1 | 2 | 3 | 4): void {

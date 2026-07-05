@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { isQueueItemUnavailableError, type QueueFeedbackResult } from '@/core/queue/abstraction/Strategy';
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
@@ -10,6 +10,17 @@ import type {
   BackendReviewSessionSkipResult,
   BackendReviewSessionState,
 } from '../../../packages/contracts/src/backend-rpc';
+
+const unifiedQueueStrategyLoggerInfoMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/utils/logger', () => ({
+  createLogger: () => ({
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: unifiedQueueStrategyLoggerInfoMock,
+    warn: vi.fn(),
+  }),
+}));
 
 const DAY_MS = 86_400_000;
 
@@ -391,6 +402,10 @@ function createFilterGroupLoopFixture(
 }
 
 describe('UnifiedQueueStrategy performance and rollback behavior', () => {
+  beforeEach(() => {
+    unifiedQueueStrategyLoggerInfoMock.mockClear();
+  });
+
   it('loads review cards from projection rows when a queue is projection-backed', async () => {
     const cardA = createCard({ id: 'card-a', blockId: 'block-a' });
     const cardB = createCard({ id: 'card-b', blockId: 'block-b' });
@@ -510,6 +525,111 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(getCardsSpy).not.toHaveBeenCalled();
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+  });
+
+  it('logs copyable frontend feedback timing layers for runtime-backed rating', async () => {
+    vi.useFakeTimers();
+    try {
+      const firstCard = createCard({ id: 'timing-card-1', blockId: 'timing-block-1' });
+      const secondCard = createCard({ id: 'timing-card-2', blockId: 'timing-block-2' });
+      const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard]);
+      const workerSessionBackend = createWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard]);
+      const cdfLiveRelationReviewOpenRefresher = {
+        refreshCdfLiveRelationOnOpen: vi.fn(async () => {
+          await vi.advanceTimersByTimeAsync(620);
+          return {};
+        }),
+      };
+      workerSessionBackend.reviewSessionFeedback.mockImplementation(async (request: {
+        cardId: string;
+        rating: 1 | 2 | 3 | 4;
+        idempotencyKey?: string | null;
+      }) => {
+        await vi.advanceTimersByTimeAsync(610);
+        return {
+          sessionId: 'worker-session-retrieval-practice',
+          queueType: QueueType.RetrievalPractice,
+          current: { ...secondCard },
+          counters: {
+            remaining: 1,
+            due: 1,
+            total: 1,
+            source: 'worker-session' as const,
+          },
+          projectionState: 'ready',
+          projectionGeneration: 1,
+          projectionPolicyHash: 'test-policy',
+          answeredCardId: request.cardId,
+          feedback: {
+            ok: true,
+            cardId: request.cardId,
+            rating: request.rating,
+            reviewedAt: Date.now(),
+            idempotencyKey: request.idempotencyKey ?? 'timing-feedback',
+            durable: true,
+            queueImpact: {
+              version: 1,
+              entries: [],
+              affectedQueues: [],
+              hotPatchable: true,
+              refreshRequired: false,
+            },
+            projectionAction: null,
+            projectionImpactEntry: null,
+            truthFlush: {
+              status: 'pending',
+              reason: 'timing-test',
+            },
+          },
+        };
+      });
+      const manager = {
+        workerSessionBackend,
+        resolvePluginContext: vi.fn(() => ({
+          getSrsBackendClient: () => workerSessionBackend,
+        })),
+        getQueue: vi.fn((queueType?: QueueType) => (
+          queueType === QueueType.FinalDrill
+            ? createQueueStub(QueueType.FinalDrill, [])
+            : queue
+        )),
+        getCard: vi.fn(async (cardId: string) => {
+          await vi.advanceTimersByTimeAsync(620);
+          return { ...(cardId === firstCard.id ? firstCard : secondCard) };
+        }),
+        getCards: vi.fn(async () => []),
+        updateCard: vi.fn(async () => {}),
+      };
+      const eventBus = { subscribe: vi.fn() };
+      const strategy = new UnifiedQueueStrategy(
+        QueueType.RetrievalPractice,
+        manager as never,
+        eventBus as never,
+        null,
+        cdfLiveRelationReviewOpenRefresher as never,
+      );
+
+      const first = await strategy.next();
+      unifiedQueueStrategyLoggerInfoMock.mockClear();
+
+      const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+
+      expectAdvancedNext(feedbackResult, secondCard.id);
+      expect(unifiedQueueStrategyLoggerInfoMock).toHaveBeenCalledWith(
+        expect.stringContaining('slow review feedback frontend summary card=timing-card-1'),
+        expect.objectContaining({
+          step: 'frontend-feedback-summary',
+          topFrontendStepSummary: expect.arrayContaining([
+            expect.stringContaining('session-runtime-answer'),
+            expect.stringContaining('consume-advance'),
+            expect.stringContaining('consume-advance.prepare-selected-review-card'),
+            expect.stringContaining('consume-advance.refresh-cdf-live-relation'),
+          ]),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not rebuild a runtime-backed session for counter refresh failure or generic card-updated events', async () => {

@@ -738,6 +738,79 @@ describe('BackendReviewSyncRpcAdapter', () => {
     }));
   });
 
+  it('keeps ordinary review.session.feedback off the full pre-request merge path after session start', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const reviewedAt = 1_779_304_000_000;
+    const first = buildCard({
+      id: 'session-hot-path-card-1',
+      blockId: 'session-hot-path-block-1',
+      due: reviewedAt,
+      reps: 3,
+      lastReview: reviewedAt - 86_400_000,
+      updatedAt: reviewedAt - 86_400_000,
+    });
+    const second = buildCard({
+      id: 'session-hot-path-card-2',
+      blockId: 'session-hot-path-block-2',
+      due: reviewedAt + 1_000,
+      reps: 2,
+      lastReview: reviewedAt - 86_400_000,
+      updatedAt: reviewedAt - 86_400_000,
+    });
+    await database.upsertCards([first, second]);
+    await seedQueueProjection(database, {
+      rows: [first, second],
+      updatedAt: reviewedAt,
+    });
+    const mergeSpy = vi.spyOn(database, 'mergeExternalDatabaseIfChanged');
+    const kernel = new BackendKernel({ database });
+
+    const startResponse = await kernel.handle({
+      id: 'session-hot-path-start',
+      jsonrpc: '2.0',
+      method: 'review.session.start',
+      params: [{
+        sessionId: 'session-hot-path',
+        queueType: 'retrieval-practice',
+      }],
+    });
+    expect(startResponse).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        sessionId: 'session-hot-path',
+        current: expect.objectContaining({ id: first.id }),
+      }),
+    }));
+    mergeSpy.mockClear();
+
+    const feedbackResponse = await kernel.handle({
+      id: 'session-hot-path-feedback',
+      jsonrpc: '2.0',
+      method: 'review.session.feedback',
+      params: [{
+        sessionId: 'session-hot-path',
+        cardId: first.id,
+        rating: 3,
+        reviewedAt,
+        idempotencyKey: 'session-hot-path-feedback-key',
+        repairGate: {
+          state: 'clean',
+          reason: 'test-clean-gate',
+          createdAt: reviewedAt,
+          cardId: first.id,
+        },
+      }],
+    });
+
+    expect(feedbackResponse).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        answeredCardId: first.id,
+        current: expect.objectContaining({ id: second.id }),
+      }),
+    }));
+    expect(mergeSpy).not.toHaveBeenCalled();
+  });
+
   it('merges review events and newer card state from a synced conflict database', async () => {
     const currentBridge = createInMemorySqlitePersistenceBridge();
     const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
