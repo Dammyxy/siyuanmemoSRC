@@ -114,6 +114,28 @@ describe('BrowserApplicationService queue query path', () => {
         pushMsg: vi.fn(),
         pushErrMsg: vi.fn(),
       } as never,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
     );
 
     await expect(service.ensureQueueReadModelReady({
@@ -496,6 +518,88 @@ describe('BrowserApplicationService queue query path', () => {
     );
     expect(queue.getCards).not.toHaveBeenCalled();
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when projection-backed Browser owner is unavailable', async () => {
+    const queue = {
+      getProjectionReadMode: vi.fn(() => 'backend-projection'),
+      getCards: vi.fn(() => {
+        throw new Error('Projection-backed Browser read must not use local queue.getCards fallback');
+      }),
+      getSnapshotRows: vi.fn(() => {
+        throw new Error('Projection-backed Browser read must not use local queue snapshot fallback');
+      }),
+      getCardsBySnapshotIds: vi.fn(() => {
+        throw new Error('Projection-backed Browser read must not use local row hydration fallback');
+      }),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        readPath: 'backend-projection',
+        state: 'backend-projection',
+        reason: 'rollout-enabled',
+      }]),
+    } as never;
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      sql: vi.fn(async () => []),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    } as never;
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(() => []),
+        getAllCards: vi.fn(() => []),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      manager,
+      siyuanApi,
+      siyuanApi,
+    );
+
+    const page = await service.getBrowserReadModel().page({
+      source: 'queue',
+      query: {
+        queueId: 'filter-group',
+        preset: 'all',
+        searchText: '',
+        cardType: 'all',
+        sortModel: [],
+      },
+    }, {
+      startRow: 0,
+      endRow: 20,
+    });
+
+    expect(page).toMatchObject({
+      status: 'unavailable',
+      rows: [],
+      total: 0,
+      readOwner: {
+        kind: 'queue-projection',
+        queueId: 'filter-group',
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+      },
+      diagnostics: [expect.objectContaining({
+        kind: 'owner-unavailable',
+        message: expect.stringContaining('Browser projection snapshot reader unavailable'),
+      })],
+    });
+    expect(queue.getCards).not.toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
 
   it('createDataSource wires queue datasources back to browser service methods', async () => {

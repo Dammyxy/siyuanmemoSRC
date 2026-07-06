@@ -79,7 +79,7 @@ export class StorageBootstrapRuntime {
       await this.reconcileTruthWithoutReceipt(options, truthProjectionInput);
       return {
         truthAvailable: true,
-        projectionRebuildRequired: true,
+        projectionRebuildRequired: !projectionBytesBeforeStartup,
         projectionRebuildReason: projectionBytesBeforeStartup ? 'sql-stale' : 'temp-projection-missing',
         truthProjectionInput,
         projectionBytesBeforeStartup,

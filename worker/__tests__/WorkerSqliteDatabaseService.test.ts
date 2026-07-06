@@ -22,6 +22,22 @@ type InMemorySqliteBridge = ReturnType<typeof createInMemorySqlitePersistenceBri
 async function seedCardMemoryTruth(
   bridge: InMemorySqliteBridge,
   cardId = 'truth-rebuild-card',
+  overrides: {
+    memory?: Partial<{
+      stability: number;
+      difficulty: number;
+      due: number;
+      elapsedDays: number;
+      scheduledDays: number;
+      reps: number;
+      lapses: number;
+      state: CardState;
+      lastReview: number;
+      priority: number;
+      schedulerType: string;
+    }>;
+    payload?: Record<string, unknown>;
+  } = {},
 ): Promise<void> {
   const store = createMessagePackTruthSegmentStore({
     fileStore: bridge.truthFileStore!,
@@ -54,6 +70,7 @@ async function seedCardMemoryTruth(
       lastReview: 0,
       priority: 42,
       schedulerType: 'fsrs-v6',
+      ...overrides.memory,
     },
     payload: {
       cardId,
@@ -69,6 +86,7 @@ async function seedCardMemoryTruth(
       meta: {
         sourceHash: `source-hash-${cardId}`,
       },
+      ...overrides.payload,
     },
   }]);
 }
@@ -625,6 +643,90 @@ describe('WorkerSqliteDatabaseService', () => {
     });
   });
 
+  it('keeps projection-applied review feedback durable across restart before truth flush', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const cardId = 'review-projection-applied-restart-card';
+    const reviewedAt = 1_779_188_900_000;
+    await seedCardMemoryTruth(bridge, cardId, {
+      memory: {
+        due: reviewedAt - 10_000,
+        lastReview: reviewedAt - 86_400_000,
+        reps: 42,
+        stability: 4,
+        difficulty: 5,
+        state: CardState.Review,
+      },
+      payload: {
+        blockId: `block-${cardId}`,
+        createdAt: reviewedAt - 7 * 86_400_000,
+        updatedAt: reviewedAt - 86_400_000,
+      },
+    });
+    const first = new WorkerSqliteDatabaseService(bridge);
+    await first.load({ truthDeviceId: WORKER_TRUTH_DEVICE_ID });
+    await first.upsertCards([{
+      id: cardId,
+      blockId: `block-${cardId}`,
+      due: reviewedAt - 10_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 42,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: reviewedAt - 86_400_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: reviewedAt - 7 * 86_400_000,
+      updatedAt: reviewedAt - 86_400_000,
+      meta: { content: 'review projection-applied restart card' },
+    }]);
+    await first.persist();
+    expect((await first.getCard(cardId))?.reps).toBe(42);
+
+    const feedback = await first.reviewFeedback({
+      cardId,
+      rating: 3,
+      reviewedAt,
+      queueType: 'retrieval-practice',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+      idempotencyKey: 'review-projection-applied-restart-key',
+    });
+
+    expect(feedback.committed).toBe(true);
+    const reviewedCard = await first.getCard(cardId);
+    expect(reviewedCard?.reps).toBeGreaterThan(42);
+    expect(first.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE commit_idempotency_key = ?',
+      ['review-projection-applied-restart-key'],
+    )?.count).toBe(1);
+    await bridge.reviewFeedbackJournalStore.updateEntryStatus(
+      'review-feedback:review-projection-applied-restart-key',
+      'projection-applied',
+      {
+        appliedAt: reviewedAt,
+        projectionAppliedAt: reviewedAt + 1,
+      },
+    );
+    first.dispose();
+
+    const restarted = await loadWorkerDatabaseFromBridge(bridge);
+    const restartedCard = await restarted.getCard(cardId);
+    expect(restartedCard?.reps).toBe(reviewedCard?.reps);
+    expect(restartedCard?.lastReview).toBe(reviewedAt);
+    expect(restarted.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE commit_idempotency_key = ?',
+      ['review-projection-applied-restart-key'],
+    )?.count).toBe(1);
+  });
+
   it('previews domain sync repair without missing hash helper errors', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(bridge);
@@ -706,6 +808,26 @@ describe('WorkerSqliteDatabaseService', () => {
       'SELECT plan_id FROM domain_sync_repair_plans WHERE affected_card_count = ?',
       [1],
     )?.plan_id).toContain('domain-sync-repair-preview:1700300000000:');
+  });
+
+  it('reads domain sync status without scanning host conflict database sources', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const readSyncConflictDatabaseSources = vi.fn(async () => {
+      throw new Error('backend worker host effect sqlite.readSyncConflictDatabaseSources timed out after 5000ms');
+    });
+    const database = new WorkerSqliteDatabaseService({
+      ...bridge,
+      readSyncConflictDatabaseSources,
+    });
+    await database.init();
+
+    await expect(database.getDomainSyncStatus(1_700_300_000_000)).resolves.toMatchObject({
+      ok: true,
+      sanity: {
+        checkedAt: 1_700_300_000_000,
+      },
+    });
+    expect(readSyncConflictDatabaseSources).not.toHaveBeenCalled();
   });
 
   it('replays registered table deletes by primary key rather than rowid', async () => {

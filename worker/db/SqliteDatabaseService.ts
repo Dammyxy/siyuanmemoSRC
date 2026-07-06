@@ -2537,7 +2537,6 @@ export class WorkerSqliteDatabaseService {
 
   async getDomainSyncStatus(checkedAt = Date.now()): Promise<BackendDomainSyncStatusResult> {
     await this.init();
-    await this.forgetStaleUnknownSkippedDomainSyncConflictSourcesFromHost();
     return this.readDomainSyncStatusSnapshot(checkedAt);
   }
 
@@ -3150,8 +3149,16 @@ export class WorkerSqliteDatabaseService {
 
   async listDomainSyncConflictSourceCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult> {
     await this.init();
-    const status = await this.getDomainSyncStatus();
     const conflictSources = await this.fileService.readSyncConflictDatabaseSources();
+    const forgotten = this.forgetStaleUnknownSkippedDomainSyncConflictSources(
+      conflictSources.map((source) => source.sourceId),
+    );
+    if (forgotten > 0) {
+      this.lastDomainSyncStatusSnapshot = null;
+      await this.runtime.persist();
+      await this.rememberPersistedHash();
+    }
+    const status = await this.readDomainSyncStatusSnapshot();
     const rows = this.readDomainSyncProcessedSourcesForSourceIds(conflictSources.map((source) => source.sourceId));
     const rowsById = new Map(rows.map((row) => [String(row.source_id || ''), row]));
     const candidates = conflictSources.map((source) => {
@@ -3204,19 +3211,6 @@ export class WorkerSqliteDatabaseService {
       active,
     );
     return Number(this.runtime.getOne<{ changed: number }>('SELECT changes() AS changed')?.changed ?? 0);
-  }
-
-  private async forgetStaleUnknownSkippedDomainSyncConflictSourcesFromHost(): Promise<number> {
-    const conflictSources = await this.fileService.readSyncConflictDatabaseSources();
-    const forgotten = this.forgetStaleUnknownSkippedDomainSyncConflictSources(
-      conflictSources.map((source) => source.sourceId),
-    );
-    if (forgotten > 0) {
-      this.lastDomainSyncStatusSnapshot = null;
-      await this.runtime.persist();
-      await this.rememberPersistedHash();
-    }
-    return forgotten;
   }
 
   async mergeSyncConflictDatabases(

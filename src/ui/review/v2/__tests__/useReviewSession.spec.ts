@@ -2,6 +2,11 @@ import { mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { QueueItemUnavailableError } from '@/core/queue/abstraction/Strategy';
+import {
+  clearRuntimePerformanceDiagnostics,
+  getRuntimePerformanceDiagnosticsReport,
+  setRuntimePerformanceDiagnosticsEnabled,
+} from '@/utils/runtimePerformanceDiagnostics';
 import { createEmptyReviewUIState, type ReviewSessionHook, type ReviewUIState } from '../types';
 import { createReviewSessionController, useReviewSession } from '../useReviewSession';
 
@@ -339,6 +344,94 @@ describe('useReviewSession', () => {
     expect(hook.context.value.session?.correctCount).toBe(1);
 
     wrapper.unmount();
+  });
+
+  it('advances from the session frontier without waiting for presentation preparation', async () => {
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+    clearRuntimePerformanceDiagnostics();
+    const queue = createQueue();
+    const preparedNext = hydrateItem(createItem('prepared-next'));
+    queue.onFeedback = vi.fn(async () => ({
+      status: 'advanced' as const,
+      nextItem: preparedNext,
+    }));
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+    const presentationGate = createDeferred<ReviewUIState>();
+    const prepareStateBeforeCommit = vi.fn(async (state: ReviewUIState, reason: string) => {
+      if (reason !== 'grade') {
+        return state;
+      }
+      await presentationGate.promise;
+      return {
+        ...state,
+        content: {
+          ...state.content,
+          prepared: {
+            rendererKind: 'quick',
+            identityKey: 'prepared-next:quick',
+            viewModel: { id: state.content.id },
+          },
+        },
+      };
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter, prepareStateBeforeCommit });
+    try {
+      await flushAsync();
+
+      const hook = getHook();
+      const gradePromise = hook.grade(3);
+      for (let attempt = 0; attempt < 20 && hook.state.value.content.id !== 'prepared-next'; attempt += 1) {
+        await flushAsync();
+      }
+
+      expect(hook.state.value.content.id).toBe('prepared-next');
+      expect(hook.state.value.content.prepared).toBeUndefined();
+      expect(queue.next).toHaveBeenCalledTimes(1);
+      expect(prepareStateBeforeCommit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.objectContaining({ id: 'prepared-next' }),
+        }),
+        'grade',
+      );
+
+      presentationGate.resolve({
+        ...hook.state.value,
+        content: {
+          ...hook.state.value.content,
+          prepared: {
+            rendererKind: 'quick',
+            identityKey: 'prepared-next:quick',
+            viewModel: { id: 'prepared-next' },
+          },
+        },
+      });
+      await gradePromise;
+      await flushAsync();
+
+      expect(hook.state.value.content.id).toBe('prepared-next');
+      expect(hook.state.value.content.prepared).toMatchObject({
+        rendererKind: 'quick',
+        identityKey: 'prepared-next:quick',
+      });
+      expect(getRuntimePerformanceDiagnosticsReport().events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            operation: 'state.commit-notify',
+            metadata: expect.objectContaining({ owner: 'session-queue', reason: 'grade' }),
+          }),
+          expect.objectContaining({
+            operation: 'state.prepare-presentation-async',
+            metadata: expect.objectContaining({ owner: 'unattributed-ui', reason: 'grade' }),
+          }),
+        ]),
+      );
+    } finally {
+      wrapper.unmount();
+      setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
+    }
   });
 
   it('advances from session frontier while backend commit remains pending', async () => {

@@ -83,7 +83,7 @@ function createRuntime(input: {
 }
 
 describe('StorageBootstrapRuntime', () => {
-  it('requests truth-backed projection rebuild when durable truth exists', async () => {
+  it('keeps existing sqlite projection loadable when durable truth exists', async () => {
     const truthFileStore = new MemoryTruthFileStore();
     await seedCardTruth(truthFileStore);
     const runtime = createRuntime({
@@ -95,13 +95,32 @@ describe('StorageBootstrapRuntime', () => {
 
     expect(result).toMatchObject({
       truthAvailable: true,
-      projectionRebuildRequired: true,
+      projectionRebuildRequired: false,
       projectionRebuildReason: 'sql-stale',
       projectionBytesBeforeStartup: new Uint8Array([1, 2, 3]),
     });
     expect(result.truthProjectionInput?.truthRecords).toHaveLength(1);
     expect(result.truthProjectionInput?.primaryDeviceId).toBe('device-local');
     expect(result.truthProjectionInput?.primaryGenerationId).toBe('card-memory-facts-v1');
+  });
+
+  it('requests truth-backed projection rebuild when sqlite projection is missing', async () => {
+    const truthFileStore = new MemoryTruthFileStore();
+    await seedCardTruth(truthFileStore);
+    const runtime = createRuntime({
+      truthFileStore,
+      projectionBytes: null,
+    });
+
+    const result = await runtime.bootstrap(BOOTSTRAP_OPTIONS);
+
+    expect(result).toMatchObject({
+      truthAvailable: true,
+      projectionRebuildRequired: true,
+      projectionRebuildReason: 'temp-projection-missing',
+      projectionBytesBeforeStartup: null,
+    });
+    expect(result.truthProjectionInput?.truthRecords).toHaveLength(1);
   });
 
   it('surfaces truth validation failure instead of continuing from invalid truth', async () => {

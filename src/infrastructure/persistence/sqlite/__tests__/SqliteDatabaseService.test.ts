@@ -977,21 +977,21 @@ describe('SqliteDatabaseService', () => {
     }
 
     expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(0);
-    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(1);
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(0);
     await insertReviewEventForSqliteDeltaWindow(
       database,
       'event-volatile-hot-sealed-reuse',
       1_783_060_000_300,
     );
-    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(1);
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(0);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
       pendingCount: 18,
     });
     expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(1);
-    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(2);
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(1);
   });
 
-  it('reads persisted sealed sqlite delta bytes after diagnostics clears same-runtime evidence', async () => {
+  it('reuses persisted-read sealed sqlite delta evidence after diagnostics before append preflight', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
       persistOnInit: false,
@@ -1023,17 +1023,55 @@ describe('SqliteDatabaseService', () => {
       1_783_060_000_300,
     );
 
-    expect(fileService.readBinaryDiagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        fileName: SQLITE_DELTA_V2_SEALED_1,
-        diagnostics: expect.objectContaining({
-          sqliteDeltaPurpose: 'sqlite-delta.append-preflight',
-        }),
-      }),
-    ]));
+    expect(fileService.readBinaryDiagnostics.filter((entry) => (
+      entry.fileName === SQLITE_DELTA_V2_SEALED_1
+      && entry.diagnostics?.sqliteDeltaPurpose === 'sqlite-delta.append-preflight'
+    ))).toHaveLength(0);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 18,
+    });
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(1);
   });
 
-  it('attributes sealed sqlite delta reads during append preflight after reload', async () => {
+  it('keeps sealed evidence after diagnostics clears the append hot snapshot', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    fileService.resetWriteCounts();
+
+    for (let index = 1; index <= 17; index += 1) {
+      await insertReviewEventForSqliteDeltaWindow(
+        database,
+        `event-volatile-diagnostics-sealed-${index}`,
+        1_783_060_000_320 + index,
+      );
+    }
+
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(0);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 17,
+    });
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(1);
+    fileService.resetWriteCounts();
+
+    await insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-volatile-diagnostics-sealed-append',
+      1_783_060_000_400,
+    );
+
+    expect(fileService.readBinaryDiagnostics.filter((entry) => (
+      entry.fileName === SQLITE_DELTA_V2_SEALED_1
+      && entry.diagnostics?.sqliteDeltaPurpose === 'sqlite-delta.append-preflight'
+    ))).toHaveLength(0);
+  });
+
+  it('reuses startup-verified sealed sqlite delta evidence during append preflight after reload', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
       persistOnInit: false,
@@ -1057,6 +1095,8 @@ describe('SqliteDatabaseService', () => {
       enableDeltaPersistence: true,
     });
     await reloaded.init();
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1).length)
+      .toBeGreaterThan(0);
     fileService.resetWriteCounts();
 
     await insertReviewEventForSqliteDeltaWindow(
@@ -1067,7 +1107,7 @@ describe('SqliteDatabaseService', () => {
 
     expect(fileService.readBinaryDiagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        fileName: SQLITE_DELTA_V2_SEALED_1,
+        fileName: SQLITE_DELTA_V2_OPEN_SEGMENT,
         diagnostics: expect.objectContaining({
           sqliteDeltaPurpose: 'sqlite-delta.append-preflight',
           sqliteDeltaSubstep: expect.stringMatching(
@@ -1076,6 +1116,10 @@ describe('SqliteDatabaseService', () => {
         }),
       }),
     ]));
+    expect(fileService.readBinaryDiagnostics.filter((entry) => (
+      entry.fileName === SQLITE_DELTA_V2_SEALED_1
+      && entry.diagnostics?.sqliteDeltaPurpose === 'sqlite-delta.append-preflight'
+    ))).toHaveLength(0);
   });
 
   it('excludes queue projection cache from review feedback sqlite delta while retaining canonical writes', async () => {

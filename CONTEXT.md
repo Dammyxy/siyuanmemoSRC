@@ -90,6 +90,14 @@ _Avoid_: mandatory Riff sync, shadow-card truth, default dual scheduling
 The authoritative Browser-facing read contract that resolves matched row identity, count, page hydration, row-by-ID hydration, action targets, and source-existence state for deck, query, block-ID, and queue views. It reads from the declared owner for each view and must not replace unavailable owner data with stale local queue or snapshot data.
 _Avoid_: grid cache, Browser UI state, Review projection builder, local queue fallback
 
+**SessionQueueIndex**:
+The active Review session Module that owns current card, lookahead, session exclusions, session counters, and post-feedback advancement after a session starts. It may seed from a valid projection snapshot at session start, but Browser projection warmup, filter repair, and count refresh do not choose the next card after feedback.
+_Avoid_: Browser projection cache, Review UI presentation prepare, queue projection read model, renderer fallback cursor
+
+**BrowserProjectionIndex**:
+The Browser-facing projection Module that owns matched row identity, counts, filter/sort projections, projection warmup, projection repair, and row hydration. It reports refreshing, stale, repair-required, or unavailable state for Browser reads without becoming active Review next-card authority.
+_Avoid_: SessionQueueIndex, active Review frontier, Review answer authority, hidden stale-row fallback
+
 **Custom Review Surface**:
 A SiYuanMemo-owned review UI that renders card content outside SiYuan's native block renderer. It must explicitly preserve supported link and reference behavior because native rendering is not automatically available.
 _Avoid_: assuming temporary or deliberate practice cannot render links by nature

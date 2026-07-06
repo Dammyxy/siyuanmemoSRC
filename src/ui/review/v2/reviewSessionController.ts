@@ -413,6 +413,23 @@ function mergeAux(base: ReviewUIState, aux: Partial<ReviewUIState>): ReviewUISta
   };
 }
 
+function mergePreparedPresentation(
+  current: ReviewUIState,
+  prepared: ReviewUIState,
+): ReviewUIState {
+  if (current.content.id !== prepared.content.id || !prepared.content.prepared) {
+    return current;
+  }
+
+  return {
+    ...current,
+    content: {
+      ...current.content,
+      prepared: prepared.content.prepared,
+    },
+  };
+}
+
 export function createReviewSessionController<TItem extends QueueItem>(
   queue: IQueueStrategy<TItem>,
   adapter: IAdapter<TItem>,
@@ -612,44 +629,49 @@ export function createReviewSessionController<TItem extends QueueItem>(
       'review',
       'state.to-ui-state',
       () => adapter.toUIState(queue, currentItem.value, context.value),
-      { reason },
+      { reason, owner: 'session-queue' },
     );
     if (seq !== updateSeq || disposed) {
       return;
     }
     let nextState = withSessionMeta(mainState);
-    if (!updateOptions?.skipPrepare && reason !== 'reveal' && options?.prepareStateBeforeCommit) {
-      try {
-        nextState = withSessionMeta(await measureRuntimePerformance(
-          'review',
-          'state.prepare-before-commit',
-          () => options.prepareStateBeforeCommit!(nextState, reason),
-          { reason },
-        ));
-      } catch (error) {
-        logger.warn('Review presentation prepare failed; committing unprepared state:', {
-          reason,
-          cardId: nextState.content.card?.id,
-          blockId: nextState.content.id,
-          error,
-        });
-      }
-      if (seq !== updateSeq || disposed) {
-        return;
-      }
-    }
     measureRuntimePerformance('review', 'state.commit-notify', () => {
       state.value = nextState;
       notifySubscribers();
-    }, { reason });
+    }, { reason, owner: 'session-queue' });
     maybeNotifyQueueCompleted(reason);
+
+    if (!updateOptions?.skipPrepare && reason !== 'reveal' && options?.prepareStateBeforeCommit) {
+      measureRuntimePerformance(
+        'review',
+        'state.prepare-presentation-async',
+        () => options.prepareStateBeforeCommit!(nextState, reason),
+        { reason, owner: 'unattributed-ui' },
+      )
+        .then((preparedState) => {
+          if (seq !== updateSeq || disposed) {
+            return;
+          }
+          state.value = withSessionMeta(mergePreparedPresentation(state.value, preparedState));
+          notifySubscribers();
+        })
+        .catch((error) => {
+          logger.warn('Review presentation prepare failed after base state commit:', {
+            reason,
+            cardId: nextState.content.card?.id,
+            blockId: nextState.content.id,
+            owner: 'unattributed-ui',
+            error,
+          });
+        });
+    }
 
     if (reason !== 'reveal' && adapter.fetchAuxiliaryData) {
       measureRuntimePerformance(
         'review',
         'state.fetch-auxiliary-data',
         () => adapter.fetchAuxiliaryData!(currentItem.value, queue, context.value),
-        { reason },
+        { reason, owner: 'session-queue' },
       )
         .then((aux) => {
           if (seq !== updateSeq || disposed) {

@@ -1,8 +1,48 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-06 (Round 666)
+Last update: 2026-07-07 (Round 670)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-07 - Review restart durability before truth flush
+
+- Task: Diagnose user report that after reviewing several cards and restarting SiYuan, Review record/count appeared to return to the old value (`42`).
+- Touched slice: Backend worker storage bootstrap and Review restart durability; `worker/db/StorageBootstrapRuntime.ts`, `worker/db/__tests__/StorageBootstrapRuntime.test.ts`, `worker/__tests__/WorkerSqliteDatabaseService.test.ts`, `ARCHITECTURE.md`, and `docs/DDD_RESCAN_BACKLOG.md`.
+- Debt fixed now: Startup bootstrap no longer forces truth-backed SQL projection rebuild merely because MessagePack truth exists. If `siyuanmemo.db` is loadable, worker now loads existing SQLite, replays pending SQLite delta/journal, and preserves Review feedback committed before `review.truth.flush`; truth rebuild remains reserved for missing/corrupt projection recovery.
+- Debt deferred: Startup still marks truth presence as `sql-stale` diagnostic input when SQLite bytes exist, but does not automatically compare full truth-vs-SQL freshness or repair stale truth projections.
+- Why deferred: The data-loss bug was caused by overwrite ordering, not by a missing bidirectional truth/SQL reconciler. Full freshness comparison would cross Review Ledger, Card Schedule Store, and projection repair seams.
+- Next safe step: Rebuild/reload, review a few cards, restart SiYuan, and confirm reps/review_events stay advanced. If counts still diverge, inspect `reviewFeedbackJournal`, `sqliteDelta`, and Domain Sync repair diagnostics for a separate recovery issue.
+- Validation: Added regression for `projection-applied` Review feedback surviving restart before truth flush, plus bootstrap coverage that existing SQLite projection is loadable when truth exists and truth rebuild only runs when SQLite projection is missing. Full validation run in this task after docs update.
+
+### 2026-07-07 - Browser domain sync status host-scan decoupling
+
+- Task: Diagnose new Browser open failure where deck rows, hierarchy counts, and global stats all failed with `BACKEND_UNAVAILABLE: backend worker host effect sqlite.readSyncConflictDatabaseSources timed out after 5000ms`.
+- Touched slice: Backend worker Domain Sync status read path; `worker/db/SqliteDatabaseService.ts`, `worker/__tests__/WorkerSqliteDatabaseService.test.ts`, `ARCHITECTURE.md`, and `docs/DDD_RESCAN_BACKLOG.md`.
+- Debt fixed now: Ordinary `getDomainSyncStatus()` now reads the local Domain Sync status snapshot without synchronously scanning host sync-conflict database sources. Host conflict-source scanning and stale unknown skipped-source cleanup stay in explicit merge / cleanup-candidate paths, preserving fail-closed behavior for operations that actually depend on those files.
+- Debt deferred: If Browser still opens slowly after this, the next slice should measure whether remaining time is Browser row hydration, document count aggregation, global stats, or projection warmup. This change does not optimize those read queries.
+- Why deferred: The reported failure was a status/diagnostic read blocking on an expensive host file scan, not a row-query performance problem. Mixing query optimization into the same slice would blur the owner seam.
+- Next safe step: Rebuild/reload and open Browser. Expected result: no Browser deck/counts/stats failure from `sqlite.readSyncConflictDatabaseSources`; explicit Domain Sync cleanup UI may still surface host scan errors if the host effect itself times out.
+- Validation: Focused regression initially failed on `getDomainSyncStatus -> readSyncConflictDatabaseSources`, then passed after the fix. Full validation run in this task after docs update.
+
+### 2026-07-06 - Review update-state presentation decoupling
+
+- Task: Continue `split-session-queue-from-browser-projection` after rebuilt logs showed `ReviewSessionController` `update-state` dominating visible rating latency while `consume-advance` and sealed SQLite reads were no longer dominant.
+- Touched slice: Review session UI/controller hot path and Browser queue projection read seam; `src/ui/review/v2/reviewSessionController.ts`, `src/ui/review/v2/__tests__/useReviewSession.spec.ts`, `src/application/queries/browser/shared/QueueBrowserQueryKernel.ts`, `src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts`, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec `split-session-queue-from-browser-projection`.
+- Debt fixed now: `ReviewSessionController.updateState()` now commits the session-owned base next-card state before running presentation preparation; `state.to-ui-state` and `state.commit-notify` are attributed to `session-queue`, while async presentation work is attributed to `unattributed-ui` and can only merge the prepared payload back when the same card is still current. Browser projection-backed reads now require the BrowserProjectionIndex owner; if projection snapshot/hydration owner is unavailable, Browser returns explicit unavailable diagnostics instead of falling back to local queue snapshots or local row hydration.
+- Debt deferred: Broader SessionQueueIndex/BrowserProjectionIndex package renaming remains open for a later slice.
+- Why deferred: The live slow point in this slice was visible Review `update-state`; the Browser work here is the minimal fail-closed regression seam required by the OpenSpec task. Package moves would add naming churn beyond the validated latency/fail-closed fix.
+- Next safe step: Rebuild/reload, rate several cards, and verify slow frontend summaries either drop `update-state` below the visible switch budget or attribute residual time to `state.prepare-presentation-async` rather than `state.commit-notify`.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/useReviewSession.spec.ts src/ui/review/v2/__tests__/reviewPresentationPreparer.test.ts` passed (37 tests); `pnpm exec vitest run src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts -t "fails closed when projection-backed Browser owner is unavailable"` passed. Boundary/build/OpenSpec validation run in this implementation pass.
+
+### 2026-07-06 - SQLite delta append-preflight sealed evidence reuse
+
+- Task: Continue slow Review rating diagnosis after live logs still showed `review.session.feedback` spending time in `sqlite-delta.append-preflight` sealed `msgpack` reads.
+- Touched slice: Delta Sync Adapter hot path; `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts` and `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`.
+- Debt fixed now: Append preflight now reuses already verified sealed-segment evidence from diagnostics/startup/replay when manifest identity still matches, so ordinary same-runtime `review.feedback` does not cold-read sealed history again. Newly sealed rollover segments are remembered as persisted-write evidence, and verified evidence now survives append hot-snapshot invalidation, so diagnostics/cache invalidation does not force the next append to cold-read sealed history. Reuse is sealed-only on the fallback snapshot path; open segment still re-reads bytes so corrupt-open repair remains fail-closed.
+- Debt deferred: CDF pending non-blocking advance and Browser/Queue projection warmup separation remain later slices under their own OpenSpec changes.
+- Why deferred: This slice is the proven storage-owner bottleneck. Expanding into CDF or Browser projection would mix independent Review latency causes before live logs confirm the sealed-read fix.
+- Next safe step: Rebuild/reload, rate several cards, and confirm `hostBreakdown` no longer reports repeated sealed `sqlite.readBinary` under `purpose=sqlite-delta.append-preflight`; then move to CDF pending if still visible.
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts -t "keeps sealed evidence after diagnostics clears the append hot snapshot|sqlite delta|sealed|append preflight|hot|corrupt-open|checksum mismatch"` passed (23 tests); `pnpm run check:boundaries`; `pnpm build`; `openspec validate separate-review-ledger-from-delta-sync --strict`. Build still reports existing non-blocking i18n hardcoded-string warnings and Sass legacy JS API deprecation warnings.
 
 ### 2026-07-06 - Review Ledger separated from Delta Sync hot path
 

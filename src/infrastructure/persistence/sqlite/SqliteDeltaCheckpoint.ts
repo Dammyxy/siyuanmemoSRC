@@ -29,6 +29,12 @@ type SqliteDeltaFileEffectMetadata = {
   substep?: string | null;
 };
 
+type VerifiedSegmentEvidenceScope = boolean | 'sealed-only';
+
+type SqliteDeltaSnapshotReadOptions = SqliteDeltaFileEffectMetadata & {
+  allowVerifiedSegmentEvidence?: VerifiedSegmentEvidenceScope;
+};
+
 export type SqliteCheckpointStorageClass = 'durable-checkpoint' | 'volatile-projection';
 
 export type SqliteDeltaOperation = 'insert' | 'update' | 'delete';
@@ -119,7 +125,7 @@ interface SqliteDeltaSegmentEnvelope {
 interface VerifiedSegmentEvidence {
   manifestEntry: SqliteDeltaSegmentManifestEntry;
   envelope: SqliteDeltaSegmentEnvelope;
-  provenance: 'generated' | 'persisted-read';
+  provenance: 'generated' | 'persisted-read' | 'persisted-write';
 }
 
 export interface SqliteDeltaOperationStatus {
@@ -875,7 +881,6 @@ export class SqliteDeltaCheckpointLayer {
 
   private clearAppendHotPathSnapshot(): void {
     this.appendHotPathSnapshot = null;
-    this.clearVerifiedSegmentEvidence();
   }
 
   private rememberVerifiedSegmentEvidence(
@@ -892,10 +897,13 @@ export class SqliteDeltaCheckpointLayer {
       this.verifiedSegmentEvidenceByPath.delete(manifestEntry.path);
       return;
     }
+    const storedProvenance = manifestEntry.sealed && provenance === 'generated'
+      ? 'persisted-write'
+      : provenance;
     this.verifiedSegmentEvidenceByPath.set(manifestEntry.path, {
       manifestEntry: { ...manifestEntry },
       envelope,
-      provenance,
+      provenance: storedProvenance,
     });
   }
 
@@ -914,6 +922,7 @@ export class SqliteDeltaCheckpointLayer {
       manifestEntry.sealed
       && this.checkpointStorageClass !== 'durable-checkpoint'
       && evidence.provenance !== 'persisted-read'
+      && evidence.provenance !== 'persisted-write'
     ) {
       return null;
     }
@@ -1072,6 +1081,7 @@ export class SqliteDeltaCheckpointLayer {
     let snapshot: SqliteDeltaLogSnapshot;
     try {
       snapshot = await this.readAppendHotPathSnapshot() ?? await this.readSnapshot({
+        allowVerifiedSegmentEvidence: 'sealed-only',
         purpose: 'sqlite-delta.append-preflight',
         substep: 'persist-committed-transaction-read-snapshot',
       });
@@ -1418,6 +1428,7 @@ export class SqliteDeltaCheckpointLayer {
       this.rememberVerifiedSegmentEvidence(
         sealedSegmentEvidence.manifestEntry,
         sealedSegmentEvidence.envelope,
+        'persisted-write',
       );
     }
     return { manifest: nextManifest };
@@ -1717,7 +1728,7 @@ export class SqliteDeltaCheckpointLayer {
   }
 
   private async readSnapshot(
-    metadata: SqliteDeltaFileEffectMetadata = {},
+    metadata: SqliteDeltaSnapshotReadOptions = {},
   ): Promise<SqliteDeltaLogSnapshot> {
     const manifest = await this.readManifest(metadata);
     try {
@@ -1743,7 +1754,7 @@ export class SqliteDeltaCheckpointLayer {
   private async readSnapshotFromManifest(
     manifest: SqliteDeltaSegmentManifest,
     options: {
-      allowVerifiedSegmentEvidence?: boolean;
+      allowVerifiedSegmentEvidence?: VerifiedSegmentEvidenceScope;
       purpose?: string | null;
       substep?: string | null;
     } = {},
@@ -1834,12 +1845,14 @@ export class SqliteDeltaCheckpointLayer {
   private async readSegmentEnvelope(
     segment: SqliteDeltaSegmentManifestEntry,
     options: {
-      allowVerifiedSegmentEvidence?: boolean;
+      allowVerifiedSegmentEvidence?: VerifiedSegmentEvidenceScope;
       purpose?: string | null;
       substep?: string | null;
     } = {},
   ): Promise<SqliteDeltaSegmentEnvelope> {
-    if (options.allowVerifiedSegmentEvidence) {
+    const canUseVerifiedSegmentEvidence = options.allowVerifiedSegmentEvidence === true
+      || (options.allowVerifiedSegmentEvidence === 'sealed-only' && segment.sealed);
+    if (canUseVerifiedSegmentEvidence) {
       const evidence = this.readVerifiedSegmentEvidence(segment);
       if (evidence) {
         return evidence;

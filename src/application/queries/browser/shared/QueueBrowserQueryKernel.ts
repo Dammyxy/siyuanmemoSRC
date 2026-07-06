@@ -238,7 +238,7 @@ export class QueueBrowserQueryKernel {
       queueId: identity.queueId,
       queueType: identity.queueType,
       projectionBacked,
-      requiresManagerProjectionRead: projectionBacked && explicitMode !== 'backend-projection',
+      requiresManagerProjectionRead: projectionBacked,
       readOwner,
     };
   }
