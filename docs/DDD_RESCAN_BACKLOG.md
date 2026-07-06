@@ -1,8 +1,78 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-05 (Round 661)
+Last update: 2026-07-06 (Round 666)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-06 - Review Ledger separated from Delta Sync hot path
+
+- Task: Implement OpenSpec `separate-review-ledger-from-delta-sync` first slice by preventing ordinary same-runtime Review answers from repeatedly reading historical sealed SQLite delta segments while keeping explicit Delta Sync verification fail-closed.
+- Touched slice: Review durability / SQLite Delta Sync Adapter; `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, active Review architecture docs, and OpenSpec task ledger.
+- Debt fixed now: Volatile projection append-preflight can reuse verified persisted sealed-segment evidence after the first validation, so consecutive `review.feedback` appends do not keep paying sealed `msgpack` reads. File-effect metadata now labels manifest/segment reads by purpose/substep. Tests separate Review fact hot-path success from explicit diagnostics/recovery checksum verification.
+- Debt deferred: Full named Review Ledger / Card Schedule Store modules, duplicate answer reconciliation tests, crash-recovery replay from ledger facts, and moving all delta diagnostics out of kernel result envelope remain future slices in this change.
+- Why deferred: This pass fixed the proven live bottleneck in the Delta Sync Adapter without crossing worker Review journal, card schedule persistence, and idempotency module seams already dirty from prior slices.
+- Next safe step: Continue the same OpenSpec change with a named Review Ledger/Card Schedule Store seam over existing SQL/journal writes, then add idempotency and crash-recovery tests at that seam.
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts worker/db/__tests__/SqliteDatabaseService.metadata.test.ts --pool=forks --maxWorkers=1 --minWorkers=1` passed (42 tests); `pnpm run check:boundaries`; `pnpm build`; `openspec validate separate-review-ledger-from-delta-sync --strict`. Build still reports existing non-blocking i18n hardcoded-string warnings and Sass legacy JS API deprecation warnings.
+
+### 2026-07-06 - Xiuyuan startup sync SQLite host-effect timeout
+
+- Task: Diagnose startup `xiuyuan.sync.apply` failure after live logs showed `sqlite.writeBinary timed out after 5000ms`, followed by restore `sqlite.readBinary` timeout and startup incremental sync failure.
+- Touched slice: Backend worker transport host-effect deadline ownership across `worker/bootstrap/BackendWorkerProtocol.ts`, `worker/bootstrap/backend-worker.entry.ts`, `src/application/clients/BrowserSrsBackendWorkerTransport.ts`, focused transport tests, and startup/sync docs.
+- Debt fixed now: Long backend commands already used an extended request timeout, but their internal SQLite/truth storage host effects still used the default 5s host-effect deadline. Worker host-effect messages now carry `requestMethod`, `xiuyuan.sync.execute` participates in captured backend timing, and `BrowserSrsBackendWorkerTransport` gives SQLite/truth storage effects inside long backend commands the same long deadline while keeping ordinary host effects on the short deadline. This prevents startup sync large `siyuanmemo.db` / SQLite delta writes from being misclassified as backend unavailable after 5s.
+- Debt deferred: This does not make startup sync faster or change durability semantics. If startup sync is still slow, the next slice should measure whether the cost is full DB `sqlite.writeBinary`, SQLite delta segment writes, or conflict-source replay, then decide whether checkpoint frequency or storage ownership needs redesign.
+- Why deferred: The reported failure was a timeout policy mismatch, not a corrupt database or CDF/Review issue. Changing checkpointing, batching, or durable storage format would cross a separate storage-owner seam.
+- Next safe step: Rebuild/reload and confirm startup no longer logs `backend worker host effect sqlite.writeBinary timed out after 5000ms` during `xiuyuan.sync.apply`. If it still logs slow sync without timeout, collect the next `hostBreakdown` / startup timing lines.
+- Validation: Added a red/green transport regression proving SQLite host effects stay alive while a long `xiuyuan.sync.execute` command is pending. `pnpm exec vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts src/application/services/__tests__/XiuyuanSyncService.backend-facade.test.ts worker/bootstrap/__tests__/ReviewFeedbackTimingScope.test.ts --pool=forks --maxWorkers=1 --minWorkers=1` passed (50 tests); `pnpm run check:boundaries`; `pnpm build`. Build still reports existing non-blocking i18n hardcoded-string warnings and Sass legacy JS API deprecation warnings.
+
+### 2026-07-06 - Review CDF preparation evidence lifecycle deep Module
+
+- Task: Finish the architecture fix after live logs showed lookahead prime started and became ready, but every rating still logged `miss-no-evidence` and reran `consume-advance.refresh-cdf-live-relation`.
+- Touched slice: Review CDF preparation evidence lifecycle in `src/application/adapters/review-session/ReviewCdfPreparationEvidenceStore.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, focused evidence-store tests, OpenSpec `prime-review-next-cdf-preparation`, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: Extracted `ReviewCdfPreparationEvidenceStore` as the Review-side Module that owns completed evidence, pending evidence, pending promise settlement, cache invalidation, `card-updated` slot-level invalidation, diagnostics, and self-update preservation. `UnifiedQueueStrategy` now supplies only the key builder, identity matcher, current-card id, and prepare callback. A CDF prime's own metadata persistence can emit one matching `card-updated` without clearing pending evidence; a second matching pending update still invalidates and falls back to normal refresh.
+- Debt deferred: Global `DataChangeEvent` origin tagging, backend-owned CDF materialization, prepared-card read model, and broader CDF source-tree refresh cost stay separate. SQLite delta append-preflight durability work remains a separate storage-owner follow-up.
+- Why deferred: The latest slow logs identified an event-order lifecycle bug local to Review CDF Preparation Evidence. A global event-origin redesign or backend CDF ownership change would cross larger seams before the local Module interface proves insufficient.
+- Next safe step: Rebuild/reload and rate several CDF-heavy cards. Expected evidence is `CDF preparation evidence preserved across self update`, followed by `CDF preparation evidence diagnostic status=hit-pending` or `hit-completed`, and visible `consume-advance.reuse-cdf-preparation-evidence`.
+- Validation: `pnpm exec vitest run src/application/adapters/review-session/__tests__/ReviewCdfPreparationEvidenceStore.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts worker/bootstrap/rpc/BackendReviewRpcAdapter.test.ts worker/review/__tests__/WorkerReviewSessionRuntime.test.ts --pool=forks --maxWorkers=1 --minWorkers=1` passed (60 tests); `pnpm run check:boundaries`; `pnpm build`; `pnpm exec openspec validate prime-review-next-cdf-preparation --strict`. Build still reports existing non-blocking i18n hardcoded-string warnings and Sass legacy JS API deprecation warnings.
+
+### 2026-07-06 - Preserve primed CDF evidence across delayed queue events
+
+- Task: Continue Review feedback latency diagnosis after live logs showed backend lookahead and next-card prime both worked, but every rating still missed CDF evidence and reran `consume-advance.refresh-cdf-live-relation`.
+- Touched slice: Review CDF preparation evidence lifecycle in `src/application/adapters/UnifiedQueueStrategy.ts`, focused CDF/queue-changed tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Delayed ordinary `queue-changed` events now invalidate only cursor cache while preserving completed/pending CDF preparation evidence; `card-updated` now invalidates CDF evidence at slot level, so a current-card update clears only matching completed evidence and no longer erases the next-card pending prime. CDF evidence is still cleared by full refresh, session reset/restore, card-created, card-deleted, and identity-matching updates for the affected slot. Diagnostics now report prime start/ready/hit/miss/invalidation state.
+- Debt deferred: Broader CDF refresh cost, backend-side CDF materialization, and SQLite delta append-preflight reads remain separate follow-ups if post-build logs still show those as dominant.
+- Why deferred: This pass fixed the proven miss reason from logs: self/late invalidation erased valid evidence after lookahead prime, including current-card update events clearing next-card pending evidence. Changing CDF materialization or durability would cross larger seams.
+- Next safe step: Rebuild/reload and verify the next slow log shows `CDF preparation evidence diagnostic status=hit-*` plus `consume-advance.reuse-cdf-preparation-evidence`; if hit appears but CDF remains slow, optimize `CdfLiveRelationRefreshService` itself.
+- Validation: Focused CDF/queue-changed tests passed, including current-card update preserving next-card prime evidence; broader targeted Review tests passed (57 tests); `pnpm run check:boundaries`, `pnpm build`, and `pnpm exec openspec validate prime-review-next-cdf-preparation --strict` passed. Build still reports existing non-blocking i18n hardcoded-string warnings and Sass legacy JS API deprecation warnings.
+
+### 2026-07-06 - Review next-card CDF preparation lookahead
+
+- Task: Reassess fresh slow Review feedback logs from the global architecture angle and fix the frontend `consume-advance.prepare-selected-review-card` bottleneck without giving renderer code next-card selection authority.
+- Touched slice: Review session/CDF preparation seam across `packages/contracts/src/backend-rpc.ts`, `worker/review/WorkerReviewSessionRuntime.ts`, `src/application/adapters/review-session/WorkerReviewSessionQueueRuntime.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, focused worker/application tests, `ARCHITECTURE.md`, and OpenSpec `prime-review-next-cdf-preparation`.
+- Debt fixed now: Worker-backed Review session state now exposes a bounded one-card `lookaheadCards` candidate selected by the backend Review Session Cursor; `UnifiedQueueStrategy` can prime CDF preparation evidence for that next card and reuse it when rating advances to the same card/signature, keeping duplicate handling and stale evidence fail-closed.
+- Debt deferred: Session Read Model / prepared-card window, backend-owned CDF refresh, broader render prefetching, and remaining SQLite manifest/durability write cost stay separate.
+- Why deferred: This change removes the proven visible CDF preparation wait while preserving worker session authority and host-side CDF ownership; moving more card preparation into backend/read-model territory would cross a larger seam and needs a separate acceptance loop.
+- Next safe step: Rebuild/reload and compare live `slow review feedback frontend summary` lines; if `prepare-selected-review-card` is no longer dominant, evaluate residual backend SQLite delta manifest/open-segment costs separately.
+- Validation: Focused CDF preparation and worker Review session tests passed (56 tests); `pnpm run check:boundaries`, `pnpm build`, and `openspec validate prime-review-next-cdf-preparation --strict` passed. Build still reports existing non-blocking i18n hardcoded-string warnings and Sass legacy JS API deprecation warnings.
+
+### 2026-07-06 - SQLite delta sealed evidence reuse
+
+- Task: Review the slow `review.session.feedback` sealed-segment read path from global architecture, create OpenSpec `optimize-sqlite-delta-sealed-evidence-reuse`, and fix the storage-owner seam without weakening durable commit.
+- Touched slice: SQLite delta append-preflight evidence ownership in `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, focused `SqliteDatabaseService` evidence/recovery tests, `ARCHITECTURE.md`, and OpenSpec `optimize-sqlite-delta-sealed-evidence-reuse`.
+- Debt fixed now: `SqliteDeltaCheckpointLayer` now exposes verified segment evidence as identity-scoped evidence rather than an open-segment-only option, so same-runtime append preflight can reuse verified sealed evidence after rollover while keeping path/sequence/sealed/checksum/entry-count/byte-size checks local to the SQLite delta module.
+- Debt deferred: Reload/cold-runtime append preflight still reads persisted sealed msgpack bytes; manifest JSON write frequency, native SQLite/WAL, host bridge caching, and async/off-click durability remain out of scope.
+- Why deferred: Reload and explicit diagnostics/recovery paths have no trustworthy in-memory evidence and must re-read persisted bytes to preserve crash recovery, checksum evidence, legacy segment recovery, and fail-closed Review commit semantics.
+- Next safe step: Rebuild/reload and compare live `slow review.session.feedback worker-handle summary ... hostBreakdown=...` lines; if same-runtime sealed reads disappear, decide separately whether required manifest/open-segment writes need a crash-recovery design.
+- Validation: Focused `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts` passed (38 tests); boundaries, build, and strict OpenSpec validation run before close.
+
+### 2026-07-06 - Review session sealed segment read attribution
+
+- Task: Continue slow Review rating diagnosis by classifying why `review.session.feedback` host breakdown reads multiple `sqlite-delta-log.v2.sealed-*.msgpack` files during commit.
+- Touched slice: Review worker timing and SQLite delta append-preflight attribution across `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, `src/infrastructure/persistence/sqlite/SqliteDatabaseService.ts`, worker SQLite bridge/protocol/timing files, `BrowserSrsBackendWorkerTransport.ts`, focused timing/transport/SQLite tests, `ARCHITECTURE.md`, and OpenSpec `diagnose-review-feedback-sealed-segment-reads`.
+- Debt fixed now: Sealed segment `readBinary` effects now carry `purpose/substep` from the SQLite delta owner seam through host effects, timing grouping, and copyable `slow review.session.feedback worker-handle summary`; host breakdown groups the same path separately when purpose/substep differ. Focused SQLite coverage locks the reload-after-seal path where append preflight reads sealed segments before appending.
+- Debt deferred: Actually removing or reducing append-preflight sealed snapshot reads remains deferred, along with manifest write frequency changes, native SQLite/WAL, host bridge caching, and async/off-click durability.
+- Why deferred: The sealed reads are part of durable SQLite delta snapshot reconstruction and checksum/sequence evidence before appending. Removing them safely needs a separate crash-recovery invariant, likely scoped to append-hot-path snapshot reuse or sealed evidence identity, not a diagnostic-only patch.
+- Next safe step: Rebuild/reload, collect new `slow review.session.feedback worker-handle summary ... hostBreakdown=... purpose=sqlite-delta.append-preflight ...` logs, then propose a follow-up optimization for append-preflight snapshot reuse if live latency remains dominated by sealed reads.
+- Validation: Focused `ReviewFeedbackTimingScope`, `BrowserSrsBackendWorkerTransport`, and `SqliteDatabaseService` tests passed (80 tests); boundaries, build, and strict OpenSpec validation run before close.
 
 ### 2026-07-06 - Review session SQLite host breakdown diagnostics
 
@@ -9019,6 +9089,15 @@ Do not add an entry for skill-only or docs-only work.
 - Debt deferred: Session Read Model / prepared-card window remains Change 4 only if rebuilt live logs still show `prepare-selected-review-card` as the dominant rating bottleneck after this narrow cache. Broader backend-side CDF preparation ownership is still intentionally out of scope.
 - Next safe step: Rebuild plugin, rate through several CDF-heavy cards, copy `slow review feedback frontend summary`, and confirm cache-hit paths show `reuse-cdf-preparation-evidence` while full refresh remains visible only on stale/missing evidence.
 - Validation: `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/adapters/review-session/__tests__/SrsV2SessionQueueRuntime.test.ts src/ui/review/v2/__tests__/useReviewSession.spec.ts --pool=forks --maxWorkers=1 --minWorkers=1`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate optimize-review-card-preparation-cdf-refresh --strict`.
+
+### 2026-07-06 - SQLite host-effect metadata Adapter repair
+
+- Task: Repair the Review feedback sealed-segment read attribution after fresh live logs still showed backend `review.session.feedback` around 478-481ms with `sqlite.readBinary sealed-*.msgpack`, but all host effects collapsed to `purpose=unknown substep=unknown`.
+- Touched slice: Worker SQLite persistence Adapter; `worker/db/SqliteDatabaseService.ts`, focused metadata Adapter tests, and OpenSpec change `repair-sqlite-host-effect-metadata-adapter`.
+- Debt fixed now: `SqliteFileServiceAdapter` now normalizes runtime file-service diagnostics `{ diagnostics: { sqliteDeltaPurpose, sqliteDeltaSubstep } }` into bridge host-effect metadata `{ purpose, substep }` for SQLite `readBinary`, `writeBinary`, `readJSON`, and `writeJSON`. Direct bridge metadata remains supported. This keeps SQLite delta owner/substep evidence at the Adapter Seam instead of leaking SQLite-specific parsing into the host bridge.
+- Debt deferred: This does not remove any sealed reads by itself. After rebuilt live logs, backend storage optimization should be judged from labeled `sqlite-delta.append-preflight` evidence. The same logs also show the larger user-visible stall is currently frontend `consume-advance.prepare-selected-review-card` / `consume-advance.refresh-cdf-live-relation`, so the next performance change should target Review Feedback Advancement / CDF preparation only if the already-built CDF preparation cache is stale or insufficient in the rebuilt plugin.
+- Next safe step: Rebuild plugin, rate several cards, and confirm `hostBreakdown=` now reports `purpose=sqlite-delta.append-preflight` with `substep=persist-committed-transaction-read-snapshot` or `read-append-hot-path-snapshot` instead of `unknown`.
+- Validation: `pnpm exec vitest run worker/db/__tests__/SqliteDatabaseService.metadata.test.ts`; pending full validation in this slice.
 
 ## 1. Re-scan summary
 

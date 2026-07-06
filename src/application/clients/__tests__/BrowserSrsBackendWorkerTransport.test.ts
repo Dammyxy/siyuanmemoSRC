@@ -274,6 +274,8 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           path: 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack',
           byteLength: 42_000,
           storageClass: 'sqlite-delta-log',
+          purpose: 'sqlite-delta.append-preflight',
+          substep: 'persist-committed-transaction-read-snapshot',
         },
         hostEffectBreakdown: [
           {
@@ -284,6 +286,8 @@ describe('BrowserSrsBackendWorkerTransport', () => {
             path: 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack',
             byteLength: 42_000,
             storageClass: 'sqlite-delta-log',
+            purpose: 'sqlite-delta.append-preflight',
+            substep: 'persist-committed-transaction-read-snapshot',
           },
           {
             kind: 'sqlite.writeJSON',
@@ -331,7 +335,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         hostEffectTotalMs: 180,
         hostEffectAttribution: 'complete',
         hostEffectBreakdownSummary: expect.stringContaining(
-          'sqlite.writeBinary 140ms count=1 path=sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack storage=sqlite-delta-log max=140ms bytes=42000',
+          'sqlite.writeBinary 140ms count=1 path=sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack storage=sqlite-delta-log purpose=sqlite-delta.append-preflight substep=persist-committed-transaction-read-snapshot max=140ms bytes=42000',
         ),
         innerStepAttribution: 'complete',
         innerStepsTruncated: false,
@@ -364,6 +368,8 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           path: 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack',
           byteLength: 42_000,
           storageClass: 'sqlite-delta-log',
+          purpose: 'sqlite-delta.append-preflight',
+          substep: 'persist-committed-transaction-read-snapshot',
         },
       }),
     );
@@ -883,6 +889,8 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           durationMs: 180,
           path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
           storageClass: 'sqlite-delta-log',
+          purpose: 'sqlite-delta.append-preflight',
+          substep: 'persist-committed-transaction-read-snapshot',
         },
         hostEffectBreakdown: [
           {
@@ -893,6 +901,8 @@ describe('BrowserSrsBackendWorkerTransport', () => {
             path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
             byteLength: null,
             storageClass: 'sqlite-delta-log',
+            purpose: 'sqlite-delta.append-preflight',
+            substep: 'persist-committed-transaction-read-snapshot',
           },
         ],
         innerSteps: [
@@ -965,12 +975,14 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         slowestHostEffect: expect.objectContaining({
           path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
           storageClass: 'sqlite-delta-log',
+          purpose: 'sqlite-delta.append-preflight',
+          substep: 'persist-committed-transaction-read-snapshot',
         }),
       }),
     );
     expect(transportLoggerMocks.info).toHaveBeenCalledWith(
       expect.stringContaining(
-        'hostBreakdown=sqlite.readJSON 180ms count=1 path=sqlite-delta/v2/sqlite-delta-log.v2.manifest.json storage=sqlite-delta-log max=180ms bytes=unknown',
+        'hostBreakdown=sqlite.readJSON 180ms count=1 path=sqlite-delta/v2/sqlite-delta-log.v2.manifest.json storage=sqlite-delta-log purpose=sqlite-delta.append-preflight substep=persist-committed-transaction-read-snapshot max=180ms bytes=unknown',
       ),
       expect.anything(),
     );
@@ -1841,6 +1853,70 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     const response: BackendRpcResponse = {
       jsonrpc: BACKEND_RPC_VERSION,
       id: 67,
+      result: { ok: true },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+    });
+    await expect(pending).resolves.toEqual(response);
+    transport.dispose();
+  });
+
+  it('keeps SQLite host effects alive while a long Xiuyuan sync command is pending', async () => {
+    const worker = new FakeWorker();
+    const writeBinary = vi.fn(() => new Promise<void>((resolve) => {
+      setTimeout(resolve, 25);
+    }));
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { writeBinary },
+      hostEffectTimeoutMs: 20,
+      requestTimeoutMs: 50,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const request = createXiuyuanSyncRequest(68);
+    const pending = transport.request(request);
+    await Promise.resolve();
+    expect(worker.posted).toEqual([
+      expect.objectContaining({
+        kind: 'request',
+        request,
+      }),
+    ]);
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-sync-db-write',
+      effect: {
+        kind: 'sqlite.writeBinary',
+        path: 'siyuanmemo.db',
+        bytes: new Uint8Array([1, 2, 3]),
+        requestMethod: 'xiuyuan.sync.execute',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+
+    expect(worker.posted).toHaveLength(1);
+    expect(writeBinary).toHaveBeenCalledWith('siyuanmemo.db', new Uint8Array([1, 2, 3]));
+
+    await vi.advanceTimersByTimeAsync(5);
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    expect(worker.posted[1]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-sync-db-write',
+      ok: true,
+      result: null,
+    });
+
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 68,
       result: { ok: true },
     };
     worker.emit({

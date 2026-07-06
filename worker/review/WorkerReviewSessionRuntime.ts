@@ -58,6 +58,7 @@ export interface WorkerReviewSessionState {
   sessionId: string;
   queueType: QueueType;
   current: FSRSCard | null;
+  lookaheadCards: FSRSCard[];
   counters: WorkerReviewSessionCounterSnapshot;
   projectionState: 'ready' | 'stale' | 'deferred' | 'refresh-required' | 'not-used';
   projectionGeneration: number | null;
@@ -370,6 +371,7 @@ export class WorkerReviewSessionRuntime {
       sessionId: session.sessionId,
       queueType: session.queueType,
       current: session.current ? cloneCard(session.current) : null,
+      lookaheadCards: this.peekLookaheadCards(session, 1),
       counters: {
         remaining,
         due: remaining,
@@ -380,6 +382,16 @@ export class WorkerReviewSessionRuntime {
       projectionGeneration: session.projectionGeneration,
       projectionPolicyHash: session.projectionPolicyHash,
     };
+  }
+
+  private peekLookaheadCards(session: WorkerReviewSession, limit: number): FSRSCard[] {
+    const count = Math.max(0, Math.floor(limit));
+    if (count <= 0 || session.cards.length === 0) {
+      return [];
+    }
+    const index = this.selectNextCardIndex(session);
+    const selected = session.cards[index];
+    return selected ? [cloneCard(selected)] : [];
   }
 }
 

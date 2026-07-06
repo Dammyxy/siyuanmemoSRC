@@ -10,16 +10,22 @@ import type {
   BackendRpcResponse,
 } from '../../packages/contracts/src/backend-rpc';
 
+export type BackendWorkerHostEffectAttribution = {
+  purpose?: string | null;
+  substep?: string | null;
+  requestMethod?: string | null;
+};
+
 export type BackendWorkerHostEffect =
-  | { kind: 'sqlite.readBinary'; path: string }
-  | { kind: 'sqlite.writeBinary'; path: string; bytes: Uint8Array }
-  | { kind: 'sqlite.readJSON'; path: string }
-  | { kind: 'sqlite.writeJSON'; path: string; value: unknown }
+  | ({ kind: 'sqlite.readBinary'; path: string } & BackendWorkerHostEffectAttribution)
+  | ({ kind: 'sqlite.writeBinary'; path: string; bytes: Uint8Array } & BackendWorkerHostEffectAttribution)
+  | ({ kind: 'sqlite.readJSON'; path: string } & BackendWorkerHostEffectAttribution)
+  | ({ kind: 'sqlite.writeJSON'; path: string; value: unknown } & BackendWorkerHostEffectAttribution)
   | { kind: 'sqlite.hasLegacyPetalSqliteDb' }
-  | { kind: 'truth.readBinary'; path: string }
-  | { kind: 'truth.writeBinary'; path: string; bytes: Uint8Array }
-  | { kind: 'truth.readJSON'; path: string }
-  | { kind: 'truth.writeJSON'; path: string; value: unknown }
+  | ({ kind: 'truth.readBinary'; path: string } & BackendWorkerHostEffectAttribution)
+  | ({ kind: 'truth.writeBinary'; path: string; bytes: Uint8Array } & BackendWorkerHostEffectAttribution)
+  | ({ kind: 'truth.readJSON'; path: string } & BackendWorkerHostEffectAttribution)
+  | ({ kind: 'truth.writeJSON'; path: string; value: unknown } & BackendWorkerHostEffectAttribution)
   | { kind: 'truth.listFiles'; prefix: string }
   | { kind: 'sqlite.readSyncConflictDatabaseSources' }
   | { kind: 'sqlite.cleanupSyncConflictDatabaseSources'; sourceIds: string[] }
@@ -52,12 +58,16 @@ export interface BackendWorkerHostEffectTiming {
   path?: string | null;
   byteLength?: number | null;
   storageClass?: string | null;
+  purpose?: string | null;
+  substep?: string | null;
 }
 
 export interface BackendWorkerHostEffectBreakdownEntry {
   kind: BackendWorkerHostEffect['kind'];
   path?: string | null;
   storageClass?: string | null;
+  purpose?: string | null;
+  substep?: string | null;
   count: number;
   totalMs: number;
   maxMs: number;

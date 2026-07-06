@@ -43,15 +43,27 @@ type SqliteDatabaseServiceOptions = {
   checkpointStorageClass?: SqliteCheckpointStorageClass;
   dropStoredDatabaseOnSchemaMismatch?: boolean;
 };
-type SqliteFileService = Pick<IFileService, 'readJSON' | 'writeJSON'>
-  & Partial<Pick<IFileService, 'readBinary' | 'deleteFile'>>
-  & {
-    writeBinary?: (
-      fileName: string,
-      bytes: Uint8Array,
-      options?: { diagnostics?: Record<string, unknown> }
-    ) => Promise<void>;
-  };
+type SqliteFileService = {
+  readJSON<T>(
+    fileName: string,
+    options?: { diagnostics?: Record<string, unknown> }
+  ): Promise<T | null>;
+  writeJSON(
+    fileName: string,
+    data: unknown,
+    options?: { diagnostics?: Record<string, unknown> }
+  ): Promise<void>;
+  readBinary?(
+    fileName: string,
+    options?: { diagnostics?: Record<string, unknown> }
+  ): Promise<Uint8Array | null>;
+  writeBinary?(
+    fileName: string,
+    bytes: Uint8Array,
+    options?: { diagnostics?: Record<string, unknown> }
+  ): Promise<void>;
+  deleteFile?: IFileService['deleteFile'];
+};
 
 interface SqliteEnvelope {
   encoding: 'base64-sqlite-v1';
@@ -198,19 +210,27 @@ export class SqliteDatabaseService {
   ) {
     this.deltaLayer = options.enableDeltaPersistence === true
       ? new SqliteDeltaCheckpointLayer({
-        readJSON: fileService.readJSON.bind(fileService),
-        writeJSON: fileService.writeJSON.bind(fileService),
-        readBinary: async (fileName) => {
+        readJSON: (fileName, metadata) => fileService.readJSON(fileName, {
+          diagnostics: metadata ? { sqliteDeltaPurpose: metadata.purpose, sqliteDeltaSubstep: metadata.substep } : undefined,
+        }),
+        writeJSON: (fileName, data, metadata) => fileService.writeJSON(fileName, data, {
+          diagnostics: metadata ? { sqliteDeltaPurpose: metadata.purpose, sqliteDeltaSubstep: metadata.substep } : undefined,
+        }),
+        readBinary: async (fileName, metadata) => {
           if (!fileService.readBinary) {
             throw new Error('BACKEND_UNAVAILABLE: SQLite delta v2 requires readBinary');
           }
-          return fileService.readBinary(fileName);
+          return fileService.readBinary(fileName, {
+            diagnostics: metadata ? { sqliteDeltaPurpose: metadata.purpose, sqliteDeltaSubstep: metadata.substep } : undefined,
+          });
         },
-        writeBinary: async (fileName, bytes) => {
+        writeBinary: async (fileName, bytes, metadata) => {
           if (!fileService.writeBinary) {
             throw new Error('BACKEND_UNAVAILABLE: SQLite delta v2 requires writeBinary');
           }
-          await fileService.writeBinary(fileName, bytes);
+          await fileService.writeBinary(fileName, bytes, {
+            diagnostics: metadata ? { sqliteDeltaPurpose: metadata.purpose, sqliteDeltaSubstep: metadata.substep } : undefined,
+          });
         },
         ...(fileService.deleteFile
           ? { deleteFile: (fileName: string) => fileService.deleteFile!(fileName) }

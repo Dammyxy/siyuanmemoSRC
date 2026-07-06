@@ -20,6 +20,8 @@ export type ActiveBackendWorkerTiming = {
     path?: string | null;
     byteLength?: number | null;
     storageClass?: string | null;
+    purpose?: string | null;
+    substep?: string | null;
   } | null;
   hostEffectBreakdown: BackendWorkerHostEffectBreakdownEntry[];
   innerSteps: BackendWorkerInnerStepTiming[];
@@ -228,7 +230,12 @@ export function recordReviewFeedbackHostEffect(
   timing: ActiveBackendWorkerTiming | null,
   kind: BackendWorkerHostEffect['kind'],
   durationMs: number,
-  metadata: { path?: string | null; byteLength?: number | null } = {},
+  metadata: {
+    path?: string | null;
+    byteLength?: number | null;
+    purpose?: string | null;
+    substep?: string | null;
+  } = {},
 ): void {
   if (!timing) {
     return;
@@ -247,6 +254,8 @@ export function recordReviewFeedbackHostEffect(
       path: metadata.path ?? null,
       byteLength: metadata.byteLength ?? null,
       storageClass,
+      purpose: metadata.purpose ?? null,
+      substep: metadata.substep ?? null,
     };
   }
 }
@@ -259,14 +268,20 @@ function recordHostEffectBreakdown(
     path?: string | null;
     byteLength?: number | null;
     storageClass?: string | null;
+    purpose?: string | null;
+    substep?: string | null;
   },
 ): void {
   const path = metadata.path ?? null;
   const storageClass = metadata.storageClass ?? null;
+  const purpose = metadata.purpose ?? null;
+  const substep = metadata.substep ?? null;
   const existing = timing.hostEffectBreakdown.find((entry) => (
     entry.kind === kind
     && (entry.path ?? null) === path
     && (entry.storageClass ?? null) === storageClass
+    && (entry.purpose ?? null) === purpose
+    && (entry.substep ?? null) === substep
   ));
   if (existing) {
     existing.count += 1;
@@ -279,6 +294,8 @@ function recordHostEffectBreakdown(
     kind,
     path,
     storageClass,
+    purpose,
+    substep,
     count: 1,
     totalMs: durationMs,
     maxMs: durationMs,

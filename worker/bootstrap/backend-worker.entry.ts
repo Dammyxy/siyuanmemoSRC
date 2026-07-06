@@ -76,13 +76,15 @@ function buildInternalErrorResponse(
 function requestHostEffect<TResult>(effect: BackendWorkerHostEffect): Promise<TResult> {
   const effectId = `effect-${++hostEffectSeq}`;
   const startedAt = Date.now();
+  const activeTiming = resolveExclusiveActiveBackendWorkerTiming();
   const effectMetadata = {
     path: 'path' in effect ? String(effect.path || '') || null : null,
     byteLength: 'bytes' in effect && effect.bytes instanceof Uint8Array
       ? effect.bytes.byteLength
       : null,
+    purpose: 'purpose' in effect ? String(effect.purpose || '') || null : null,
+    substep: 'substep' in effect ? String(effect.substep || '') || null : null,
   };
-  const activeTiming = resolveExclusiveActiveBackendWorkerTiming();
   if (
     shouldSuppressReviewFeedbackPersistenceHostEffect(effect.kind, activeTiming)
   ) {
@@ -119,7 +121,10 @@ function requestHostEffect<TResult>(effect: BackendWorkerHostEffect): Promise<TR
   scope.postMessage({
     kind: 'host-effect',
     effectId,
-    effect,
+    effect: {
+      ...effect,
+      requestMethod: activeTiming?.method ?? null,
+    },
   });
   return pending;
 }
@@ -192,6 +197,7 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'browser.deck.documentCounts',
   'review.session.feedback',
   'storage.projection.rebuild',
+  'xiuyuan.sync.execute',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
   'queue.projection.replace',
@@ -249,23 +255,31 @@ const truthFileStore: MessagePackTruthSegmentFileStore = {
 const database = new WorkerSqliteDatabaseService({
   truthFileStore,
   reviewFeedbackJournalStore: createIndexedDbReviewFeedbackJournalStore(),
-  readBinary: (path) => requestHostEffect<Uint8Array | null>({
+  readBinary: (path, metadata) => requestHostEffect<Uint8Array | null>({
     kind: 'sqlite.readBinary',
     path,
+    purpose: metadata?.purpose ?? null,
+    substep: metadata?.substep ?? null,
   }),
-  writeBinary: (path, bytes) => requestHostEffect<void>({
+  writeBinary: (path, bytes, metadata) => requestHostEffect<void>({
     kind: 'sqlite.writeBinary',
     path,
     bytes,
+    purpose: metadata?.purpose ?? null,
+    substep: metadata?.substep ?? null,
   }),
-  readJSON: <T>(path: string) => requestHostEffect<T | null>({
+  readJSON: <T>(path: string, metadata?: { purpose?: string | null; substep?: string | null }) => requestHostEffect<T | null>({
     kind: 'sqlite.readJSON',
     path,
+    purpose: metadata?.purpose ?? null,
+    substep: metadata?.substep ?? null,
   }),
-  writeJSON: (path, value) => requestHostEffect<void>({
+  writeJSON: (path, value, metadata) => requestHostEffect<void>({
     kind: 'sqlite.writeJSON',
     path,
     value,
+    purpose: metadata?.purpose ?? null,
+    substep: metadata?.substep ?? null,
   }),
   hasLegacyPetalSqliteDb: () => requestHostEffect<boolean>({
     kind: 'sqlite.hasLegacyPetalSqliteDb',

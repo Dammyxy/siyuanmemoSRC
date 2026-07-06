@@ -16,6 +16,9 @@ import type {
   ReviewSessionRebuildTrigger,
   ReviewSessionUndoResult,
 } from './ReviewSessionQueueRuntime';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('WorkerReviewSessionQueueRuntime');
 
 export interface WorkerReviewSessionBackendClient {
   reviewSessionStart(request: {
@@ -233,7 +236,28 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
     const current = isFsrsCard(state.current) ? cloneRequiredCard(state.current) : null;
     this.currentCard = current && !this.locallyDiscardedCurrentCardIds.has(current.id) ? current : null;
     this.counterSnapshot = normalizeCounterSnapshot(state.counters);
-    this.sessionCards = this.currentCard ? [cloneRequiredCard(this.currentCard)] : [];
+    const lookaheadCards = Array.isArray(state.lookaheadCards)
+      ? state.lookaheadCards
+        .filter(isFsrsCard)
+        .filter((card) => !this.locallyDiscardedCurrentCardIds.has(card.id))
+        .map(cloneRequiredCard)
+      : [];
+    this.sessionCards = [
+      ...(this.currentCard ? [cloneRequiredCard(this.currentCard)] : []),
+      ...lookaheadCards.filter((card) => card.id !== this.currentCard?.id),
+    ];
+    logger.info('[SiYuanMemo][WorkerReviewSessionQueueRuntime] review session lookahead state', {
+      queueType: this.queueType,
+      sessionId: this.sessionId,
+      currentCardId: this.currentCard?.id ?? null,
+      currentBlockId: this.currentCard?.blockId ?? null,
+      rawLookaheadCount: Array.isArray(state.lookaheadCards) ? state.lookaheadCards.length : 0,
+      acceptedLookaheadCount: lookaheadCards.length,
+      sessionCardsCount: this.sessionCards.length,
+      lookaheadCardIds: lookaheadCards.map((card) => card.id),
+      projectionState: state.projectionState,
+      projectionGeneration: state.projectionGeneration,
+    });
   }
 
   private buildResult(

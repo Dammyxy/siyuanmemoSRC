@@ -28,6 +28,7 @@ import {
     ReviewFeedbackAdvancementCoordinator,
     ReviewFeedbackCompensationPolicy,
     ReviewLearnAheadAdvancePolicy,
+    ReviewCdfPreparationEvidenceStore,
     ReviewSessionCursor,
     ReviewSessionProjectionAdvancePolicy,
     ReviewTransactionRuntime,
@@ -38,6 +39,8 @@ import {
     type ReviewSessionQueueResult,
     type WorkerReviewSessionBackendClient,
     type ReviewTransaction,
+    type ReviewCdfPreparationEvidence,
+    type ReviewCdfPreparationRefreshResult,
 } from './review-session';
 import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
 import { buildSchedulerPreviewSnapshotKey } from '@/core/scheduler/schedulerStateSnapshot';
@@ -106,18 +109,12 @@ type ReviewSessionAuthorityContext = {
 };
 
 type CdfLiveRelationReviewOpenRefresher = {
-    refreshCdfLiveRelationOnOpen: (card: FSRSCard | string) => Promise<{
-        updatedCard?: FSRSCard | null;
-        currentReviewDuplicateOutcome?: CdfCurrentReviewDuplicateOutcome | null;
-    }>;
+    refreshCdfLiveRelationOnOpen: (card: FSRSCard | string) => Promise<ReviewCdfPreparationRefreshResult>;
 };
 
-type CdfLiveRelationReviewOpenResult = Awaited<ReturnType<CdfLiveRelationReviewOpenRefresher['refreshCdfLiveRelationOnOpen']>>;
-
-type CdfReviewPreparationEvidence = {
-    key: string;
-    preparedCard: CardWithNextDues | null;
-    refreshResult: CdfLiveRelationReviewOpenResult;
+type InvalidateCacheOptions = {
+    reason?: string;
+    preserveCdfPreparationEvidence?: boolean;
 };
 
 type ReviewSessionAuthorityManager = UnifiedDataSourceManager & {
@@ -214,10 +211,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private readonly feedbackAdvancement: ReviewFeedbackAdvancementCoordinator;
     private readonly neuralRoamAdvance: NeuralRoamAdvanceCoordinator;
     private readonly srsV2SessionQueueRuntime: SrsV2SessionQueueRuntime | WorkerReviewSessionQueueRuntime | null;
+    private readonly cdfPreparationEvidenceStore: ReviewCdfPreparationEvidenceStore<CardWithNextDues | null>;
     private pendingSrsV2NextCard: FSRSCard | null | undefined;
     private pendingSrsV2CounterSnapshot: QueueCounterSnapshot | null = null;
     private lastNeuralRoamViewState: BackendNeuralRoamViewState | null = null;
-    private cdfReviewPreparationEvidence: CdfReviewPreparationEvidence | null = null;
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -236,6 +233,22 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             this.queue = queueTypeOrQueue;
             this.queueType = queueTypeOrQueue.getType();
         }
+
+        this.cdfPreparationEvidenceStore = new ReviewCdfPreparationEvidenceStore<CardWithNextDues | null>({
+            queueType: this.queueType,
+            buildKey: (card) => this.buildCdfReviewPreparationEvidenceKey(card),
+            matchesAnyCardIdentity: (card, identities) => this.matchesAnyCardIdentity(card, identities),
+            getCurrentCardId: () => this.currentItem?.id ?? null,
+            logger,
+            onPendingFailure: (card, error) => {
+                logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Next CDF preparation evidence unavailable:', {
+                    queueType: this.queueType,
+                    cardId: card.id,
+                    blockId: card.blockId,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            },
+        });
 
         this.cursor = new ReviewSessionCursor(this.queueType);
         this.cacheManager = new CacheManagerObserver({
@@ -312,6 +325,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     return await this.next();
                 }
                 this.setCurrentItem(replayCardWithNextDues);
+                this.primeNextCdfReviewPreparationEvidence();
                 return replayCardWithNextDues;
             }
 
@@ -336,6 +350,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     return await this.next();
                 }
                 this.setCurrentItem(refreshedCard);
+                this.primeNextCdfReviewPreparationEvidence();
                 return refreshedCard;
             }
 
@@ -361,6 +376,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 this.srsV2SessionQueueRuntime.replaceCurrentCard?.(cardWithNextDues);
                 this.setCurrentItem(cardWithNextDues);
                 this.syncCursorFromSrsV2Runtime();
+                this.primeNextCdfReviewPreparationEvidence();
                 return cardWithNextDues;
             }
 
@@ -391,6 +407,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             }
 
             this.setCurrentItem(cardWithNextDues);
+            this.primeNextCdfReviewPreparationEvidence();
             return cardWithNextDues;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1889,7 +1906,20 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 return;
             }
 
-            this.invalidateCache();
+            this.invalidateCache({
+                reason: 'queue-changed',
+                preserveCdfPreparationEvidence: true,
+            });
+            return;
+        }
+
+        if (event.type === 'card-created') {
+            this.cdfPreparationEvidenceStore.clear('card-created');
+            return;
+        }
+
+        if (event.type === 'card-updated') {
+            this.cdfPreparationEvidenceStore.handleCardUpdated(event, 'card-updated');
             return;
         }
 
@@ -1903,14 +1933,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     cardIds: event.cardIds,
                     blockIds: event.blockIds,
                 });
-                this.invalidateCache();
+                this.invalidateCache({ reason: 'card-deleted' });
             }
             return;
         }
 
         if (event.type === 'mode-switched') {
             this.clearSessionExcludedCardIds();
-            this.invalidateCache();
+            this.invalidateCache({ reason: 'mode-switched' });
         }
     }
 
@@ -2072,54 +2102,20 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         card: FSRSCard,
         timingContext?: ReviewFeedbackFrontendTimingContext | null,
     ): Promise<CardWithNextDues | null> {
-        const evidenceKey = this.buildCdfReviewPreparationEvidenceKey(card);
-        const cachedEvidence = this.cdfReviewPreparationEvidence?.key === evidenceKey
-            ? this.cdfReviewPreparationEvidence
-            : null;
-        const result = cachedEvidence
-            ? cachedEvidence.refreshResult
-            : await this.measureConsumeAdvanceStep(
-                'refresh-cdf-live-relation',
-                timingContext,
-                () => this.refreshCdfLiveRelationOnReviewOpen(card),
-            );
-        if (cachedEvidence) {
+        const { evidence, reused } = await this.cdfPreparationEvidenceStore.consume(
+            card,
+            (candidate, key) => this.buildCdfReviewPreparationEvidence(candidate, key, timingContext),
+        );
+        const result = evidence.refreshResult;
+        if (reused) {
             this.measureConsumeAdvanceSyncStep('reuse-cdf-preparation-evidence', timingContext, () => undefined);
         }
         if (this.shouldExitCurrentCdfDuplicate(card, result.currentReviewDuplicateOutcome ?? null)) {
             this.discardCurrentCdfDuplicateWithoutScoring(card, result.currentReviewDuplicateOutcome!);
-            this.cdfReviewPreparationEvidence = {
-                key: evidenceKey,
-                preparedCard: null,
-                refreshResult: result,
-            };
             return null;
         }
 
-        if (cachedEvidence) {
-            return cachedEvidence.preparedCard;
-        }
-
-        const refreshedCard = result.updatedCard ?? card;
-        if (!this.shouldComputeNextDues(refreshedCard)) {
-            this.cdfReviewPreparationEvidence = {
-                key: evidenceKey,
-                preparedCard: refreshedCard,
-                refreshResult: result,
-            };
-            return refreshedCard;
-        }
-        const preparedCard = await this.measureConsumeAdvanceStep(
-            'add-next-dues',
-            timingContext,
-            () => this.addNextDues(refreshedCard),
-        );
-        this.cdfReviewPreparationEvidence = {
-            key: evidenceKey,
-            preparedCard,
-            refreshResult: result,
-        };
-        return preparedCard;
+        return evidence.preparedCard;
     }
 
     private async consumeSrsV2FeedbackAdvanceResult(
@@ -2156,6 +2152,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 this.cursor.counterSnapshot = this.cloneCounterSnapshot(this.pendingSrsV2CounterSnapshot);
             });
         }
+        this.primeNextCdfReviewPreparationEvidence();
         return cardWithNextDues;
     }
 
@@ -2186,6 +2183,77 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             sourceBlockId: meta.sourceBlockId ?? null,
             fieldMapping: meta.fieldMapping ?? null,
             faceIndex: meta.faceIndex ?? null,
+        });
+    }
+
+    private async buildCdfReviewPreparationEvidence(
+        card: FSRSCard,
+        evidenceKey = this.buildCdfReviewPreparationEvidenceKey(card),
+        timingContext?: ReviewFeedbackFrontendTimingContext | null,
+    ): Promise<ReviewCdfPreparationEvidence<CardWithNextDues | null>> {
+        const result = await this.measureConsumeAdvanceStep(
+            'refresh-cdf-live-relation',
+            timingContext,
+            () => this.refreshCdfLiveRelationOnReviewOpen(card),
+        );
+        if (this.shouldExitCurrentCdfDuplicate(card, result.currentReviewDuplicateOutcome ?? null)) {
+            return {
+                key: evidenceKey,
+                preparedCard: null,
+                refreshResult: result,
+            };
+        }
+
+        const refreshedCard = result.updatedCard ?? card;
+        if (!this.shouldComputeNextDues(refreshedCard)) {
+            return {
+                key: evidenceKey,
+                preparedCard: refreshedCard,
+                refreshResult: result,
+            };
+        }
+
+        const preparedCard = await this.measureConsumeAdvanceStep(
+            'add-next-dues',
+            timingContext,
+            () => this.addNextDues(refreshedCard),
+        );
+        return {
+            key: evidenceKey,
+            preparedCard,
+            refreshResult: result,
+        };
+    }
+
+    private resolveNextCdfPreparationCandidate(): FSRSCard | null {
+        if (this.srsV2SessionQueueRuntime && !this.learnAheadSession) {
+            const sessionCards = this.srsV2SessionQueueRuntime.getSessionCards();
+            const currentId = String(this.currentItem?.id || '').trim();
+            const currentIndex = sessionCards.findIndex((card) => String(card.id || '').trim() === currentId);
+            if (currentIndex >= 0) {
+                return sessionCards[currentIndex + 1] ?? null;
+            }
+            return sessionCards[1] ?? null;
+        }
+
+        if (!this.cursor.valid) {
+            return null;
+        }
+        const cached = this.cursor.cached();
+        const currentId = String(this.currentItem?.id || '').trim();
+        const currentIndex = cached.findIndex((card) => String(card.id || '').trim() === currentId);
+        return currentIndex >= 0 ? cached[currentIndex + 1] ?? null : null;
+    }
+
+    private primeNextCdfReviewPreparationEvidence(): void {
+        const candidate = this.resolveNextCdfPreparationCandidate();
+        const sessionCards = this.srsV2SessionQueueRuntime && !this.learnAheadSession
+            ? this.srsV2SessionQueueRuntime.getSessionCards()
+            : [];
+        this.cdfPreparationEvidenceStore.prime(candidate, {
+            enabled: Boolean(this.cdfLiveRelationReviewOpenRefresher),
+            sessionCards,
+            prepare: (card, key) => this.buildCdfReviewPreparationEvidence(card, key),
         });
     }
 
@@ -2357,9 +2425,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
     }
 
-    private invalidateCache(): void {
+    private invalidateCache(options: InvalidateCacheOptions = {}): void {
+        if (!options.preserveCdfPreparationEvidence) {
+            this.cdfPreparationEvidenceStore.clear(options.reason ?? 'invalidate-cache');
+        } else {
+            this.cdfPreparationEvidenceStore.preserveAcrossCacheInvalidation(options.reason ?? 'invalidate-cache');
+        }
         this.cursor.invalidate();
-        this.cdfReviewPreparationEvidence = null;
     }
 
     private recordReviewHistory(item: FSRSCard, transaction: ReviewTransaction | null): void {
@@ -2411,7 +2483,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return;
         }
 
-        this.cdfReviewPreparationEvidence = null;
+        this.cdfPreparationEvidenceStore.clear('session-restore');
         const restored = this.cursor.restore(snapshot);
         this.restoreCurrentItem(restored);
         this.srsV2SessionQueueRuntime?.restoreFromSnapshot({

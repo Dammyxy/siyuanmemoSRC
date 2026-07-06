@@ -126,6 +126,7 @@ function createWorkerSessionBackend(
     sessionId,
     queueType,
     current: ensureCurrent() ? { ...ensureCurrent()! } : null,
+    lookaheadCards: remaining[0] ? [{ ...remaining[0] }] : [],
     counters: buildCounters(),
     projectionState: 'ready',
     projectionGeneration: 1,
@@ -550,6 +551,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
           sessionId: 'worker-session-retrieval-practice',
           queueType: QueueType.RetrievalPractice,
           current: { ...secondCard },
+          lookaheadCards: [],
           counters: {
             remaining: 1,
             due: 1,
@@ -621,9 +623,9 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
           step: 'frontend-feedback-summary',
           topFrontendStepSummary: expect.arrayContaining([
             expect.stringContaining('session-runtime-answer'),
-            expect.stringContaining('consume-advance'),
+            expect.stringContaining('sync-cursor-from-runtime'),
             expect.stringContaining('consume-advance.prepare-selected-review-card'),
-            expect.stringContaining('consume-advance.refresh-cdf-live-relation'),
+            expect.stringContaining('consume-advance.reuse-cdf-preparation-evidence'),
           ]),
         }),
       );
@@ -683,6 +685,143 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
     expect(currentAgain).toMatchObject({ id: secondCard.id });
     expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it('primes the next runtime-backed CDF card before feedback consumes it', async () => {
+    const firstCard = createCard({ id: 'primed-card-1', blockId: 'primed-block-1' });
+    const secondCard = createCard({ id: 'primed-card-2', blockId: 'primed-block-2' });
+    const thirdCard = createCard({ id: 'primed-card-3', blockId: 'primed-block-3' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard, thirdCard]);
+    const workerSessionBackend = createWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard, thirdCard]);
+    const cdfLiveRelationReviewOpenRefresher = {
+      refreshCdfLiveRelationOnOpen: vi.fn(async (card: FSRSCard | string) => {
+        const resolved = typeof card === 'string'
+          ? [firstCard, secondCard, thirdCard].find((candidate) => candidate.id === card)!
+          : card;
+        return {
+          updatedCard: {
+            ...resolved,
+            meta: {
+              ...resolved.meta,
+              liveRelationStatus: 'active-live',
+            },
+          },
+        };
+      }),
+    };
+    const manager = {
+      workerSessionBackend,
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => workerSessionBackend,
+      })),
+      getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async (cardId: string) => (
+        { ...[firstCard, secondCard, thirdCard].find((candidate) => candidate.id === cardId)! }
+      )),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null,
+      cdfLiveRelationReviewOpenRefresher as never,
+    );
+
+    const first = await strategy.next();
+    expect(first).toMatchObject({ id: firstCard.id });
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(2);
+
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+
+    const second = expectAdvancedNext(feedbackResult, secondCard.id);
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(3);
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ id: firstCard.id }),
+    );
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ id: secondCard.id }),
+    );
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ id: thirdCard.id }),
+    );
+
+    strategy.onDataChanged({
+      type: 'queue-changed',
+      queueType: QueueType.RetrievalPractice,
+      timestamp: Date.now(),
+    });
+
+    const secondFeedbackResult = await strategy.onFeedback(second, { action: 'rate', rating: 4 });
+
+    expectAdvancedNext(secondFeedbackResult, thirdCard.id);
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps next-card CDF prime evidence when a current-card update arrives after feedback', async () => {
+    const firstCard = createCard({ id: 'current-update-prime-card-1', blockId: 'current-update-prime-block-1' });
+    const secondCard = createCard({ id: 'current-update-prime-card-2', blockId: 'current-update-prime-block-2' });
+    const thirdCard = createCard({ id: 'current-update-prime-card-3', blockId: 'current-update-prime-block-3' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard, thirdCard]);
+    const workerSessionBackend = createWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard, thirdCard]);
+    const cdfLiveRelationReviewOpenRefresher = {
+      refreshCdfLiveRelationOnOpen: vi.fn(async (card: FSRSCard | string) => {
+        const resolved = typeof card === 'string'
+          ? [firstCard, secondCard, thirdCard].find((candidate) => candidate.id === card)!
+          : card;
+        return {
+          updatedCard: {
+            ...resolved,
+            meta: {
+              ...resolved.meta,
+              liveRelationStatus: 'active-live',
+            },
+          },
+        };
+      }),
+    };
+    const manager = {
+      workerSessionBackend,
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => workerSessionBackend,
+      })),
+      getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async (cardId: string) => (
+        { ...[firstCard, secondCard, thirdCard].find((candidate) => candidate.id === cardId)! }
+      )),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null,
+      cdfLiveRelationReviewOpenRefresher as never,
+    );
+
+    const first = await strategy.next();
+    const firstFeedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const second = expectAdvancedNext(firstFeedbackResult, secondCard.id);
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(3);
+
+    strategy.onDataChanged({
+      type: 'card-updated',
+      cardIds: [secondCard.id],
+      blockIds: [secondCard.blockId],
+      timestamp: Date.now(),
+    });
+
+    const secondFeedbackResult = await strategy.onFeedback(second, { action: 'rate', rating: 4 });
+
+    expectAdvancedNext(secondFeedbackResult, thirdCard.id);
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(3);
   });
 
   it('refreshes CDF preparation again when the prepared card signature changes', async () => {

@@ -110,6 +110,22 @@ _Avoid_: calling this a queue cursor or NeuralRoam advance owner; it only applie
 The post-feedback Review session transition that applies local Review session state after queue feedback succeeds or fails; it does not choose queue membership, commit scheduling, call the writer, or select NeuralRoam next items.
 _Avoid_: review commit, scheduler feedback, queue membership update, NeuralRoam advance
 
+**Review CDF Preparation Evidence**:
+The Review-side evidence that a card has already passed CDF current-card open refresh and optional next-dues preparation for a specific card identity plus CDF-relevant metadata signature. It owns completed evidence, pending next-card preparation, and event-order invalidation for that evidence; it does not choose the next Review card, persist CDF repair actions, or own CDF source materialization.
+_Avoid_: queue cache, Review session cursor state, CDF write/repair owner, backend prepared-card read model
+
+**Review Ledger**:
+The durable, idempotent fact record for an accepted Review answer. It contains the review identity, commit idempotency key, rating, reviewed time, and after-state evidence needed to reconcile or replay the answer; it is not the SQLite delta segment file.
+_Avoid_: delta append proof, projection cache row, renderer feedback success flag
+
+**Card Schedule Store**:
+The durable current scheduling state for a card after Review commit. It owns the committed after-card schedule before success is reported; queue projection rows are derived read-model state, not this store.
+_Avoid_: queue projection authority, Review session cursor, Browser row cache
+
+**Delta Sync Adapter**:
+The SQLite delta/checkpoint layer that exports, checkpoints, diagnoses, and recovers storage changes from durable Review facts and schedule state. It may read sealed segment evidence during diagnostics/recovery/reload, but ordinary same-runtime Review answer success must not depend on reconstructing historical sealed segments.
+_Avoid_: Review Ledger, Card Schedule Store, kernel answer authority
+
 **NeuralRoam Advance**:
 The backend-authoritative Review progression for NeuralRoam sessions that returns the next item, exhaustion, or explicit unavailability from the backend advance contract.
 _Avoid_: local NeuralRoam cursor, projection-backed NeuralRoam review, renderer-selected NeuralRoam next item
@@ -150,6 +166,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - A **Review Session Cursor** sits inside a Review session and consumes queue rows/cards, but it is not the queue authority and does not decide scheduling outcomes.
 - A **Review Current Item Command** sits beside the **Review Session Cursor** and applies the visible current card after cursor restore, ordinary advancement, or compensation chooses that card.
 - **Review Feedback Advancement** consumes **Review Session Cursor** and **Review Current Item Command** state after a queue feedback result, while queue membership, scheduling commit, writer relay, and NeuralRoam next-item selection stay outside it.
+- **Review CDF Preparation Evidence** consumes the card selected by Review session authority and prepares that card's CDF open-refresh result for reuse, while next-card selection, CDF write/repair, and backend prepared-card ownership stay outside it.
 - **NeuralRoam Advance** selects NeuralRoam next items before **Review Current Item Command** applies them to the visible Review session.
 - **Review Transaction Safety Envelope** wraps risky Review feedback mutation before **Review Feedback Advancement** applies local session transition.
 - **Review History** stores the previous visible item and optional **Review Transaction Safety Envelope** transaction for go-back or failed-feedback cleanup.
@@ -182,6 +199,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - Semantic read assembly was ambiguous with core projection building. Resolved: **Semantic Session Read Model** names the presentation-ready read model derived from Semantic session owner state, while core projection remains the lower-level tree/path/branch derivation.
 - Review session state was ambiguous between UI session orchestration, shared surface registration, and volatile queue movement. Resolved: **Review Session Cursor** names only the in-memory movement state within one Review session.
 - Review feedback handling was ambiguous between scheduler commit, queue membership update, and local session transition. Resolved: **Review Feedback Advancement** names only the post-feedback local Review session transition.
+- Review CDF preparation was ambiguous between queue cursor cache, current-card refresh glue, and next-card prewarm state. Resolved: **Review CDF Preparation Evidence** names only the keyed refresh/preparation evidence and its invalidation ordering.
 - NeuralRoam progression was ambiguous with local cursor/projection review. Resolved: **NeuralRoam Advance** is backend-authoritative and the renderer only consumes its result.
 - Review rollback handling was ambiguous between queue rollback, card snapshot restore, session exclusion restore, and visible current-item compensation. Resolved: **Review Transaction Safety Envelope** owns transaction safety; **Review Feedback Advancement** only applies the restored item locally.
 - Review go-back storage was ambiguous with queue cache and review logs. Resolved: **Review History** names only the bounded in-memory previous-item stack inside one Review strategy.

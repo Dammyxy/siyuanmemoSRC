@@ -13,10 +13,10 @@ export interface SqliteConflictDatabaseSource {
 }
 
 export interface SqlitePersistenceBridge {
-  readBinary(path: string): Promise<Uint8Array | null>;
-  writeBinary(path: string, bytes: Uint8Array): Promise<void>;
-  readJSON?<T>(path: string): Promise<T | null>;
-  writeJSON?(path: string, value: unknown): Promise<void>;
+  readBinary(path: string, metadata?: SqlitePersistenceHostEffectMetadata): Promise<Uint8Array | null>;
+  writeBinary(path: string, bytes: Uint8Array, metadata?: SqlitePersistenceHostEffectMetadata): Promise<void>;
+  readJSON?<T>(path: string, metadata?: SqlitePersistenceHostEffectMetadata): Promise<T | null>;
+  writeJSON?(path: string, value: unknown, metadata?: SqlitePersistenceHostEffectMetadata): Promise<void>;
   deleteFile?(path: string): Promise<void>;
   hasLegacyPetalSqliteDb?(): Promise<boolean>;
   reviewFeedbackJournalStore?: ReviewFeedbackJournalStore;
@@ -27,6 +27,11 @@ export interface SqlitePersistenceBridge {
     skipped: Array<{ sourceId: string; reason: string }>;
     failed: Array<{ sourceId: string; path: string | null; reason: string }>;
   }>;
+}
+
+export interface SqlitePersistenceHostEffectMetadata {
+  purpose?: string | null;
+  substep?: string | null;
 }
 
 export function toTransferableArrayBuffer(bytes: Uint8Array): ArrayBuffer {

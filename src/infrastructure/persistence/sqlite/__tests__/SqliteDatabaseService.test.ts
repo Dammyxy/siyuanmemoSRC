@@ -38,12 +38,18 @@ class MemorySqliteFileService implements JsonFileService {
   readonly readJSONFiles: string[] = [];
   readonly writeJSONFiles: string[] = [];
   readonly readBinaryFiles: string[] = [];
+  readonly readBinaryDiagnostics: Array<{ fileName: string; diagnostics: Record<string, unknown> | null }> = [];
+  readonly readJSONDiagnostics: Array<{ fileName: string; diagnostics: Record<string, unknown> | null }> = [];
   writeBinaryCount = 0;
   failNextWriteBinary = false;
   lastWriteBinaryDiagnostics: Record<string, unknown> | null = null;
 
-  async readJSON<T>(fileName: string): Promise<T | null> {
+  async readJSON<T>(fileName: string, options?: { diagnostics?: Record<string, unknown> }): Promise<T | null> {
     this.readJSONFiles.push(fileName);
+    this.readJSONDiagnostics.push({
+      fileName,
+      diagnostics: options?.diagnostics ?? null,
+    });
     return (this.json.get(fileName) as T | undefined) ?? null;
   }
 
@@ -52,8 +58,12 @@ class MemorySqliteFileService implements JsonFileService {
     this.json.set(fileName, data);
   }
 
-  async readBinary(fileName: string): Promise<Uint8Array | null> {
+  async readBinary(fileName: string, options?: { diagnostics?: Record<string, unknown> }): Promise<Uint8Array | null> {
     this.readBinaryFiles.push(fileName);
+    this.readBinaryDiagnostics.push({
+      fileName,
+      diagnostics: options?.diagnostics ?? null,
+    });
     const bytes = this.binary.get(fileName);
     return bytes ? new Uint8Array(bytes) : null;
   }
@@ -81,6 +91,8 @@ class MemorySqliteFileService implements JsonFileService {
     this.readJSONFiles.length = 0;
     this.writeJSONFiles.length = 0;
     this.readBinaryFiles.length = 0;
+    this.readJSONDiagnostics.length = 0;
+    this.readBinaryDiagnostics.length = 0;
     this.lastWriteBinaryDiagnostics = null;
   }
 }
@@ -89,8 +101,8 @@ class OpenSegmentReadWindowFileService extends MemorySqliteFileService {
   pendingManifestAfterOpenRead: unknown | null = null;
   patchedManifestAfterOpenRead = false;
 
-  async readBinary(fileName: string): Promise<Uint8Array | null> {
-    const bytes = await super.readBinary(fileName);
+  async readBinary(fileName: string, options?: { diagnostics?: Record<string, unknown> }): Promise<Uint8Array | null> {
+    const bytes = await super.readBinary(fileName, options);
     if (
       fileName === SQLITE_DELTA_V2_OPEN_SEGMENT
       && this.pendingManifestAfterOpenRead
@@ -112,11 +124,11 @@ class CorruptOpenSegmentAfterReadFileService extends MemorySqliteFileService {
     return this.openSegmentReads;
   }
 
-  async readBinary(fileName: string): Promise<Uint8Array | null> {
+  async readBinary(fileName: string, options?: { diagnostics?: Record<string, unknown> }): Promise<Uint8Array | null> {
     if (fileName === SQLITE_DELTA_V2_OPEN_SEGMENT && this.failOpenSegmentReadAfterFailedCheckpoint) {
       throw new Error('unexpected corrupt open segment replay after failed checkpoint repair');
     }
-    const bytes = await super.readBinary(fileName);
+    const bytes = await super.readBinary(fileName, options);
     if (fileName === SQLITE_DELTA_V2_OPEN_SEGMENT) {
       this.openSegmentReads += 1;
       if (this.corruptAfterOpenSegmentRead && this.openSegmentReads === 1) {
@@ -945,6 +957,127 @@ describe('SqliteDatabaseService', () => {
     expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(1);
   });
 
+  it('reuses verified volatile sqlite delta sealed-segment evidence after append preflight validates it', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    fileService.resetWriteCounts();
+
+    for (let index = 1; index <= 17; index += 1) {
+      await insertReviewEventForSqliteDeltaWindow(
+        database,
+        `event-volatile-hot-sealed-${index}`,
+        1_783_060_000_220 + index,
+      );
+    }
+
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(0);
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(1);
+    await insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-volatile-hot-sealed-reuse',
+      1_783_060_000_300,
+    );
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(1);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 18,
+    });
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(1);
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(2);
+  });
+
+  it('reads persisted sealed sqlite delta bytes after diagnostics clears same-runtime evidence', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    fileService.resetWriteCounts();
+
+    for (let index = 1; index <= 17; index += 1) {
+      await insertReviewEventForSqliteDeltaWindow(
+        database,
+        `event-diagnostics-sealed-${index}`,
+        1_783_060_000_250 + index,
+      );
+    }
+
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(0);
+
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 17,
+    });
+    expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1)).toHaveLength(1);
+    fileService.resetWriteCounts();
+
+    await insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-diagnostics-sealed-append',
+      1_783_060_000_300,
+    );
+
+    expect(fileService.readBinaryDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        fileName: SQLITE_DELTA_V2_SEALED_1,
+        diagnostics: expect.objectContaining({
+          sqliteDeltaPurpose: 'sqlite-delta.append-preflight',
+        }),
+      }),
+    ]));
+  });
+
+  it('attributes sealed sqlite delta reads during append preflight after reload', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    for (let index = 1; index <= 17; index += 1) {
+      await insertReviewEventForSqliteDeltaWindow(
+        database,
+        `event-reload-sealed-${index}`,
+        1_783_060_000_300 + index,
+      );
+    }
+
+    expect(fileService.binary.get(SQLITE_DELTA_V2_SEALED_1)).toBeTruthy();
+
+    const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await reloaded.init();
+    fileService.resetWriteCounts();
+
+    await insertReviewEventForSqliteDeltaWindow(
+      reloaded,
+      'event-reload-sealed-append',
+      1_783_060_000_400,
+    );
+
+    expect(fileService.readBinaryDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        fileName: SQLITE_DELTA_V2_SEALED_1,
+        diagnostics: expect.objectContaining({
+          sqliteDeltaPurpose: 'sqlite-delta.append-preflight',
+          sqliteDeltaSubstep: expect.stringMatching(
+            /^(read-append-hot-path-snapshot|persist-committed-transaction-read-snapshot)$/,
+          ),
+        }),
+      }),
+    ]));
+  });
+
   it('excludes queue projection cache from review feedback sqlite delta while retaining canonical writes', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
@@ -1590,7 +1723,7 @@ describe('SqliteDatabaseService', () => {
     ).toHaveLength(1);
   });
 
-  it('fails closed when a sealed sqlite delta segment checksum mismatches', async () => {
+  it('keeps review feedback hot path open when delta-sync sealed evidence is corrupted', async () => {
     const fileService = new SplitProjectionSqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
       persistOnInit: false,
@@ -1630,7 +1763,50 @@ describe('SqliteDatabaseService', () => {
       database,
       'event-after-corrupt-sealed',
       1_700_000_003_099,
-    )).rejects.toThrow(
+    )).resolves.toBeUndefined();
+
+    expect(fileService.writeBinaryFiles).not.toContain(SQLITE_DELTA_V2_SEALED_1);
+    expect(fileService.durableBinary.get(SQLITE_DELTA_V2_SEALED_1)).toBeTruthy();
+    expect(fileService.deletedFiles).not.toContain(SQLITE_DELTA_V2_SEALED_1);
+  });
+
+  it('fails closed when diagnostics verifies a sealed sqlite delta segment checksum mismatch', async () => {
+    const fileService = new SplitProjectionSqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    for (let index = 0; index < 17; index += 1) {
+      await database.runTransaction(`delta-diagnostics-corrupt-sealed-${index}`, (db) => {
+        db.run(
+          `INSERT INTO review_events
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            `event-diagnostics-corrupt-sealed-${index}`,
+            'card-diagnostics-corrupt-sealed',
+            `attempt-diagnostics-corrupt-sealed-${index}`,
+            3,
+            1_700_000_004_000 + index,
+            `commit-diagnostics-corrupt-sealed-${index}`,
+            2026,
+            5,
+            'review-v2',
+            '{}',
+          ],
+        );
+      });
+    }
+
+    expect(fileService.durableBinary.get(SQLITE_DELTA_V2_SEALED_1)).toBeTruthy();
+    fileService.durableBinary.set(SQLITE_DELTA_V2_SEALED_1, new Uint8Array([6, 6, 6, 6]));
+    fileService.writeBinaryFiles.length = 0;
+
+    await expect(database.getSqliteDeltaDiagnostics()).rejects.toThrow(
       'SQLite delta segment checksum mismatch: sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
     );
 

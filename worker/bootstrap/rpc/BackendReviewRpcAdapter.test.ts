@@ -137,6 +137,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
     expect(started.result).toMatchObject({
       sessionId: 'session-a',
       current: expect.objectContaining({ id: first.id }),
+      lookaheadCards: [expect.objectContaining({ id: second.id })],
       counters: expect.objectContaining({ remaining: 2, source: 'worker-session' }),
     });
     expect(readRows).toHaveBeenCalledOnce();
@@ -163,6 +164,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
     expect(feedback.result).toMatchObject({
       answeredCardId: first.id,
       current: expect.objectContaining({ id: second.id }),
+      lookaheadCards: [],
       counters: expect.objectContaining({ remaining: 1, source: 'worker-session' }),
       feedback: expect.objectContaining({ committed: true }),
     });

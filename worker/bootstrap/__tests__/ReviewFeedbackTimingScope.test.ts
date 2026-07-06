@@ -150,12 +150,14 @@ describe('ReviewFeedbackTimingScope', () => {
         byteLength: 106_233_856,
       });
 
-    expect(timing.slowestHostEffect).toEqual({
+      expect(timing.slowestHostEffect).toEqual({
         kind: 'sqlite.writeBinary',
         durationMs: 250,
         path: 'siyuanmemo.db',
         byteLength: 106_233_856,
         storageClass: 'sql-projection-db',
+        purpose: null,
+        substep: null,
       });
     } finally {
       endBackendWorkerRequest(timing);
@@ -186,6 +188,8 @@ describe('ReviewFeedbackTimingScope', () => {
           totalMs: 140,
           maxMs: 140,
           byteLength: 42_000,
+          purpose: null,
+          substep: null,
         },
         {
           kind: 'sqlite.writeJSON',
@@ -195,6 +199,8 @@ describe('ReviewFeedbackTimingScope', () => {
           totalMs: 125,
           maxMs: 80,
           byteLength: null,
+          purpose: null,
+          substep: null,
         },
       ]);
     } finally {
@@ -241,5 +247,66 @@ describe('ReviewFeedbackTimingScope', () => {
 
     expect(hasActiveBackendWorkerTiming('review.feedback')).toBe(false);
     expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON', null)).toBe(false);
+  });
+
+  it('keeps sqlite delta purpose and substep attribution in host effect summaries', () => {
+    const timing = beginBackendWorkerTiming('review.session.feedback', 'card-1');
+
+    try {
+      recordBackendWorkerHostEffect(timing, 'sqlite.readBinary', 90, {
+        path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
+        byteLength: 64_000,
+        purpose: 'sqlite-delta.append-preflight',
+        substep: 'persist-committed-transaction-read-snapshot',
+      });
+      recordBackendWorkerHostEffect(timing, 'sqlite.readBinary', 40, {
+        path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
+        byteLength: 64_000,
+        purpose: 'sqlite-delta.checkpoint-recovery',
+        substep: 'volatile-checkpoint-covered-segment-replay',
+      });
+      recordBackendWorkerHostEffect(timing, 'sqlite.readBinary', 25, {
+        path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
+        byteLength: 64_000,
+        purpose: 'sqlite-delta.append-preflight',
+        substep: 'persist-committed-transaction-read-snapshot',
+      });
+
+      expect(timing.slowestHostEffect).toEqual({
+        kind: 'sqlite.readBinary',
+        durationMs: 90,
+        path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
+        byteLength: 64_000,
+        storageClass: 'sqlite-delta-log',
+        purpose: 'sqlite-delta.append-preflight',
+        substep: 'persist-committed-transaction-read-snapshot',
+      });
+      expect(timing.hostEffectBreakdown).toEqual([
+        {
+          kind: 'sqlite.readBinary',
+          path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
+          storageClass: 'sqlite-delta-log',
+          purpose: 'sqlite-delta.append-preflight',
+          substep: 'persist-committed-transaction-read-snapshot',
+          count: 2,
+          totalMs: 115,
+          maxMs: 90,
+          byteLength: 64_000,
+        },
+        {
+          kind: 'sqlite.readBinary',
+          path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
+          storageClass: 'sqlite-delta-log',
+          purpose: 'sqlite-delta.checkpoint-recovery',
+          substep: 'volatile-checkpoint-covered-segment-replay',
+          count: 1,
+          totalMs: 40,
+          maxMs: 40,
+          byteLength: 64_000,
+        },
+      ]);
+    } finally {
+      endBackendWorkerRequest(timing);
+    }
   });
 });

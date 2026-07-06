@@ -117,7 +117,11 @@ import type {
   SourceExistenceSummary,
   SourceExistenceUpdate,
 } from '@/application/ports/BrowserDeckReadPort';
-import type { SqliteConflictDatabaseSource, SqlitePersistenceBridge } from './SqlitePersistenceBridge';
+import type {
+  SqliteConflictDatabaseSource,
+  SqlitePersistenceBridge,
+  SqlitePersistenceHostEffectMetadata,
+} from './SqlitePersistenceBridge';
 import type {
   ReviewFeedbackJournalEntryStatus,
   ReviewFeedbackJournalStore,
@@ -172,10 +176,10 @@ const REVIEW_FEEDBACK_JOURNAL_STATUSES = new Set<ReviewFeedbackJournalEntryStatu
 ]);
 
 type SqliteFileServiceAdapter = {
-  readJSON<T>(fileName: string): Promise<T | null>;
-  writeJSON(fileName: string, data: unknown): Promise<void>;
-  readBinary(fileName: string): Promise<Uint8Array | null>;
-  writeBinary(fileName: string, bytes: Uint8Array): Promise<void>;
+  readJSON<T>(fileName: string, metadata?: SqliteFileServiceMetadataInput): Promise<T | null>;
+  writeJSON(fileName: string, data: unknown, metadata?: SqliteFileServiceMetadataInput): Promise<void>;
+  readBinary(fileName: string, metadata?: SqliteFileServiceMetadataInput): Promise<Uint8Array | null>;
+  writeBinary(fileName: string, bytes: Uint8Array, metadata?: SqliteFileServiceMetadataInput): Promise<void>;
   deleteFile(fileName: string): Promise<void>;
   hasLegacyPetalSqliteDb(): Promise<boolean>;
   readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]>;
@@ -185,6 +189,10 @@ type SqliteFileServiceAdapter = {
     failed: Array<{ sourceId: string; path: string | null; reason: string }>;
   }>;
 };
+
+export type SqliteFileServiceMetadataInput = SqlitePersistenceHostEffectMetadata | {
+  diagnostics?: Record<string, unknown> | null;
+} | null;
 
 interface SqliteFileServiceAdapterOptions {
   shouldSuppressBinaryRead?: (fileName: string) => boolean;
@@ -419,30 +427,73 @@ interface ReviewCardDivergenceEvidenceWithCardRow {
   source_missing_at: number | null;
 }
 
-function createSqliteFileServiceAdapter(
+function readMetadataString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function readDiagnostics(metadata: SqliteFileServiceMetadataInput | undefined): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== 'object' || !('diagnostics' in metadata)) {
+    return null;
+  }
+  const diagnostics = metadata.diagnostics;
+  return diagnostics && typeof diagnostics === 'object' ? diagnostics : null;
+}
+
+export function normalizeSqlitePersistenceHostEffectMetadata(
+  metadata?: SqliteFileServiceMetadataInput,
+): SqlitePersistenceHostEffectMetadata | undefined {
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined;
+  }
+  const diagnostics = readDiagnostics(metadata);
+  const purpose = ('purpose' in metadata ? readMetadataString(metadata.purpose) : null)
+    ?? readMetadataString(diagnostics?.sqliteDeltaPurpose);
+  const substep = ('substep' in metadata ? readMetadataString(metadata.substep) : null)
+    ?? readMetadataString(diagnostics?.sqliteDeltaSubstep);
+  if (purpose === null && substep === null) {
+    return undefined;
+  }
+  return { purpose, substep };
+}
+
+export function createSqliteFileServiceAdapter(
   bridge: SqlitePersistenceBridge,
   options: SqliteFileServiceAdapterOptions = {},
 ): SqliteFileServiceAdapter {
   return {
-    readJSON: async <T>(fileName: string): Promise<T | null> => {
+    readJSON: async <T>(
+      fileName: string,
+      metadata?: SqliteFileServiceMetadataInput,
+    ): Promise<T | null> => {
       if (!bridge.readJSON) {
         return null;
       }
       if (options.shouldSuppressJsonRead?.(fileName)) {
         return null;
       }
-      return bridge.readJSON<T>(fileName);
+      return bridge.readJSON<T>(fileName, normalizeSqlitePersistenceHostEffectMetadata(metadata));
     },
-    writeJSON: async (fileName: string, data: unknown): Promise<void> => {
+    writeJSON: async (
+      fileName: string,
+      data: unknown,
+      metadata?: SqliteFileServiceMetadataInput,
+    ): Promise<void> => {
       if (!bridge.writeJSON) {
         throw new Error(`JSON persistence is not available for ${fileName}`);
       }
-      await bridge.writeJSON(fileName, data);
+      await bridge.writeJSON(fileName, data, normalizeSqlitePersistenceHostEffectMetadata(metadata));
     },
-    readBinary: (fileName: string) => options.shouldSuppressBinaryRead?.(fileName)
+    readBinary: (
+      fileName: string,
+      metadata?: SqliteFileServiceMetadataInput,
+    ) => options.shouldSuppressBinaryRead?.(fileName)
       ? Promise.resolve(null)
-      : bridge.readBinary(fileName),
-    writeBinary: (fileName: string, bytes: Uint8Array) => bridge.writeBinary(fileName, bytes),
+      : bridge.readBinary(fileName, normalizeSqlitePersistenceHostEffectMetadata(metadata)),
+    writeBinary: (
+      fileName: string,
+      bytes: Uint8Array,
+      metadata?: SqliteFileServiceMetadataInput,
+    ) => bridge.writeBinary(fileName, bytes, normalizeSqlitePersistenceHostEffectMetadata(metadata)),
     deleteFile: async (fileName: string): Promise<void> => {
       if (!bridge.deleteFile) {
         return;

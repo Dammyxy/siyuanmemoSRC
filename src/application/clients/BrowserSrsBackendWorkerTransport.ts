@@ -33,6 +33,7 @@ const logger = createLogger('BrowserSrsBackendWorkerTransport');
 const REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS = 120;
 const DEFAULT_HOST_EFFECT_TIMEOUT_MS = 5_000;
 const LONG_BACKEND_COMMAND_REQUEST_TIMEOUT_MS = 300_000;
+const LONG_BACKEND_COMMAND_HOST_EFFECT_TIMEOUT_MS = 300_000;
 const LONG_BACKEND_COMMAND_METHODS = new Set<string>([
   'storage.projection.rebuild',
   'xiuyuan.sync.execute',
@@ -437,7 +438,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   }
 
   private executeHostEffectWithDeadline(effect: BackendWorkerHostEffect): Promise<unknown> {
-    const timeoutMs = this.hostEffectTimeoutMs;
+    const timeoutMs = this.resolveHostEffectTimeoutMs(effect);
     let timer: ReturnType<typeof setTimeout> | null = null;
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -452,6 +453,24 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         clearTimeout(timer);
       }
     });
+  }
+
+  private resolveHostEffectTimeoutMs(effect: BackendWorkerHostEffect): number {
+    const baseTimeoutMs = this.hostEffectTimeoutMs;
+    if (!this.isLongBackendCommandHostEffect(effect)) {
+      return baseTimeoutMs;
+    }
+    return Math.max(baseTimeoutMs, LONG_BACKEND_COMMAND_HOST_EFFECT_TIMEOUT_MS);
+  }
+
+  private isLongBackendCommandHostEffect(effect: BackendWorkerHostEffect): boolean {
+    return 'requestMethod' in effect
+      && typeof effect.requestMethod === 'string'
+      && LONG_BACKEND_COMMAND_METHODS.has(effect.requestMethod)
+      && (
+        effect.kind.startsWith('sqlite.')
+        || effect.kind.startsWith('truth.')
+      );
   }
 
   private async executeHostEffect(effect: BackendWorkerHostEffect): Promise<unknown> {
@@ -751,6 +770,8 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         `${input.timing.slowestHostEffect.kind} ${Math.round(input.timing.slowestHostEffect.durationMs)}ms`,
         `path=${input.timing.slowestHostEffect.path || 'unknown'}`,
         `storage=${input.timing.slowestHostEffect.storageClass || 'unknown'}`,
+        `purpose=${input.timing.slowestHostEffect.purpose || 'unknown'}`,
+        `substep=${input.timing.slowestHostEffect.substep || 'unknown'}`,
       ].join(' ')
       : 'none';
     const top = input.innerStepSummary.topInnerStepSummary.slice(0, 3).join(' | ') || 'none';
@@ -783,6 +804,8 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         `count=${entry.count}`,
         `path=${entry.path || 'unknown'}`,
         `storage=${entry.storageClass || 'unknown'}`,
+        `purpose=${entry.purpose || 'unknown'}`,
+        `substep=${entry.substep || 'unknown'}`,
         `max=${Math.round(entry.maxMs)}ms`,
         `bytes=${entry.byteLength ?? 'unknown'}`,
       ].join(' '))

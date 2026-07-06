@@ -2903,6 +2903,7 @@ export interface BackendReviewSessionState {
   sessionId: string;
   queueType: string;
   current: unknown | null;
+  lookaheadCards?: unknown[] | null;
   counters: BackendReviewSessionCounterSnapshot;
   projectionState: BackendReviewSessionProjectionState;
   projectionGeneration: number | null;
