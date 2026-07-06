@@ -528,6 +528,49 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
 
+  it('fails closed instead of falling back to renderer projection authority when worker answer is unavailable', async () => {
+    const firstCard = createCard({ id: 'worker-owned-card-1', blockId: 'worker-owned-block-1' });
+    const secondCard = createCard({ id: 'worker-owned-card-2', blockId: 'worker-owned-block-2' });
+    const projectionFallbackCard = createCard({ id: 'projection-fallback-card', blockId: 'projection-fallback-block' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, projectionFallbackCard]);
+    const projectionRows = [
+      buildQueueSnapshotRow(projectionFallbackCard, { queueIndex: 1 }),
+    ];
+    (queue.getSnapshotRows as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(projectionRows);
+    (queue.getCardsBySnapshotIds as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([{ ...projectionFallbackCard }]);
+    const workerSessionBackend = createWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard]);
+    workerSessionBackend.reviewSessionFeedback.mockRejectedValueOnce(
+      new Error('WORKER_REVIEW_SESSION_UNAVAILABLE: kernel stopped'),
+    );
+    const manager = {
+      workerSessionBackend,
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => workerSessionBackend,
+      })),
+      getQueue: vi.fn((queueType?: QueueType) => (
+        queueType === QueueType.FinalDrill
+          ? createQueueStub(QueueType.FinalDrill, [])
+          : queue
+      )),
+      getCard: vi.fn(async (cardId: string) => ({ ...(cardId === firstCard.id ? firstCard : secondCard) })),
+      getCards: vi.fn(async () => [{ ...projectionFallbackCard }]),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(QueueType.RetrievalPractice, manager as never, eventBus as never, null);
+
+    const first = await strategy.next();
+    await expect(strategy.onFeedback(first, { action: 'rate', rating: 4 })).rejects.toThrow(
+      'REVIEW_SESSION_RUNTIME_UNAVAILABLE: WORKER_REVIEW_SESSION_UNAVAILABLE: kernel stopped',
+    );
+
+    expect(queue.handleReview).not.toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+    expect(manager.getCards).not.toHaveBeenCalled();
+    expect(strategy.serializeSessionSnapshot().currentItem?.id).toBe(firstCard.id);
+  });
+
   it('logs copyable frontend feedback timing layers for runtime-backed rating', async () => {
     vi.useFakeTimers();
     try {

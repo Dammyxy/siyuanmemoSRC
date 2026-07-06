@@ -3,6 +3,7 @@ import { BACKEND_RPC_VERSION, type BackendReviewFeedbackRequest } from '../../..
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { QueueType } from '@/types/unified-data-source';
 import { WorkerReviewSessionRuntime } from '../../review/WorkerReviewSessionRuntime';
+import { WorkerSrsReviewKernelAdapter } from '../../review/SrsReviewKernel';
 import { BackendReviewRpcRuntime, type BackendReviewRpcDatabase } from './BackendReviewRpcAdapter';
 import { BackendRpcDispatcher } from './BackendRpcDispatcher';
 import { createBackendRpcHandlerRegistry, BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS } from './BackendRpcRegistry';
@@ -120,7 +121,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
     });
     const review = new BackendReviewRpcRuntime({
       database: createDatabase(reviewFeedback),
-      sessionRuntime,
+      reviewKernel: new WorkerSrsReviewKernelAdapter(sessionRuntime),
     });
     const dispatcher = new BackendRpcDispatcher(createBackendRpcHandlerRegistry(BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS));
 
@@ -181,7 +182,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
   it('fails closed when review.session methods have no worker session runtime', async () => {
     const review = new BackendReviewRpcRuntime({
       database: createDatabase(vi.fn()),
-      sessionRuntime: null,
+      reviewKernel: null,
     });
     const dispatcher = new BackendRpcDispatcher(createBackendRpcHandlerRegistry(BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS));
 
@@ -194,7 +195,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
 
     expect(response.error).toMatchObject({
       code: 'BACKEND_UNAVAILABLE',
-      message: 'BACKEND_UNAVAILABLE: worker Review session runtime unavailable',
+      message: 'BACKEND_UNAVAILABLE: worker SRS Review Kernel unavailable',
     });
   });
 
@@ -262,7 +263,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
     });
     const review = new BackendReviewRpcRuntime({
       database: createDatabase(reviewFeedback),
-      sessionRuntime,
+      reviewKernel: new WorkerSrsReviewKernelAdapter(sessionRuntime),
     });
     const dispatcher = new BackendRpcDispatcher(createBackendRpcHandlerRegistry(BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS));
 

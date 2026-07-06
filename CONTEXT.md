@@ -98,6 +98,10 @@ _Avoid_: Browser projection cache, Review UI presentation prepare, queue project
 The Browser-facing projection Module that owns matched row identity, counts, filter/sort projections, projection warmup, projection repair, and row hydration. It reports refreshing, stale, repair-required, or unavailable state for Browser reads without becoming active Review next-card authority.
 _Avoid_: SessionQueueIndex, active Review frontier, Review answer authority, hidden stale-row fallback
 
+**SRS Review Kernel**:
+The worker-owned Review answer Module that owns active session start/current/answer/skip/lookahead/counters/diagnostics for RetrievalPractice and IncrementalLearning after a session starts. It hides scheduler commit, Review Ledger, Card Schedule Store, SessionQueueIndex, next-card preparation, and diagnostics behind one small Interface; renderer cursor, BrowserProjectionIndex, and projection patching cannot become fallback answer authority after this kernel is selected.
+_Avoid_: renderer session cursor, Browser projection fallback, queue hot patch authority, UI-owned scheduler commit
+
 **Custom Review Surface**:
 A SiYuanMemo-owned review UI that renders card content outside SiYuan's native block renderer. It must explicitly preserve supported link and reference behavior because native rendering is not automatically available.
 _Avoid_: assuming temporary or deliberate practice cannot render links by nature
@@ -169,6 +173,8 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - **Native Riff Compatibility** may consume or update native Riff cards only as an explicit interoperability path.
 - **Native Riff Compatibility** must not create a second scheduling truth for cards already owned by **SiYuanMemo-owned SRS**.
 - A **Browser Read Model** consumes **SRS Browser Card Universe** and, for projection-backed queue views, consumes queue projection identity before hydrating Browser rows.
+- The **SRS Review Kernel** consumes **Review Ledger**, **Card Schedule Store**, and **SessionQueueIndex** internally, and exposes only active Review session operations to renderer-side adapters.
+- Once the **SRS Review Kernel** is selected, **BrowserProjectionIndex** and **Review Session Cursor** may provide diagnostics/display state, but must not choose post-answer current/next cards.
 - **Custom Review Surfaces** share review rendering requirements with native-like review surfaces, including supported link and reference behavior.
 - A **Semantic Session Read Model** is derived from Semantic session owner state and may consume core Semantic session projection, but it remains a read-only presentation model for Browser, Review sidebar, or session inspection callers.
 - A **Review Session Cursor** sits inside a Review session and consumes queue rows/cards, but it is not the queue authority and does not decide scheduling outcomes.

@@ -280,6 +280,9 @@ Storage startup gate：所有 Review 打开入口（标准 review、queue switch
 sequenceDiagram
   participant UI as ReviewView / useReviewSession
   participant QS as UnifiedQueueStrategy
+  participant WQ as WorkerReviewSessionQueueRuntime
+  participant BRPC as review.session.* RPC
+  participant RK as SRS Review Kernel
   participant Q as QueueDomain
   participant UDSM as UnifiedDataSourceManager
   participant RAK as ReviewAttemptKernel
@@ -292,6 +295,11 @@ sequenceDiagram
   participant B as SRSBrowser
 
   UI->>QS: onFeedback(rate)
+  QS->>WQ: answerAndAdvance(card, feedback)
+  WQ->>BRPC: review.session.feedback(sessionId, cardId, rating)
+  BRPC->>RK: answer(command)
+  RK->>RK: validate current session / repair gate
+  RK->>Q: commit Review answer through kernel internals
   QS->>Q: handleReview(cardId, rating)
   Q->>UDSM: commitReview(QueueReviewCommand)
   UDSM->>RAK: execute(command)
@@ -315,9 +323,12 @@ sequenceDiagram
   RAK-->>UDSM: ReviewAttemptOutcome(updatedCard, queueImpact, projectionAction)
   UDSM->>UDSM: updateCard(updatedCard, review-commit, suppressAutosave)
   UDSM-->>Q: ReviewAttemptOutcome
-  Q->>Q: session membership / current item advance
-  Q-->>QS: projectionAction / projectionImpactEntry
-  QS->>QS: hot patch or refresh from normalized action
+  Q-->>RK: committed Review fact / queue impact diagnostics
+  RK->>RK: advance SessionQueueIndex current/lookahead/counters
+  RK-->>BRPC: current/next/counters/projection diagnostics
+  BRPC-->>WQ: BackendReviewSessionFeedbackResult
+  WQ-->>QS: nextCard / counterSnapshot / commit diagnostics
+  QS->>QS: apply kernel-selected visible next card
   UDSM-->>B: card / queue change event
   B->>B: incremental grid patch
 ```
@@ -332,7 +343,8 @@ Review Attempt Kernel 边界：
 - `ReviewAttemptKernel` 位于 `src/application/usecases/review`，是一次评分/预览/drill attempt 的应用层深 module；它保持 `ReviewCommitUseCase` 作为 backend-worker / writer-relay authority adapter，不接管 DB 写入，也不把 fallback local schedule write 带回复习路径。
 - kernel 输出统一 `projectionAction`：`patch-applied`、`refresh-required`、`generation-mismatch`、`not-applicable`、`unavailable`。`BaseReviewQueue` 只透传 outcome，`UnifiedQueueStrategy` 只消费 action 做本地 session cache hot patch 或强制刷新，不再独立解析 backend `queueImpact.affectedQueues` 来决定投影后续动作。
 - `ReviewCommitUseCase` 是 kernel 下层的 backend feedback adapter，只保留 card read、runtime policy、backend `review.feedback`、writer relay、scheduler config 与 Arena 批次记录依赖；旧本地 scheduler / review log / transaction runner 构造依赖已移除。`deepen-sql-first-card-runtime` 的首个 Review mutation slice 选定普通 `review.feedback`：worker 内通过 `WorkerReviewCardMutationPersistenceModule` 在现有 `runTransaction('review.feedback')` transaction owner 下提交 SQL card state、review event/domain sync ledger、sync metadata，并回调同一 transaction 内的 queue projection impact builder；projection persistence failure 会让 card/review event/domain sync/projection counters 一起回滚，不留下 hidden partial success。ReviewCommit/ReviewAttempt/BackendKernel 测试覆盖 projection generation mismatch、hot-patch impact、projection unavailable、writer-required fail-closed 与 projection 写失败回滚。
-- `src/application/adapters/review-session/*` 是 Review session advancement 的应用层模块区：`WorkerReviewSessionQueueRuntime` 是 RetrievalPractice / IncrementalLearning 的 active adapter，背后 RPC 到 worker-owned Review session runtime，返回 current/next/counter/projection status/commit diagnostics；它不实现 renderer-side rollback authority，`goBack()` 在 worker-owned session 下 fail closed。`SrsV2SessionQueueRuntime` 与 `ReviewSessionCursor` 仅保留为非 active/legacy-local session mechanics：cursor 可维护 cache/snapshot/display helper state，但不能在 worker session selected 后决定 post-feedback next-card advancement。`ReviewCurrentItemCommand` owns 当前可见 item 的 select/restore/clear mutation；`ReviewTransactionRuntime` owns legacy/local transaction interface（capture、record history、go-back rollback、failed-feedback compensation、clear），但 worker-owned feedback path 不再先捕获 renderer transaction，也不在 worker commit failure 后运行 local queue compensation。`ReviewSessionProjectionAdvancePolicy` / `ReviewSessionProjectionApplier` 只服务 projection-derived cache patch/refresh 判断，不成为 Review next-card authority。`ReviewLearnAheadAdvancePolicy` 管理 Learn Ahead enter/exit；`NeuralRoamAdvanceOutcomePolicy` 只消费 backend advance outcome，不读取静态 projection cursor。`UnifiedQueueStrategy` 只负责调用这些 module、应用返回 state、执行显式 side effect、或触发 fail-closed reload/unavailable。
+- `worker/review/SrsReviewKernel.ts` 是 worker-owned Review answer seam：`BackendReviewRpcRuntime` 的 `review.session.start/current/feedback/skip` 只依赖 `SrsReviewKernel`，当前 adapter 包住 `WorkerReviewSessionRuntime`；`undo` 在 worker kernel 未拥有 journal/session evidence 前显式 fail-closed，不落回 renderer history。它是 Anki-style kernel 的收口点：小 Interface 暴露 start/current/answer/skip/undo/lookahead/counters/diagnostics，大 Implementation 继续隐藏 scheduler、Review Ledger、Card Schedule Store、SessionQueueIndex、NextCardPreparation 与 diagnostics。
+- `src/application/adapters/review-session/*` 是 Review session advancement 的应用层模块区：`WorkerReviewSessionQueueRuntime` 是 RetrievalPractice / IncrementalLearning 的 active renderer adapter，背后 RPC 到 worker-owned **SRS Review Kernel**，返回 current/next/counter/projection status/commit diagnostics；它不实现 renderer-side rollback authority，`goBack()` 在 worker-owned session 下 fail closed。`SrsV2SessionQueueRuntime` 与 `ReviewSessionCursor` 仅保留为非 active/legacy-local session mechanics：cursor 可维护 cache/snapshot/display helper state，但不能在 worker session selected 后决定 post-feedback next-card advancement。`ReviewCurrentItemCommand` owns 当前可见 item 的 select/restore/clear mutation；`ReviewTransactionRuntime` owns legacy/local transaction interface（capture、record history、go-back rollback、failed-feedback compensation、clear），但 worker-owned feedback path 不再先捕获 renderer transaction，也不在 worker commit failure 后运行 local queue compensation。`ReviewSessionProjectionAdvancePolicy` / `ReviewSessionProjectionApplier` 只服务 projection-derived cache patch/refresh 判断，不成为 Review next-card authority。`ReviewLearnAheadAdvancePolicy` 管理 Learn Ahead enter/exit；`NeuralRoamAdvanceOutcomePolicy` 只消费 backend advance outcome，不读取静态 projection cursor。`UnifiedQueueStrategy` 只负责调用这些 module、应用返回 state、执行显式 side effect、或触发 fail-closed reload/unavailable。
 
 ### 4.3 Progressive / Excerpt / Topic-derived item
 

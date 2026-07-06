@@ -35,7 +35,7 @@ import {
 } from '../../truth/ReviewSqlTruthBackfillRuntime';
 import type { BackendRpcHandlerContext } from './BackendRpcHandlerContext';
 import type { BackendRpcHandlerRegistration } from './BackendRpcRegistry';
-import type { WorkerReviewSessionRuntime } from '../../review/WorkerReviewSessionRuntime';
+import type { SrsReviewKernel } from '../../review/SrsReviewKernel';
 
 export interface BackendReviewRpcDatabase {
   reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> | BackendReviewFeedbackResult;
@@ -63,7 +63,7 @@ export interface BackendReviewRpcDatabase {
 export interface BackendReviewRpcRuntimeOptions {
   readonly database: BackendReviewRpcDatabase;
   readonly truthFileStore?: MessagePackTruthSegmentFileStore;
-  readonly sessionRuntime?: WorkerReviewSessionRuntime | null;
+  readonly reviewKernel?: SrsReviewKernel | null;
   executeReviewRiffFeedback?(
     request: BackendReviewRiffFeedbackExecuteRequest,
   ): Promise<BackendReviewRiffFeedbackExecuteResult> | BackendReviewRiffFeedbackExecuteResult;
@@ -100,7 +100,7 @@ export class BackendReviewRpcRuntime {
       params,
       'review.session.start requires named params',
     );
-    return this.requireSessionRuntime().startSession(named);
+    return this.requireReviewKernel().startSession(named);
   }
 
   handleReviewSessionCurrent(params: unknown): BackendReviewSessionState {
@@ -112,7 +112,7 @@ export class BackendReviewRpcRuntime {
     if (!sessionId) {
       throw new Error('INVALID_REQUEST: review.session.current requires sessionId');
     }
-    return this.requireSessionRuntime().getSessionState(sessionId);
+    return this.requireReviewKernel().current(sessionId);
   }
 
   async handleReviewSessionFeedback(params: unknown): Promise<BackendReviewSessionFeedbackResult> {
@@ -120,7 +120,7 @@ export class BackendReviewRpcRuntime {
       params,
       'review.session.feedback requires named params',
     );
-    return this.requireSessionRuntime().feedback(named);
+    return this.requireReviewKernel().answer(named);
   }
 
   handleReviewSessionSkip(params: unknown): BackendReviewSessionSkipResult {
@@ -128,7 +128,7 @@ export class BackendReviewRpcRuntime {
       params,
       'review.session.skip requires named params',
     );
-    return this.requireSessionRuntime().skip(named);
+    return this.requireReviewKernel().skip(named);
   }
 
   async handleReviewTruthFlush(params: unknown): Promise<BackendReviewFeedbackTruthFlushResult> {
@@ -410,11 +410,11 @@ export class BackendReviewRpcRuntime {
     };
   }
 
-  private requireSessionRuntime(): WorkerReviewSessionRuntime {
-    if (!this.options.sessionRuntime) {
-      throw new Error('BACKEND_UNAVAILABLE: worker Review session runtime unavailable');
+  private requireReviewKernel(): SrsReviewKernel {
+    if (!this.options.reviewKernel) {
+      throw new Error('BACKEND_UNAVAILABLE: worker SRS Review Kernel unavailable');
     }
-    return this.options.sessionRuntime;
+    return this.options.reviewKernel;
   }
 }
 

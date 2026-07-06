@@ -50,6 +50,7 @@ import {
 import { BackendTopicDerivedCommandRuntime } from './rpc/BackendTopicDerivedRpcAdapter';
 import { BackendXiuyuanSyncRuntime } from './rpc/BackendXiuyuanRpcAdapter';
 import { WorkerReviewSessionRuntime } from '../review/WorkerReviewSessionRuntime';
+import { WorkerSrsReviewKernelAdapter, type SrsReviewKernel } from '../review/SrsReviewKernel';
 
 const logger = createLogger('BackendKernel');
 const REVIEW_FEEDBACK_KERNEL_STEP_SLOW_MS = 120;
@@ -156,6 +157,7 @@ export class BackendKernel {
   private readonly progressiveCommandRuntime: BackendProgressiveCommandRuntime;
   private readonly topicDerivedCommandRuntime: BackendTopicDerivedCommandRuntime;
   private readonly reviewSessionRuntime: WorkerReviewSessionRuntime;
+  private readonly reviewKernel: SrsReviewKernel;
   private readonly reviewRuntime: BackendReviewRpcRuntime;
   private readonly rpcDispatcher: BackendRpcDispatcher<BackendKernelRpcHandlerContext>;
 
@@ -199,10 +201,11 @@ export class BackendKernel {
         reviewFeedback: (request) => this.deps.database.reviewFeedback(request),
       },
     });
+    this.reviewKernel = new WorkerSrsReviewKernelAdapter(this.reviewSessionRuntime);
     this.reviewRuntime = new BackendReviewRpcRuntime({
       database: this.deps.database,
       truthFileStore: this.deps.truthFileStore,
-      sessionRuntime: this.reviewSessionRuntime,
+      reviewKernel: this.reviewKernel,
       executeReviewRiffFeedback: this.deps.executeReviewRiffFeedback,
     });
     this.rpcDispatcher = new BackendRpcDispatcher(

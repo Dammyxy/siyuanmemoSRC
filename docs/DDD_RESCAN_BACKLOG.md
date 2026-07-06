@@ -4,6 +4,16 @@ Last update: 2026-07-07 (Round 670)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-07 - SRS Review Kernel authority seam
+
+- Task: Continue `stabilize-srs-review-kernel-critical-path` after storage durability and projection ownership were stabilized, and fold the Anki-style Review kernel recommendation into the existing three-change architecture path.
+- Touched slice: Worker Review session authority and renderer Review session adapter; `worker/review/SrsReviewKernel.ts`, `worker/review/__tests__/SrsReviewKernel.test.ts`, `worker/bootstrap/BackendKernel.ts`, `worker/bootstrap/rpc/BackendReviewRpcAdapter.ts`, `src/application/__tests__/UnifiedQueueStrategy.performance.test.ts`, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec `stabilize-srs-review-kernel-critical-path`.
+- Debt fixed now: Added the explicit `SrsReviewKernel` Interface (`startSession/current/answer/skip/undo/lookahead/counters/diagnostics`) and routed backend `review.session.*` RPCs through a worker kernel adapter instead of directly exposing `WorkerReviewSessionRuntime`. Renderer `UnifiedQueueStrategy` coverage now proves worker-selected Review answer authority fails closed and does not fall back to Browser projection rows, local queue hydration, or renderer cursor advancement when the worker answer path is unavailable.
+- Debt deferred: Real worker-owned undo/go-back journal evidence remains pending; current kernel `undo` intentionally fails closed until journal/session evidence is owned behind the kernel.
+- Why deferred: Implementing undo correctly needs session journal evidence and durable replay semantics behind the same kernel, not a renderer history fallback.
+- Next safe step: Add worker-owned undo journal/session evidence under `stabilize-srs-review-kernel-critical-path` task 2.3, then make `undo` return a kernel result instead of fail-closed.
+- Validation: Focused Review/kernel tests, boundaries, build, and OpenSpec validation run in this implementation pass.
+
 ### 2026-07-07 - Review restart durability before truth flush
 
 - Task: Diagnose user report that after reviewing several cards and restarting SiYuan, Review record/count appeared to return to the old value (`42`).
