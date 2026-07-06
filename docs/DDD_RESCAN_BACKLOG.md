@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-07 (Round 670)
+Last update: 2026-07-07 (Round 671)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-07 - Truth-flushed Review journal SQL replay guard
+
+- Task: Continue diagnosis after live reload still returned Review record count to `42`, matching the old "Review record write did not survive restart" failure family.
+- Touched slice: Review journal restart replay in `worker/db/SqliteDatabaseService.ts` and focused backend restart regression in `worker/bootstrap/__tests__/BackendReviewSyncRpcAdapter.test.ts`.
+- Debt fixed now: Restart replay now treats `truth-flushed` as "MessagePack truth segment persisted", not as proof that the SQLite Review Ledger/Card Schedule projection is present. If restarted SQL is missing the committed `review_events` row and the card still exists, prepared/projection-applied/truth-flushed write-schedule journal entries replay through the normal Review commit path. Replayed `truth-flushed` entries keep their truth-flushed status instead of being downgraded, so truth flush diagnostics remain accurate.
+- Debt deferred: This does not clear or compact old truth-flushed journal entries whose SQL projection is already durable, nor does it add a full Review Ledger/Card Schedule audit repair UI.
+- Why deferred: The live bug is SQL projection missing on restart despite a recorded journal/truth fact. Cleanup/compaction and full audit repair belong to the broader `formalize-review-ledger-card-schedule-authority` change.
+- Next safe step: Rebuild/reload, review several cards, fully restart SiYuan, and confirm Review record count/reps/lastReview no longer return to `42`. If divergence remains, inspect journal status counts plus SQLite delta diagnostics before touching Browser projection.
+- Validation: Added red/green regression for `truth-flushed` journal replay when restarted SQL is missing the committed review event. Ran full focused Review journal/backend suite (143 tests), `pnpm run check:boundaries`, `pnpm build`, and `openspec validate formalize-review-ledger-card-schedule-authority --strict`.
 
 ### 2026-07-07 - Stale truth projection rebuild schedule guard
 

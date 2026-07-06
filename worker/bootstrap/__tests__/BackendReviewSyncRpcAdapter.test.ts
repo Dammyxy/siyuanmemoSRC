@@ -8355,6 +8355,78 @@ describe('BackendReviewSyncRpcAdapter', () => {
     }));
   });
 
+  it('replays truth-flushed review journal entries when restarted SQL is missing the committed review event', async () => {
+    const reviewedAt = 1_779_188_280_000;
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const seedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-journal-truth-flushed-sql-missing',
+      blockId: 'block-journal-truth-flushed-sql-missing',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      reps: 42,
+    });
+    await seedDatabase.upsertCards([card]);
+    await seedQueueProjection(seedDatabase, {
+      queueType: 'retrieval-practice',
+      generation: 1,
+      rows: [card],
+      updatedAt: reviewedAt,
+    });
+    await seedDatabase.persist();
+    seedDatabase.dispose();
+
+    await persistenceBridge.reviewFeedbackJournalStore.appendEntry({
+      id: 'review-feedback:truth-flushed-sql-missing',
+      requestId: null,
+      cardId: card.id,
+      idempotencyKey: 'truth-flushed-sql-missing',
+      status: 'truth-flushed',
+      recordedAt: reviewedAt - 1_000,
+      request: {
+        cardId: card.id,
+        rating: 4,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+        idempotencyKey: 'truth-flushed-sql-missing',
+      },
+      appliedAt: reviewedAt,
+      projectionAppliedAt: reviewedAt,
+      truthFlushedAt: reviewedAt + 1,
+      projectionFailedAt: null,
+      lastError: null,
+    });
+
+    const restartedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    await restartedDatabase.load();
+
+    expect(restartedDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE commit_idempotency_key = ?',
+      ['truth-flushed-sql-missing'],
+    )?.count).toBe(1);
+    expect(restartedDatabase.getOne<{ reps: number | null; last_review: number | null }>(
+      'SELECT reps, last_review FROM cards WHERE id = ?',
+      [card.id],
+    )).toEqual(expect.objectContaining({
+      reps: expect.any(Number),
+      last_review: reviewedAt,
+    }));
+    expect(restartedDatabase.getOne<{ reps: number | null }>(
+      'SELECT reps FROM cards WHERE id = ?',
+      [card.id],
+    )?.reps).toBeGreaterThan(42);
+    await expect(persistenceBridge.reviewFeedbackJournalStore.listEntriesByStatus('truth-flushed', 10))
+      .resolves.toMatchObject([{
+        id: 'review-feedback:truth-flushed-sql-missing',
+        status: 'truth-flushed',
+        appliedAt: reviewedAt,
+      }]);
+  });
+
   it('does not report review.feedback success when SQL delta or checkpoint durability fails', async () => {
     const baseBridge = createInMemorySqlitePersistenceBridge();
     let failDurabilityWrites = false;

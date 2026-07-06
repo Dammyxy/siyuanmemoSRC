@@ -2107,6 +2107,7 @@ export class WorkerSqliteDatabaseService {
         await this.markReviewFeedbackJournalEntryProjectionApplied(
           entry.id,
           Number(entry.request.reviewedAt ?? entry.appliedAt ?? Date.now()),
+          entry.status,
         );
       }
       this.lastReviewFeedbackJournalReplay = {
@@ -2143,7 +2144,7 @@ export class WorkerSqliteDatabaseService {
     if (!this.reviewFeedbackJournalStore) {
       return [];
     }
-    const statuses: ReviewFeedbackJournalEntryStatus[] = ['prepared'];
+    const statuses: ReviewFeedbackJournalEntryStatus[] = ['prepared', 'projection-applied', 'truth-flushed'];
     const entries: ReviewFeedbackJournalEntry[] = [];
     for (const status of statuses) {
       entries.push(...this.normalizeReviewFeedbackJournalEntries(
@@ -2154,8 +2155,46 @@ export class WorkerSqliteDatabaseService {
       }
     }
     return entries
+      .filter((entry) => this.shouldReplayReviewFeedbackJournalEntry(entry))
       .sort((a, b) => a.recordedAt - b.recordedAt)
       .slice(0, REVIEW_FEEDBACK_JOURNAL_REPLAY_BATCH_LIMIT);
+  }
+
+  private shouldReplayReviewFeedbackJournalEntry(entry: ReviewFeedbackJournalEntry): boolean {
+    const queueType = normalizeString(entry.request.queueType) || 'retrieval-practice';
+    const commitPolicy = normalizeString(entry.request.commitPolicy)
+      || (queueType === 'final-drill' ? 'drill-only' : 'write-schedule');
+    if (commitPolicy !== 'write-schedule') {
+      return false;
+    }
+    if (this.hasDurableReviewFeedbackJournalEvent(entry)) {
+      return false;
+    }
+    const cardId = normalizeString(entry.cardId) || normalizeString(entry.request.cardId);
+    if (!cardId) {
+      return false;
+    }
+    const row = this.runtime.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+         FROM cards
+        WHERE id = ?`,
+      [cardId],
+    );
+    return Math.max(0, Math.floor(Number(row?.count) || 0)) > 0;
+  }
+
+  private hasDurableReviewFeedbackJournalEvent(entry: ReviewFeedbackJournalEntry): boolean {
+    const idempotencyKey = normalizeString(entry.idempotencyKey) || normalizeString(entry.request.idempotencyKey);
+    if (!idempotencyKey) {
+      return false;
+    }
+    const row = this.runtime.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+         FROM review_events
+        WHERE commit_idempotency_key = ?`,
+      [idempotencyKey],
+    );
+    return Math.max(0, Math.floor(Number(row?.count) || 0)) > 0;
   }
 
   private async reconcileReviewFeedbackJournalProjectionState(): Promise<void> {
@@ -2225,16 +2264,21 @@ export class WorkerSqliteDatabaseService {
   private async markReviewFeedbackJournalEntryProjectionApplied(
     entryId: string,
     appliedAt: number,
+    currentStatus: ReviewFeedbackJournalEntryStatus = 'prepared',
   ): Promise<void> {
     if (!this.reviewFeedbackJournalStore) {
       return;
     }
-    await this.reviewFeedbackJournalStore.updateEntryStatus(entryId, 'projection-applied', {
+    await this.reviewFeedbackJournalStore.updateEntryStatus(
+      entryId,
+      currentStatus === 'truth-flushed' ? 'truth-flushed' : 'projection-applied',
+      {
       appliedAt,
       projectionAppliedAt: Date.now(),
       projectionFailedAt: null,
       lastError: null,
-    });
+      },
+    );
   }
 
   private async markReviewFeedbackJournalEntryProjectionFailed(entryId: string, error: unknown): Promise<void> {
