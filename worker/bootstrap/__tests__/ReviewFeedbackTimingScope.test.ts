@@ -162,6 +162,46 @@ describe('ReviewFeedbackTimingScope', () => {
     }
   });
 
+  it('groups host effects by kind, path, and storage class for review timing summaries', () => {
+    const timing = beginBackendWorkerTiming('review.session.feedback', 'card-1');
+
+    try {
+      recordBackendWorkerHostEffect(timing, 'sqlite.writeBinary', 140, {
+        path: 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack',
+        byteLength: 42_000,
+      });
+      recordBackendWorkerHostEffect(timing, 'sqlite.writeJSON', 80, {
+        path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
+      });
+      recordBackendWorkerHostEffect(timing, 'sqlite.writeJSON', 45, {
+        path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
+      });
+
+      expect(timing.hostEffectBreakdown).toEqual([
+        {
+          kind: 'sqlite.writeBinary',
+          path: 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack',
+          storageClass: 'sqlite-delta-log',
+          count: 1,
+          totalMs: 140,
+          maxMs: 140,
+          byteLength: 42_000,
+        },
+        {
+          kind: 'sqlite.writeJSON',
+          path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
+          storageClass: 'sqlite-delta-log',
+          count: 2,
+          totalMs: 125,
+          maxMs: 80,
+          byteLength: null,
+        },
+      ]);
+    } finally {
+      endBackendWorkerRequest(timing);
+    }
+  });
+
   it('classifies storage write host effects by active truth/projection role', () => {
     expect(classifyBackendWorkerHostEffectStorage('sqlite.writeBinary', 'siyuanmemo.db'))
       .toBe('sql-projection-db');

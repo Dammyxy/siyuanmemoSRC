@@ -275,6 +275,26 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           byteLength: 42_000,
           storageClass: 'sqlite-delta-log',
         },
+        hostEffectBreakdown: [
+          {
+            kind: 'sqlite.writeBinary',
+            totalMs: 140,
+            maxMs: 140,
+            count: 1,
+            path: 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack',
+            byteLength: 42_000,
+            storageClass: 'sqlite-delta-log',
+          },
+          {
+            kind: 'sqlite.writeJSON',
+            totalMs: 40,
+            maxMs: 40,
+            count: 1,
+            path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
+            byteLength: null,
+            storageClass: 'sqlite-delta-log',
+          },
+        ],
         innerSteps: [{
           layer: 'database',
           step: 'reviewFeedback.runtime',
@@ -310,6 +330,9 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         hostEffectCount: 2,
         hostEffectTotalMs: 180,
         hostEffectAttribution: 'complete',
+        hostEffectBreakdownSummary: expect.stringContaining(
+          'sqlite.writeBinary 140ms count=1 path=sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack storage=sqlite-delta-log max=140ms bytes=42000',
+        ),
         innerStepAttribution: 'complete',
         innerStepsTruncated: false,
         innerStepCount: 1,
@@ -861,6 +884,17 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
           storageClass: 'sqlite-delta-log',
         },
+        hostEffectBreakdown: [
+          {
+            kind: 'sqlite.readJSON',
+            totalMs: 180,
+            maxMs: 180,
+            count: 1,
+            path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
+            byteLength: null,
+            storageClass: 'sqlite-delta-log',
+          },
+        ],
         innerSteps: [
           {
             layer: 'kernel',
@@ -933,6 +967,12 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           storageClass: 'sqlite-delta-log',
         }),
       }),
+    );
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'hostBreakdown=sqlite.readJSON 180ms count=1 path=sqlite-delta/v2/sqlite-delta-log.v2.manifest.json storage=sqlite-delta-log max=180ms bytes=unknown',
+      ),
+      expect.anything(),
     );
     transport.dispose();
   });

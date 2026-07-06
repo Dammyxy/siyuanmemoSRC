@@ -36,6 +36,7 @@ class MemorySqliteFileService implements JsonFileService {
   readonly writeBinaryFiles: string[] = [];
   readonly deletedFiles: string[] = [];
   readonly readJSONFiles: string[] = [];
+  readonly writeJSONFiles: string[] = [];
   readonly readBinaryFiles: string[] = [];
   writeBinaryCount = 0;
   failNextWriteBinary = false;
@@ -47,6 +48,7 @@ class MemorySqliteFileService implements JsonFileService {
   }
 
   async writeJSON(fileName: string, data: unknown): Promise<void> {
+    this.writeJSONFiles.push(fileName);
     this.json.set(fileName, data);
   }
 
@@ -77,6 +79,7 @@ class MemorySqliteFileService implements JsonFileService {
     this.writeBinaryCount = 0;
     this.writeBinaryFiles.length = 0;
     this.readJSONFiles.length = 0;
+    this.writeJSONFiles.length = 0;
     this.readBinaryFiles.length = 0;
     this.lastWriteBinaryDiagnostics = null;
   }
@@ -906,6 +909,8 @@ describe('SqliteDatabaseService', () => {
     await insertReviewEventForSqliteDeltaWindow(database, 'event-hot-cache-2', 1_783_060_000_102);
 
     expect(fileService.readBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(0);
+    expect(fileService.writeBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(2);
+    expect(fileService.writeJSONFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_MANIFEST)).toHaveLength(2);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
       pendingCount: 2,
     });

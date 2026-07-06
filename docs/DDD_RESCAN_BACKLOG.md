@@ -4,6 +4,16 @@ Last update: 2026-07-05 (Round 661)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-06 - Review session SQLite host breakdown diagnostics
+
+- Task: Continue slow Review rating Change 4 by diagnosing the `review.session.feedback` SQLite/session commit bottleneck after frontend CDF preparation became cheap.
+- Touched slice: Review worker timing and SQLite delta hot path across `worker/bootstrap/BackendWorkerProtocol.ts`, `worker/bootstrap/ReviewFeedbackTimingScope.ts`, `worker/bootstrap/backend-worker.entry.ts`, `src/application/clients/BrowserSrsBackendWorkerTransport.ts`, `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, focused timing/transport tests, `ARCHITECTURE.md`, and OpenSpec `optimize-review-session-sqlite-commit-hot-path`.
+- Debt fixed now: Copyable `slow review.session.feedback worker-handle summary` now includes `hostBreakdown=` grouped by host effect kind/path/storage/count/total/max/bytes, so live logs can split SQLite delta open segment writes, manifest JSON writes, SQL projection DB writes, and other host waits. Focused SQLite coverage locks the current ordinary consecutive Review append behavior: no redundant open-segment read during commit, but one open segment msgpack write and one manifest JSON write per append.
+- Debt deferred: Reducing manifest JSON write frequency, replacing host file writes with native SQLite/WAL, adding a host bridge cache, or moving durability async/off-click remains deferred.
+- Why deferred: The manifest is durable recovery metadata for segment checksum, entry count, sequence, and replay pointer. Cutting or batching that write needs an explicit crash-recovery and fail-closed design, not another same-runtime evidence cache.
+- Next safe step: Rebuild/reload, collect new `slow review.session.feedback worker-handle summary ... hostBreakdown=...` logs, and choose the next architecture change from evidence: manifest-write reduction, native SQLite/WAL, host bridge cache, or a separate durability queue only if fail-closed semantics are preserved.
+- Validation: Focused timing/transport tests and SQLite IO regression passed in this implementation pass; boundaries, build, and strict OpenSpec validation run before close.
+
 ### 2026-07-06 - Review rating repair gate hot path
 
 - Task: Implement architecture optimization 1+2 for slow Review rating by decoupling ordinary `review.session.feedback` from repeated full domain-sync `pre-request-merge` and requiring explicit Review-session repair gate evidence.

@@ -142,6 +142,7 @@ function buildReviewFeedbackResponseTiming(input: {
     hostEffectTotalMs: input.requestTiming.hostEffectTotalMs,
     hostEffectAttribution: input.requestTiming.hostEffectAttribution,
     slowestHostEffect: input.requestTiming.slowestHostEffect,
+    hostEffectBreakdown: input.requestTiming.hostEffectBreakdown,
     innerSteps: input.requestTiming.innerSteps,
     innerStepAttribution: input.requestTiming.innerStepAttribution,
     innerStepsTruncated: input.requestTiming.innerStepsTruncated,

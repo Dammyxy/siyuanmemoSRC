@@ -54,6 +54,16 @@ export interface BackendWorkerHostEffectTiming {
   storageClass?: string | null;
 }
 
+export interface BackendWorkerHostEffectBreakdownEntry {
+  kind: BackendWorkerHostEffect['kind'];
+  path?: string | null;
+  storageClass?: string | null;
+  count: number;
+  totalMs: number;
+  maxMs: number;
+  byteLength?: number | null;
+}
+
 export interface BackendWorkerInnerStepTiming {
   layer: 'worker-entry' | 'kernel' | 'database' | 'transaction' | 'queue-impact' | 'session';
   step: string;
@@ -74,6 +84,7 @@ export interface BackendWorkerResponseTiming {
   hostEffectTotalMs: number;
   hostEffectAttribution: 'complete' | 'ambiguous-concurrency';
   slowestHostEffect: BackendWorkerHostEffectTiming | null;
+  hostEffectBreakdown?: BackendWorkerHostEffectBreakdownEntry[];
   innerSteps: BackendWorkerInnerStepTiming[];
   innerStepAttribution: 'complete' | 'ambiguous-concurrency';
   innerStepsTruncated: boolean;

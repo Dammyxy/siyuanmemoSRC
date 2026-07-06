@@ -1,5 +1,6 @@
 import type {
   BackendWorkerHostEffect,
+  BackendWorkerHostEffectBreakdownEntry,
   BackendWorkerInnerStepTiming,
   BackendWorkerResponseTiming,
 } from './BackendWorkerProtocol';
@@ -20,6 +21,7 @@ export type ActiveBackendWorkerTiming = {
     byteLength?: number | null;
     storageClass?: string | null;
   } | null;
+  hostEffectBreakdown: BackendWorkerHostEffectBreakdownEntry[];
   innerSteps: BackendWorkerInnerStepTiming[];
   innerStepAttribution: BackendWorkerResponseTiming['innerStepAttribution'];
   innerStepsTruncated: boolean;
@@ -86,6 +88,7 @@ export function beginBackendWorkerTiming(
     hostEffectTotalMs: 0,
     hostEffectAttribution: 'complete',
     slowestHostEffect: null,
+    hostEffectBreakdown: [],
     innerSteps: [],
     innerStepAttribution: 'complete',
     innerStepsTruncated: false,
@@ -230,17 +233,57 @@ export function recordReviewFeedbackHostEffect(
   if (!timing) {
     return;
   }
+  const storageClass = classifyBackendWorkerHostEffectStorage(kind, metadata.path);
   timing.hostEffectCount += 1;
   timing.hostEffectTotalMs += durationMs;
+  recordHostEffectBreakdown(timing, kind, durationMs, {
+    ...metadata,
+    storageClass,
+  });
   if (!timing.slowestHostEffect || durationMs > timing.slowestHostEffect.durationMs) {
     timing.slowestHostEffect = {
       kind,
       durationMs,
       path: metadata.path ?? null,
       byteLength: metadata.byteLength ?? null,
-      storageClass: classifyBackendWorkerHostEffectStorage(kind, metadata.path),
+      storageClass,
     };
   }
+}
+
+function recordHostEffectBreakdown(
+  timing: ActiveBackendWorkerTiming,
+  kind: BackendWorkerHostEffect['kind'],
+  durationMs: number,
+  metadata: {
+    path?: string | null;
+    byteLength?: number | null;
+    storageClass?: string | null;
+  },
+): void {
+  const path = metadata.path ?? null;
+  const storageClass = metadata.storageClass ?? null;
+  const existing = timing.hostEffectBreakdown.find((entry) => (
+    entry.kind === kind
+    && (entry.path ?? null) === path
+    && (entry.storageClass ?? null) === storageClass
+  ));
+  if (existing) {
+    existing.count += 1;
+    existing.totalMs += durationMs;
+    existing.maxMs = Math.max(existing.maxMs, durationMs);
+    existing.byteLength = metadata.byteLength ?? existing.byteLength ?? null;
+    return;
+  }
+  timing.hostEffectBreakdown.push({
+    kind,
+    path,
+    storageClass,
+    count: 1,
+    totalMs: durationMs,
+    maxMs: durationMs,
+    byteLength: metadata.byteLength ?? null,
+  });
 }
 
 export function recordReviewFeedbackInnerStep(stepTiming: BackendWorkerInnerStepTiming): void {

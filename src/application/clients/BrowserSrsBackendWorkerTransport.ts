@@ -20,6 +20,7 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 import type {
   BackendWorkerHostEffect,
+  BackendWorkerHostEffectBreakdownEntry,
   BackendWorkerInnerStepTiming,
   BackendWorkerMainToWorkerMessage,
   BackendWorkerResponseTiming,
@@ -753,6 +754,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       ].join(' ')
       : 'none';
     const top = input.innerStepSummary.topInnerStepSummary.slice(0, 3).join(' | ') || 'none';
+    const hostBreakdown = this.formatHostEffectBreakdownSummary(input.timing.hostEffectBreakdown);
     return [
       `card=${input.pending.cardId ?? 'unknown'}`,
       `duration=${Math.round(input.timing.handleDurationMs)}ms`,
@@ -761,9 +763,30 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       `mainDb=${input.innerStepSummary.mainDbReadSummary ?? 'none'}`,
       `host=${host}`,
       `hostTotal=${Math.round(input.timing.hostEffectTotalMs)}ms`,
+      `hostBreakdown=${hostBreakdown}`,
       `innerAttribution=${input.timing.innerStepAttribution}`,
       `top=${top}`,
     ].join(' ');
+  }
+
+  private formatHostEffectBreakdownSummary(
+    breakdown: BackendWorkerHostEffectBreakdownEntry[] | null | undefined,
+  ): string {
+    if (!Array.isArray(breakdown) || breakdown.length === 0) {
+      return 'none';
+    }
+    return [...breakdown]
+      .sort((left, right) => right.totalMs - left.totalMs)
+      .slice(0, 5)
+      .map((entry) => [
+        `${entry.kind} ${Math.round(entry.totalMs)}ms`,
+        `count=${entry.count}`,
+        `path=${entry.path || 'unknown'}`,
+        `storage=${entry.storageClass || 'unknown'}`,
+        `max=${Math.round(entry.maxMs)}ms`,
+        `bytes=${entry.byteLength ?? 'unknown'}`,
+      ].join(' '))
+      .join(' | ');
   }
 
   private logReviewFeedbackWorkerHandleCopySummary(
@@ -792,6 +815,8 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         hostEffectTotalMs: timing.hostEffectTotalMs,
         hostEffectAttribution: timing.hostEffectAttribution,
         slowestHostEffect: timing.slowestHostEffect,
+        hostEffectBreakdown: timing.hostEffectBreakdown ?? [],
+        hostEffectBreakdownSummary: this.formatHostEffectBreakdownSummary(timing.hostEffectBreakdown),
         innerStepAttribution: timing.innerStepAttribution,
         innerStepsTruncated: timing.innerStepsTruncated,
         ...innerStepSummary,
@@ -872,6 +897,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         slowestHostEffectPath: timing.slowestHostEffect?.path ?? null,
         slowestHostEffectByteLength: timing.slowestHostEffect?.byteLength ?? null,
         slowestHostEffectStorageClass: timing.slowestHostEffect?.storageClass ?? null,
+        hostEffectBreakdownSummary: this.formatHostEffectBreakdownSummary(timing.hostEffectBreakdown),
         dominantInnerStep: innerStepSummary.dominantInnerStepSummary,
         preRequestMerge: innerStepSummary.preRequestMergeSummary,
         mainDbRead: innerStepSummary.mainDbReadSummary,
@@ -895,6 +921,8 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           slowestHostEffectPath: timing.slowestHostEffect?.path ?? null,
           slowestHostEffectByteLength: timing.slowestHostEffect?.byteLength ?? null,
           slowestHostEffectStorageClass: timing.slowestHostEffect?.storageClass ?? null,
+          hostEffectBreakdown: timing.hostEffectBreakdown ?? [],
+          hostEffectBreakdownSummary: this.formatHostEffectBreakdownSummary(timing.hostEffectBreakdown),
         },
         {
           endedAt: timing.handledAt,
