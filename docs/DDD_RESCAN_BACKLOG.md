@@ -9001,6 +9001,15 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: Reload plugin, clear/count `temp/os`, run `window.siyuanMemoRuntimePerformance.copyReport()`, and confirm no `startup.unified-storage.schedule-normalization-save` with healthy Review cards.
 - Validation: `pnpm exec vitest run src/core/scheduler/__tests__/normalizeSchedulerCard.test.ts src/core/scheduler/__tests__/fsrsReviewStateRepair.test.ts src/core/scheduler/__tests__/schedulingStateCleanliness.test.ts src/core/storage/__tests__/UnifiedStorageManager.migration.test.ts`.
 
+### 2026-07-06 - Review CDF preparation cache after rating
+
+- Task: Optimize remaining Review rating latency after logs showed worker pre-request merge skipped but frontend `consume-advance.prepare-selected-review-card` was dominated by `refresh-cdf-live-relation`.
+- Touched slice: Review + CDF current-card open refresh; `UnifiedQueueStrategy`, worker review-session runtime discard handling, focused `UnifiedQueueStrategy.performance` tests, and worker runtime tests.
+- Debt fixed now: `UnifiedQueueStrategy` now keeps narrow per-card CDF preparation evidence keyed by card identity plus CDF-relevant metadata signature, so repeated preparation of the same fresh runtime-backed current card reuses the prepared card and duplicate outcome instead of rerunning full CDF live relation refresh. Cache invalidates on the existing queue/session reload paths and session restore; missing/stale evidence still refreshes normally. CDF duplicate outcome now writes current-card unavailable session exclusion, and `WorkerReviewSessionQueueRuntime` no longer reselects a locally discarded current card from `review.session.current`.
+- Debt deferred: Session Read Model / prepared-card window remains Change 4 only if rebuilt live logs still show `prepare-selected-review-card` as the dominant rating bottleneck after this narrow cache. Broader backend-side CDF preparation ownership is still intentionally out of scope.
+- Next safe step: Rebuild plugin, rate through several CDF-heavy cards, copy `slow review feedback frontend summary`, and confirm cache-hit paths show `reuse-cdf-preparation-evidence` while full refresh remains visible only on stale/missing evidence.
+- Validation: `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/adapters/review-session/__tests__/SrsV2SessionQueueRuntime.test.ts src/ui/review/v2/__tests__/useReviewSession.spec.ts --pool=forks --maxWorkers=1 --minWorkers=1`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate optimize-review-card-preparation-cdf-refresh --strict`.
+
 ## 1. Re-scan summary
 
 - 2026-06-03 Review hot-path delta threshold live fix:

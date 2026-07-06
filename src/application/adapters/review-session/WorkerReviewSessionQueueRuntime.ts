@@ -58,6 +58,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
   private currentCard: FSRSCard | null = null;
   private counterSnapshot: QueueCounterSnapshot | null = null;
   private sessionCards: FSRSCard[] = [];
+  private readonly locallyDiscardedCurrentCardIds = new Set<string>();
 
   constructor(options: WorkerReviewSessionQueueRuntimeOptions) {
     this.queueType = options.queueType;
@@ -76,6 +77,10 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
         limit: this.limit,
       });
     this.applyState(state);
+    if (this.currentCard && this.locallyDiscardedCurrentCardIds.has(this.currentCard.id)) {
+      this.currentCard = null;
+      this.sessionCards = [];
+    }
     return cloneCard(this.currentCard);
   }
 
@@ -165,6 +170,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
     this.currentCard = null;
     this.counterSnapshot = null;
     this.sessionCards = [];
+    this.locallyDiscardedCurrentCardIds.clear();
   }
 
   restoreFromSnapshot(_input: {
@@ -178,6 +184,10 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
   }
 
   discardCard(card: Pick<FSRSCard, 'id'>): void {
+    const cardId = String(card.id || '').trim();
+    if (cardId) {
+      this.locallyDiscardedCurrentCardIds.add(cardId);
+    }
     this.sessionCards = this.sessionCards.filter((entry) => entry.id !== card.id);
     if (this.currentCard?.id === card.id) {
       this.currentCard = null;
@@ -198,6 +208,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
   }
 
   restoreReviewedCardToLearning(card: FSRSCard): void {
+    this.locallyDiscardedCurrentCardIds.delete(card.id);
     this.currentCard = cloneRequiredCard(card);
     this.sessionCards = [
       cloneRequiredCard(card),
@@ -219,7 +230,8 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
 
   private applyState(state: BackendReviewSessionState): void {
     this.sessionId = String(state.sessionId || '').trim() || this.sessionId;
-    this.currentCard = isFsrsCard(state.current) ? cloneRequiredCard(state.current) : null;
+    const current = isFsrsCard(state.current) ? cloneRequiredCard(state.current) : null;
+    this.currentCard = current && !this.locallyDiscardedCurrentCardIds.has(current.id) ? current : null;
     this.counterSnapshot = normalizeCounterSnapshot(state.counters);
     this.sessionCards = this.currentCard ? [cloneRequiredCard(this.currentCard)] : [];
   }

@@ -112,6 +112,14 @@ type CdfLiveRelationReviewOpenRefresher = {
     }>;
 };
 
+type CdfLiveRelationReviewOpenResult = Awaited<ReturnType<CdfLiveRelationReviewOpenRefresher['refreshCdfLiveRelationOnOpen']>>;
+
+type CdfReviewPreparationEvidence = {
+    key: string;
+    preparedCard: CardWithNextDues | null;
+    refreshResult: CdfLiveRelationReviewOpenResult;
+};
+
 type ReviewSessionAuthorityManager = UnifiedDataSourceManager & {
     resolvePluginContext?: () => ReviewSessionAuthorityContext | null | undefined;
 };
@@ -209,6 +217,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private pendingSrsV2NextCard: FSRSCard | null | undefined;
     private pendingSrsV2CounterSnapshot: QueueCounterSnapshot | null = null;
     private lastNeuralRoamViewState: BackendNeuralRoamViewState | null = null;
+    private cdfReviewPreparationEvidence: CdfReviewPreparationEvidence | null = null;
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -1636,6 +1645,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         this.cursor.clearSessionExcludedCardIds();
     }
 
+    private addUnavailableItemSessionExclusion(card: FSRSCard): void {
+        this.cursor.addUnavailableItemSessionExclusion(card);
+    }
+
     private removeSessionExcludedCardIds(cardIds: Array<string | null | undefined>): number {
         return this.cursor.removeSessionExcludedCardIds(cardIds);
     }
@@ -2059,25 +2072,54 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         card: FSRSCard,
         timingContext?: ReviewFeedbackFrontendTimingContext | null,
     ): Promise<CardWithNextDues | null> {
-        const result = await this.measureConsumeAdvanceStep(
-            'refresh-cdf-live-relation',
-            timingContext,
-            () => this.refreshCdfLiveRelationOnReviewOpen(card),
-        );
+        const evidenceKey = this.buildCdfReviewPreparationEvidenceKey(card);
+        const cachedEvidence = this.cdfReviewPreparationEvidence?.key === evidenceKey
+            ? this.cdfReviewPreparationEvidence
+            : null;
+        const result = cachedEvidence
+            ? cachedEvidence.refreshResult
+            : await this.measureConsumeAdvanceStep(
+                'refresh-cdf-live-relation',
+                timingContext,
+                () => this.refreshCdfLiveRelationOnReviewOpen(card),
+            );
+        if (cachedEvidence) {
+            this.measureConsumeAdvanceSyncStep('reuse-cdf-preparation-evidence', timingContext, () => undefined);
+        }
         if (this.shouldExitCurrentCdfDuplicate(card, result.currentReviewDuplicateOutcome ?? null)) {
             this.discardCurrentCdfDuplicateWithoutScoring(card, result.currentReviewDuplicateOutcome!);
+            this.cdfReviewPreparationEvidence = {
+                key: evidenceKey,
+                preparedCard: null,
+                refreshResult: result,
+            };
             return null;
+        }
+
+        if (cachedEvidence) {
+            return cachedEvidence.preparedCard;
         }
 
         const refreshedCard = result.updatedCard ?? card;
         if (!this.shouldComputeNextDues(refreshedCard)) {
+            this.cdfReviewPreparationEvidence = {
+                key: evidenceKey,
+                preparedCard: refreshedCard,
+                refreshResult: result,
+            };
             return refreshedCard;
         }
-        return this.measureConsumeAdvanceStep(
+        const preparedCard = await this.measureConsumeAdvanceStep(
             'add-next-dues',
             timingContext,
             () => this.addNextDues(refreshedCard),
         );
+        this.cdfReviewPreparationEvidence = {
+            key: evidenceKey,
+            preparedCard,
+            refreshResult: result,
+        };
+        return preparedCard;
     }
 
     private async consumeSrsV2FeedbackAdvanceResult(
@@ -2127,6 +2169,26 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         return this.cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen(card);
     }
 
+    private buildCdfReviewPreparationEvidenceKey(card: FSRSCard): string {
+        const meta = card.meta ?? {};
+        return JSON.stringify({
+            id: card.id,
+            blockId: card.blockId,
+            xiuyuanID: card.xiuyuanID,
+            type: card.type,
+            updatedAt: card.updatedAt,
+            faceKey: card.faceKey ?? null,
+            extractedFrom: card.extractedFrom ?? null,
+            sourceUrl: card.sourceUrl ?? null,
+            liveRelationKey: meta.liveRelationKey ?? null,
+            liveRelationStatus: meta.liveRelationStatus ?? null,
+            liveContentStatus: meta.liveContentStatus ?? null,
+            sourceBlockId: meta.sourceBlockId ?? null,
+            fieldMapping: meta.fieldMapping ?? null,
+            faceIndex: meta.faceIndex ?? null,
+        });
+    }
+
     private shouldExitCurrentCdfDuplicate(
         card: FSRSCard,
         outcome: CdfCurrentReviewDuplicateOutcome | null
@@ -2139,6 +2201,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         card: FSRSCard,
         outcome: CdfCurrentReviewDuplicateOutcome
     ): void {
+        this.addUnavailableItemSessionExclusion(card);
         this.feedbackAdvancement.applyUnavailableItem(card);
         this.srsV2SessionQueueRuntime?.discardCard(card);
         this.syncCursorFromSrsV2Runtime();
@@ -2296,6 +2359,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private invalidateCache(): void {
         this.cursor.invalidate();
+        this.cdfReviewPreparationEvidence = null;
     }
 
     private recordReviewHistory(item: FSRSCard, transaction: ReviewTransaction | null): void {
@@ -2347,6 +2411,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return;
         }
 
+        this.cdfReviewPreparationEvidence = null;
         const restored = this.cursor.restore(snapshot);
         this.restoreCurrentItem(restored);
         this.srsV2SessionQueueRuntime?.restoreFromSnapshot({

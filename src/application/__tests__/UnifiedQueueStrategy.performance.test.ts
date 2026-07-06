@@ -632,6 +632,170 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     }
   });
 
+  it('reuses fresh CDF preparation evidence when the same runtime-backed card is prepared again', async () => {
+    const firstCard = createCard({ id: 'prepared-card-1', blockId: 'prepared-block-1' });
+    const secondCard = createCard({ id: 'prepared-card-2', blockId: 'prepared-block-2' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard]);
+    const workerSessionBackend = createWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard]);
+    const cdfLiveRelationReviewOpenRefresher = {
+      refreshCdfLiveRelationOnOpen: vi.fn(async (card: FSRSCard | string) => {
+        const resolved = typeof card === 'string'
+          ? [firstCard, secondCard].find((candidate) => candidate.id === card)!
+          : card;
+        return {
+          updatedCard: {
+            ...resolved,
+            meta: {
+              ...resolved.meta,
+              liveRelationStatus: 'active-live',
+            },
+          },
+        };
+      }),
+    };
+    const manager = {
+      workerSessionBackend,
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => workerSessionBackend,
+      })),
+      getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async (cardId: string) => ({ ...(cardId === firstCard.id ? firstCard : secondCard) })),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null,
+      cdfLiveRelationReviewOpenRefresher as never,
+    );
+
+    const first = await strategy.next();
+    expect(first).toMatchObject({ id: firstCard.id });
+
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    expectAdvancedNext(feedbackResult, secondCard.id);
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(2);
+
+    const currentAgain = await strategy.next();
+
+    expect(currentAgain).toMatchObject({ id: secondCard.id });
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it('refreshes CDF preparation again when the prepared card signature changes', async () => {
+    const firstCard = createCard({ id: 'stale-prepared-card-1', blockId: 'stale-prepared-block-1' });
+    const secondCard = createCard({
+      id: 'stale-prepared-card-2',
+      blockId: 'stale-prepared-block-2',
+      meta: { liveRelationStatus: 'active-live' },
+    });
+    const changedSecondCard = createCard({
+      ...secondCard,
+      updatedAt: secondCard.updatedAt + 1,
+      meta: { liveRelationStatus: 'stale-live' },
+    });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard]);
+    const workerSessionBackend = createWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard]);
+    const cdfLiveRelationReviewOpenRefresher = {
+      refreshCdfLiveRelationOnOpen: vi.fn(async (card: FSRSCard | string) => {
+        const resolved = typeof card === 'string'
+          ? [firstCard, secondCard, changedSecondCard].find((candidate) => candidate.id === card)!
+          : card;
+        return { updatedCard: { ...resolved } };
+      }),
+    };
+    const manager = {
+      workerSessionBackend,
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => workerSessionBackend,
+      })),
+      getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async (cardId: string) => (
+        { ...(cardId === firstCard.id ? firstCard : changedSecondCard) }
+      )),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null,
+      cdfLiveRelationReviewOpenRefresher as never,
+    );
+
+    const first = await strategy.next();
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    expectAdvancedNext(feedbackResult, secondCard.id);
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(2);
+
+    strategy.restoreSessionSnapshot({
+      version: 1,
+      queueType: QueueType.RetrievalPractice,
+      currentItem: changedSecondCard,
+      cachedCards: [changedSecondCard],
+      currentIndex: 0,
+      lastCounterSnapshot: null,
+    });
+    const currentAgain = await strategy.next();
+
+    expect(currentAgain).toMatchObject({ id: changedSecondCard.id });
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(3);
+  });
+
+  it('replays cached CDF duplicate preparation evidence as an unavailable current card', async () => {
+    const firstCard = createCard({ id: 'duplicate-prepared-card-1', blockId: 'duplicate-prepared-block-1' });
+    const duplicateCard = createCard({ id: 'duplicate-prepared-card-2', blockId: 'duplicate-prepared-block-2' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, duplicateCard]);
+    const workerSessionBackend = createWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, duplicateCard]);
+    const cdfLiveRelationReviewOpenRefresher = {
+      refreshCdfLiveRelationOnOpen: vi.fn(async (card: FSRSCard | string) => {
+        const resolved = typeof card === 'string'
+          ? [firstCard, duplicateCard].find((candidate) => candidate.id === card)!
+          : card;
+        if (resolved.id === duplicateCard.id) {
+          return {
+            currentReviewDuplicateOutcome: {
+              kind: 'current-noncanonical-exits' as const,
+              cardId: duplicateCard.id,
+              relationKey: 'duplicate-relation',
+              canonicalCardId: 'canonical-card',
+            },
+          };
+        }
+        return {};
+      }),
+    };
+    const manager = {
+      workerSessionBackend,
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => workerSessionBackend,
+      })),
+      getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async (cardId: string) => ({ ...(cardId === firstCard.id ? firstCard : duplicateCard) })),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null,
+      cdfLiveRelationReviewOpenRefresher as never,
+    );
+
+    const first = await strategy.next();
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+
+    expect(feedbackResult).toMatchObject({ status: 'advanced', nextItem: null });
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledTimes(2);
+  });
+
   it('does not rebuild a runtime-backed session for counter refresh failure or generic card-updated events', async () => {
     const first = createCard({ id: 'runtime-card-1', blockId: 'runtime-block-1' });
     const second = createCard({ id: 'runtime-card-2', blockId: 'runtime-block-2' });

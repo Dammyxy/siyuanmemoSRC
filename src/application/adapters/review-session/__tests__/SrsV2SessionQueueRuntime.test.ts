@@ -8,6 +8,7 @@ import {
 } from '@/types/unified-data-source';
 import { createSrsV2QueueProfile } from '../SrsV2QueueProfiles';
 import { SrsV2SessionQueueRuntime } from '../SrsV2SessionQueueRuntime';
+import { WorkerReviewSessionQueueRuntime } from '../WorkerReviewSessionQueueRuntime';
 
 const MINUTE_MS = 60_000;
 
@@ -396,6 +397,42 @@ describe('SrsV2SessionQueueRuntime', () => {
       },
     });
     await expect(runtime.next()).resolves.toMatchObject({ id: second.id });
+  });
+
+  it('does not reselect a worker current card discarded locally as unavailable', async () => {
+    const first = createCard({ id: 'worker-card-1', blockId: 'worker-block-1' });
+    const backend = {
+      reviewSessionStart: vi.fn(async () => ({
+        sessionId: 'worker-session',
+        queueType: QueueType.RetrievalPractice,
+        current: { ...first },
+        counters: counter(1),
+        projectionState: 'ready' as const,
+        projectionGeneration: 1,
+        projectionPolicyHash: 'test-policy',
+      })),
+      reviewSessionCurrent: vi.fn(async () => ({
+        sessionId: 'worker-session',
+        queueType: QueueType.RetrievalPractice,
+        current: { ...first },
+        counters: counter(1),
+        projectionState: 'ready' as const,
+        projectionGeneration: 1,
+        projectionPolicyHash: 'test-policy',
+      })),
+      reviewSessionFeedback: vi.fn(),
+      reviewSessionSkip: vi.fn(),
+    };
+    const runtime = new WorkerReviewSessionQueueRuntime({
+      queueType: QueueType.RetrievalPractice,
+      backend,
+    });
+
+    await expect(runtime.next()).resolves.toMatchObject({ id: first.id });
+    runtime.discardCard(first);
+
+    await expect(runtime.next()).resolves.toBeNull();
+    expect(backend.reviewSessionCurrent).toHaveBeenCalledTimes(1);
   });
 
   it('restores runtime queue and counter state with an undo token', async () => {
