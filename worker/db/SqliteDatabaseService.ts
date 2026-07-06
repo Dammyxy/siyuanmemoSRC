@@ -624,10 +624,12 @@ interface ReviewSyncCardMergeDecision {
   reason: ReviewSyncCardMergeDecisionReason;
 }
 
+type ReviewSyncSchedulingEvidence = { newestReviewedAt: number; formalReviewEventCount: number };
+
 export function decideReviewSyncCardMerge(
   local: Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>,
   incoming: Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>,
-  reviewEvidence?: { newestReviewedAt: number; formalReviewEventCount: number } | null,
+  reviewEvidence?: ReviewSyncSchedulingEvidence | null,
 ): ReviewSyncCardMergeDecision {
   const localReview = positiveNumber(local.last_review);
   const incomingReview = positiveNumber(incoming.last_review);
@@ -3992,7 +3994,7 @@ export class WorkerSqliteDatabaseService {
     }
   }
 
-  private readReviewSyncSchedulingEvidence(cardId: string): { newestReviewedAt: number; formalReviewEventCount: number } | null {
+  private readReviewSyncSchedulingEvidence(cardId: string): ReviewSyncSchedulingEvidence | null {
     const normalizedCardId = String(cardId || '').trim();
     if (!normalizedCardId) {
       return null;
@@ -4722,8 +4724,25 @@ export class WorkerSqliteDatabaseService {
       };
     }
 
+    let rowsWritten = 0;
     this.runtime.runTransaction('storage.projection.rebuild.cards', () => {
       for (const row of cardRows) {
+        const existing = this.runtime.getOne<Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>>(
+          `SELECT updated_at, reps, last_review
+             FROM cards
+            WHERE id = ?`,
+          [row.id],
+        );
+        if (existing) {
+          const mergeDecision = decideReviewSyncCardMerge(existing, {
+            updated_at: row.updatedAt,
+            last_review: row.lastReview,
+            reps: row.reps,
+          }, this.readReviewSyncSchedulingEvidence(row.id));
+          if (mergeDecision.action === 'skip-card') {
+            continue;
+          }
+        }
         this.runtime.run(
           `INSERT OR REPLACE INTO cards
             (id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at,
@@ -4769,6 +4788,7 @@ export class WorkerSqliteDatabaseService {
             row.sourceHash,
           ],
         );
+        rowsWritten += 1;
         const algorithmState = deriveAlgorithmCardState(row.card);
         this.runtime.run(
           `DELETE FROM algorithm_card_state
@@ -4796,7 +4816,7 @@ export class WorkerSqliteDatabaseService {
       status: 'ready',
       projectionGeneration: input.projectionGeneration,
       rowsRead: cardRecords.length,
-      rowsWritten: cardRows.length,
+      rowsWritten,
       sourceReadCount: input.request.sourceReads.length,
       missingSourceIds: [],
       error: null,

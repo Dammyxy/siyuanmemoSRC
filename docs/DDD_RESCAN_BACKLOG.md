@@ -4,6 +4,16 @@ Last update: 2026-07-07 (Round 670)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-07 - Stale truth projection rebuild schedule guard
+
+- Task: Continue `formalize-review-ledger-card-schedule-authority` after user reproduced Review records returning to the old count after restart.
+- Touched slice: Review Ledger/Card Schedule projection rebuild guard in `worker/db/SqliteDatabaseService.ts`, focused backend projection rebuild regression in `worker/bootstrap/__tests__/BackendReviewSyncRpcAdapter.test.ts`, `ARCHITECTURE.md`, and OpenSpec task state.
+- Debt fixed now: `storage.projection.rebuild cards` now reuses the same Review evidence merge rule as Domain Sync conflict import before replacing `cards`. If local `review_events` plus current card schedule prove a newer `last_review` / higher `reps`, stale card-memory truth rows are skipped instead of overwriting the local Card Schedule Store; the new regression locks the 45-vs-42 rollback shape.
+- Debt deferred: Full Review Ledger/Card Schedule replay/repair authority remains in `formalize-review-ledger-card-schedule-authority`: complete audit read model, explicit repair preview/apply for evidence-complete divergence, and durable undo/go-back journal reconciliation.
+- Why deferred: This slice fixes the observed rollback hazard at the projection rebuild seam without inventing hidden fallback or broad replay semantics. Full authority reconciliation crosses Review Ledger, Card Schedule Store, Domain Sync repair, queue projection, and diagnostics contracts.
+- Next safe step: Rebuild/reload, review several cards, restart SiYuan, and confirm `reps`, `last_review`, and Review record count no longer return to the pre-review value. If still divergent, inspect Review journal replay and Domain Sync repair diagnostics rather than Browser projection warmup logs.
+- Validation: Focused stale-truth projection rebuild regression and the full `BackendReviewSyncRpcAdapter` + `reviewSyncCardMergeDecision` suites passed; boundary/build/OpenSpec validation run in this implementation pass.
+
 ### 2026-07-07 - SRS Review Kernel authority seam
 
 - Task: Continue `stabilize-srs-review-kernel-critical-path` after storage durability and projection ownership were stabilized, and fold the Anki-style Review kernel recommendation into the existing three-change architecture path.

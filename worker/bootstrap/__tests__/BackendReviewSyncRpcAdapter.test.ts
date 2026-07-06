@@ -6117,6 +6117,108 @@ describe('BackendReviewSyncRpcAdapter', () => {
     expect(row?.dto_json || '').not.toContain('Full source body must stay owned');
   });
 
+  it('does not downgrade local card schedule from stale card truth during projection rebuild', async () => {
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    const truthStore = createMessagePackTruthSegmentStore({
+      fileStore: truthFileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-stale-card-truth',
+      generationId: 'projection-gen-stale-card-truth',
+      schemaVersion: 1,
+      maxSegmentBytes: 4096,
+    });
+    await truthStore.appendRecords([{
+      family: 'card-memory-facts',
+      schemaVersion: 1,
+      type: 'card-memory.created.v1',
+      idempotencyKey: 'card:create:stale-card-truth',
+      logicalTime: 1_779_188_000_000,
+      recordedAt: 1_779_188_000_001,
+      source: {
+        cardId: 'card-stale-card-truth',
+        blockId: 'block-stale-card-truth',
+        sourceBlockId: 'block-stale-card-truth',
+      },
+      memory: {
+        schedulerOwner: 'fsrs-v6',
+        memoryHash: 'memory-stale-card-truth',
+        lineage: {
+          type: 'item',
+          state: CardState.Review,
+          due: 1_779_188_100_000,
+          reps: 42,
+          lastReview: 1_779_188_000_000,
+          createdAt: 1_779_180_000_000,
+          updatedAt: 1_779_188_000_000,
+          schedulerType: 'fsrs-v6',
+        },
+      },
+    }]);
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await database.upsertCards([buildCard({
+      id: 'card-stale-card-truth',
+      blockId: 'block-stale-card-truth',
+      due: 1_779_190_000_000,
+      reps: 45,
+      lastReview: 1_779_189_000_000,
+      updatedAt: 1_779_189_000_000,
+    })]);
+    await seedFormalReviewHistory(database, {
+      cardId: 'card-stale-card-truth',
+      count: 45,
+      firstReviewedAt: 1_779_180_000_000,
+      latestReviewedAt: 1_779_189_000_000,
+    });
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'block-stale-card-truth': {
+          id: 'block-stale-card-truth',
+          content: 'Stale card truth source block content',
+          type: 'p',
+          root_id: 'doc-stale-card-truth',
+        },
+      }),
+    });
+
+    const response = await kernel.handle({
+      id: 'projection-rebuild-stale-card-truth',
+      jsonrpc: '2.0',
+      method: 'storage.projection.rebuild',
+      params: [{
+        rebuildId: 'rebuild-stale-card-truth',
+        cause: 'startup-truth-reconcile',
+        families: ['cards'],
+        deviceId: 'device-stale-card-truth',
+        generationId: 'projection-gen-stale-card-truth',
+        schemaVersion: 1,
+      }],
+    });
+
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result).toMatchObject({
+      status: 'ready',
+      rowsRead: 1,
+      rowsWritten: 0,
+      families: [expect.objectContaining({
+        family: 'cards',
+        rowsRead: 1,
+        rowsWritten: 0,
+      })],
+    });
+    expect(database.getOne<{ reps: number; last_review: number; due: number }>(
+      'SELECT reps, last_review, due FROM cards WHERE id = ?',
+      ['card-stale-card-truth'],
+    )).toEqual({
+      reps: 45,
+      last_review: 1_779_189_000_000,
+      due: 1_779_190_000_000,
+    });
+  });
+
   it('rebuilds Xiuyuan binding from allowlisted source attrs during card projection rebuild', async () => {
     const truthFileStore = new MemoryTruthSegmentFileStore();
     const truthStore = createMessagePackTruthSegmentStore({

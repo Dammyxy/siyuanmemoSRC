@@ -134,6 +134,10 @@ _Avoid_: delta append proof, projection cache row, renderer feedback success fla
 The durable current scheduling state for a card after Review commit. It owns the committed after-card schedule before success is reported; queue projection rows are derived read-model state, not this store.
 _Avoid_: queue projection authority, Review session cursor, Browser row cache
 
+**Review Storage Audit**:
+The diagnostic read model that compares Review Ledger facts, Card Schedule Store rows, and derived projection state for divergence in review count, `reps`, `lastReview`, and `due`. It reports and plans explicit repair; it does not silently mutate cards or treat Browser/queue projection rows as Review answer truth.
+_Avoid_: hidden projection repair, Browser count refresh, silent schedule reconciliation
+
 **Delta Sync Adapter**:
 The SQLite delta/checkpoint layer that exports, checkpoints, diagnoses, and recovers storage changes from durable Review facts and schedule state. It may read sealed segment evidence during diagnostics/recovery/reload, but ordinary same-runtime Review answer success must not depend on reconstructing historical sealed segments.
 _Avoid_: Review Ledger, Card Schedule Store, kernel answer authority
@@ -175,6 +179,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - A **Browser Read Model** consumes **SRS Browser Card Universe** and, for projection-backed queue views, consumes queue projection identity before hydrating Browser rows.
 - The **SRS Review Kernel** consumes **Review Ledger**, **Card Schedule Store**, and **SessionQueueIndex** internally, and exposes only active Review session operations to renderer-side adapters.
 - The **SRS Review Kernel** owns bounded session undo journal evidence for worker-backed `go-back`; **Review History** remains local-only for non-worker sessions and failed-feedback cleanup.
+- **Review Storage Audit** compares **Review Ledger** facts, **Card Schedule Store** rows, and derived projection evidence; repair remains explicit and evidence-complete, never a hidden Browser/queue projection fallback.
 - Once the **SRS Review Kernel** is selected, **BrowserProjectionIndex** and **Review Session Cursor** may provide diagnostics/display state, but must not choose post-answer current/next cards.
 - **Custom Review Surfaces** share review rendering requirements with native-like review surfaces, including supported link and reference behavior.
 - A **Semantic Session Read Model** is derived from Semantic session owner state and may consume core Semantic session projection, but it remains a read-only presentation model for Browser, Review sidebar, or session inspection callers.
