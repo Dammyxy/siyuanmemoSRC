@@ -8,7 +8,7 @@
 
 - [x] 2.1 Add kernel contract tests for rating advancing to next card from session state.
 - [x] 2.2 Add kernel contract tests for skip/session remove without projection requery.
-- [ ] 2.3 Add kernel contract tests for undo/go-back preserving journal/session evidence.
+- [x] 2.3 Add kernel contract tests for undo/go-back preserving journal/session evidence.
 - [x] 2.4 Add no-fallback test proving renderer cursor/projection patching cannot become active authority after worker kernel is selected.
 
 ## 3. Implementation

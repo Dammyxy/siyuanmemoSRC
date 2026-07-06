@@ -3,6 +3,7 @@ import type {
   BackendReviewSessionRepairGateEvidence,
   BackendReviewSessionSkipResult,
   BackendReviewSessionState,
+  BackendReviewSessionUndoResult,
 } from '../../../../packages/contracts/src/backend-rpc';
 import type { FSRSCard } from '@/types/card';
 import {
@@ -41,6 +42,10 @@ export interface WorkerReviewSessionBackendClient {
     sessionId: string;
     cardId: string;
   }): Promise<BackendReviewSessionSkipResult>;
+  reviewSessionUndo(request: {
+    sessionId: string;
+    undoToken?: string | null;
+  }): Promise<BackendReviewSessionUndoResult>;
 }
 
 export interface WorkerReviewSessionQueueRuntimeOptions {
@@ -61,6 +66,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
   private currentCard: FSRSCard | null = null;
   private counterSnapshot: QueueCounterSnapshot | null = null;
   private sessionCards: FSRSCard[] = [];
+  private lastUndoToken: string | null = null;
   private readonly locallyDiscardedCurrentCardIds = new Set<string>();
 
   constructor(options: WorkerReviewSessionQueueRuntimeOptions) {
@@ -99,7 +105,8 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
           cardId: input.card.id,
         });
         this.applyState(result);
-        return this.buildResult(this.currentCard ? 'advanced' : 'exhausted', this.currentCard, null);
+        this.lastUndoToken = normalizeString(result.undoToken);
+        return this.buildResult(this.currentCard ? 'advanced' : 'exhausted', this.currentCard, this.lastUndoToken);
       } catch (error) {
         return this.unavailableResult(input, error instanceof Error ? error.message : String(error));
       }
@@ -117,8 +124,9 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
         repairGate: input.feedback.repairGate as BackendReviewSessionRepairGateEvidence | null | undefined,
       });
       this.applyState(result);
+      this.lastUndoToken = normalizeString(result.undoToken);
       return {
-        ...this.buildResult(this.currentCard ? 'advanced' : 'exhausted', this.currentCard, null),
+        ...this.buildResult(this.currentCard ? 'advanced' : 'exhausted', this.currentCard, this.lastUndoToken),
         commitStatus: 'applied',
         commitIdempotencyKey: result.feedback.idempotencyKey ?? input.feedback.commitIdempotencyKey,
       };
@@ -164,8 +172,29 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
     return true;
   }
 
-  undoLast(_token?: string | null): ReviewSessionUndoResult | null {
-    return null;
+  canUndoLast(): boolean {
+    return Boolean(this.sessionId && this.lastUndoToken);
+  }
+
+  async undoLast(token?: string | null): Promise<ReviewSessionUndoResult | null> {
+    if (!this.sessionId) {
+      return null;
+    }
+    const undoToken = normalizeString(token) ?? this.lastUndoToken;
+    if (!undoToken) {
+      return null;
+    }
+    const result = await this.backend.reviewSessionUndo({
+      sessionId: this.sessionId,
+      undoToken,
+    });
+    this.applyState(result);
+    this.lastUndoToken = null;
+    return {
+      restoredCurrentCard: cloneCard(this.currentCard),
+      counterSnapshot: this.getCounterSnapshot(),
+      undoToken: result.undoToken,
+    };
   }
 
   reset(): void {
@@ -173,6 +202,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
     this.currentCard = null;
     this.counterSnapshot = null;
     this.sessionCards = [];
+    this.lastUndoToken = null;
     this.locallyDiscardedCurrentCardIds.clear();
   }
 

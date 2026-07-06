@@ -8,6 +8,8 @@ import type {
   BackendReviewSessionSkipResult,
   BackendReviewSessionStartRequest,
   BackendReviewSessionState,
+  BackendReviewSessionUndoRequest,
+  BackendReviewSessionUndoResult,
   BackendReviewFeedbackTruthFlushRequest,
   BackendReviewFeedbackTruthFlushResult,
   BackendReviewRiffFeedbackExecuteRequest,
@@ -26,6 +28,7 @@ export const BACKEND_REVIEW_RPC_METHODS = [
   'review.session.current',
   'review.session.feedback',
   'review.session.skip',
+  'review.session.undo',
   'review.truth.flush',
   'review.truth.backfill',
   'review.riffFeedback.execute',
@@ -60,6 +63,11 @@ export type BackendReviewRpcMethodContractMap = {
     BackendReviewSessionSkipRequest,
     BackendReviewSessionSkipResult
   >;
+  readonly 'review.session.undo': BackendRpcMethodContract<
+    'review.session.undo',
+    BackendReviewSessionUndoRequest,
+    BackendReviewSessionUndoResult
+  >;
   readonly 'review.truth.flush': BackendRpcMethodContract<
     'review.truth.flush',
     BackendReviewFeedbackTruthFlushRequest,
@@ -88,6 +96,7 @@ export const BACKEND_REVIEW_RPC_METHOD_FAMILY_CATALOG = [
   { method: 'review.session.current', family: 'review', clientExposure: 'facade' },
   { method: 'review.session.feedback', family: 'review', clientExposure: 'facade' },
   { method: 'review.session.skip', family: 'review', clientExposure: 'facade' },
+  { method: 'review.session.undo', family: 'review', clientExposure: 'facade' },
   { method: 'review.truth.flush', family: 'review', clientExposure: 'facade' },
   { method: 'review.truth.backfill', family: 'review', clientExposure: 'facade' },
   { method: 'review.riffFeedback.execute', family: 'review', clientExposure: 'facade' },

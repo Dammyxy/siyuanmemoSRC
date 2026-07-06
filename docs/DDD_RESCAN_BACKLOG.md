@@ -9158,6 +9158,15 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: Rebuild plugin, rate several cards, then inspect logs for `reviewFeedback.runtime` latency plus `storage.sqlCheckpoint` state; ordinary Review success should be judged from Review Ledger/Card Schedule Store evidence, while delta checkpoint issues should appear as diagnostics rather than rating failure.
 - Validation: `pnpm exec vitest run worker/review/__tests__/WorkerReviewFeedbackRuntime.test.ts worker/review/__tests__/ReviewJournalProjectionReconciler.test.ts worker/review/__tests__/ReviewFeedbackStorageEnvelope.test.ts --pool=forks --maxWorkers=1 --minWorkers=1`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate separate-review-ledger-from-delta-sync --strict`.
 
+### 2026-07-07 - worker SRS Review Kernel undo journal
+
+- Task: Close OpenSpec task `stabilize-srs-review-kernel-critical-path` 2.3 by making worker-backed `goBack()` use kernel/session evidence instead of renderer history fallback.
+- Touched slice: Review session authority path across `worker/review/{WorkerReviewSessionRuntime,SrsReviewKernel}.ts`, backend Review RPC contracts/adapters/clients, `WorkerReviewSessionQueueRuntime`, `UnifiedQueueStrategy`, and focused Review/kernel/adapter/RPC tests.
+- Debt fixed now: Worker Review sessions now capture a bounded undo journal snapshot before accepted answer/skip mutation, return undo tokens, expose `review.session.undo`, and restore current/lookahead/counters from worker session evidence. `UnifiedQueueStrategy.canGoBack()` / `goBack()` for worker-backed sessions now call worker runtime undo and no longer return null or consult renderer queue snapshots.
+- Debt deferred: This is session undo evidence only; it does not yet reverse durable `Review Ledger` / `Card Schedule Store` facts, reconcile `card.reps` against revlog, or persist undo/go-back across app restart. Those belong to `formalize-review-ledger-card-schedule-authority`.
+- Next safe step: Implement Anki-style durable undo/reconciliation in the new authority change: authoritative revlog/card schedule replay, reps/due/review-count audit, and repair entrypoint.
+- Validation: `pnpm exec vitest run worker/review/__tests__/SrsReviewKernel.test.ts worker/review/__tests__/WorkerReviewSessionRuntime.test.ts worker/bootstrap/rpc/BackendReviewRpcAdapter.test.ts src/application/adapters/review-session/__tests__/SrsV2SessionQueueRuntime.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts --pool=forks --maxWorkers=1 --minWorkers=1`; pending full gates in this slice.
+
 ## 1. Re-scan summary
 
 - 2026-06-03 Review hot-path delta threshold live fix:

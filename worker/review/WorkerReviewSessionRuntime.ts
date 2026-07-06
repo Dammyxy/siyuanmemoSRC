@@ -47,6 +47,11 @@ export interface WorkerReviewSessionSkipRequest {
   cardId: string;
 }
 
+export interface WorkerReviewSessionUndoRequest {
+  sessionId: string;
+  undoToken?: string | null;
+}
+
 export interface WorkerReviewSessionCounterSnapshot {
   remaining: number;
   due: number;
@@ -74,6 +79,27 @@ export interface WorkerReviewSessionSkipResult extends WorkerReviewSessionState 
   skippedCardId: string;
 }
 
+export interface WorkerReviewSessionUndoResult extends WorkerReviewSessionState {
+  restoredCardId: string | null;
+  replayedCardId: string | null;
+  undoToken: string;
+}
+
+type WorkerReviewSessionUndoSnapshot = {
+  cards: FSRSCard[];
+  current: FSRSCard | null;
+  avoidOnceCardId: string | null;
+  avoidOnceBlockId: string | null;
+  projectionGeneration: number | null;
+  projectionPolicyHash: string | null;
+};
+
+type WorkerReviewSessionUndoEntry = {
+  token: string;
+  snapshot: WorkerReviewSessionUndoSnapshot;
+  replayedCardId: string | null;
+};
+
 type WorkerReviewSession = {
   sessionId: string;
   queueType: QueueType;
@@ -83,11 +109,14 @@ type WorkerReviewSession = {
   avoidOnceBlockId: string | null;
   projectionGeneration: number | null;
   projectionPolicyHash: string | null;
+  undoSequence: number;
+  undoStack: WorkerReviewSessionUndoEntry[];
 };
 
 export class WorkerReviewSessionRuntime {
   private readonly sessions = new Map<string, WorkerReviewSession>();
   private nextSessionId = 1;
+  private readonly maxUndoEntries = 20;
 
   constructor(private readonly deps: {
     repository: WorkerReviewSessionRepository;
@@ -111,6 +140,8 @@ export class WorkerReviewSessionRuntime {
         avoidOnceBlockId: null,
         projectionGeneration: generation?.generation ?? null,
         projectionPolicyHash: generation?.policyHash ?? null,
+        undoSequence: 0,
+        undoStack: [],
       };
       this.sessions.set(sessionId, session);
       return this.toState(session, generation ? 'refresh-required' : 'not-used');
@@ -135,6 +166,8 @@ export class WorkerReviewSessionRuntime {
       avoidOnceBlockId: null,
       projectionGeneration: generation.generation,
       projectionPolicyHash: generation.policyHash,
+      undoSequence: 0,
+      undoStack: [],
     };
     session.current = this.selectNextCard(session);
     this.sessions.set(sessionId, session);
@@ -154,6 +187,7 @@ export class WorkerReviewSessionRuntime {
     const session = this.requireSession(request.sessionId);
     this.requireCurrentCard(session, request.cardId);
     this.requireValidRepairGate(request);
+    const undoToken = this.pushUndoSnapshot(session, request.cardId);
 
     const feedback = await this.measureFeedbackStep(
       'session-feedback-commit',
@@ -186,6 +220,7 @@ export class WorkerReviewSessionRuntime {
       ...this.toState(session, resolveProjectionState(feedback)),
       answeredCardId: request.cardId,
       feedback,
+      undoToken,
     };
   }
 
@@ -250,6 +285,7 @@ export class WorkerReviewSessionRuntime {
   skip(request: WorkerReviewSessionSkipRequest): WorkerReviewSessionSkipResult {
     const session = this.requireSession(request.sessionId);
     const current = this.requireCurrentCard(session, request.cardId);
+    const undoToken = this.pushUndoSnapshot(session, request.cardId);
 
     this.removeCard(session, request.cardId);
     session.cards.push(cloneCard(current));
@@ -259,6 +295,27 @@ export class WorkerReviewSessionRuntime {
     return {
       ...this.toState(session, 'ready'),
       skippedCardId: request.cardId,
+      undoToken,
+    };
+  }
+
+  undo(request: WorkerReviewSessionUndoRequest): WorkerReviewSessionUndoResult {
+    const session = this.requireSession(request.sessionId);
+    const entry = this.popUndoEntry(session, request.undoToken);
+    if (!entry) {
+      throw new Error(`WORKER_REVIEW_SESSION_UNDO_UNAVAILABLE: ${request.sessionId}`);
+    }
+    session.cards = entry.snapshot.cards.map(cloneCard);
+    session.current = entry.snapshot.current ? cloneCard(entry.snapshot.current) : null;
+    session.avoidOnceCardId = entry.snapshot.avoidOnceCardId;
+    session.avoidOnceBlockId = entry.snapshot.avoidOnceBlockId;
+    session.projectionGeneration = entry.snapshot.projectionGeneration;
+    session.projectionPolicyHash = entry.snapshot.projectionPolicyHash;
+    return {
+      ...this.toState(session, 'ready'),
+      restoredCardId: session.current?.id ?? null,
+      replayedCardId: entry.replayedCardId,
+      undoToken: entry.token,
     };
   }
 
@@ -360,6 +417,39 @@ export class WorkerReviewSessionRuntime {
   private clearAvoidOnce(session: WorkerReviewSession): void {
     session.avoidOnceCardId = null;
     session.avoidOnceBlockId = null;
+  }
+
+  private pushUndoSnapshot(session: WorkerReviewSession, replayedCardId: string | null): string {
+    session.undoSequence += 1;
+    const token = `worker-review-session-undo:${session.sessionId}:${session.undoSequence}`;
+    session.undoStack.push({
+      token,
+      replayedCardId,
+      snapshot: {
+        cards: session.cards.map(cloneCard),
+        current: session.current ? cloneCard(session.current) : null,
+        avoidOnceCardId: session.avoidOnceCardId,
+        avoidOnceBlockId: session.avoidOnceBlockId,
+        projectionGeneration: session.projectionGeneration,
+        projectionPolicyHash: session.projectionPolicyHash,
+      },
+    });
+    if (session.undoStack.length > this.maxUndoEntries) {
+      session.undoStack.shift();
+    }
+    return token;
+  }
+
+  private popUndoEntry(session: WorkerReviewSession, token?: string | null): WorkerReviewSessionUndoEntry | null {
+    if (!token) {
+      return session.undoStack.pop() ?? null;
+    }
+    const index = session.undoStack.findIndex((entry) => entry.token === token);
+    if (index < 0) {
+      return null;
+    }
+    const [entry] = session.undoStack.splice(index, 1);
+    return entry ?? null;
   }
 
   private toState(

@@ -6,6 +6,8 @@ import type {
   WorkerReviewSessionStartRequest,
   WorkerReviewSessionState,
   WorkerReviewSessionRuntime,
+  WorkerReviewSessionUndoRequest,
+  WorkerReviewSessionUndoResult,
 } from './WorkerReviewSessionRuntime';
 
 export interface SrsReviewKernelDiagnostics {
@@ -18,7 +20,7 @@ export interface SrsReviewKernel {
   current(sessionId: string): WorkerReviewSessionState;
   answer(request: WorkerReviewSessionFeedbackRequest): Promise<WorkerReviewSessionFeedbackResult>;
   skip(request: WorkerReviewSessionSkipRequest): WorkerReviewSessionSkipResult;
-  undo(sessionId: string): never;
+  undo(request: WorkerReviewSessionUndoRequest): WorkerReviewSessionUndoResult;
   lookahead(sessionId: string): WorkerReviewSessionState['lookaheadCards'];
   counters(sessionId: string): WorkerReviewSessionState['counters'];
   diagnostics(sessionId?: string | null): SrsReviewKernelDiagnostics;
@@ -43,8 +45,8 @@ export class WorkerSrsReviewKernelAdapter implements SrsReviewKernel {
     return this.sessionRuntime.skip(request);
   }
 
-  undo(sessionId: string): never {
-    throw new Error(`WORKER_REVIEW_SESSION_UNDO_UNAVAILABLE: ${sessionId}`);
+  undo(request: WorkerReviewSessionUndoRequest): WorkerReviewSessionUndoResult {
+    return this.sessionRuntime.undo(request);
   }
 
   lookahead(sessionId: string): WorkerReviewSessionState['lookaheadCards'] {

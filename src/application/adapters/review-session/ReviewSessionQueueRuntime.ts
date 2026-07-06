@@ -114,5 +114,6 @@ export interface ReviewSessionQueueRuntime {
   getSessionCards(): FSRSCard[];
   appendCardsToTail?(cards: FSRSCard[]): number;
   replaceCurrentCard?(card: FSRSCard): boolean;
-  undoLast(token?: string | null): ReviewSessionUndoResult | null;
+  canUndoLast?(): boolean;
+  undoLast(token?: string | null): ReviewSessionUndoResult | null | Promise<ReviewSessionUndoResult | null>;
 }

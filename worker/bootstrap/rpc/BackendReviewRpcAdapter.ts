@@ -9,6 +9,8 @@ import {
   type BackendReviewSessionSkipResult,
   type BackendReviewSessionStartRequest,
   type BackendReviewSessionState,
+  type BackendReviewSessionUndoRequest,
+  type BackendReviewSessionUndoResult,
   type BackendReviewFeedbackTruthFlushDiagnostics,
   type BackendReviewFeedbackTruthFlushRequest,
   type BackendReviewFeedbackTruthFlushResult,
@@ -129,6 +131,18 @@ export class BackendReviewRpcRuntime {
       'review.session.skip requires named params',
     );
     return this.requireReviewKernel().skip(named);
+  }
+
+  handleReviewSessionUndo(params: unknown): BackendReviewSessionUndoResult {
+    const named = readRequiredNamedParams<BackendReviewSessionUndoRequest>(
+      params,
+      'review.session.undo requires named params',
+    );
+    const sessionId = String(named.sessionId || '').trim();
+    if (!sessionId) {
+      throw new Error('INVALID_REQUEST: review.session.undo requires sessionId');
+    }
+    return this.requireReviewKernel().undo(named);
   }
 
   async handleReviewTruthFlush(params: unknown): Promise<BackendReviewFeedbackTruthFlushResult> {
@@ -493,6 +507,13 @@ const BACKEND_REVIEW_RPC_HANDLER_ADAPTERS: {
     family: 'review',
     handle(params, context): BackendReviewSessionSkipResult {
       return context.review.handleReviewSessionSkip(params);
+    },
+  },
+  'review.session.undo': {
+    method: 'review.session.undo',
+    family: 'review',
+    handle(params, context): BackendReviewSessionUndoResult {
+      return context.review.handleReviewSessionUndo(params);
     },
   },
   'review.truth.flush': {

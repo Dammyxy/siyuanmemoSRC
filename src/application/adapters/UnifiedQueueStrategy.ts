@@ -188,6 +188,7 @@ function createUnavailableWorkerReviewSessionBackend(): WorkerReviewSessionBacke
         reviewSessionCurrent: fail,
         reviewSessionFeedback: fail,
         reviewSessionSkip: fail,
+        reviewSessionUndo: fail,
     };
 }
 
@@ -796,7 +797,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     canGoBack(): boolean {
         if (this.srsV2SessionQueueRuntime instanceof WorkerReviewSessionQueueRuntime) {
-            return false;
+            return this.srsV2SessionQueueRuntime.canUndoLast();
         }
         return this.transactionRuntime.canGoBack();
     }
@@ -805,7 +806,15 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         this.cursor.clearPendingRotation();
         this.clearAvoidOnceIdentity();
         if (this.srsV2SessionQueueRuntime instanceof WorkerReviewSessionQueueRuntime) {
-            return null;
+            const undo = await this.srsV2SessionQueueRuntime.undoLast();
+            if (!undo?.restoredCurrentCard) {
+                return currentItem;
+            }
+            const previousWithNextDues = await this.maybeAddNextDues(undo.restoredCurrentCard);
+            this.srsV2SessionQueueRuntime.replaceCurrentCard?.(previousWithNextDues);
+            this.setCurrentItem(previousWithNextDues);
+            this.syncCursorFromSrsV2Runtime();
+            return previousWithNextDues;
         }
         const activeItem = this.currentItemCommand.resolveActive(currentItem);
         if (!this.transactionRuntime.canGoBack()) {
@@ -1058,6 +1067,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             || typeof backend.reviewSessionCurrent !== 'function'
             || typeof backend.reviewSessionFeedback !== 'function'
             || typeof backend.reviewSessionSkip !== 'function'
+            || typeof backend.reviewSessionUndo !== 'function'
         ) {
             return null;
         }

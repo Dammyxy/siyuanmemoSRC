@@ -294,4 +294,128 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
     expect(reviewFeedback).not.toHaveBeenCalled();
     expect(readRows).toHaveBeenCalledOnce();
   });
+
+  it('dispatches review.session.undo through worker session state', async () => {
+    const first = createCard('card-1');
+    const second = createCard('card-2', 1_000);
+    const cardsById = new Map([first, second].map((card) => [card.id, card] as const));
+    const readRows = vi.fn(() => [
+      {
+        queueType: QueueType.RetrievalPractice,
+        rowId: first.id,
+        cardId: first.id,
+        blockId: first.blockId,
+        deckId: null,
+        membershipReason: 'due',
+        dueAt: first.due,
+        dueBucket: 'review',
+        priorityScore: first.priority,
+        sortKey: `000000001:${first.id}`,
+        queueIndexHint: 1,
+        policyHash: 'retrieval-policy',
+        sourceGeneration: 7,
+        payload: {},
+        updatedAt: NOW,
+      },
+      {
+        queueType: QueueType.RetrievalPractice,
+        rowId: second.id,
+        cardId: second.id,
+        blockId: second.blockId,
+        deckId: null,
+        membershipReason: 'due',
+        dueAt: second.due,
+        dueBucket: 'review',
+        priorityScore: second.priority,
+        sortKey: `000000002:${second.id}`,
+        queueIndexHint: 2,
+        policyHash: 'retrieval-policy',
+        sourceGeneration: 7,
+        payload: {},
+        updatedAt: NOW,
+      },
+    ]);
+    const reviewFeedback = vi.fn(async (request: BackendReviewFeedbackRequest) => ({
+      cardId: request.cardId,
+      committed: true,
+      reviewedAt: request.reviewedAt ?? NOW,
+      queueType: request.queueType ?? QueueType.RetrievalPractice,
+      updatedCard: { ...first, reps: first.reps + 1 },
+      idempotencyKey: request.idempotencyKey ?? null,
+      queueImpact: {
+        hotPatchable: false,
+        refreshRequired: false,
+        affectedQueues: [],
+      },
+    }));
+    const sessionRuntime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'retrieval-policy',
+          generation: 7,
+          status: 'ready',
+        })),
+        readRows,
+      },
+      feedbackRuntime: { reviewFeedback },
+    });
+    const review = new BackendReviewRpcRuntime({
+      database: createDatabase(reviewFeedback),
+      reviewKernel: new WorkerSrsReviewKernelAdapter(sessionRuntime),
+    });
+    const dispatcher = new BackendRpcDispatcher(createBackendRpcHandlerRegistry(BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS));
+
+    await dispatcher.dispatch({
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 1,
+      method: 'review.session.start',
+      params: {
+        sessionId: 'session-a',
+        queueType: QueueType.RetrievalPractice,
+      },
+    }, { review });
+    const feedback = await dispatcher.dispatch({
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 2,
+      method: 'review.session.feedback',
+      params: {
+        sessionId: 'session-a',
+        cardId: first.id,
+        rating: 3,
+        reviewedAt: NOW,
+        idempotencyKey: 'session-feedback-1',
+        repairGate: {
+          state: 'clean',
+          reason: 'test-clean-gate',
+          createdAt: NOW,
+          cardId: first.id,
+        },
+      },
+    }, { review });
+    const undoToken = (feedback.result as { undoToken?: string }).undoToken;
+    expect(undoToken).toBeTruthy();
+
+    const undone = await dispatcher.dispatch({
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 3,
+      method: 'review.session.undo',
+      params: {
+        sessionId: 'session-a',
+        undoToken,
+      },
+    }, { review });
+
+    expect(undone.result).toMatchObject({
+      restoredCardId: first.id,
+      replayedCardId: first.id,
+      current: expect.objectContaining({ id: first.id }),
+      lookaheadCards: [expect.objectContaining({ id: second.id })],
+      counters: expect.objectContaining({ remaining: 2, source: 'worker-session' }),
+    });
+    expect(readRows).toHaveBeenCalledOnce();
+  });
 });

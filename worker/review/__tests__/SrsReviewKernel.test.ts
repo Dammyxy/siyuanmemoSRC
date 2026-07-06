@@ -160,13 +160,74 @@ describe('SrsReviewKernel', () => {
     expect(reviewFeedback).not.toHaveBeenCalled();
   });
 
-  it('fails closed when undo is not yet owned by the worker kernel', async () => {
+  it('restores answered current card from kernel-owned undo journal evidence', async () => {
+    const first = createCard('card-1');
+    const second = createCard('card-2', 1_000);
+    const { kernel, readRows, reviewFeedback } = createKernel([first, second]);
+
+    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
+    const answered = await kernel.answer({
+      sessionId: started.sessionId,
+      cardId: first.id,
+      rating: 3,
+      reviewedAt: NOW,
+      repairGate: {
+        state: 'clean',
+        reason: 'kernel-contract',
+        createdAt: NOW,
+        cardId: first.id,
+      },
+    });
+    expect(answered.current?.id).toBe(second.id);
+    expect(answered.undoToken).toBeTruthy();
+
+    const undone = kernel.undo({
+      sessionId: started.sessionId,
+      undoToken: answered.undoToken,
+    });
+
+    expect(undone.restoredCardId).toBe(first.id);
+    expect(undone.replayedCardId).toBe(first.id);
+    expect(undone.current?.id).toBe(first.id);
+    expect(undone.lookaheadCards).toEqual([expect.objectContaining({ id: second.id })]);
+    expect(undone.counters).toMatchObject({ remaining: 2, source: 'worker-session' });
+    expect(readRows).toHaveBeenCalledOnce();
+    expect(reviewFeedback).toHaveBeenCalledOnce();
+  });
+
+  it('restores skipped current card from kernel-owned undo journal evidence', async () => {
+    const first = createCard('card-1');
+    const second = createCard('card-2', 1_000);
+    const { kernel, readRows, reviewFeedback } = createKernel([first, second]);
+
+    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
+    const skipped = kernel.skip({
+      sessionId: started.sessionId,
+      cardId: first.id,
+    });
+    expect(skipped.current?.id).toBe(second.id);
+    expect(skipped.undoToken).toBeTruthy();
+
+    const undone = kernel.undo({
+      sessionId: started.sessionId,
+      undoToken: skipped.undoToken,
+    });
+
+    expect(undone.restoredCardId).toBe(first.id);
+    expect(undone.current?.id).toBe(first.id);
+    expect(undone.lookaheadCards).toEqual([expect.objectContaining({ id: second.id })]);
+    expect(undone.counters).toMatchObject({ remaining: 2, source: 'worker-session' });
+    expect(readRows).toHaveBeenCalledOnce();
+    expect(reviewFeedback).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when kernel undo journal has no matching evidence', async () => {
     const first = createCard('card-1');
     const { kernel } = createKernel([first]);
 
     const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
 
-    expect(() => kernel.undo(started.sessionId)).toThrow(
+    expect(() => kernel.undo({ sessionId: started.sessionId })).toThrow(
       `WORKER_REVIEW_SESSION_UNDO_UNAVAILABLE: ${started.sessionId}`,
     );
   });

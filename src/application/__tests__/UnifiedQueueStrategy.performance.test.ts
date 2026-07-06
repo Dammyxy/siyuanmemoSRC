@@ -9,6 +9,7 @@ import type {
   BackendReviewSessionFeedbackResult,
   BackendReviewSessionSkipResult,
   BackendReviewSessionState,
+  BackendReviewSessionUndoResult,
 } from '../../../packages/contracts/src/backend-rpc';
 
 const unifiedQueueStrategyLoggerInfoMock = vi.hoisted(() => vi.fn());
@@ -72,12 +73,22 @@ function createWorkerSessionBackend(
   reviewSessionCurrent: ReturnType<typeof vi.fn>;
   reviewSessionFeedback: ReturnType<typeof vi.fn>;
   reviewSessionSkip: ReturnType<typeof vi.fn>;
+  reviewSessionUndo: ReturnType<typeof vi.fn>;
 } {
   const sessionId = `worker-session-${queueType}`;
   let remaining = cards.map((card) => ({ ...card }));
   let current: FSRSCard | null = null;
   let avoidOnceCardId: string | null = null;
   let avoidOnceBlockId: string | null = null;
+  let undoSequence = 0;
+  const undoStack: Array<{
+    token: string;
+    remaining: FSRSCard[];
+    current: FSRSCard | null;
+    avoidOnceCardId: string | null;
+    avoidOnceBlockId: string | null;
+    replayedCardId: string | null;
+  }> = [];
   const normalize = (value: unknown) => typeof value === 'string' ? value.trim() : '';
   const selectNext = () => {
     if (remaining.length === 0) {
@@ -115,6 +126,19 @@ function createWorkerSessionBackend(
   const setAvoidOnce = (card: FSRSCard) => {
     avoidOnceCardId = normalize(card.id) || null;
     avoidOnceBlockId = normalize(card.blockId) || null;
+  };
+  const pushUndo = (cardId: string) => {
+    undoSequence += 1;
+    const token = `worker-undo:${undoSequence}`;
+    undoStack.push({
+      token,
+      remaining: remaining.map((card) => ({ ...card })),
+      current: current ? { ...current } : null,
+      avoidOnceCardId,
+      avoidOnceBlockId,
+      replayedCardId: cardId,
+    });
+    return token;
   };
   const buildCounters = () => ({
     remaining: remaining.length + (current ? 1 : 0),
@@ -169,6 +193,7 @@ function createWorkerSessionBackend(
       if (!answeredCard || answeredCard.id !== request.cardId) {
         throw new Error(`WORKER_REVIEW_SESSION_CURRENT_MISMATCH: ${sessionId}`);
       }
+      const undoToken = pushUndo(request.cardId);
       remaining = remaining.filter((card) => card.id !== request.cardId);
       setAvoidOnce(answeredCard);
       if (request.rating < 3) {
@@ -179,6 +204,7 @@ function createWorkerSessionBackend(
         ...buildState(),
         answeredCardId: request.cardId,
         feedback: buildFeedback(request.cardId, request.rating, request.idempotencyKey),
+        undoToken,
       };
     }),
     reviewSessionSkip: vi.fn(async (request: {
@@ -188,6 +214,7 @@ function createWorkerSessionBackend(
       if (!skippedCard || skippedCard.id !== request.cardId) {
         throw new Error(`WORKER_REVIEW_SESSION_CURRENT_MISMATCH: ${sessionId}`);
       }
+      const undoToken = pushUndo(request.cardId);
       remaining = remaining.filter((card) => card.id !== request.cardId);
       setAvoidOnce(skippedCard);
       remaining.push({ ...skippedCard });
@@ -195,6 +222,29 @@ function createWorkerSessionBackend(
       return {
         ...buildState(),
         skippedCardId: request.cardId,
+        undoToken,
+      };
+    }),
+    reviewSessionUndo: vi.fn(async (request: {
+      undoToken?: string | null;
+    }): Promise<BackendReviewSessionUndoResult> => {
+      const token = normalize(request.undoToken);
+      const index = token
+        ? undoStack.findIndex((entry) => entry.token === token)
+        : undoStack.length - 1;
+      if (index < 0) {
+        throw new Error(`WORKER_REVIEW_SESSION_UNDO_UNAVAILABLE: ${sessionId}`);
+      }
+      const [entry] = undoStack.splice(index, 1);
+      remaining = entry.remaining.map((card) => ({ ...card }));
+      current = entry.current ? { ...entry.current } : null;
+      avoidOnceCardId = entry.avoidOnceCardId;
+      avoidOnceBlockId = entry.avoidOnceBlockId;
+      return {
+        ...buildState(),
+        restoredCardId: current?.id ?? null,
+        replayedCardId: entry.replayedCardId,
+        undoToken: entry.token,
       };
     }),
   };
@@ -3062,7 +3112,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(next?.id).toBe(firstCard.id);
   });
 
-  it('does not restore renderer queue snapshots when going back after worker-owned rating', async () => {
+  it('uses worker-owned undo journal when going back after worker-owned rating', async () => {
     const card = createCard();
     const nextCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
     let cardStore: FSRSCard = { ...card };
@@ -3128,7 +3178,9 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const current = expectAdvancedNext(feedbackResult, nextCard.id);
 
     const previous = await strategy.goBack(current);
-    expect(previous).toBeNull();
+    expect(previous).toMatchObject({ id: card.id });
+    expect(strategy.canGoBack()).toBe(false);
+    expect(manager.workerSessionBackend.reviewSessionUndo).toHaveBeenCalledTimes(1);
     expect(primaryRestore).not.toHaveBeenCalled();
     expect(finalRestore).not.toHaveBeenCalled();
     expect(manager.updateCard).not.toHaveBeenCalled();

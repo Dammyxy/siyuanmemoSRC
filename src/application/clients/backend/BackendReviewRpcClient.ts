@@ -8,6 +8,8 @@ import type {
   BackendReviewSessionSkipResult,
   BackendReviewSessionStartRequest,
   BackendReviewSessionState,
+  BackendReviewSessionUndoRequest,
+  BackendReviewSessionUndoResult,
   BackendReviewFeedbackTruthFlushRequest,
   BackendReviewFeedbackTruthFlushResult,
   BackendReviewRiffFeedbackExecuteRequest,
@@ -25,6 +27,7 @@ export interface BackendReviewClientFacet {
   reviewSessionCurrent(request: BackendReviewSessionCurrentRequest): Promise<BackendReviewSessionState>;
   reviewSessionFeedback(request: BackendReviewSessionFeedbackRequest): Promise<BackendReviewSessionFeedbackResult>;
   reviewSessionSkip(request: BackendReviewSessionSkipRequest): Promise<BackendReviewSessionSkipResult>;
+  reviewSessionUndo(request: BackendReviewSessionUndoRequest): Promise<BackendReviewSessionUndoResult>;
   reviewTruthFlush(request: BackendReviewFeedbackTruthFlushRequest): Promise<BackendReviewFeedbackTruthFlushResult>;
   reviewTruthBackfill(request: BackendReviewTruthBackfillRequest): Promise<BackendReviewTruthBackfillResult>;
   executeReviewRiffFeedback(
@@ -56,6 +59,10 @@ export class BackendReviewRpcClient implements BackendReviewClientFacet {
 
   reviewSessionSkip(request: BackendReviewSessionSkipRequest): Promise<BackendReviewSessionSkipResult> {
     return this.rpcCaller.call<BackendReviewSessionSkipResult>('review.session.skip', request);
+  }
+
+  reviewSessionUndo(request: BackendReviewSessionUndoRequest): Promise<BackendReviewSessionUndoResult> {
+    return this.rpcCaller.call<BackendReviewSessionUndoResult>('review.session.undo', request);
   }
 
   reviewTruthFlush(request: BackendReviewFeedbackTruthFlushRequest): Promise<BackendReviewFeedbackTruthFlushResult> {

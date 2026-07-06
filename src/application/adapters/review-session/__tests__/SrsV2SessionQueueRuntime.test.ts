@@ -422,6 +422,7 @@ describe('SrsV2SessionQueueRuntime', () => {
       })),
       reviewSessionFeedback: vi.fn(),
       reviewSessionSkip: vi.fn(),
+      reviewSessionUndo: vi.fn(),
     };
     const runtime = new WorkerReviewSessionQueueRuntime({
       queueType: QueueType.RetrievalPractice,
@@ -433,6 +434,89 @@ describe('SrsV2SessionQueueRuntime', () => {
 
     await expect(runtime.next()).resolves.toBeNull();
     expect(backend.reviewSessionCurrent).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores worker runtime state through backend undo journal', async () => {
+    const first = createCard({ id: 'worker-card-1', blockId: 'worker-block-1' });
+    const second = createCard({ id: 'worker-card-2', blockId: 'worker-block-2' });
+    const backend = {
+      reviewSessionStart: vi.fn(async () => ({
+        sessionId: 'worker-session',
+        queueType: QueueType.RetrievalPractice,
+        current: { ...first },
+        lookaheadCards: [{ ...second }],
+        counters: counter(2),
+        projectionState: 'ready' as const,
+        projectionGeneration: 1,
+        projectionPolicyHash: 'test-policy',
+      })),
+      reviewSessionCurrent: vi.fn(),
+      reviewSessionFeedback: vi.fn(async () => ({
+        sessionId: 'worker-session',
+        queueType: QueueType.RetrievalPractice,
+        current: { ...second },
+        lookaheadCards: [],
+        counters: counter(1),
+        projectionState: 'ready' as const,
+        projectionGeneration: 1,
+        projectionPolicyHash: 'test-policy',
+        answeredCardId: first.id,
+        undoToken: 'worker-undo:1',
+        feedback: {
+          cardId: first.id,
+          committed: true,
+          reviewedAt: Date.now(),
+          queueType: QueueType.RetrievalPractice,
+          updatedCard: { ...first, reps: first.reps + 1 },
+          idempotencyKey: 'worker-feedback',
+        },
+      })),
+      reviewSessionSkip: vi.fn(),
+      reviewSessionUndo: vi.fn(async () => ({
+        sessionId: 'worker-session',
+        queueType: QueueType.RetrievalPractice,
+        current: { ...first },
+        lookaheadCards: [{ ...second }],
+        counters: counter(2),
+        projectionState: 'ready' as const,
+        projectionGeneration: 1,
+        projectionPolicyHash: 'test-policy',
+        restoredCardId: first.id,
+        replayedCardId: first.id,
+        undoToken: 'worker-undo:1',
+      })),
+    };
+    const runtime = new WorkerReviewSessionQueueRuntime({
+      queueType: QueueType.RetrievalPractice,
+      backend,
+    });
+
+    await expect(runtime.next()).resolves.toMatchObject({ id: first.id });
+    const answer = await runtime.answerAndAdvance({
+      card: first,
+      feedback: {
+        action: 'rate',
+        rating: 3,
+        commitIdempotencyKey: 'worker-feedback',
+        repairGate: {
+          state: 'clean',
+          reason: 'test',
+          createdAt: Date.now(),
+          cardId: first.id,
+        },
+      },
+    });
+    expect(answer.undoToken).toBe('worker-undo:1');
+    expect(runtime.canUndoLast()).toBe(true);
+
+    const undo = await runtime.undoLast(answer.undoToken);
+    expect(undo?.restoredCurrentCard).toMatchObject({ id: first.id });
+    expect(undo?.counterSnapshot).toMatchObject({ remaining: 2 });
+    expect(runtime.getSessionCards().map((card) => card.id)).toEqual([first.id, second.id]);
+    expect(backend.reviewSessionUndo).toHaveBeenCalledWith({
+      sessionId: 'worker-session',
+      undoToken: 'worker-undo:1',
+    });
   });
 
   it('restores runtime queue and counter state with an undo token', async () => {

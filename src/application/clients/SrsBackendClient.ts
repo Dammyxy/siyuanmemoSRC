@@ -48,6 +48,8 @@ import type {
   BackendReviewSessionSkipResult,
   BackendReviewSessionStartRequest,
   BackendReviewSessionState,
+  BackendReviewSessionUndoRequest,
+  BackendReviewSessionUndoResult,
   BackendReviewFeedbackTruthFlushRequest,
   BackendReviewFeedbackTruthFlushResult,
   BackendReviewTruthBackfillRequest,
@@ -398,6 +400,12 @@ export class SrsBackendClient {
     request: BackendReviewSessionSkipRequest,
   ): Promise<BackendReviewSessionSkipResult> {
     return this.reviewClient.reviewSessionSkip(request);
+  }
+
+  async reviewSessionUndo(
+    request: BackendReviewSessionUndoRequest,
+  ): Promise<BackendReviewSessionUndoResult> {
+    return this.reviewClient.reviewSessionUndo(request);
   }
 
   async reviewTruthFlush(

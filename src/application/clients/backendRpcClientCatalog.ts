@@ -30,6 +30,7 @@ export const SRS_BACKEND_CLIENT_METHOD_CATALOG = [
   { clientMethod: 'reviewSessionCurrent', rpcMethod: 'review.session.current' },
   { clientMethod: 'reviewSessionFeedback', rpcMethod: 'review.session.feedback' },
   { clientMethod: 'reviewSessionSkip', rpcMethod: 'review.session.skip' },
+  { clientMethod: 'reviewSessionUndo', rpcMethod: 'review.session.undo' },
   { clientMethod: 'reviewTruthFlush', rpcMethod: 'review.truth.flush' },
   { clientMethod: 'reviewTruthBackfill', rpcMethod: 'review.truth.backfill' },
   { clientMethod: 'mergeSyncConflicts', rpcMethod: 'sync.conflict.merge' },

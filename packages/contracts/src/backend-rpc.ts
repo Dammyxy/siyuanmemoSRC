@@ -102,6 +102,7 @@ export const BACKEND_RPC_METHODS = [
   'review.session.current',
   'review.session.feedback',
   'review.session.skip',
+  'review.session.undo',
   'review.truth.flush',
   'review.truth.backfill',
   'private.health',
@@ -232,6 +233,7 @@ export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.session.current'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.session.feedback'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.session.skip'],
+  BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.session.undo'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.flush'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.backfill'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['private.health'],
@@ -2885,6 +2887,11 @@ export interface BackendReviewSessionSkipRequest {
   cardId: string;
 }
 
+export interface BackendReviewSessionUndoRequest {
+  sessionId: string;
+  undoToken?: string | null;
+}
+
 export interface BackendReviewSessionCounterSnapshot {
   remaining: number;
   due: number;
@@ -2913,10 +2920,18 @@ export interface BackendReviewSessionState {
 export interface BackendReviewSessionFeedbackResult extends BackendReviewSessionState {
   answeredCardId: string;
   feedback: BackendReviewFeedbackResult;
+  undoToken?: string | null;
 }
 
 export interface BackendReviewSessionSkipResult extends BackendReviewSessionState {
   skippedCardId: string;
+  undoToken?: string | null;
+}
+
+export interface BackendReviewSessionUndoResult extends BackendReviewSessionState {
+  restoredCardId: string | null;
+  replayedCardId: string | null;
+  undoToken: string;
 }
 
 export interface BackendPreRequestMergeDiagnostic {
