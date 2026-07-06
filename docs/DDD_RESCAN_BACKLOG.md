@@ -9099,6 +9099,15 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: Rebuild plugin, rate several cards, and confirm `hostBreakdown=` now reports `purpose=sqlite-delta.append-preflight` with `substep=persist-committed-transaction-read-snapshot` or `read-append-hot-path-snapshot` instead of `unknown`.
 - Validation: `pnpm exec vitest run worker/db/__tests__/SqliteDatabaseService.metadata.test.ts`; pending full validation in this slice.
 
+### 2026-07-06 - Review Ledger / Card Schedule Store authority seam
+
+- Task: Complete OpenSpec change `separate-review-ledger-from-delta-sync` by making the Review fact authority explicit and proving ordinary answer success does not depend on SQLite delta checkpoint evidence.
+- Touched slice: Review worker persistence; `worker/review/WorkerReviewCardMutationPersistenceModule.ts`, `worker/review/__tests__/WorkerReviewFeedbackRuntime.test.ts`, `worker/review/__tests__/ReviewJournalProjectionReconciler.test.ts`, `worker/review/__tests__/ReviewFeedbackStorageEnvelope.test.ts`, and OpenSpec tasks.
+- Debt fixed now: `WorkerReviewCardMutationPersistenceModule` now names the two hot-path authority seams: `SqlReviewLedgerStore` owns idempotent `review_events` lookup/append, and `SqlCardScheduleStore` owns after-answer schedule persistence. Duplicate answer commands reconcile against the Review Ledger without inserting duplicate Review events or domain sync operations. Card schedule persistence failure now fails the answer closed before ledger/domain-sync writes. Crash recovery projection reconciliation is covered by ledger + card schedule evidence and treats queue projection as derived state. Storage envelope tests now keep SQLite delta checkpoint failure in `storage.sqlCheckpoint` diagnostics while `localIntent` remains durable from Review journal/ledger evidence.
+- Debt deferred: This does not yet split the store classes into separate files or replace the underlying SQL tables; the current change keeps the named seam local to the worker Review persistence module to avoid broad churn while preserving the existing transaction behavior.
+- Next safe step: Rebuild plugin, rate several cards, then inspect logs for `reviewFeedback.runtime` latency plus `storage.sqlCheckpoint` state; ordinary Review success should be judged from Review Ledger/Card Schedule Store evidence, while delta checkpoint issues should appear as diagnostics rather than rating failure.
+- Validation: `pnpm exec vitest run worker/review/__tests__/WorkerReviewFeedbackRuntime.test.ts worker/review/__tests__/ReviewJournalProjectionReconciler.test.ts worker/review/__tests__/ReviewFeedbackStorageEnvelope.test.ts --pool=forks --maxWorkers=1 --minWorkers=1`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate separate-review-ledger-from-delta-sync --strict`.
+
 ## 1. Re-scan summary
 
 - 2026-06-03 Review hot-path delta threshold live fix:

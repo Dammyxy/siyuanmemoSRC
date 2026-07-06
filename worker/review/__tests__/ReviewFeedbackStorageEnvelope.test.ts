@@ -278,6 +278,12 @@ describe('ReviewFeedbackStorageEnvelope', () => {
       journalEntryId: 'entry-a',
     });
 
+    expect(storage.localIntent).toMatchObject({
+      status: 'recorded',
+      durable: true,
+      entryId: 'entry-a',
+      idempotencyKey: 'review:card-1:1',
+    });
     expect(storage.sqlCheckpoint).toMatchObject({
       status: 'unknown',
       hotPath: false,

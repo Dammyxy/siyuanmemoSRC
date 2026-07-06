@@ -64,6 +64,14 @@ function createProjectionRow(
 
 function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDrill) {
   const storedCards = new Map(cards.map((card) => [card.id, card] as const));
+  const reviewEventsByIdempotencyKey = new Map<string, {
+    id: string;
+    card_id: string | null;
+    rating: number | null;
+    reviewed_at: number;
+    event_type: string;
+    payload_json: string;
+  }>();
   const reviewed = cards[0];
   const readRows = vi.fn(() => cards.map((card, index) => createProjectionRow(card, index + 1, 2, queueType)));
   const applyQueueProjectionDelta = vi.fn((_delta: QueueProjectionDelta) => undefined);
@@ -92,8 +100,25 @@ function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDril
   };
   const runtime = {
     runTransaction: vi.fn(async (_name: string, task: () => unknown) => await task()),
-    run: vi.fn(),
-    getOne: vi.fn(() => null),
+    run: vi.fn((sql: string, params?: unknown[]) => {
+      if (sql.includes('INSERT OR REPLACE INTO review_events') && params) {
+        const idempotencyKey = typeof params[5] === 'string' ? params[5] : null;
+        if (idempotencyKey) {
+          reviewEventsByIdempotencyKey.set(idempotencyKey, {
+            id: String(params[0]),
+            card_id: typeof params[1] === 'string' ? params[1] : null,
+            rating: typeof params[3] === 'number' ? params[3] : null,
+            reviewed_at: Number(params[4]),
+            event_type: String(params[8]),
+            payload_json: String(params[9]),
+          });
+        }
+      }
+    }),
+    getOne: vi.fn((_sql: string, params?: unknown[]) => {
+      const idempotencyKey = typeof params?.[0] === 'string' ? params[0] : null;
+      return idempotencyKey ? reviewEventsByIdempotencyKey.get(idempotencyKey) ?? null : null;
+    }),
   };
   const reviewRuntime = new WorkerReviewFeedbackRuntime({
     repository,
@@ -104,6 +129,8 @@ function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDril
   return {
     reviewed,
     reviewRuntime,
+    repository,
+    runtime,
     readRows,
     applyQueueProjectionDelta,
   };
@@ -324,5 +351,91 @@ describe('WorkerReviewFeedbackRuntime', () => {
 
     expect(readRows).toHaveBeenCalledOnce();
     expect(applyQueueProjectionDelta).toHaveBeenCalledOnce();
+  });
+
+  it('reconciles duplicate answer commands from review ledger without duplicate review events', async () => {
+    const reviewed = createCard({ id: 'card-duplicate', blockId: 'block-duplicate' });
+    const {
+      reviewRuntime,
+      repository,
+      runtime,
+      readRows,
+      applyQueueProjectionDelta,
+    } = createRuntimeFixture([reviewed], QueueType.RetrievalPractice);
+
+    const request = {
+      cardId: reviewed.id,
+      rating: 3 as const,
+      queueType: QueueType.RetrievalPractice,
+      projectionGeneration: 2,
+      projectionPolicyHash: 'policy-a',
+      reviewedAt: REVIEWED_AT,
+      idempotencyKey: 'duplicate-review-1',
+    };
+
+    const first = await reviewRuntime.reviewFeedback(request);
+    const second = await reviewRuntime.reviewFeedback(request);
+
+    const reviewEventInsertCalls = runtime.run.mock.calls.filter(([sql]) => (
+      String(sql).includes('INSERT OR REPLACE INTO review_events')
+    ));
+    const domainSyncInsertCalls = runtime.run.mock.calls.filter(([sql]) => (
+      String(sql).includes('INSERT OR IGNORE INTO domain_sync_operations')
+    ));
+
+    expect(first).toMatchObject({
+      committed: true,
+      duplicate: false,
+      idempotencyKey: 'duplicate-review-1',
+    });
+    expect(second).toMatchObject({
+      committed: true,
+      duplicate: true,
+      idempotencyKey: 'duplicate-review-1',
+      queueImpact: null,
+    });
+    expect(reviewEventInsertCalls).toHaveLength(1);
+    expect(domainSyncInsertCalls).toHaveLength(1);
+    expect(repository.upsertCards).toHaveBeenCalledOnce();
+    expect(repository.touchSyncMetadata).toHaveBeenCalledOnce();
+    expect(readRows).not.toHaveBeenCalled();
+    expect(applyQueueProjectionDelta).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when card schedule store cannot persist the after-answer state', async () => {
+    const reviewed = createCard({ id: 'card-schedule-fails', blockId: 'block-schedule-fails' });
+    const {
+      reviewRuntime,
+      repository,
+      runtime,
+      readRows,
+      applyQueueProjectionDelta,
+    } = createRuntimeFixture([reviewed], QueueType.RetrievalPractice);
+    repository.upsertCards.mockImplementation(() => {
+      throw new Error('BACKEND_UNAVAILABLE: card schedule store unavailable');
+    });
+
+    await expect(reviewRuntime.reviewFeedback({
+      cardId: reviewed.id,
+      rating: 3,
+      queueType: QueueType.RetrievalPractice,
+      projectionGeneration: 2,
+      projectionPolicyHash: 'policy-a',
+      reviewedAt: REVIEWED_AT,
+      idempotencyKey: 'schedule-failure-1',
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: card schedule store unavailable');
+
+    const reviewEventInsertCalls = runtime.run.mock.calls.filter(([sql]) => (
+      String(sql).includes('INSERT OR REPLACE INTO review_events')
+    ));
+    const domainSyncInsertCalls = runtime.run.mock.calls.filter(([sql]) => (
+      String(sql).includes('INSERT OR IGNORE INTO domain_sync_operations')
+    ));
+
+    expect(reviewEventInsertCalls).toHaveLength(0);
+    expect(domainSyncInsertCalls).toHaveLength(0);
+    expect(repository.touchSyncMetadata).not.toHaveBeenCalled();
+    expect(readRows).not.toHaveBeenCalled();
+    expect(applyQueueProjectionDelta).not.toHaveBeenCalled();
   });
 });

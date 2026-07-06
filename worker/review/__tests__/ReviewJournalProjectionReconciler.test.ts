@@ -296,6 +296,71 @@ describe('ReviewJournalProjectionReconciler', () => {
     }));
   });
 
+  it('replays ledger and card schedule facts without trusting projection as authority after crash recovery', async () => {
+    const afterCard = createCard({
+      id: 'card-crash-replay',
+      blockId: 'block-crash-replay',
+      due: REVIEWED_AT + 86_400_000,
+      reps: 5,
+      updatedAt: REVIEWED_AT,
+    });
+    const staleProjectionRow = createProjectionRow(createCard({
+      id: afterCard.id,
+      blockId: afterCard.blockId,
+      due: REVIEWED_AT - 10_000,
+      reps: 4,
+    }));
+    const entry = createJournalEntry({
+      id: 'review-feedback:crash-replay',
+      idempotencyKey: 'review-commit:crash-replay',
+      cardId: afterCard.id,
+      blockId: afterCard.blockId,
+      status: 'prepared',
+      projectionGeneration: 2,
+    });
+    const deps = createDeps([entry]);
+    vi.mocked(deps.queueProjection!.readGeneration).mockReturnValue(createGeneration({ generation: 2 }));
+    vi.mocked(deps.queueProjection!.listReadyGenerations).mockReturnValue([createGeneration({ generation: 2 })]);
+    vi.mocked(deps.queueProjection!.readRows).mockReturnValue([staleProjectionRow]);
+    vi.mocked(deps.repository!.queryCards).mockReturnValue([afterCard]);
+    vi.mocked(deps.getDurableReviewEventByIdempotencyKey).mockReturnValue(createDurableEvent({
+      cardId: afterCard.id,
+      blockId: afterCard.blockId,
+      reviewedAt: REVIEWED_AT,
+      queueType: QueueType.IncrementalLearning,
+    }));
+
+    await new ReviewJournalProjectionReconciler(deps).reconcile();
+
+    expect(deps.getDurableReviewEventByIdempotencyKey).toHaveBeenCalledWith('review-commit:crash-replay');
+    expect(deps.repository?.queryCards).toHaveBeenCalledWith(expect.objectContaining({
+      dueDate: { lte: expect.any(Number) },
+      includeSuspended: false,
+      sourceStatus: 'active',
+    }));
+    expect(deps.queueProjection?.replaceQueueProjection).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.IncrementalLearning,
+      policyHash: 'policy-a',
+      generation: 3,
+      rows: [],
+      metadata: expect.objectContaining({
+        reason: 'review-feedback-journal-reconciliation',
+        source: 'review-feedback-journal',
+        reconciledCardIds: [afterCard.id],
+        reconciledBlockIds: [afterCard.blockId],
+      }),
+    }));
+    expect(deps.journalStore?.updateEntryStatus).toHaveBeenCalledWith(
+      entry.id,
+      'projection-applied',
+      expect.objectContaining({
+        appliedAt: REVIEWED_AT,
+        projectionAppliedAt: NOW,
+        lastError: null,
+      }),
+    );
+  });
+
   it('rebuilds every ready policy for the queue when stale reviewed rows exist across policies', async () => {
     const entry = createJournalEntry({ status: 'truth-flushed', projectionPolicyHash: 'policy-a' });
     const deps = createDeps([entry]);

@@ -7,15 +7,15 @@
 ## 2. Tests First
 
 - [x] 2.1 Add a regression test proving consecutive Review answers do not read historical sealed delta segments on the hot path.
-- [ ] 2.2 Add idempotency test proving duplicate answer commands reconcile against ledger facts without duplicate Review events.
-- [ ] 2.3 Add crash-recovery test proving ledger/card schedule facts replay without projection authority.
-- [ ] 2.4 Add failure test proving ledger/card schedule failure fails the answer closed.
+- [x] 2.2 Add idempotency test proving duplicate answer commands reconcile against ledger facts without duplicate Review events.
+- [x] 2.3 Add crash-recovery test proving ledger/card schedule facts replay without projection authority.
+- [x] 2.4 Add failure test proving ledger/card schedule failure fails the answer closed.
 
 ## 3. Implementation
 
-- [ ] 3.1 Introduce named Review Ledger / Card Schedule Store seam around existing SQL/journal writes.
+- [x] 3.1 Introduce named Review Ledger / Card Schedule Store seam around existing SQL/journal writes.
 - [x] 3.2 Refactor SQLite delta append preflight to avoid sealed segment reads during ordinary same-runtime Review answers.
-- [ ] 3.3 Move delta checkpoint/sync diagnostics out of kernel answer authority result.
+- [x] 3.3 Move delta checkpoint/sync diagnostics out of kernel answer authority result.
 - [x] 3.4 Preserve checksum/sequence evidence and startup recovery verification.
 
 ## 4. Docs and Validation

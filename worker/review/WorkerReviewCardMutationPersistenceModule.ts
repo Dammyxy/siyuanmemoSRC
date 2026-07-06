@@ -66,6 +66,26 @@ export type WorkerReviewFeedbackQueueImpactBuilder = (input: {
   updatedCard: FSRSCard | null;
 }) => BackendReviewFeedbackQueueImpact | null;
 
+type ReviewLedgerDuplicateCommit = {
+  reviewedAt: number;
+  payload: Record<string, unknown>;
+};
+
+type AppendCommittedReviewFactInput = {
+  log: ReturnType<typeof createReviewLogV2>;
+  factSummary: ReturnType<typeof summarizeReviewEventFact>;
+  idempotencyKey: string | null;
+};
+
+type CardScheduleStore = {
+  updateAfterReview(cards: FSRSCard[]): void;
+};
+
+type ReviewLedgerStore = {
+  findByIdempotencyKey(idempotencyKey: string): ReviewLedgerDuplicateCommit | null;
+  appendCommittedReviewFact(input: AppendCommittedReviewFactInput): void;
+};
+
 export class WorkerReviewCardMutationPersistenceModule {
   constructor(private readonly deps: {
     repository: ReviewFeedbackRepository;
@@ -81,13 +101,15 @@ export class WorkerReviewCardMutationPersistenceModule {
     let postCommitQueueImpactInput: Parameters<WorkerReviewFeedbackQueueImpactBuilder>[0] | null = null;
     const result = await this.measureReviewFeedbackStep('transaction', input, () => this.deps.runtime.runTransaction('review.feedback', async () => {
       const domainSyncLedger = this.deps.domainSyncLedger ?? new DomainSyncLedger(this.deps.runtime);
+      const reviewLedger = new SqlReviewLedgerStore(this.deps.runtime);
+      const cardScheduleStore = new SqlCardScheduleStore(this.deps.repository);
       const card = this.deps.repository.getCard(input.cardId);
       if (!card) {
         throw new Error(`review.feedback card not found: ${input.cardId}`);
       }
 
       const existingCommit = input.idempotencyKey
-        ? this.readExistingReviewCommit(input.idempotencyKey)
+        ? reviewLedger.findByIdempotencyKey(input.idempotencyKey)
         : null;
       if (existingCommit) {
         this.assertCompatibleDuplicateCommit(existingCommit, input);
@@ -111,12 +133,7 @@ export class WorkerReviewCardMutationPersistenceModule {
         },
         {
           batchUpdateCardsWithoutEvents: async (cards) => {
-            this.deps.repository.upsertCards(
-              cards.map((candidate) => canonicalizeSchedulingState(candidate, {
-                source: 'review-commit',
-                mode: 'assert-internal',
-              }).card),
-            );
+            cardScheduleStore.updateAfterReview(cards);
           },
           addReviewLogV2: async () => undefined,
         },
@@ -158,28 +175,11 @@ export class WorkerReviewCardMutationPersistenceModule {
             `INVALID_STATE: committed review feedback produced non-formal review fact: ${fact.classification.exclusionReasons.join(',')}`,
           );
         }
-        const month = new Date(log.reviewedAt);
-        this.deps.runtime.run(
-          `INSERT OR REPLACE INTO review_events
-            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            log.id,
-            log.cardId,
-            log.attemptId,
-            log.rating,
-            log.reviewedAt,
-            input.idempotencyKey,
-            month.getFullYear(),
-            month.getMonth() + 1,
-            'review-v2',
-            JSON.stringify(buildReviewEventIndexPayload({
-              log,
-              factSummary: summarizeReviewEventFact(fact),
-              idempotencyKey: input.idempotencyKey,
-            })),
-          ],
-        );
+        reviewLedger.appendCommittedReviewFact({
+          log,
+          factSummary: summarizeReviewEventFact(fact),
+          idempotencyKey: input.idempotencyKey,
+        });
         domainSyncLedger.appendReviewCommitted({
           reviewEventId: log.id,
           card,
@@ -304,11 +304,44 @@ export class WorkerReviewCardMutationPersistenceModule {
     }
   }
 
-  private readExistingReviewCommit(idempotencyKey: string): {
-    reviewedAt: number;
-    payload: Record<string, unknown>;
-  } | null {
-    const row = this.deps.runtime.getOne<ExistingReviewCommitRow>(
+  private assertCompatibleDuplicateCommit(
+    existing: ReviewLedgerDuplicateCommit,
+    request: WorkerReviewFeedbackMutationInput,
+  ): void {
+    const payload = existing.payload;
+    const mismatches = [
+      ['cardId', payload.cardId, request.cardId],
+      ['rating', payload.rating, request.rating],
+      ['queueType', payload.queueType, request.queueType],
+      ['queueMode', payload.queueMode, request.queueMode],
+      ['commitPolicy', payload.commitPolicy, request.commitPolicy],
+    ].filter(([, actual, expected]) => String(actual ?? '') !== String(expected ?? ''));
+    if (mismatches.length > 0) {
+      throw new Error(
+        `INVALID_REQUEST: conflicting review commit idempotency key: ${request.idempotencyKey}`,
+      );
+    }
+  }
+}
+
+class SqlCardScheduleStore implements CardScheduleStore {
+  constructor(private readonly repository: ReviewFeedbackRepository) {}
+
+  updateAfterReview(cards: FSRSCard[]): void {
+    this.repository.upsertCards(
+      cards.map((candidate) => canonicalizeSchedulingState(candidate, {
+        source: 'review-commit',
+        mode: 'assert-internal',
+      }).card),
+    );
+  }
+}
+
+class SqlReviewLedgerStore implements ReviewLedgerStore {
+  constructor(private readonly runtime: ReviewFeedbackRuntime) {}
+
+  findByIdempotencyKey(idempotencyKey: string): ReviewLedgerDuplicateCommit | null {
+    const row = this.runtime.getOne<ExistingReviewCommitRow>(
       `SELECT id, card_id, rating, reviewed_at, event_type, payload_json
        FROM review_events
        WHERE commit_idempotency_key = ?
@@ -325,23 +358,25 @@ export class WorkerReviewCardMutationPersistenceModule {
     };
   }
 
-  private assertCompatibleDuplicateCommit(
-    existing: { payload: Record<string, unknown> },
-    request: WorkerReviewFeedbackMutationInput,
-  ): void {
-    const payload = existing.payload;
-    const mismatches = [
-      ['cardId', payload.cardId, request.cardId],
-      ['rating', payload.rating, request.rating],
-      ['queueType', payload.queueType, request.queueType],
-      ['queueMode', payload.queueMode, request.queueMode],
-      ['commitPolicy', payload.commitPolicy, request.commitPolicy],
-    ].filter(([, actual, expected]) => String(actual ?? '') !== String(expected ?? ''));
-    if (mismatches.length > 0) {
-      throw new Error(
-        `INVALID_REQUEST: conflicting review commit idempotency key: ${request.idempotencyKey}`,
-      );
-    }
+  appendCommittedReviewFact(input: AppendCommittedReviewFactInput): void {
+    const month = new Date(input.log.reviewedAt);
+    this.runtime.run(
+      `INSERT OR REPLACE INTO review_events
+        (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.log.id,
+        input.log.cardId,
+        input.log.attemptId,
+        input.log.rating,
+        input.log.reviewedAt,
+        input.idempotencyKey,
+        month.getFullYear(),
+        month.getMonth() + 1,
+        'review-v2',
+        JSON.stringify(buildReviewEventIndexPayload(input)),
+      ],
+    );
   }
 }
 
