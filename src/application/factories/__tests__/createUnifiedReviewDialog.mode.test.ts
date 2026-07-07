@@ -241,8 +241,16 @@ describe('createUnifiedReviewDialog', () => {
     expect(calls).toEqual(['flush', 'sync']);
   });
 
-  it('requests Review truth flush when the ReviewView close event destroys the dialog', async () => {
-    const requestReviewTruthFlush = vi.fn();
+  it('awaits durable Review truth flush before the ReviewView close event destroys the dialog', async () => {
+    const calls: string[] = [];
+    const flushReviewTruthNow = vi.fn(async () => {
+      calls.push('flush');
+      return true;
+    });
+    const destroy = vi.fn(() => {
+      calls.push('destroy');
+    });
+    createVueDialogMock.mockImplementationOnce(() => ({ destroy }));
     const plugin = {
       app: {},
       isMobile: false,
@@ -254,7 +262,7 @@ describe('createUnifiedReviewDialog', () => {
             progressiveReading: {},
           }),
         }),
-        getSrsBackendClient: () => ({ requestReviewTruthFlush }),
+        getSrsBackendClient: () => ({ flushReviewTruthNow }),
       }),
     };
 
@@ -267,10 +275,11 @@ describe('createUnifiedReviewDialog', () => {
     });
 
     const dialogOptions = createVueDialogMock.mock.calls[0]?.[0];
-    dialogOptions.events.close();
-    await Promise.resolve();
+    await dialogOptions.events.close();
 
-    expect(requestReviewTruthFlush).toHaveBeenCalledWith('review-exit');
+    expect(flushReviewTruthNow).toHaveBeenCalledWith('review-exit');
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(['flush', 'destroy']);
   });
 
   it('deduplicates close finalization when destroy also invokes dialog onClose', async () => {

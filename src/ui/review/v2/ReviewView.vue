@@ -618,7 +618,7 @@ type ReviewPluginContextLike = {
   getTabManager?: () =>
     | (ReviewOpenAsTabManager & {
         replaceCurrentReviewTabWithStandardQueue?: (queueType: QueueType) => void;
-        closeReviewTab?: (reviewSessionId: string) => void;
+        closeReviewTab?: (reviewSessionId: string) => void | Promise<void>;
       })
     | undefined;
   getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
@@ -4999,11 +4999,11 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   }
 }
 
-function closeReviewSurfaceAfterTemporaryRouteClose(): void {
+async function closeReviewSurfaceAfterTemporaryRouteClose(): Promise<void> {
   if (props.mode === 'tab') {
     const tabManager = getTabManager();
     if (reviewSessionId.value && typeof tabManager?.closeReviewTab === 'function') {
-      tabManager.closeReviewTab(reviewSessionId.value);
+      await tabManager.closeReviewTab(reviewSessionId.value);
       return;
     }
     logger.warn('[SiYuanMemo][ReviewView] Failed to close tab review because TabManager.closeReviewTab is unavailable', {
@@ -5021,13 +5021,13 @@ async function closeCurrentReviewSurface(): Promise<void> {
 
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue?.resolveTemporaryRouteCloseAction) {
-    closeReviewSurfaceAfterTemporaryRouteClose();
+    await closeReviewSurfaceAfterTemporaryRouteClose();
     return;
   }
 
   void closeActiveTemporaryRouteBeforeReviewClose().then((closeResult) => {
     if (closeResult !== 'cancelled') {
-      closeReviewSurfaceAfterTemporaryRouteClose();
+      void closeReviewSurfaceAfterTemporaryRouteClose();
     }
   });
 }

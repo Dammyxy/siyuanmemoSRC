@@ -211,6 +211,121 @@ describe('SrsBackendClient', () => {
     }
   });
 
+  it('flushes Review truth immediately when worker session feedback reaches the pending threshold', async () => {
+    vi.useFakeTimers();
+    try {
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const thresholdFeedback = createDurableReviewFeedbackResult({
+        storage: {
+          ...(createDurableReviewFeedbackResult().storage as Record<string, unknown>),
+          truthFlush: {
+            status: 'pending',
+            family: 'review-events',
+            syncVisible: false,
+            pendingCount: 8,
+            oldestPendingAgeMs: 0,
+            lastError: null,
+          },
+        },
+      });
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          requests.push({ method: request.method, params: request.params });
+          if (request.method === 'review.session.feedback') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                sessionId: 'session-a',
+                queueType: 'retrieval-practice',
+                current: null,
+                lookaheadCards: [],
+                counters: {
+                  remaining: 0,
+                  due: 0,
+                  total: 8,
+                  source: 'worker-session',
+                },
+                projectionState: 'not-used',
+                projectionGeneration: null,
+                projectionPolicyHash: null,
+                answeredCardId: 'card-review-truth-flush',
+                feedback: thresholdFeedback,
+                undoToken: 'undo-a',
+              },
+            };
+          }
+          if (request.method === 'review.truth.flush') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                at: 1_700_000_000_100,
+                journalQueued: 8,
+                recordsWritten: 8,
+                segmentWritten: true,
+                manifestUpdated: true,
+                projectionRefreshScheduled: true,
+                idempotencyDuplicateSkipped: 0,
+                flushedEntryIds: ['review-feedback:truth-flush-key'],
+                segmentPaths: ['truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack'],
+                error: null,
+              },
+            };
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 8,
+          delayMs: 50,
+          flushThreshold: 8,
+        },
+      });
+
+      await expect(client.reviewSessionFeedback({
+        sessionId: 'session-a',
+        cardId: 'card-review-truth-flush',
+        rating: 3,
+        idempotencyKey: 'truth-flush-key',
+      })).resolves.toMatchObject({
+        answeredCardId: 'card-review-truth-flush',
+        feedback: {
+          committed: true,
+          storage: {
+            truthFlush: {
+              status: 'pending',
+              pendingCount: 8,
+            },
+          },
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitFor(() => expect(requests).toHaveLength(2));
+      expect(requests.map((request) => request.method)).toEqual([
+        'review.session.feedback',
+        'review.truth.flush',
+      ]);
+      expect(requests[1]).toEqual({
+        method: 'review.truth.flush',
+        params: [{
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 8,
+        }],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('accepts committed feedback when truth flush and projection maintenance are still pending', async () => {
     const transport: SrsBackendTransport = {
       request: vi.fn(async (request) => {

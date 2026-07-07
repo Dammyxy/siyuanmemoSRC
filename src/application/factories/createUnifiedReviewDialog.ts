@@ -218,9 +218,9 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                 initialSemanticPinnedSessionId,
             },
             events: {
-                close: () => {
+                close: async () => {
+                    await finalizeClose();
                     dialog?.destroy();
-                    void finalizeClose();
                 },
             },
             width: isMobile ? '100vw' : 'min(860px, 96vw)',

@@ -261,4 +261,52 @@ describe('ReviewView empty state actions', () => {
 
     wrapper.unmount();
   });
+
+  it('awaits the active review tab close before the completed empty state finishes closing', async () => {
+    const queue = createQueue(async () => null);
+    const adapter = createCompletedEmptyAdapter();
+    const calls: string[] = [];
+    let resolveClose: (() => void) | null = null;
+    const closePromise = new Promise<void>((resolve) => {
+      resolveClose = resolve;
+    });
+    const tabManager = {
+      closeReviewTab: vi.fn(async () => {
+        calls.push('close-start');
+        await closePromise;
+        calls.push('close-end');
+      }),
+      openReviewTab: vi.fn(),
+    };
+
+    const wrapper = mountReviewView({
+      queue,
+      adapter,
+      mode: 'tab',
+      reviewSessionId: 'review-tab-1',
+      plugin: {
+        getContext: () => ({
+          getTabManager: () => tabManager,
+        }),
+      },
+    });
+
+    await flushPromises();
+
+    const exitButton = wrapper.get('.fsrs-review-v2__empty-exit');
+    void exitButton.trigger('click');
+    await Promise.resolve();
+
+    expect(tabManager.closeReviewTab).toHaveBeenCalledWith('review-tab-1');
+    expect(calls).toEqual(['close-start']);
+    expect(wrapper.emitted('close')).toBeFalsy();
+
+    resolveClose?.();
+    await flushPromises();
+
+    expect(calls).toEqual(['close-start', 'close-end']);
+    expect(wrapper.emitted('close')).toBeFalsy();
+
+    wrapper.unmount();
+  });
 });

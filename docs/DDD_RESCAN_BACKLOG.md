@@ -4,6 +4,16 @@ Last update: 2026-07-07 (Round 671)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-07 - Review exit durability close-path await
+
+- Task: Diagnose why Review records still returned to the old visible count after user reviewed cards and restarted SiYuan.
+- Touched slice: Renderer Review close surfaces and backend Review truth flush scheduling; `src/application/factories/createUnifiedReviewDialog.ts`, `src/ui/review/v2/ReviewView.vue`, and focused Review close / backend client tests.
+- Debt fixed now: Dialog close from `ReviewView` now awaits `flushReviewTruthNow('review-exit')` before destroying the dialog. Tab-mode completed Review exit now awaits `TabManager.closeReviewTab()`, preserving the existing TabManager guarantee that durable Review truth flush runs before tab close. Worker `review.session.feedback` now has explicit coverage proving the Review truth pending-count threshold triggers immediate `review.truth.flush` on the active worker Review path.
+- Debt deferred: `ReviewSyncManager` remains legacy Xiuyuan/browser observer plumbing and should not be treated as the Review Ledger/Card Schedule durability authority. A later cleanup should either remove it from Review close semantics or rename/scope it so it cannot be mistaken for the worker Review persistence path.
+- Why deferred: The live rollback symptom needed the active answer/exit durability path fixed first. Removing obsolete sync plumbing crosses UI observer, Xiuyuan Sync, and Review ownership seams.
+- Next safe step: Rebuild/reload, review more than the truth flush threshold, close both dialog and tab Review surfaces, restart SiYuan, and verify Review record count/reps/lastReview do not return to `42`. If still divergent, inspect startup `pendingBackfillRows`, `reviewFeedbackJournal` status counts, and Domain Sync repair diagnostics.
+- Validation: Focused SrsBackendClient, Review dialog close, TabManager close, ReviewView empty-state, and reviewHostRuntime suites passed in this implementation pass.
+
 ### 2026-07-07 - Plugin unload Review truth flush ordering
 
 - Task: Diagnose exit-time warnings after reviewed cards still reverted to the old Review record count (`42`) on restart.
