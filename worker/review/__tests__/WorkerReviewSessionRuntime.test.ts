@@ -599,4 +599,179 @@ describe('WorkerReviewSessionRuntime', () => {
       endBackendWorkerRequest(timing);
     }
   });
+
+  it('flushes sub-threshold session steps and unattributed gap when feedback total is slow', async () => {
+    const first = createCard('card-1');
+    const second = createCard('card-2', 1_000);
+    const cardsById = new Map([first, second].map((card) => [card.id, card] as const));
+    const timing = beginBackendWorkerTiming('review.session.feedback', first.id, {
+      queueType: QueueType.RetrievalPractice,
+    });
+    const undoJournal = {
+      append: vi.fn(async () => undefined),
+      consume: vi.fn(() => null),
+    };
+    const feedbackRuntime = {
+      reviewFeedback: vi.fn(async () => ({
+        cardId: first.id,
+        committed: true,
+        reviewedAt: NOW,
+        queueType: QueueType.RetrievalPractice,
+        updatedCard: { ...first, reps: first.reps + 1, due: NOW + 86_400_000 },
+        idempotencyKey: 'feedback-key',
+        queueImpact: {
+          hotPatchable: false,
+          refreshRequired: false,
+          affectedQueues: [],
+        },
+      })),
+    };
+    const runtime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'retrieval-policy',
+          generation: 7,
+          status: 'ready',
+        })),
+        readRows: vi.fn(() => [createProjectionRow(first, 1), createProjectionRow(second, 2)]),
+      },
+      feedbackRuntime,
+      undoJournal,
+    });
+
+    const started = await runtime.startSession({
+      sessionId: 'session-slow-gap',
+      queueType: QueueType.RetrievalPractice,
+    });
+    const dateNow = vi.spyOn(Date, 'now');
+    const nowSequence = [
+      1_000, 1_000, 1_000, 1_000, 1_050, 1_050, 1_050,
+      1_050, 1_050, 1_080, 1_080, 1_080, 1_600,
+    ];
+    dateNow.mockImplementation(() => nowSequence.shift() ?? 1_600);
+
+    try {
+      await runtime.feedback({
+        sessionId: started.sessionId,
+        cardId: first.id,
+        rating: 3,
+        reviewedAt: NOW,
+        idempotencyKey: 'feedback-key',
+        repairGate: {
+          state: 'clean',
+          reason: 'test-clean-gate',
+          createdAt: NOW,
+          cardId: first.id,
+        },
+      });
+
+      expect(timing.innerSteps.map((step) => step.step)).toEqual([
+        'session-feedback-preflight',
+        'session-feedback-commit',
+        'session-feedback-advance',
+        'session-feedback-undo-journal-append',
+        'session-feedback-state',
+        'session-feedback-unattributed-gap',
+        'session-feedback-total',
+      ]);
+      expect(timing.innerSteps.find((step) => step.step === 'session-feedback-commit')?.durationMs).toBe(50);
+      expect(timing.innerSteps.find((step) => step.step === 'session-feedback-undo-journal-append')?.durationMs).toBe(30);
+      expect(timing.innerSteps.find((step) => step.step === 'session-feedback-unattributed-gap')).toEqual(
+        expect.objectContaining({
+          durationMs: 520,
+          extra: expect.objectContaining({
+            measuredSessionStepTotalMs: 80,
+            totalSessionFeedbackMs: 600,
+          }),
+        }),
+      );
+      expect(timing.innerSteps.find((step) => step.step === 'session-feedback-total')).toEqual(
+        expect.objectContaining({
+          durationMs: 600,
+          extra: expect.objectContaining({
+            measuredSessionStepTotalMs: 80,
+            unattributedGapMs: 520,
+          }),
+        }),
+      );
+    } finally {
+      dateNow.mockRestore();
+      endBackendWorkerRequest(timing);
+    }
+  });
+
+  it('keeps fast feedback session timing quiet', async () => {
+    const first = createCard('card-1');
+    const second = createCard('card-2', 1_000);
+    const cardsById = new Map([first, second].map((card) => [card.id, card] as const));
+    const timing = beginBackendWorkerTiming('review.session.feedback', first.id, {
+      queueType: QueueType.RetrievalPractice,
+    });
+    const feedbackRuntime = {
+      reviewFeedback: vi.fn(async () => ({
+        cardId: first.id,
+        committed: true,
+        reviewedAt: NOW,
+        queueType: QueueType.RetrievalPractice,
+        updatedCard: { ...first, reps: first.reps + 1, due: NOW + 86_400_000 },
+        idempotencyKey: 'feedback-key',
+        queueImpact: {
+          hotPatchable: false,
+          refreshRequired: false,
+          affectedQueues: [],
+        },
+      })),
+    };
+    const runtime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'retrieval-policy',
+          generation: 7,
+          status: 'ready',
+        })),
+        readRows: vi.fn(() => [createProjectionRow(first, 1), createProjectionRow(second, 2)]),
+      },
+      feedbackRuntime,
+    });
+
+    const started = await runtime.startSession({
+      sessionId: 'session-fast-feedback',
+      queueType: QueueType.RetrievalPractice,
+    });
+    const dateNow = vi.spyOn(Date, 'now');
+    const nowSequence = [
+      1_000, 1_000, 1_000, 1_000, 1_020, 1_020, 1_020,
+      1_020, 1_020, 1_020, 1_080,
+    ];
+    dateNow.mockImplementation(() => nowSequence.shift() ?? 1_080);
+
+    try {
+      await runtime.feedback({
+        sessionId: started.sessionId,
+        cardId: first.id,
+        rating: 3,
+        reviewedAt: NOW,
+        idempotencyKey: 'feedback-key',
+        repairGate: {
+          state: 'clean',
+          reason: 'test-clean-gate',
+          createdAt: NOW,
+          cardId: first.id,
+        },
+      });
+
+      expect(timing.innerSteps).toEqual([]);
+    } finally {
+      dateNow.mockRestore();
+      endBackendWorkerRequest(timing);
+    }
+  });
 });

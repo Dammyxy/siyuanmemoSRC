@@ -1072,7 +1072,14 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           'session:session-feedback-commit 180ms',
           expectedSkipSummary,
         ]),
+        sessionStepSummary: [
+          'session:session-feedback-commit 180ms',
+        ],
       }),
+    );
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      expect.stringContaining('sessionBreakdown=session:session-feedback-commit 180ms'),
+      expect.anything(),
     );
     expect(transportLoggerMocks.info.mock.calls.some(([message]) => (
       typeof message === 'string'

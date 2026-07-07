@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-07 (Round 677)
+Last update: 2026-07-07 (Round 678)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-07 - Review session feedback gap diagnostics
+
+- Task: Implement OpenSpec change `trace-review-session-feedback-gaps` so the next slow Review scoring log explains whether the remaining ~570-690ms sits in measured session work or unattributed worker gap.
+- Touched slice: Review session feedback diagnostics; `worker/review/WorkerReviewSessionRuntime.ts`, `worker/review/__tests__/WorkerReviewSessionRuntime.test.ts`, `src/application/clients/BrowserSrsBackendWorkerTransport.ts`, `src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: `WorkerReviewSessionRuntime.feedback()` now buffers preflight/commit/advance/undo-journal/state timings for each rating. Fast ratings stay quiet, but slow `session-feedback-total` flushes all buffered session substeps even when each substep is below the slow threshold. Slow totals also record `session-feedback-unattributed-gap` with measured step total and total feedback duration. Worker handle summaries now include `sessionBreakdown=` so live logs are copyable without opening object payloads.
+- Debt deferred: This still does not optimize the slow path. It narrows the next decision to commit/storage, undo journal, state shaping, advance, or unattributed event-loop / await-resumption gap.
+- Why deferred: The current live evidence shows host writes are only ~60-72ms while total is ~570-690ms; changing durability, batching, or bridge behavior before locating the gap would risk crash-recovery / fail-closed semantics.
+- Next safe step: Rebuild/reload, rate Retrieval cards, and inspect `sessionBreakdown=` plus `session:session-feedback-unattributed-gap`. If the gap dominates, investigate worker scheduling/await resumption; if commit dominates, trace inside Review commit/runtime transaction.
+- Validation: Focused Review session timing and worker transport summary tests; hidden-fallback check; boundary check; build; OpenSpec strict validation; git diff whitespace check in this implementation pass.
 
 ### 2026-07-07 - Review session feedback latency attribution
 

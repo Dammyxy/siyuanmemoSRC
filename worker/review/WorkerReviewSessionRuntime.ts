@@ -19,6 +19,7 @@ import type {
 } from './ReviewTransactionUndoJournal';
 
 const REVIEW_SESSION_FEEDBACK_STEP_SLOW_MS = 120;
+const REVIEW_SESSION_FEEDBACK_GAP_SLOW_MS = 50;
 
 type WorkerReviewSessionQueueProjection = {
   readGeneration(queueType: QueueType): QueueProjectionGeneration | null | Promise<QueueProjectionGeneration | null>;
@@ -122,6 +123,16 @@ type WorkerReviewSession = {
   undoStack: WorkerReviewSessionUndoEntry[];
 };
 
+type WorkerReviewSessionFeedbackStepTiming = {
+  step: string;
+  durationMs: number;
+  recorded: boolean;
+};
+
+type WorkerReviewSessionFeedbackTimingBuffer = {
+  steps: WorkerReviewSessionFeedbackStepTiming[];
+};
+
 export class WorkerReviewSessionRuntime {
   private readonly sessions = new Map<string, WorkerReviewSession>();
   private nextSessionId = 1;
@@ -194,6 +205,7 @@ export class WorkerReviewSessionRuntime {
 
   async feedback(request: WorkerReviewSessionFeedbackRequest): Promise<WorkerReviewSessionFeedbackResult> {
     const totalStartedAt = Date.now();
+    const feedbackTiming: WorkerReviewSessionFeedbackTimingBuffer = { steps: [] };
     const session = this.requireSession(request.sessionId);
     const undoEntry = this.measureFeedbackStep(
       'session-feedback-preflight',
@@ -204,6 +216,7 @@ export class WorkerReviewSessionRuntime {
         this.requireValidRepairGate(request);
         return this.pushUndoSnapshot(session, request.cardId);
       },
+      feedbackTiming,
     );
 
     const feedback = await this.measureFeedbackStep(
@@ -220,6 +233,7 @@ export class WorkerReviewSessionRuntime {
       reviewedAt: request.reviewedAt ?? Date.now(),
       idempotencyKey: request.idempotencyKey ?? null,
       }),
+      feedbackTiming,
     );
     if (!feedback.committed) {
       throw new Error(`WORKER_REVIEW_SESSION_COMMIT_FAILED: ${request.sessionId}`);
@@ -230,6 +244,7 @@ export class WorkerReviewSessionRuntime {
       session,
       request,
       () => this.advanceAfterRating(session, request.cardId, request.rating),
+      feedbackTiming,
     );
     await this.measureFeedbackStep(
       'session-feedback-undo-journal-append',
@@ -240,14 +255,21 @@ export class WorkerReviewSessionRuntime {
         idempotencyKey: feedback.idempotencyKey ?? request.idempotencyKey ?? null,
         queueImpact: feedback.queueImpact ?? null,
       }),
+      feedbackTiming,
     );
     const state = this.measureFeedbackStep(
       'session-feedback-state',
       session,
       request,
       () => this.toState(session, resolveProjectionState(feedback)),
+      feedbackTiming,
     );
-    this.recordFeedbackStep('session-feedback-total', session, request, Date.now() - totalStartedAt);
+    this.flushFeedbackTimingBuffer(
+      session,
+      request,
+      feedbackTiming,
+      Date.now() - totalStartedAt,
+    );
 
     return {
       ...state,
@@ -262,22 +284,31 @@ export class WorkerReviewSessionRuntime {
     session: WorkerReviewSession,
     request: WorkerReviewSessionFeedbackRequest,
     task: () => Promise<TResult>,
+    feedbackTiming?: WorkerReviewSessionFeedbackTimingBuffer,
   ): Promise<TResult>;
   private measureFeedbackStep<TResult>(
     step: string,
     session: WorkerReviewSession,
     request: WorkerReviewSessionFeedbackRequest,
     task: () => TResult,
+    feedbackTiming?: WorkerReviewSessionFeedbackTimingBuffer,
   ): TResult;
   private measureFeedbackStep<TResult>(
     step: string,
     session: WorkerReviewSession,
     request: WorkerReviewSessionFeedbackRequest,
     task: () => TResult | Promise<TResult>,
+    feedbackTiming?: WorkerReviewSessionFeedbackTimingBuffer,
   ): TResult | Promise<TResult> {
     const startedAt = Date.now();
     const record = (): void => {
-      this.recordFeedbackStep(step, session, request, Date.now() - startedAt);
+      this.recordFeedbackStepDuration(
+        step,
+        session,
+        request,
+        Date.now() - startedAt,
+        feedbackTiming,
+      );
     };
     try {
       const result = task();
@@ -292,14 +323,97 @@ export class WorkerReviewSessionRuntime {
     }
   }
 
+  private recordFeedbackStepDuration(
+    step: string,
+    session: WorkerReviewSession,
+    request: WorkerReviewSessionFeedbackRequest,
+    durationMs: number,
+    feedbackTiming?: WorkerReviewSessionFeedbackTimingBuffer,
+  ): void {
+    if (!feedbackTiming) {
+      this.recordFeedbackStep(step, session, request, durationMs);
+      return;
+    }
+    const stepTiming: WorkerReviewSessionFeedbackStepTiming = {
+      step,
+      durationMs,
+      recorded: false,
+    };
+    if (durationMs >= REVIEW_SESSION_FEEDBACK_STEP_SLOW_MS) {
+      stepTiming.recorded = this.recordFeedbackStep(step, session, request, durationMs);
+    }
+    feedbackTiming.steps.push(stepTiming);
+  }
+
+  private flushFeedbackTimingBuffer(
+    session: WorkerReviewSession,
+    request: WorkerReviewSessionFeedbackRequest,
+    feedbackTiming: WorkerReviewSessionFeedbackTimingBuffer,
+    totalDurationMs: number,
+  ): void {
+    const measuredSessionStepTotalMs = feedbackTiming.steps.reduce(
+      (total, stepTiming) => total + stepTiming.durationMs,
+      0,
+    );
+    const unattributedGapMs = Math.max(0, totalDurationMs - measuredSessionStepTotalMs);
+    const totalIsSlow = totalDurationMs >= REVIEW_SESSION_FEEDBACK_STEP_SLOW_MS;
+
+    if (totalIsSlow) {
+      for (const stepTiming of feedbackTiming.steps) {
+        if (!stepTiming.recorded) {
+          stepTiming.recorded = this.recordFeedbackStep(
+            stepTiming.step,
+            session,
+            request,
+            stepTiming.durationMs,
+            { force: true },
+          );
+        }
+      }
+      if (unattributedGapMs >= REVIEW_SESSION_FEEDBACK_GAP_SLOW_MS) {
+        this.recordFeedbackStep(
+          'session-feedback-unattributed-gap',
+          session,
+          request,
+          unattributedGapMs,
+          {
+            force: true,
+            extra: {
+              measuredSessionStepTotalMs,
+              totalSessionFeedbackMs: totalDurationMs,
+            },
+          },
+        );
+      }
+    }
+
+    this.recordFeedbackStep(
+      'session-feedback-total',
+      session,
+      request,
+      totalDurationMs,
+      {
+        force: totalIsSlow,
+        extra: {
+          measuredSessionStepTotalMs,
+          unattributedGapMs,
+        },
+      },
+    );
+  }
+
   private recordFeedbackStep(
     step: string,
     session: WorkerReviewSession,
     request: WorkerReviewSessionFeedbackRequest,
     durationMs: number,
-  ): void {
-    if (durationMs < REVIEW_SESSION_FEEDBACK_STEP_SLOW_MS) {
-      return;
+    options: {
+      force?: boolean;
+      extra?: Record<string, unknown>;
+    } = {},
+  ): boolean {
+    if (!options.force && durationMs < REVIEW_SESSION_FEEDBACK_STEP_SLOW_MS) {
+      return false;
     }
     recordBackendWorkerInnerStep({
       layer: 'session',
@@ -311,8 +425,10 @@ export class WorkerReviewSessionRuntime {
         backendMethod: 'review.session.feedback',
         sessionId: session.sessionId,
         rating: request.rating,
+        ...(options.extra ?? {}),
       },
     });
+    return true;
   }
 
   async skip(request: WorkerReviewSessionSkipRequest): Promise<WorkerReviewSessionSkipResult> {

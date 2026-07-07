@@ -666,6 +666,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     slowestInnerStep: Record<string, unknown> | null;
     topInnerSteps: Array<Record<string, unknown>>;
     topInnerStepSummary: string[];
+    sessionStepSummary: string[];
     dominantInnerStepSummary: string | null;
     preRequestMergeSummary: string | null;
     mainDbReadSummary: string | null;
@@ -699,12 +700,16 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     const topInnerStepSummary = topInnerSteps.map((innerStep) => (
       this.formatReviewFeedbackInnerStepSummary(innerStep)
     ));
+    const sessionStepSummary = innerSteps
+      .filter((innerStep) => innerStep.layer === 'session' && innerStep.step.startsWith('session-feedback-'))
+      .map((innerStep) => this.formatReviewFeedbackInnerStepSummary(innerStep));
     return {
       innerStepCount: innerSteps.length,
       innerStepTotalMs,
       slowestInnerStep: topInnerSteps[0] ?? null,
       topInnerSteps,
       topInnerStepSummary,
+      sessionStepSummary,
       dominantInnerStepSummary: topInnerStepSummary[0] ?? null,
       preRequestMergeSummary: (preRequestMerge ?? preRequestMergeSkip)
         ? this.formatReviewFeedbackInnerStepSummary({
@@ -775,11 +780,13 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       ].join(' ')
       : 'none';
     const top = input.innerStepSummary.topInnerStepSummary.slice(0, 3).join(' | ') || 'none';
+    const sessionBreakdown = input.innerStepSummary.sessionStepSummary.join(' | ') || 'none';
     const hostBreakdown = this.formatHostEffectBreakdownSummary(input.timing.hostEffectBreakdown);
     return [
       `card=${input.pending.cardId ?? 'unknown'}`,
       `duration=${Math.round(input.timing.handleDurationMs)}ms`,
       `dominant=${input.innerStepSummary.dominantInnerStepSummary ?? 'none'}`,
+      `sessionBreakdown=${sessionBreakdown}`,
       `preMerge=${input.innerStepSummary.preRequestMergeSummary ?? 'none'}`,
       `mainDb=${input.innerStepSummary.mainDbReadSummary ?? 'none'}`,
       `host=${host}`,
