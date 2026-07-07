@@ -7,8 +7,8 @@
 ## 2. Implementation
 
 - [x] 2.1 Preserve existing CDF preparation cache behavior while working only on worker/session/SQLite commit path.
-- [ ] 2.2 Implement the smallest measured optimization for redundant SQLite delta host work, scoped to the owner of storage evidence invariants.
-- [ ] 2.3 Invalidate same-runtime evidence on diagnostics, replay, repair, checkpoint, discard, startup, failure, and checksum mismatch paths.
+- [x] 2.2 Implement the smallest measured optimization for redundant SQLite delta host work, scoped to the owner of storage evidence invariants.
+- [x] 2.3 Invalidate same-runtime evidence on diagnostics, replay, repair, checkpoint, discard, startup, failure, and checksum mismatch paths.
 - [x] 2.4 Preserve fail-closed durable Review commit envelope when storage evidence is missing or failed.
 - [x] 2.5 Preserve or improve copyable worker-handle timing summary fields for post-change live classification.
 
