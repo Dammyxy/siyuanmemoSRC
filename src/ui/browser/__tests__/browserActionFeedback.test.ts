@@ -16,6 +16,10 @@ describe('browserActionFeedback', () => {
 
     expect(getBrowserActionLabel({ id: 'delete-card', label: '' }, t))
       .toBe('deleteCard:取消闪卡');
+    expect(getBrowserActionLabel({ id: 'add-to-retrieval-queue-all', label: '' }, t))
+      .toBe('addToRetrievalQueue:提取练习');
+    expect(getBrowserActionLabel({ id: 'add-to-incremental-queue-all', label: '' }, t))
+      .toBe('addToIncrementalQueue:渐进学习');
     expect(getBrowserActionLabel({ id: PRIORITY_INCREASE_ACTION_ID, label: '' }, t))
       .toBe('priorityPlus10:Priority +10');
     expect(getBrowserActionLabel({ id: 'custom-action', label: 'Custom' }, t))

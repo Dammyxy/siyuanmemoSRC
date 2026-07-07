@@ -221,6 +221,62 @@ describe('ReviewApplicationService reschedule queue membership', () => {
     expect(siyuanApi.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Updated body');
   });
 
+  it('returns CDF live relation evidence on Review open without persisting metadata repair', async () => {
+    const conceptId = '20260101000000-aaaaaaa';
+    const sourceId = '20260101000001-bbbbbbb';
+    const card = createCard({
+      id: 'cdf-review-card',
+      blockId: sourceId,
+      type: CardType.Descriptor,
+      meta: {
+        relationAuthority: 'live-backlink',
+        templateID: 'builtin-concept-definition-forward',
+        typeMarker: 'concept-definition-forward',
+        sourceBlockId: sourceId,
+        fieldMapping: {
+          concept: conceptId,
+          definition: sourceId,
+        },
+      },
+    });
+    const manager = {
+      getCard: vi.fn(async (cardId: string) => {
+        if (cardId !== card.id) {
+          throw new Error(`missing ${cardId}`);
+        }
+        return card;
+      }),
+      getCards: vi.fn(async () => [card]),
+      updateCard: vi.fn(async () => {}),
+    } as unknown as IUnifiedDataSourceManagerFacade;
+    const siyuanApi = createReviewSiyuanApi({
+      sql: vi.fn(async (statement: string) => {
+        const row = {
+          id: sourceId,
+          parent_id: '',
+          root_id: sourceId,
+          type: 'p',
+          markdown: `((${conceptId} "Concept")) :> definition body`,
+          sort: '0',
+        };
+        return statement.includes('LIMIT 1') ? [row] : [row];
+      }),
+    });
+    const service = new ReviewApplicationService(manager, {} as never, siyuanApi);
+
+    const result = await service.refreshCdfLiveRelationOnOpen(card.id);
+
+    expect(result.reason).toBe('refreshed');
+    expect(result.updatedCard).toMatchObject({
+      id: card.id,
+      meta: expect.objectContaining({
+        liveRelationKey: `${sourceId}:${conceptId}:definition-forward`,
+        liveRelationStatus: 'active-live',
+      }),
+    });
+    expect(manager.updateCard).not.toHaveBeenCalled();
+  });
+
   it('routes explicit native Riff review feedback through the backend bridge', async () => {
     const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
     const schedulerRouter = {} as never;

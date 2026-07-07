@@ -13,12 +13,14 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 
 const unifiedQueueStrategyLoggerInfoMock = vi.hoisted(() => vi.fn());
+const unifiedQueueStrategyLoggerTraceMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/utils/logger', () => ({
   createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),
     info: unifiedQueueStrategyLoggerInfoMock,
+    trace: unifiedQueueStrategyLoggerTraceMock,
     warn: vi.fn(),
   }),
 }));
@@ -572,8 +574,98 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(feedbackResult).toMatchObject({
       status: 'advanced',
       nextItem: expect.objectContaining({ id: secondCard.id }),
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+      activeQueueCount: 1,
+      countDelta: -1,
+      queueImpact: {
+        activeQueueType: QueueType.RetrievalPractice,
+        affectedQueueTypes: [QueueType.RetrievalPractice],
+        activeQueueCount: 1,
+        countDelta: -1,
+        counterSnapshot: expect.objectContaining({
+          remaining: 1,
+          total: 1,
+        }),
+      },
     });
     expect(getCardsSpy).not.toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+  });
+
+  it('prepares a CDF next card after Retrieval Practice scoring without loading unrelated queues', async () => {
+    const firstCard = createCard({ id: 'retrieval-cdf-card-1', blockId: 'retrieval-cdf-block-1' });
+    const secondCard = createCard({ id: 'retrieval-cdf-card-2', blockId: 'retrieval-cdf-block-2' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard]);
+    const unrelatedQueueTypes = new Set([QueueType.FilterGroup, QueueType.NeuralRoam]);
+    const requestedQueueTypes: Array<QueueType | undefined> = [];
+    const workerSessionBackend = createWorkerSessionBackend(QueueType.RetrievalPractice, [firstCard, secondCard]);
+    const cdfLiveRelationReviewOpenRefresher = {
+      refreshCdfLiveRelationOnOpen: vi.fn(async (card: FSRSCard | string) => {
+        const resolved = typeof card === 'string'
+          ? [firstCard, secondCard].find((candidate) => candidate.id === card)!
+          : card;
+        return {
+          updatedCard: {
+            ...resolved,
+            meta: {
+              ...resolved.meta,
+              liveRelationStatus: 'active-live',
+            },
+          },
+          currentReviewDuplicateOutcome: null,
+        };
+      }),
+    };
+    const manager = {
+      workerSessionBackend,
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => workerSessionBackend,
+      })),
+      getQueue: vi.fn((queueType?: QueueType) => {
+        requestedQueueTypes.push(queueType);
+        if (queueType && unrelatedQueueTypes.has(queueType)) {
+          throw new Error(`unexpected unrelated queue load: ${queueType}`);
+        }
+        if (!queueType || queueType === QueueType.RetrievalPractice) {
+          return queue;
+        }
+        if (queueType === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, []);
+        }
+        throw new Error(`unexpected queue load: ${queueType}`);
+      }),
+      getCard: vi.fn(async (cardId: string) => ({ ...(cardId === firstCard.id ? firstCard : secondCard) })),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {
+        throw new Error('Review CDF preparation must not persist metadata repair');
+      }),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null,
+      cdfLiveRelationReviewOpenRefresher as never,
+    );
+
+    const first = await strategy.next();
+    const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+
+    expectAdvancedNext(feedbackResult, secondCard.id);
+    expect(feedbackResult).toMatchObject({
+      status: 'advanced',
+      nextItem: expect.objectContaining({
+        meta: expect.objectContaining({ liveRelationStatus: 'active-live' }),
+      }),
+    });
+    expect(cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen).toHaveBeenCalledWith(
+      expect.objectContaining({ id: secondCard.id }),
+    );
+    expect(requestedQueueTypes).not.toContain(QueueType.FilterGroup);
+    expect(requestedQueueTypes).not.toContain(QueueType.NeuralRoam);
+    expect(manager.updateCard).not.toHaveBeenCalled();
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
@@ -706,6 +798,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
       const first = await strategy.next();
       unifiedQueueStrategyLoggerInfoMock.mockClear();
+      unifiedQueueStrategyLoggerTraceMock.mockClear();
 
       const feedbackResult = await strategy.onFeedback(first, { action: 'rate', rating: 4 });
 

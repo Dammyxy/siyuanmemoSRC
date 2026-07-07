@@ -62,6 +62,12 @@ import type { QueueProjectionReadiness, QueueProjectionReadinessRequest } from '
 export interface BrowserQueueCountsRequest {
   forceRefresh?: boolean;
   affectedQueueTypes?: QueueType[] | null;
+  reviewPressure?: BrowserQueueCountReviewPressure | null;
+}
+
+export interface BrowserQueueCountReviewPressure {
+  active: boolean;
+  activeQueueType?: QueueType | null;
 }
 
 export interface BrowserSourceExistenceStatus {

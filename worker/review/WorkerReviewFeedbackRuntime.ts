@@ -393,7 +393,7 @@ export class WorkerReviewFeedbackRuntime {
           status: applied ? 'completed' : 'skipped',
         },
       });
-      logger.info('[SiYuanMemo][WorkerReviewFeedbackRuntime] deferred review.feedback projection maintenance finished', {
+      logger.trace?.('[SiYuanMemo][WorkerReviewFeedbackRuntime] deferred review.feedback projection maintenance finished', {
         queueType: input.queueType,
         cardId: input.reviewedCard.id,
         policyHash: input.policyHash,
@@ -526,7 +526,7 @@ export class WorkerReviewFeedbackRuntime {
           queueType,
           durationMs,
         });
-        logger.info('[SiYuanMemo][WorkerReviewFeedbackRuntime] slow review.feedback queueImpact step', {
+        logger.trace?.('[SiYuanMemo][WorkerReviewFeedbackRuntime] slow review.feedback queueImpact step', {
           step,
           queueType,
           cardId,

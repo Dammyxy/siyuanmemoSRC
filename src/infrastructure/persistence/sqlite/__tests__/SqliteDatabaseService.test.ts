@@ -1205,6 +1205,10 @@ describe('SqliteDatabaseService', () => {
         ['review-feedback:last-applied', JSON.stringify({ eventId: 'event-delta-slim' }), 1_700_000_000_100],
       );
       db.run(
+        'INSERT OR REPLACE INTO queue_state (key, value_json, updated_at) VALUES (?, ?, ?)',
+        ['retrievalPracticeQueue', JSON.stringify(['card-delta-slim-peer']), 1_700_000_000_100],
+      );
+      db.run(
         `INSERT OR REPLACE INTO queue_projection_generations
           (queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -1292,6 +1296,7 @@ describe('SqliteDatabaseService', () => {
       'review_events',
       'domain_sync_operations',
       'store_metadata',
+      'queue_state',
     ]));
     expect(entry.tables).not.toEqual(expect.arrayContaining([
       'queue_projection_generations',
@@ -1313,6 +1318,7 @@ describe('SqliteDatabaseService', () => {
           'cards',
           'review_events',
           'domain_sync_operations',
+          'queue_state',
         ]),
         skippedDerivedTables: expect.arrayContaining([
           'queue_projection_generations',

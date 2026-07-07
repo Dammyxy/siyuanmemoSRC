@@ -225,7 +225,7 @@ describe('Dynamic queues - review removal semantics', () => {
     });
   });
 
-  it('retrieval practice submits manual future cards as preview-only on the active commit path', async () => {
+  it('retrieval practice submits manual future cards as formal rescheduling on the active commit path', async () => {
     const originalDue = getCurrentDayEnd(4) + 5 * 86_400_000;
     const card = createCard({
       id: 'card-manual-future-preview',
@@ -244,16 +244,15 @@ describe('Dynamic queues - review removal semantics', () => {
     const commitReview = vi.fn(async (command: QueueReviewCommand) => ({
       card,
       updatedCard: { ...card },
-      committed: false,
+      committed: true,
       decision: {
         current: { ...card },
         queueMode: command.context.queueMode,
         commitPolicy: command.context.commitPolicy,
       },
       commitResult: {
-        updatedCard: null,
-        committed: false,
-        suppressedReason: 'preview-only',
+        updatedCard: { ...card },
+        committed: true,
       },
     }));
     (manager as typeof manager & { commitReview: typeof commitReview }).commitReview = commitReview;
@@ -268,15 +267,13 @@ describe('Dynamic queues - review removal semantics', () => {
       rating: 3,
       context: expect.objectContaining({
         queueType: 'retrieval-practice',
-        queueMode: 'filtered-preview',
-        commitPolicy: 'preview-only',
+        queueMode: 'filtered-rescheduling',
+        commitPolicy: 'write-schedule',
         isFiltered: true,
         customStudy: true,
         memoryStateAsOf: originalDue,
       }),
     });
-    expect(manager.getSchedulerRouter).not.toHaveBeenCalled();
-    expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
     expect(persistence.set).toHaveBeenCalledWith('retrievalPracticeQueue', []);
   });
 
@@ -385,7 +382,7 @@ describe('Dynamic queues - review removal semantics', () => {
     });
   });
 
-  it('incremental learning submits manual future cards as preview-only on the active commit path', async () => {
+  it('incremental learning submits manual future cards as formal rescheduling on the active commit path', async () => {
     const originalDue = getCurrentDayEnd(4) + 4 * 86_400_000;
     const card = createCard({
       id: 'card-incremental-future-preview',
@@ -404,16 +401,15 @@ describe('Dynamic queues - review removal semantics', () => {
     const commitReview = vi.fn(async (command: QueueReviewCommand) => ({
       card,
       updatedCard: { ...card },
-      committed: false,
+      committed: true,
       decision: {
         current: { ...card },
         queueMode: command.context.queueMode,
         commitPolicy: command.context.commitPolicy,
       },
       commitResult: {
-        updatedCard: null,
-        committed: false,
-        suppressedReason: 'preview-only',
+        updatedCard: { ...card },
+        committed: true,
       },
     }));
     (manager as typeof manager & { commitReview: typeof commitReview }).commitReview = commitReview;
@@ -428,15 +424,13 @@ describe('Dynamic queues - review removal semantics', () => {
       rating: 3,
       context: expect.objectContaining({
         queueType: 'incremental-learning',
-        queueMode: 'filtered-preview',
-        commitPolicy: 'preview-only',
+        queueMode: 'filtered-rescheduling',
+        commitPolicy: 'write-schedule',
         isFiltered: true,
         customStudy: true,
         memoryStateAsOf: originalDue,
       }),
     });
-    expect(manager.getSchedulerRouter).not.toHaveBeenCalled();
-    expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
     expect(persistence.set).toHaveBeenCalledWith('incrementalLearningQueue', []);
   });
 

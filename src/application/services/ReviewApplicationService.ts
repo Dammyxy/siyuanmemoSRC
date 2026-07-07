@@ -210,6 +210,7 @@ export class ReviewApplicationService {
   async refreshCdfLiveRelationOnOpen(card: FSRSCard | string): Promise<CdfLiveRelationRefreshResult> {
     return this.cdfLiveRelationRefresh.refreshCurrentCardOnOpen(card, {
       surface: 'review-open',
+      persist: false,
     });
   }
 

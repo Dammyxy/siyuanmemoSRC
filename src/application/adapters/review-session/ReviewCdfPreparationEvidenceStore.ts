@@ -15,6 +15,7 @@ export type ReviewCdfPreparationEvidence<TPreparedCard extends FSRSCard | null =
 
 export type ReviewCdfPreparationStoreLogger = {
   info: (message: string, context?: Record<string, unknown>) => void;
+  trace?: (message: string, context?: Record<string, unknown>) => void;
   warn?: (message: string, context?: Record<string, unknown>) => void;
 };
 
@@ -160,7 +161,7 @@ export class ReviewCdfPreparationEvidenceStore<TPreparedCard extends FSRSCard | 
 
   clear(reason: string): void {
     if (this.completedEvidence || this.pendingEvidence) {
-      this.options.logger.info(this.message('CDF preparation evidence invalidated'), {
+      this.options.logger.trace?.(this.message('CDF preparation evidence invalidated'), {
         queueType: this.options.queueType,
         reason,
         currentCardId: this.options.getCurrentCardId(),
@@ -176,7 +177,7 @@ export class ReviewCdfPreparationEvidenceStore<TPreparedCard extends FSRSCard | 
     if (!this.completedEvidence && !this.pendingEvidence) {
       return;
     }
-    this.options.logger.info(this.message('CDF preparation evidence preserved across cache invalidation'), {
+    this.options.logger.trace?.(this.message('CDF preparation evidence preserved across cache invalidation'), {
       queueType: this.options.queueType,
       reason,
       currentCardId: this.options.getCurrentCardId(),
@@ -206,7 +207,7 @@ export class ReviewCdfPreparationEvidenceStore<TPreparedCard extends FSRSCard | 
     }
     if (pendingAffected && !completedAffected && this.shouldPreserveSelfPendingInvalidation()) {
       this.pendingEvidence!.selfInvalidationEventCount += 1;
-      this.options.logger.info(this.message('CDF preparation evidence preserved across self update'), {
+      this.options.logger.trace?.(this.message('CDF preparation evidence preserved across self update'), {
         queueType: this.options.queueType,
         reason,
         currentCardId: this.options.getCurrentCardId(),
@@ -221,7 +222,7 @@ export class ReviewCdfPreparationEvidenceStore<TPreparedCard extends FSRSCard | 
       return;
     }
     if (completedAffected) {
-      this.options.logger.info(this.message('CDF preparation evidence invalidated'), {
+      this.options.logger.trace?.(this.message('CDF preparation evidence invalidated'), {
         queueType: this.options.queueType,
         reason,
         currentCardId: this.options.getCurrentCardId(),
@@ -233,7 +234,7 @@ export class ReviewCdfPreparationEvidenceStore<TPreparedCard extends FSRSCard | 
       this.completedEvidence = null;
     }
     if (pendingAffected) {
-      this.options.logger.info(this.message('CDF preparation evidence invalidated'), {
+      this.options.logger.trace?.(this.message('CDF preparation evidence invalidated'), {
         queueType: this.options.queueType,
         reason,
         currentCardId: this.options.getCurrentCardId(),
@@ -279,7 +280,7 @@ export class ReviewCdfPreparationEvidenceStore<TPreparedCard extends FSRSCard | 
     card: FSRSCard,
     extra: Record<string, unknown> = {},
   ): void {
-    this.options.logger.info(this.message('CDF preparation evidence diagnostic'), {
+    this.options.logger.trace?.(this.message('CDF preparation evidence diagnostic'), {
       queueType: this.options.queueType,
       status,
       cardId: card.id,
@@ -299,7 +300,7 @@ export class ReviewCdfPreparationEvidenceStore<TPreparedCard extends FSRSCard | 
     sessionCards: FSRSCard[] = [],
     extra: Record<string, unknown> = {},
   ): void {
-    this.options.logger.info(this.message('CDF next-card prime diagnostic'), {
+    this.options.logger.trace?.(this.message('CDF next-card prime diagnostic'), {
       queueType: this.options.queueType,
       status,
       currentCardId: this.options.getCurrentCardId(),

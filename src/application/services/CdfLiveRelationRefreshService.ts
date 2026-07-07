@@ -429,7 +429,13 @@ export class CdfLiveRelationRefreshService {
     }
 
     if (options.persist !== false) {
-      const mutationOptions: CardMutationOptions = { suppressDueIndexSort: true };
+      const mutationOptions: CardMutationOptions = {
+        suppressDueIndexSort: true,
+        queueImpact: {
+          kind: 'metadata-only',
+          reason: 'cdf-live-relation-refresh',
+        },
+      };
       for (const changedCard of changedCards) {
         await this.deps.manager.updateCard(changedCard, mutationOptions);
       }

@@ -764,6 +764,7 @@ const browserQueueProjectionReviewPressure = computed<BrowserQueueProjectionRevi
     activeQueueType,
   };
 });
+let hasDeferredQueueCountRefresh = false;
 const {
   getQueueById: resolveQueueById,
   refreshQueueCounts: refreshQueueCountsBridge,
@@ -3656,8 +3657,37 @@ const cardTypeDetection = useCardTypeDetection(() => rows.value, {
 
 
 async function refreshQueueCounts(request: BrowserQueueCountsRequest = {}) {
-  await refreshQueueCountsBridge(queueCounts, request);
+  const reviewPressure = browserQueueProjectionReviewPressure.value;
+  if (hasNonActiveQueueCountWorkDuringReview(request, reviewPressure)) {
+    hasDeferredQueueCountRefresh = true;
+  }
+  await refreshQueueCountsBridge(queueCounts, {
+    ...request,
+    reviewPressure,
+  });
 }
+
+function hasNonActiveQueueCountWorkDuringReview(
+  request: BrowserQueueCountsRequest,
+  reviewPressure: BrowserQueueProjectionReviewPressure,
+): boolean {
+  if (reviewPressure.active !== true || !reviewPressure.activeQueueType) {
+    return false;
+  }
+  const affectedQueueTypes = request.affectedQueueTypes;
+  if (!affectedQueueTypes || affectedQueueTypes.length === 0) {
+    return true;
+  }
+  return affectedQueueTypes.some((queueType) => queueType !== reviewPressure.activeQueueType);
+}
+
+watch(browserQueueProjectionReviewPressure, (pressure, previousPressure) => {
+  if (pressure.active || previousPressure?.active !== true || !hasDeferredQueueCountRefresh) {
+    return;
+  }
+  hasDeferredQueueCountRefresh = false;
+  void refreshQueueCounts({ forceRefresh: true });
+});
 
 async function handleSelectQueue(queueId: string) {
   if (activeQueueId.value === queueId && activeDocId.value === null && shouldFocusDocList.value) {

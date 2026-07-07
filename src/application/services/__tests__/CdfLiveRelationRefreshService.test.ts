@@ -118,8 +118,39 @@ describe('CdfLiveRelationRefreshService', () => {
           },
         }),
       }),
-      { suppressDueIndexSort: true },
+      {
+        suppressDueIndexSort: true,
+        queueImpact: {
+          kind: 'metadata-only',
+          reason: 'cdf-live-relation-refresh',
+        },
+      },
     );
+  });
+
+  it('returns CDF repair evidence without persisting when persistence is disabled for Review hot path', async () => {
+    const card = buildCard();
+    const manager = createManager();
+    const service = new CdfLiveRelationRefreshService({
+      manager,
+      now: () => 1_700_000_000_123,
+    });
+
+    const result = await service.refreshCurrentCardOnOpen(card, {
+      surface: 'review-open',
+      persist: false,
+      sourceTree: sourceNode(`((${CONCEPT_ID} "Concept")) :> definition body`),
+    });
+
+    expect(result.reason).toBe('refreshed');
+    expect(result.updatedCard).toMatchObject({
+      id: 'card-1',
+      meta: expect.objectContaining({
+        liveRelationKey: `${SOURCE_ID}:${CONCEPT_ID}:definition-forward`,
+        liveRelationStatus: 'active-live',
+      }),
+    });
+    expect(manager.updateCard).not.toHaveBeenCalled();
   });
 
   it('marks missing current live relation unavailable and never backfills from fieldMapping', async () => {
@@ -165,7 +196,13 @@ describe('CdfLiveRelationRefreshService', () => {
           },
         }),
       }),
-      { suppressDueIndexSort: true },
+      {
+        suppressDueIndexSort: true,
+        queueImpact: {
+          kind: 'metadata-only',
+          reason: 'cdf-live-relation-refresh',
+        },
+      },
     );
   });
 
@@ -251,14 +288,26 @@ describe('CdfLiveRelationRefreshService', () => {
         id: 'canonical-card',
         meta: expect.objectContaining({ liveRelationStatus: 'active-live' }),
       }),
-      { suppressDueIndexSort: true },
+      {
+        suppressDueIndexSort: true,
+        queueImpact: {
+          kind: 'metadata-only',
+          reason: 'cdf-live-relation-refresh',
+        },
+      },
     );
     expect(manager.updateCard).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'current-card',
         meta: expect.objectContaining({ liveRelationStatus: 'duplicate-live-relation' }),
       }),
-      { suppressDueIndexSort: true },
+      {
+        suppressDueIndexSort: true,
+        queueImpact: {
+          kind: 'metadata-only',
+          reason: 'cdf-live-relation-refresh',
+        },
+      },
     );
   });
 });

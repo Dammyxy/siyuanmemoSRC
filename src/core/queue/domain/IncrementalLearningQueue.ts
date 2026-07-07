@@ -382,11 +382,10 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
             return null;
         }
 
-        const filteredDefault = this.getFilteredReviewDefault();
         return {
             memoryStateAsOf: due,
-            queueMode: filteredDefault === 'reschedule' ? 'filtered-rescheduling' : 'filtered-preview',
-            commitPolicy: filteredDefault === 'reschedule' ? 'write-schedule' : 'preview-only',
+            queueMode: 'filtered-rescheduling',
+            commitPolicy: 'write-schedule',
             isFiltered: true,
             customStudy: true,
             reason: 'manual-early-review',

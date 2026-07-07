@@ -24,6 +24,7 @@ import {
 import {
     NeuralRoamAdvanceOutcomePolicy,
     NeuralRoamAdvanceCoordinator,
+    ReviewAnswerPipeline,
     ReviewCurrentItemCommand,
     ReviewFeedbackAdvancementCoordinator,
     ReviewFeedbackCompensationPolicy,
@@ -210,6 +211,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private readonly learnAheadAdvancePolicy = new ReviewLearnAheadAdvancePolicy();
     private readonly neuralRoamAdvanceOutcomePolicy = new NeuralRoamAdvanceOutcomePolicy();
     private readonly feedbackAdvancement: ReviewFeedbackAdvancementCoordinator;
+    private readonly reviewAnswerPipeline: ReviewAnswerPipeline;
     private readonly neuralRoamAdvance: NeuralRoamAdvanceCoordinator;
     private readonly srsV2SessionQueueRuntime: SrsV2SessionQueueRuntime | WorkerReviewSessionQueueRuntime | null;
     private readonly cdfPreparationEvidenceStore: ReviewCdfPreparationEvidenceStore<CardWithNextDues | null>;
@@ -277,6 +279,40 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             getCurrentItem: () => this.currentItem,
             invalidateCache: () => this.invalidateCache(),
             refreshRestoredItem: (item) => this.maybeAddNextDues(item),
+        });
+        this.reviewAnswerPipeline = new ReviewAnswerPipeline({
+            queueType: this.queueType,
+            captureTransaction: (activeItem, feedback, options) => this.createReviewTransaction(activeItem, feedback, options),
+            withFeedbackMutation: (activeItem, feedback, task) => this.withFeedbackMutation(activeItem, feedback, task),
+            recordReviewHistory: (activeItem, transaction) => this.recordReviewHistory(activeItem, transaction),
+            syncCursorFromRuntime: () => this.syncCursorFromSrsV2Runtime(),
+            setCounterSnapshot: (snapshot) => {
+                this.cursor.counterSnapshot = this.cloneCounterSnapshot(snapshot);
+            },
+            setPendingCounterSnapshot: (snapshot) => {
+                this.pendingSrsV2CounterSnapshot = snapshot ? this.cloneCounterSnapshot(snapshot) : null;
+            },
+            setPendingNextCard: (card) => {
+                this.pendingSrsV2NextCard = card;
+            },
+            consumeAdvanceResult: (nextCard, timingContext) => this.consumeSrsV2FeedbackAdvanceResult(nextCard, timingContext),
+            isUnavailableCurrentItemError: (error, activeItem) => this.isUnavailableCurrentItemError(error, activeItem),
+            measureStep: (step, timingContext, task, options) => this.measureReviewFeedbackStep(
+                step,
+                timingContext.activeItem,
+                timingContext.feedback,
+                timingContext.frontendTimingSteps,
+                task,
+                options,
+            ),
+            measureSyncStep: (step, timingContext, task, options) => this.measureReviewFeedbackSyncStep(
+                step,
+                timingContext.activeItem,
+                timingContext.feedback,
+                timingContext.frontendTimingSteps,
+                task,
+                options,
+            ),
         });
         this.neuralRoamAdvance = new NeuralRoamAdvanceCoordinator({
             cursor: this.cursor,
@@ -441,70 +477,23 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
             if (this.srsV2SessionQueueRuntime && !this.learnAheadSession && (feedback.action === 'rate' || feedback.action === 'skip')) {
                 const workerSessionOwnsAuthority = this.srsV2SessionQueueRuntime instanceof WorkerReviewSessionQueueRuntime;
-                if (!workerSessionOwnsAuthority) {
-                    activeTransaction = await this.measureReviewFeedbackStep(
-                        'transaction-capture',
-                        activeItem,
-                        feedback,
-                        frontendTimingSteps,
-                        () => this.createReviewTransaction(activeItem, feedback, {
-                            includeCardSnapshot: feedback.action === 'rate',
-                        })
-                    );
-                }
-                const result = await this.measureReviewFeedbackStep(
-                    'session-runtime-answer',
+                return await this.reviewAnswerPipeline.answer({
                     activeItem,
                     feedback,
                     frontendTimingSteps,
-                    () => this.withFeedbackMutation(activeItem, feedback, () => this.srsV2SessionQueueRuntime!.answerAndAdvance({
-                        card: activeItem,
-                        feedback,
-                    }))
-                );
-                if (result.status === 'conflict') {
-                    this.pendingSrsV2NextCard = activeItem;
-                    throw new Error(`REVIEW_SESSION_RUNTIME_CONFLICT: ${result.reason ?? 'answer rejected'}`);
-                }
-                if (result.status === 'unavailable') {
-                    const runtimeUnavailable = new Error(result.reason ?? 'answer unavailable');
-                    if (!this.isUnavailableCurrentItemError(runtimeUnavailable, activeItem)) {
-                        this.pendingSrsV2NextCard = activeItem;
-                    }
-                    throw new Error(`REVIEW_SESSION_RUNTIME_UNAVAILABLE: ${result.reason ?? 'answer unavailable'}`);
-                }
-                this.measureReviewFeedbackSyncStep('sync-cursor-from-runtime', activeItem, feedback, frontendTimingSteps, () => {
-                    this.syncCursorFromSrsV2Runtime();
+                    runtime: this.srsV2SessionQueueRuntime,
+                    runtimeOwnsMutationAuthority: workerSessionOwnsAuthority,
+                    onTransactionCaptured: (transaction) => {
+                        activeTransaction = transaction;
+                    },
+                    onTransactionHistoryPushed: () => {
+                        activeTransactionPushed = true;
+                    },
+                    onTransactionCleared: () => {
+                        activeTransaction = null;
+                        activeTransactionPushed = false;
+                    },
                 });
-                this.measureReviewFeedbackSyncStep('sync-counter-snapshot', activeItem, feedback, frontendTimingSteps, () => {
-                    this.cursor.counterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
-                    this.pendingSrsV2CounterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
-                });
-                const advancedNextItem = await this.measureReviewFeedbackStep(
-                    'consume-advance',
-                    activeItem,
-                    feedback,
-                    frontendTimingSteps,
-                    () => this.consumeSrsV2FeedbackAdvanceResult(result.nextCard, {
-                        activeItem,
-                        feedback,
-                        frontendTimingSteps,
-                    }),
-                );
-                if (!workerSessionOwnsAuthority) {
-                    this.recordReviewHistory(activeItem, activeTransaction);
-                    activeTransactionPushed = true;
-                }
-                activeTransaction = null;
-                activeTransactionPushed = false;
-                return {
-                    status: 'advanced',
-                    nextItem: advancedNextItem,
-                    counterSnapshot: this.cloneCounterSnapshot(result.counterSnapshot),
-                    commitStatus: result.commitStatus,
-                    commitIdempotencyKey: result.commitIdempotencyKey ?? feedback.commitIdempotencyKey,
-                    commit: result.commit,
-                };
             }
 
             if (feedback.action === 'rate' && feedback.rating) {
@@ -522,7 +511,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
                 if (advancement.kind === 'learn-ahead') {
                     this.learnAheadSession = advancement.learnAheadSession ?? false;
-                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card rated in learn-ahead session:`, {
+                    logger.trace?.(`[SiYuanMemo][UnifiedQueueStrategy] Card rated in learn-ahead session:`, {
                         queueType: this.queueType,
                         cardId: activeItem.id,
                         rating: feedback.rating,
@@ -534,7 +523,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 }
 
                 if (advancement.kind === 'requery') {
-                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card rated with requery-after-feedback flow:`, {
+                    logger.trace?.(`[SiYuanMemo][UnifiedQueueStrategy] Card rated with requery-after-feedback flow:`, {
                         queueType: this.queueType,
                         cardId: activeItem.id,
                         blockId: activeItem.blockId,
@@ -549,7 +538,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 }
 
                 if (advancement.kind === 'projection-patched') {
-                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card rated with projection queueImpact patch:`, {
+                    logger.trace?.(`[SiYuanMemo][UnifiedQueueStrategy] Card rated with projection queueImpact patch:`, {
                         queueType: this.queueType,
                         cardId: activeItem.id,
                         rating: feedback.rating,
@@ -559,7 +548,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     return;
                 }
                 if (advancement.kind === 'projection-refresh-required') {
-                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card rated with projection refresh requirement:`, {
+                    logger.trace?.(`[SiYuanMemo][UnifiedQueueStrategy] Card rated with projection refresh requirement:`, {
                         queueType: this.queueType,
                         cardId: activeItem.id,
                         rating: feedback.rating,
@@ -569,7 +558,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     return;
                 }
 
-                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card rated:`, {
+                logger.trace?.(`[SiYuanMemo][UnifiedQueueStrategy] Card rated:`, {
                     queueType: this.queueType,
                     cardId: activeItem.id,
                     rating: feedback.rating,
@@ -591,7 +580,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 const advancement = this.feedbackAdvancement.applySkipResult(activeItem);
                 if (advancement.kind === 'requery') {
                     await this.refreshQueueCounterSnapshot('skip requery');
-                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card skipped with requery-after-feedback flow:`, {
+                    logger.trace?.(`[SiYuanMemo][UnifiedQueueStrategy] Card skipped with requery-after-feedback flow:`, {
                         queueType: this.queueType,
                         cardId: activeItem.id,
                         blockId: activeItem.blockId,
@@ -603,7 +592,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     return;
                 }
                 await this.refreshQueueCounterSnapshot('skip');
-                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card skipped:`, {
+                logger.trace?.(`[SiYuanMemo][UnifiedQueueStrategy] Card skipped:`, {
                     queueType: this.queueType,
                     cardId: activeItem.id,
                 });
@@ -1262,7 +1251,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 countsTowardTotal: options.countsTowardTotal ?? true,
             });
             if (durationMs >= REVIEW_FEEDBACK_STEP_SLOW_MS) {
-                logger.info('[SiYuanMemo][UnifiedQueueStrategy] slow review feedback step', {
+                logger.trace?.('[SiYuanMemo][UnifiedQueueStrategy] slow review feedback step', {
                     queueType: this.queueType,
                     step,
                     cardId: activeItem.id,
@@ -1298,7 +1287,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 countsTowardTotal: options.countsTowardTotal ?? true,
             });
             if (durationMs >= REVIEW_FEEDBACK_STEP_SLOW_MS) {
-                logger.info('[SiYuanMemo][UnifiedQueueStrategy] slow review feedback step', {
+                logger.trace?.('[SiYuanMemo][UnifiedQueueStrategy] slow review feedback step', {
                     queueType: this.queueType,
                     step,
                     cardId: activeItem.id,

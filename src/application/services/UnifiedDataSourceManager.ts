@@ -1192,7 +1192,7 @@ export class UnifiedDataSourceManager {
             // 1. 通过当前路由器更新卡片
             const router = this.getRouter();
             await router.updateCard(card, options);
-            await this.onCardUpdatedFromScheduler(card);
+            await this.onCardUpdatedFromScheduler(card, options);
             
             logger.debug(`Card updated: ${card.id}`);
         } catch (error) {
@@ -1261,17 +1261,17 @@ export class UnifiedDataSourceManager {
      *
      * 供 SchedulerRouter 路径复用，避免重复写入存储。
      */
-    public async onCardUpdatedFromScheduler(card: FSRSCard): Promise<void> {
-        await this.onCardsUpdatedFromScheduler([card]);
+    public async onCardUpdatedFromScheduler(card: FSRSCard, options: CardMutationOptions = {}): Promise<void> {
+        await this.onCardsUpdatedFromScheduler([card], options);
     }
 
-    public async onCardsUpdatedFromScheduler(cards: FSRSCard[]): Promise<void> {
+    public async onCardsUpdatedFromScheduler(cards: FSRSCard[], options: CardMutationOptions = {}): Promise<void> {
         const updatedCards = this.normalizeCards(cards);
         if (updatedCards.length === 0) {
             return;
         }
 
-        const affectedQueueTypes = this.invalidateQueuesForCardMutation();
+        const affectedQueueTypes = this.invalidateQueuesForCardMutation(options);
 
         const affectedCardIds = this.normalizeEventIds(updatedCards.map((card) => card.id));
         const affectedBlockIds = this.normalizeEventIds(updatedCards.map((card) => card.blockId));
@@ -1658,7 +1658,26 @@ export class UnifiedDataSourceManager {
         logger.debug(`Queue cache invalidated: ${type}`);
     }
 
-    private invalidateQueuesForCardMutation(): QueueType[] {
+    private invalidateQueuesForCardMutation(options: CardMutationOptions = {}): QueueType[] {
+        const queueImpact = options.queueImpact;
+        if (queueImpact?.kind === 'metadata-only') {
+            logger.trace?.('[SiYuanMemo][UnifiedDataSourceManager] Card mutation queue invalidation skipped for metadata-only update', {
+                reason: queueImpact.reason,
+            });
+            return [];
+        }
+        if (queueImpact?.kind === 'specific-queues') {
+            const affectedQueueTypes = Array.from(new Set(queueImpact.queueTypes));
+            for (const queueType of affectedQueueTypes) {
+                this.invalidateQueue(queueType);
+            }
+            logger.trace?.('[SiYuanMemo][UnifiedDataSourceManager] Card mutation queue invalidation scoped to specific queues', {
+                reason: queueImpact.reason,
+                affectedQueueTypes,
+            });
+            return affectedQueueTypes;
+        }
+
         // 卡片更新会影响动态队列的可见集与排序
         const affectedQueueTypes = [
             QueueType.RetrievalPractice,

@@ -60,16 +60,25 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
   const resolveQueueCountPatchIds = (
     refreshOptions: BrowserQueueCountsRequest,
   ): BrowserQueueId[] => {
+    const activeReviewQueueId = refreshOptions.reviewPressure?.active === true
+      ? resolveBrowserQueueIdForQueueType(refreshOptions.reviewPressure.activeQueueType)
+      : null;
     const affectedQueueTypes = refreshOptions.affectedQueueTypes;
     if (!affectedQueueTypes || affectedQueueTypes.length === 0) {
+      if (activeReviewQueueId) {
+        return [activeReviewQueueId];
+      }
       return getCanonicalBrowserQueueIds();
     }
 
-    return Array.from(new Set(
+    const queueIds = Array.from(new Set(
       affectedQueueTypes
         .map((queueType) => resolveBrowserQueueIdForQueueType(queueType))
         .filter((queueId): queueId is BrowserQueueId => Boolean(queueId)),
     ));
+    return activeReviewQueueId
+      ? queueIds.filter((queueId) => queueId === activeReviewQueueId)
+      : queueIds;
   };
 
   const normalizeQueueCount = (value: unknown): number => Math.max(0, Number(value) || 0);

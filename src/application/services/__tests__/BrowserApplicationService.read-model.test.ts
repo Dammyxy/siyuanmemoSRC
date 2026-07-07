@@ -233,7 +233,13 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
           liveContentStatus: 'content-complete',
         }),
       }),
-      { suppressDueIndexSort: true },
+      {
+        suppressDueIndexSort: true,
+        queueImpact: {
+          kind: 'metadata-only',
+          reason: 'cdf-live-relation-refresh',
+        },
+      },
     );
   });
 

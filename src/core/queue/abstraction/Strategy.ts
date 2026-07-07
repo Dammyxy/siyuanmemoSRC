@@ -1,5 +1,9 @@
 import type { QueueStats, QueueUIConfig } from '../types';
-import type { QueueCounterSnapshot } from '@/types/unified-data-source';
+import type {
+  QueueCounterSnapshot,
+  QueueFeedbackImpactEvidence,
+  QueueType,
+} from '@/types/unified-data-source';
 
 export type QueueItemUnavailableDetails = {
   cardId?: string;
@@ -67,6 +71,10 @@ export type QueueFeedbackAdvanceResult<TItem extends import('../types').QueueIte
   status: 'advanced';
   nextItem: TItem | null;
   counterSnapshot?: QueueCounterSnapshot | null;
+  affectedQueueTypes?: QueueType[];
+  activeQueueCount?: number;
+  countDelta?: number | null;
+  queueImpact?: QueueFeedbackImpactEvidence | null;
   commitStatus?: 'pending' | 'applied' | 'failed';
   commitIdempotencyKey?: string;
   commit?: Promise<unknown>;

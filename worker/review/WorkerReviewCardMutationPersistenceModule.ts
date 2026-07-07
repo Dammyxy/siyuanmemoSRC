@@ -8,6 +8,7 @@ import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCle
 import { createReviewLogV2 } from '@/types/review';
 import { DEFAULT_SETTINGS, type FSRSParameters } from '@/types/settings';
 import type { FSRSCard } from '@/types/card';
+import { stringifyJson, parseJson } from '@/infrastructure/persistence/sqlite/json';
 import type { SqliteDatabaseService as RuntimeSqliteDatabaseService } from '@/infrastructure/persistence/sqlite';
 import type { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
 import type {
@@ -34,6 +35,7 @@ type ReviewFeedbackRuntime = Pick<RuntimeSqliteDatabaseService, 'run' | 'getOne'
 };
 const logger = createLogger('WorkerReviewCardMutationPersistenceModule');
 const REVIEW_FEEDBACK_WORKER_STEP_SLOW_MS = 120;
+const MANUAL_SRS_QUEUE_STATE_KEYS = ['retrievalPracticeQueue', 'incrementalLearningQueue'] as const;
 
 export type WorkerReviewFeedbackTruthCandidate = MessagePackReviewEventTruthRecord;
 
@@ -113,6 +115,7 @@ export class WorkerReviewCardMutationPersistenceModule {
         : null;
       if (existingCommit) {
         this.assertCompatibleDuplicateCommit(existingCommit, input);
+        this.removeReviewedCardFromManualSrsQueueState(card);
         return {
           cardId: input.cardId,
           committed: true,
@@ -217,6 +220,7 @@ export class WorkerReviewCardMutationPersistenceModule {
       }
 
       if (commitResult.committed) {
+        this.removeReviewedCardFromManualSrsQueueState(card);
         await this.deps.repository.touchSyncMetadata({
           modifiedAt: input.reviewedAt,
           modifiedBy: 'srs-backend-worker:review.feedback',
@@ -279,7 +283,7 @@ export class WorkerReviewCardMutationPersistenceModule {
             rating: input.rating,
           },
         });
-        logger.info('[SiYuanMemo][WorkerReviewCardMutationPersistenceModule] slow review.feedback worker step', {
+        logger.trace?.('[SiYuanMemo][WorkerReviewCardMutationPersistenceModule] slow review.feedback worker step', {
           step,
           cardId: input.cardId,
           queueType: input.queueType,
@@ -319,6 +323,42 @@ export class WorkerReviewCardMutationPersistenceModule {
     if (mismatches.length > 0) {
       throw new Error(
         `INVALID_REQUEST: conflicting review commit idempotency key: ${request.idempotencyKey}`,
+      );
+    }
+  }
+
+  private removeReviewedCardFromManualSrsQueueState(card: Pick<FSRSCard, 'id' | 'blockId'>): void {
+    const candidateIds = new Set(
+      [card.id, card.blockId]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    );
+    if (candidateIds.size === 0) {
+      return;
+    }
+
+    for (const key of MANUAL_SRS_QUEUE_STATE_KEYS) {
+      const row = this.deps.runtime.getOne<{ value_json: string }>(
+        'SELECT value_json FROM queue_state WHERE key = ?',
+        [key],
+      );
+      if (!row) {
+        continue;
+      }
+
+      const current = parseJson(row.value_json, null);
+      if (!Array.isArray(current)) {
+        continue;
+      }
+
+      const next = current.filter((value) => !candidateIds.has(String(value || '').trim()));
+      if (next.length === current.length) {
+        continue;
+      }
+
+      this.deps.runtime.run(
+        'INSERT OR REPLACE INTO queue_state (key, value_json, updated_at) VALUES (?, ?, ?)',
+        [key, stringifyJson(next), Date.now()],
       );
     }
   }

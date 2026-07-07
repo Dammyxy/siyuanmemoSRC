@@ -87,6 +87,48 @@ describe('UnifiedDataSourceManager card update notifications', () => {
     ]);
   });
 
+  it('does not emit dynamic queue-changed events for metadata-only CDF refresh updates', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    const router: IDataRouter = {
+      getCard: vi.fn(),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      deleteCard: vi.fn(async () => {}),
+      getAvailableQueueTypes: vi.fn(() => []),
+    } as unknown as IDataRouter;
+    manager.setAdvancedRouter(router);
+
+    const events: DataChangeEvent[] = [];
+    manager.registerObserver({
+      onDataChanged: (event) => {
+        events.push(event);
+      },
+    });
+
+    const card = createCard();
+    await manager.updateCard(card, {
+      queueImpact: {
+        kind: 'metadata-only',
+        reason: 'cdf-live-relation-refresh',
+      },
+    });
+    await flushMicrotasks();
+
+    expect(router.updateCard).toHaveBeenCalledWith(card, {
+      queueImpact: {
+        kind: 'metadata-only',
+        reason: 'cdf-live-relation-refresh',
+      },
+    });
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'card-updated',
+        cardIds: [card.id],
+        blockIds: [card.blockId],
+      }),
+    ]);
+  });
+
   it('refreshes the local read model after committed backend review without frontend persistence', async () => {
     const manager = UnifiedDataSourceManager.getInstance();
     const now = Date.now();

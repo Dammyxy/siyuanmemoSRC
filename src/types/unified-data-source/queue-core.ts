@@ -35,7 +35,23 @@ export interface CardMutationOptions {
   schedulingWriteSource?: SchedulingWriteSource;
   suppressAutosave?: boolean;
   suppressDueIndexSort?: boolean;
+  queueImpact?: CardMutationQueueImpact;
 }
+
+export type CardMutationQueueImpact =
+  | {
+      kind: 'metadata-only';
+      reason: 'cdf-live-relation-refresh' | string;
+    }
+  | {
+      kind: 'default' | 'broad';
+      reason?: string;
+    }
+  | {
+      kind: 'specific-queues';
+      queueTypes: QueueType[];
+      reason?: string;
+    };
 
 export type QueueCounterBuckets = {
   all: number;
@@ -57,6 +73,15 @@ export interface QueueCounterSnapshot {
   scheduledTotal?: number;
   buckets: QueueCounterBuckets;
   source: 'hot' | 'reconciled';
+}
+
+export interface QueueFeedbackImpactEvidence {
+  activeQueueType: QueueType;
+  affectedQueueTypes: QueueType[];
+  counterSnapshot: QueueCounterSnapshot;
+  activeQueueCount: number;
+  countDelta: number | null;
+  source: 'session-counter' | 'queue-counter' | 'projection-impact';
 }
 
 export interface QueueReviewResult {

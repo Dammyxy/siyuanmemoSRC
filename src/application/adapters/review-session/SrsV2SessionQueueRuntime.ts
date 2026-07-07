@@ -3,6 +3,7 @@ import {
   QueueType,
   type IReviewQueue,
   type QueueCounterSnapshot,
+  type QueueFeedbackImpactEvidence,
   type QueueReviewResult,
 } from '@/types/unified-data-source';
 import {
@@ -153,7 +154,10 @@ export class SrsV2SessionQueueRuntime implements ReviewSessionQueueRuntime {
       this.currentCard = nextCard ? cloneCard(nextCard) : null;
       const undoToken = this.nextUndoToken();
       this.pushUndoEntry({ token: undoToken, before });
-      const result = this.buildAdvanceResult(nextCard, undoToken);
+      const result = this.withQueueImpactEvidence(
+        this.buildAdvanceResult(nextCard, undoToken),
+        before.counterSnapshot,
+      );
       this.storeIdempotencyRecord(key, fingerprint, result);
       return cloneAnswerResult(result);
     }
@@ -180,8 +184,9 @@ export class SrsV2SessionQueueRuntime implements ReviewSessionQueueRuntime {
       commitIdempotencyKey: key,
       commit: pendingCommit,
     });
-    this.storeIdempotencyRecord(key, fingerprint, result);
-    return cloneAnswerResult(result);
+    const resultWithImpact = this.withQueueImpactEvidence(result, before.counterSnapshot);
+    this.storeIdempotencyRecord(key, fingerprint, resultWithImpact);
+    return cloneAnswerResult(resultWithImpact);
   }
 
   async rebuild(trigger: ReviewSessionRebuildTrigger): Promise<void> {
@@ -664,6 +669,35 @@ export class SrsV2SessionQueueRuntime implements ReviewSessionQueueRuntime {
       : this.buildResult('waiting', null, undoToken, undefined, waitingUntil, extra);
   }
 
+  private withQueueImpactEvidence(
+    result: SrsV2AnswerAndAdvanceResult,
+    previousSnapshot: QueueCounterSnapshot | null,
+  ): SrsV2AnswerAndAdvanceResult {
+    const counterSnapshot = cloneCounterSnapshot(result.counterSnapshot);
+    const activeQueueCount = normalizeCount(counterSnapshot.remaining);
+    const previousCount = previousSnapshot
+      ? normalizeCount(previousSnapshot.remaining)
+      : activeQueueCount;
+    const countDelta = activeQueueCount - previousCount;
+    const affectedQueueTypes = [this.queueType];
+    const queueImpact: QueueFeedbackImpactEvidence = {
+      activeQueueType: this.queueType,
+      affectedQueueTypes,
+      counterSnapshot,
+      activeQueueCount,
+      countDelta,
+      source: 'session-counter',
+    };
+
+    return {
+      ...result,
+      affectedQueueTypes,
+      activeQueueCount,
+      countDelta,
+      queueImpact,
+    };
+  }
+
   private createPendingRateCommit(input: PendingReviewCommit): Promise<QueueReviewResult | void> {
     return this.queue.handleReview(input.reviewedCard.id, input.rating, {
       commitIdempotencyKey: input.key,
@@ -783,13 +817,26 @@ function cloneCounterSnapshot(snapshot: QueueCounterSnapshot): QueueCounterSnaps
 }
 
 function cloneAnswerResult(result: SrsV2AnswerAndAdvanceResult): SrsV2AnswerAndAdvanceResult {
+  const queueImpact = result.queueImpact
+    ? {
+      ...result.queueImpact,
+      affectedQueueTypes: [...result.queueImpact.affectedQueueTypes],
+      counterSnapshot: cloneCounterSnapshot(result.queueImpact.counterSnapshot),
+    }
+    : result.queueImpact;
   return {
     ...result,
     nextCard: result.nextCard ? cloneCard(result.nextCard) : null,
     waitingUntil: result.waitingUntil ?? null,
     counterSnapshot: cloneCounterSnapshot(result.counterSnapshot),
+    ...(result.affectedQueueTypes ? { affectedQueueTypes: [...result.affectedQueueTypes] } : {}),
+    ...(queueImpact ? { queueImpact } : {}),
     ...(result.commit ? { commit: result.commit } : {}),
   };
+}
+
+function normalizeCount(value: unknown): number {
+  return Math.max(0, Math.floor(Number(value) || 0));
 }
 
 function normalizeId(value: string | null | undefined): string {

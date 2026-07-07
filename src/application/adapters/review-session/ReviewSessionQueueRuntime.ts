@@ -3,6 +3,7 @@ import type { CardType, FSRSCard } from '@/types/card';
 import type {
   IReviewQueue,
   QueueCounterSnapshot,
+  QueueFeedbackImpactEvidence,
   QueueType,
 } from '@/types/unified-data-source';
 
@@ -65,6 +66,10 @@ export interface ReviewSessionQueueResult {
   nextCard: FSRSCard | null;
   waitingUntil?: number | null;
   counterSnapshot: QueueCounterSnapshot;
+  affectedQueueTypes?: QueueType[];
+  activeQueueCount?: number;
+  countDelta?: number | null;
+  queueImpact?: QueueFeedbackImpactEvidence | null;
   undoToken: ReviewSessionUndoToken | null;
   reason?: string;
   commitStatus?: 'pending' | 'applied' | 'failed';

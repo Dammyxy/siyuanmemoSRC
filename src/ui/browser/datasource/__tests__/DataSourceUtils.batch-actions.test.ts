@@ -66,6 +66,9 @@ describe('DataSourceUtils batch actions', () => {
   it('sets priority through one batchUpdateCards call for 1k rows', async () => {
     const rows = Array.from({ length: 1000 }, (_, index) => makeBrowserRow(index));
     const manager = {
+      getCards: vi.fn(async (filter?: { blockIds?: string[] }) =>
+        (filter?.blockIds || []).map((blockId) => makeCard(blockId.replace('block', 'card'), blockId))
+      ),
       getCard: vi.fn(async (cardId: string) => makeCard(cardId, cardId.replace('card', 'block'))),
       updateCard: vi.fn(),
       batchUpdateCards: vi.fn(async (cards: FSRSCard[]) => ({
@@ -80,7 +83,11 @@ describe('DataSourceUtils batch actions', () => {
       scope: 'DataSourceUtilsTest',
     });
 
-    expect(manager.getCard).toHaveBeenCalledTimes(1000);
+    expect(manager.getCards).toHaveBeenCalledTimes(1);
+    expect(manager.getCards).toHaveBeenCalledWith({
+      blockIds: Array.from({ length: 1000 }, (_, index) => `block-${index}`),
+    });
+    expect(manager.getCard).not.toHaveBeenCalled();
     expect(manager.batchUpdateCards).toHaveBeenCalledTimes(1);
     expect(manager.batchUpdateCards.mock.calls[0]?.[0]).toHaveLength(1000);
     expect(manager.updateCard).not.toHaveBeenCalled();
@@ -94,6 +101,13 @@ describe('DataSourceUtils batch actions', () => {
     rows[0].priority = 20;
     rows[1].priority = 95;
     const manager = {
+      getCards: vi.fn(async (filter?: { blockIds?: string[] }) =>
+        (filter?.blockIds || []).map((blockId) => (
+          blockId === 'block-1'
+            ? makeCard('card-1', blockId, 20)
+            : makeCard('card-2', blockId, 95)
+        ))
+      ),
       getCard: vi.fn(async (cardId: string) => (
         cardId === 'card-1'
           ? makeCard(cardId, 'block-1', 20)
@@ -112,7 +126,9 @@ describe('DataSourceUtils batch actions', () => {
       scope: 'DataSourceUtilsTest',
     });
 
-    expect(manager.getCard).toHaveBeenCalledTimes(2);
+    expect(manager.getCards).toHaveBeenCalledTimes(1);
+    expect(manager.getCards).toHaveBeenCalledWith({ blockIds: ['block-1', 'block-2'] });
+    expect(manager.getCard).not.toHaveBeenCalled();
     expect(manager.batchUpdateCards).toHaveBeenCalledTimes(1);
     expect(manager.batchUpdateCards.mock.calls[0]?.[0].map((card) => card.priority)).toEqual([30, 100]);
     expect(manager.updateCard).not.toHaveBeenCalled();
@@ -123,6 +139,57 @@ describe('DataSourceUtils batch actions', () => {
     });
     expect(result.updated).toHaveLength(2);
     expect(rows.map((row) => row.priority)).toEqual([30, 100]);
+  });
+
+  it('falls back to per-card priority loads when bulk getCards is unavailable', async () => {
+    const rows = [makeBrowserRow(1), makeBrowserRow(2)];
+    const manager = {
+      getCard: vi.fn(async (cardId: string) => makeCard(cardId, cardId.replace('card', 'block'))),
+      updateCard: vi.fn(),
+      batchUpdateCards: vi.fn(async (cards: FSRSCard[]) => ({
+        attemptedCount: cards.length,
+        updatedCount: cards.length,
+        updatedCardIds: cards.map((card) => card.id),
+        failedCardIds: [],
+      })),
+    };
+
+    const result = await setBrowserCardsPriority(manager, rows, 33, {
+      scope: 'DataSourceUtilsTest',
+    });
+
+    expect(manager.getCard).toHaveBeenCalledTimes(2);
+    expect(manager.batchUpdateCards).toHaveBeenCalledTimes(1);
+    expect(result.updated).toHaveLength(2);
+    expect(rows.map((row) => row.priority)).toEqual([33, 33]);
+  });
+
+  it('fails priority updates closed when bulk getCards is present but fails', async () => {
+    const rows = [makeBrowserRow(1), makeBrowserRow(2)];
+    const manager = {
+      getCards: vi.fn(async () => {
+        throw new Error('bulk read unavailable');
+      }),
+      getCard: vi.fn(async (cardId: string) => makeCard(cardId, cardId.replace('card', 'block'))),
+      updateCard: vi.fn(),
+      batchUpdateCards: vi.fn(async (cards: FSRSCard[]) => ({
+        attemptedCount: cards.length,
+        updatedCount: cards.length,
+        updatedCardIds: cards.map((card) => card.id),
+        failedCardIds: [],
+      })),
+    };
+
+    const result = await setBrowserCardsPriority(manager, rows, 44, {
+      scope: 'DataSourceUtilsTest',
+    });
+
+    expect(manager.getCards).toHaveBeenCalledTimes(1);
+    expect(manager.getCard).not.toHaveBeenCalled();
+    expect(manager.batchUpdateCards).not.toHaveBeenCalled();
+    expect(result.updated).toHaveLength(0);
+    expect(result.skipped).toHaveLength(2);
+    expect(rows.map((row) => row.priority)).toEqual([50, 50]);
   });
 
   it('removes selected queue rows through one removeCards call', async () => {

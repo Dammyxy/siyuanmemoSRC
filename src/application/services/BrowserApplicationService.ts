@@ -13,7 +13,6 @@ import type {
 } from '@/types/unified-data-source';
 import {
   getCanonicalBrowserQueueIds,
-  isNeuralBrowserQueue,
   normalizeBrowserQueueId,
   resolveBrowserQueueIdForQueueType,
   resolveQueueTypeForBrowserQueueId,
@@ -105,6 +104,10 @@ import {
   type CdfLiveRelationWriteRepairResult,
   type CdfLiveRelationWriteRepairSourceLoader,
 } from './CdfLiveRelationWriteRepairService';
+import {
+  ProjectionBrowserQueueCountReadModel,
+  type BrowserQueueCountReadModel,
+} from './browser/BrowserQueueCountReadModel';
 
 const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
   getCanonicalBrowserQueueIds().map((queueId) => [queueId, 0]),
@@ -229,6 +232,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly browserCardUniverseReadModule: BrowserCardUniverseReadModule;
   private readonly queueBrowserQueryKernel: QueueBrowserQueryKernel | null;
   private readonly unifiedDataSourceManager: IUnifiedDataSourceManagerFacade | null;
+  private readonly queueCountReadModel: BrowserQueueCountReadModel | null;
   private readonly siyuanApi: BrowserSiyuanPort;
   private readonly queueCountInFlight = new Map<BrowserQueueId, Promise<number>>();
   private readonly queueCountCache = new Map<BrowserQueueId, { value: number; timestamp: number }>();
@@ -294,6 +298,9 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     );
 
     this.unifiedDataSourceManager = unifiedDataSourceManager ?? null;
+    this.queueCountReadModel = unifiedDataSourceManager
+      ? new ProjectionBrowserQueueCountReadModel(unifiedDataSourceManager)
+      : null;
     this.siyuanApi = siyuanApi;
     this.cdfLiveRelationRefresh = unifiedDataSourceManager
       ? new CdfLiveRelationRefreshService({
@@ -1433,58 +1440,6 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
   }
 
-  private async readQueueVisibleCount(
-    queue: IReviewQueue | null,
-    queueId: string,
-    forceRefresh = false,
-  ): Promise<number> {
-    if (!queue) {
-      return 0;
-    }
-
-    if (isNeuralBrowserQueue(queueId)) {
-      try {
-        return Math.max(0, await queue.getSize());
-      } catch (error) {
-        logger.error('QUEUE_COUNT_UNAVAILABLE: failed to read neural-roam queue size:', {
-          queueId,
-          error,
-        });
-        throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} queue size unavailable`);
-      }
-    }
-
-    try {
-      const snapshot = await this.getQueueQuerySnapshot({
-        queueId: queueId as BrowserQueueId,
-        preset: 'all',
-        searchText: '',
-        docId: null,
-        scopeDocIds: null,
-        cardType: 'all',
-        forceRefresh,
-      });
-      const visibleTotal = Math.max(0, Number(snapshot.total) || 0);
-      const counterSnapshot = await queue.getCounterSnapshot(false);
-      const counterTotal = counterSnapshot.total == null
-        ? Number(counterSnapshot.remaining)
-        : Number(counterSnapshot.total);
-      const normalizedCounterTotal = Math.max(0, Number.isFinite(counterTotal) ? counterTotal : 0);
-      return normalizedCounterTotal === visibleTotal
-        ? normalizedCounterTotal
-        : visibleTotal;
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      const unavailable = new Error(
-        reason
-          ? `QUEUE_COUNT_UNAVAILABLE: ${queueId} queue snapshot unavailable (${reason})`
-          : `QUEUE_COUNT_UNAVAILABLE: ${queueId} queue snapshot unavailable`,
-      );
-      (unavailable as Error & { cause?: unknown }).cause = error;
-      throw unavailable;
-    }
-  }
-
   private isTransientQueueCountUnavailableError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
       return false;
@@ -1524,23 +1479,36 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     return false;
   }
 
-  private resolveAffectedBrowserQueueIds(affectedQueueTypes?: QueueType[] | null): BrowserQueueId[] {
+  private resolveAffectedBrowserQueueIds(request: BrowserQueueCountsRequest): BrowserQueueId[] {
+    const activeReviewQueueId = request.reviewPressure?.active === true
+      ? resolveBrowserQueueIdForQueueType(request.reviewPressure.activeQueueType)
+      : null;
+    const affectedQueueTypes = request.affectedQueueTypes;
     if (!affectedQueueTypes || affectedQueueTypes.length === 0) {
+      if (activeReviewQueueId) {
+        return [activeReviewQueueId];
+      }
       return getCanonicalBrowserQueueIds();
     }
 
-    return Array.from(new Set(
+    const queueIds = Array.from(new Set(
       affectedQueueTypes
         .map((queueType) => resolveBrowserQueueIdForQueueType(queueType))
         .filter((queueId): queueId is BrowserQueueId => Boolean(queueId)),
     ));
+    return activeReviewQueueId
+      ? queueIds.filter((queueId) => queueId === activeReviewQueueId)
+      : queueIds;
   }
 
   private async readSingleQueueCount(
-    manager: IUnifiedDataSourceManagerFacade,
     queueId: BrowserQueueId,
     forceRefresh = false,
   ): Promise<number> {
+    if (!this.queueCountReadModel) {
+      throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} queue count read model unavailable`);
+    }
+
     const cacheEntry = this.queueCountCache.get(queueId);
     const now = Date.now();
     if (!forceRefresh && cacheEntry && now - cacheEntry.timestamp < BrowserApplicationService.QUEUE_COUNTS_CACHE_TTL_MS) {
@@ -1552,11 +1520,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return inFlight;
     }
 
-    const queueType = resolveQueueTypeForBrowserQueueId(queueId);
-    if (!queueType) {
-      throw new Error(`QUEUE_UNAVAILABLE: ${queueId} queue identity unsupported`);
-    }
-    const request = this.readQueueVisibleCount(manager.getQueue(queueType), queueId, forceRefresh)
+    const request = this.queueCountReadModel.readCount({ queueId, forceRefresh })
       .then((value) => {
         const normalized = Math.max(0, Number(value) || 0);
         this.queueCountCache.set(queueId, {
@@ -1578,7 +1542,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
           if (!forceRefresh) {
             throw error;
           }
-          return this.readQueueVisibleCount(manager.getQueue(queueType), queueId, true)
+          return this.queueCountReadModel!.readCount({ queueId, forceRefresh: true })
             .then((value) => {
               const normalized = Math.max(0, Number(value) || 0);
               this.queueCountCache.set(queueId, {
@@ -1618,12 +1582,11 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async getQueueCounts(request: BrowserQueueCountsRequest = {}): Promise<Record<string, number>> {
-    const manager = this.unifiedDataSourceManager;
-    if (!manager) {
+    if (!this.queueCountReadModel) {
       return { ...EMPTY_QUEUE_COUNTS };
     }
 
-    const affectedQueueIds = this.resolveAffectedBrowserQueueIds(request.affectedQueueTypes);
+    const affectedQueueIds = this.resolveAffectedBrowserQueueIds(request);
     if (request.forceRefresh) {
       for (const queueId of affectedQueueIds) {
         this.queueCountInFlight.delete(queueId);
@@ -1635,7 +1598,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         try {
           return [
             queueId,
-            await this.readSingleQueueCount(manager, queueId, Boolean(request.forceRefresh)),
+            await this.readSingleQueueCount(queueId, Boolean(request.forceRefresh)),
           ] as const;
         } catch (error) {
           if (this.isTransientQueueCountUnavailableError(error)) {

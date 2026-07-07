@@ -34,6 +34,7 @@ import { QueueProjectionReadinessService } from './QueueProjectionReadinessServi
 import { measureRuntimePerformance, startRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
 
 type QueueProjectionRuntimeLogger = {
+  trace?: (...args: unknown[]) => void;
   debug: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
@@ -234,7 +235,7 @@ export class QueueProjectionRuntime {
         || !this.isValidProjectionPolicyHash(result.policyHash)
         || !this.isValidProjectionGeneration(result.generation)
       ) {
-        this.deps.logger.info('Queue projection snapshot is not ready', {
+        this.deps.logger.trace?.('Queue projection snapshot is not ready', {
           queueType,
           status: result.status,
           generation: result.generation,
@@ -301,7 +302,7 @@ export class QueueProjectionRuntime {
     try {
       const result = await backend.queueProjectionRowsByIds({ queueType, ids: orderedIds });
       if (result.status !== 'ready') {
-        this.deps.logger.info('Queue projection row hydration is not ready', {
+        this.deps.logger.trace?.('Queue projection row hydration is not ready', {
           queueType,
           status: result.status,
           generation: result.generation,

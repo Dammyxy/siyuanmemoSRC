@@ -99,4 +99,42 @@ describe('useQueueBridge', () => {
       'neural-roam': 4,
     });
   });
+
+  it('patches only the active Review queue while Review pressure is active', async () => {
+    const getQueueCounts = vi.fn(async () => ({
+      ...EMPTY_QUEUE_COUNTS,
+      retrieval: 6,
+      'incremental-learning': 9,
+    }));
+    const bridge = createBridge(getQueueCounts);
+    const queueCounts = ref<Record<string, number>>({
+      ...EMPTY_QUEUE_COUNTS,
+      retrieval: 2,
+      'incremental-learning': 7,
+      'neural-roam': 4,
+    });
+
+    await bridge.refreshQueueCounts(queueCounts, {
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.RetrievalPractice, QueueType.IncrementalLearning],
+      reviewPressure: {
+        active: true,
+        activeQueueType: QueueType.RetrievalPractice,
+      },
+    });
+
+    expect(getQueueCounts).toHaveBeenCalledWith({
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.RetrievalPractice, QueueType.IncrementalLearning],
+      reviewPressure: {
+        active: true,
+        activeQueueType: QueueType.RetrievalPractice,
+      },
+    });
+    expect(queueCounts.value).toMatchObject({
+      retrieval: 6,
+      'incremental-learning': 7,
+      'neural-roam': 4,
+    });
+  });
 });

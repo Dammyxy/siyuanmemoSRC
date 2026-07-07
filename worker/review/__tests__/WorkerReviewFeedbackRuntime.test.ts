@@ -64,6 +64,7 @@ function createProjectionRow(
 
 function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDrill) {
   const storedCards = new Map(cards.map((card) => [card.id, card] as const));
+  const queueStateValues = new Map<string, unknown>();
   const reviewEventsByIdempotencyKey = new Map<string, {
     id: string;
     card_id: string | null;
@@ -113,9 +114,20 @@ function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDril
             payload_json: String(params[9]),
           });
         }
+        return;
+      }
+      if (sql.includes('INSERT OR REPLACE INTO queue_state') && params) {
+        queueStateValues.set(String(params[0]), JSON.parse(String(params[1])));
       }
     }),
     getOne: vi.fn((_sql: string, params?: unknown[]) => {
+      if (_sql.includes('SELECT value_json FROM queue_state')) {
+        const key = typeof params?.[0] === 'string' ? params[0] : null;
+        if (!key || !queueStateValues.has(key)) {
+          return null;
+        }
+        return { value_json: JSON.stringify(queueStateValues.get(key)) };
+      }
       const idempotencyKey = typeof params?.[0] === 'string' ? params[0] : null;
       return idempotencyKey ? reviewEventsByIdempotencyKey.get(idempotencyKey) ?? null : null;
     }),
@@ -133,6 +145,7 @@ function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDril
     runtime,
     readRows,
     applyQueueProjectionDelta,
+    queueStateValues,
   };
 }
 
@@ -142,6 +155,54 @@ async function flushDeferredMaintenance(): Promise<void> {
 }
 
 describe('WorkerReviewFeedbackRuntime', () => {
+  it('clears manual SRS queue membership inside the committed worker feedback transaction', async () => {
+    const reviewed = createCard({ id: 'card-manual', blockId: 'block-manual' });
+    const {
+      reviewRuntime,
+      queueStateValues,
+    } = createRuntimeFixture([reviewed], QueueType.RetrievalPractice);
+    queueStateValues.set('retrievalPracticeQueue', [reviewed.id, reviewed.blockId, 'keep-retrieval']);
+    queueStateValues.set('incrementalLearningQueue', [reviewed.id, reviewed.blockId, 'keep-incremental']);
+
+    const result = await reviewRuntime.reviewFeedback({
+      cardId: reviewed.id,
+      rating: 3,
+      queueType: QueueType.RetrievalPractice,
+      reviewedAt: REVIEWED_AT,
+      idempotencyKey: 'manual-membership-cleanup-1',
+    });
+
+    expect(result).toMatchObject({
+      committed: true,
+      queueType: QueueType.RetrievalPractice,
+    });
+    expect(queueStateValues.get('retrievalPracticeQueue')).toEqual(['keep-retrieval']);
+    expect(queueStateValues.get('incrementalLearningQueue')).toEqual(['keep-incremental']);
+  });
+
+  it('does not clear manual queue membership when worker feedback commit fails', async () => {
+    const reviewed = createCard({ id: 'card-manual-fails', blockId: 'block-manual-fails' });
+    const {
+      reviewRuntime,
+      repository,
+      queueStateValues,
+    } = createRuntimeFixture([reviewed], QueueType.RetrievalPractice);
+    queueStateValues.set('retrievalPracticeQueue', [reviewed.id, reviewed.blockId, 'keep-retrieval']);
+    repository.upsertCards.mockImplementation(() => {
+      throw new Error('BACKEND_UNAVAILABLE: card schedule store unavailable');
+    });
+
+    await expect(reviewRuntime.reviewFeedback({
+      cardId: reviewed.id,
+      rating: 3,
+      queueType: QueueType.RetrievalPractice,
+      reviewedAt: REVIEWED_AT,
+      idempotencyKey: 'manual-membership-cleanup-fails',
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: card schedule store unavailable');
+
+    expect(queueStateValues.get('retrievalPracticeQueue')).toEqual([reviewed.id, reviewed.blockId, 'keep-retrieval']);
+  });
+
   it('returns deferred impact before SRS projection maintenance reads rows', async () => {
     const reviewed = createCard({ id: 'card-srs-deferred', blockId: 'block-srs-deferred' });
     const peer = createCard({ id: 'card-srs-peer', blockId: 'block-srs-peer' });
@@ -359,6 +420,7 @@ describe('WorkerReviewFeedbackRuntime', () => {
       reviewRuntime,
       repository,
       runtime,
+      queueStateValues,
       readRows,
       applyQueueProjectionDelta,
     } = createRuntimeFixture([reviewed], QueueType.RetrievalPractice);
@@ -374,6 +436,7 @@ describe('WorkerReviewFeedbackRuntime', () => {
     };
 
     const first = await reviewRuntime.reviewFeedback(request);
+    queueStateValues.set('retrievalPracticeQueue', [reviewed.id, reviewed.blockId, 'keep-duplicate']);
     const second = await reviewRuntime.reviewFeedback(request);
 
     const reviewEventInsertCalls = runtime.run.mock.calls.filter(([sql]) => (
@@ -398,6 +461,7 @@ describe('WorkerReviewFeedbackRuntime', () => {
     expect(domainSyncInsertCalls).toHaveLength(1);
     expect(repository.upsertCards).toHaveBeenCalledOnce();
     expect(repository.touchSyncMetadata).toHaveBeenCalledOnce();
+    expect(queueStateValues.get('retrievalPracticeQueue')).toEqual(['keep-duplicate']);
     expect(readRows).not.toHaveBeenCalled();
     expect(applyQueueProjectionDelta).not.toHaveBeenCalled();
   });

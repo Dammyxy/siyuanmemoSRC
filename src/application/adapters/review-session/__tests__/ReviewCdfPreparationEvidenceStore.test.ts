@@ -30,7 +30,7 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
-function createStore(logger = { info: vi.fn() }) {
+function createStore(logger = { info: vi.fn(), trace: vi.fn() }) {
   return new ReviewCdfPreparationEvidenceStore<FSRSCard | null>({
     queueType: QueueType.RetrievalPractice,
     buildKey: (card) => JSON.stringify({
@@ -47,7 +47,7 @@ function createStore(logger = { info: vi.fn() }) {
 
 describe('ReviewCdfPreparationEvidenceStore', () => {
   it('preserves a pending prime when its own refresh emits one matching card-updated event', async () => {
-    const logger = { info: vi.fn() };
+    const logger = { info: vi.fn(), trace: vi.fn() };
     const store = createStore(logger);
     const nextCard = createCard({ id: 'next-card', blockId: 'next-block' });
     const prepare = vi.fn(async (card: FSRSCard, key: string) => ({
@@ -70,7 +70,7 @@ describe('ReviewCdfPreparationEvidenceStore', () => {
     expect(consumed.reused).toBe(true);
     expect(consumed.evidence.preparedCard).toMatchObject({ id: nextCard.id });
     expect(prepare).toHaveBeenCalledTimes(1);
-    expect(logger.info).toHaveBeenCalledWith(
+    expect(logger.trace).toHaveBeenCalledWith(
       expect.stringContaining('CDF preparation evidence preserved across self update'),
       expect.objectContaining({ pendingCardId: nextCard.id }),
     );

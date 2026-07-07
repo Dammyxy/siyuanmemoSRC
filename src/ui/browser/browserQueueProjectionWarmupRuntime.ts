@@ -12,6 +12,7 @@ import type { CardTypeFilter } from './types';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
 
 type BrowserQueueProjectionWarmupLogger = {
+  trace?: (...args: unknown[]) => void;
   debug?: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
   warn?: (...args: unknown[]) => void;
@@ -251,7 +252,7 @@ export function createBrowserQueueProjectionWarmupRuntime(
     if (deferredQueueIds.length === 0) {
       return;
     }
-    deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection warmup deferred during active Review', {
+    deps.logger.trace?.('[SiYuanMemo][SRSBrowser] Queue projection warmup deferred during active Review', {
       reason,
       deferredQueueIds,
       delayMs,
@@ -317,7 +318,7 @@ export function createBrowserQueueProjectionWarmupRuntime(
         if (seq !== generation) return;
         const status = normalizeReadinessStatus(queueId, queueType, readiness);
         statuses.set(queueId, status);
-        deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection warmup readiness', status);
+        deps.logger.trace?.('[SiYuanMemo][SRSBrowser] Queue projection warmup readiness', status);
         if (status.status === 'ready') {
           void Promise.resolve(deps.onQueueReady?.(status)).catch((error) => {
             deps.logger.warn?.('[SiYuanMemo][SRSBrowser] Queue projection warmup ready callback failed', {
@@ -344,7 +345,7 @@ export function createBrowserQueueProjectionWarmupRuntime(
                 cause: status.cause,
               },
             );
-            deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection warmup repair requested', {
+            deps.logger.trace?.('[SiYuanMemo][SRSBrowser] Queue projection warmup repair requested', {
               queueId,
               queueType,
               reason,

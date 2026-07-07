@@ -22,6 +22,7 @@ export interface ErrorNotificationPort {
 
 export interface RescheduleStoragePort {
   getCardsByBlockId(blockId: string): FSRSCard[];
+  getCardsByBlockIds?: (blockIds: string[]) => FSRSCard[];
   getAllCards?: (() => FSRSCard[]) | (() => Promise<FSRSCard[]>);
   loadData?: (key: string) => Promise<unknown>;
   saveData?: (key: string, value: unknown) => Promise<void>;

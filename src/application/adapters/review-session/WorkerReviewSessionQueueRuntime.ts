@@ -1,4 +1,5 @@
 import type {
+  BackendReviewFeedbackQueueImpact,
   BackendReviewSessionFeedbackResult,
   BackendReviewSessionRepairGateEvidence,
   BackendReviewSessionSkipResult,
@@ -9,6 +10,7 @@ import type { FSRSCard } from '@/types/card';
 import {
   QueueType,
   type QueueCounterSnapshot,
+  type QueueFeedbackImpactEvidence,
 } from '@/types/unified-data-source';
 import type {
   ReviewSessionAnswerCommand,
@@ -99,6 +101,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
       return this.unavailableResult(input, 'WORKER_REVIEW_SESSION_UNAVAILABLE: session start returned no sessionId');
     }
     if (input.feedback.action === 'skip') {
+      const previousCounterSnapshot = this.getCounterSnapshot();
       try {
         const result = await this.backend.reviewSessionSkip({
           sessionId: this.sessionId,
@@ -106,7 +109,11 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
         });
         this.applyState(result);
         this.lastUndoToken = normalizeString(result.undoToken);
-        return this.buildResult(this.currentCard ? 'advanced' : 'exhausted', this.currentCard, this.lastUndoToken);
+        return this.withQueueImpactEvidence(
+          this.buildResult(this.currentCard ? 'advanced' : 'exhausted', this.currentCard, this.lastUndoToken),
+          previousCounterSnapshot,
+          null,
+        );
       } catch (error) {
         return this.unavailableResult(input, error instanceof Error ? error.message : String(error));
       }
@@ -115,6 +122,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
       return this.buildResult('advanced', this.currentCard, null);
     }
     try {
+      const previousCounterSnapshot = this.getCounterSnapshot();
       const result = await this.backend.reviewSessionFeedback({
         sessionId: this.sessionId,
         cardId: input.card.id,
@@ -126,7 +134,11 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
       this.applyState(result);
       this.lastUndoToken = normalizeString(result.undoToken);
       return {
-        ...this.buildResult(this.currentCard ? 'advanced' : 'exhausted', this.currentCard, this.lastUndoToken),
+        ...this.withQueueImpactEvidence(
+          this.buildResult(this.currentCard ? 'advanced' : 'exhausted', this.currentCard, this.lastUndoToken),
+          previousCounterSnapshot,
+          result.feedback.queueImpact ?? null,
+        ),
         commitStatus: 'applied',
         commitIdempotencyKey: result.feedback.idempotencyKey ?? input.feedback.commitIdempotencyKey,
       };
@@ -276,7 +288,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
       ...(this.currentCard ? [cloneRequiredCard(this.currentCard)] : []),
       ...lookaheadCards.filter((card) => card.id !== this.currentCard?.id),
     ];
-    logger.info('[SiYuanMemo][WorkerReviewSessionQueueRuntime] review session lookahead state', {
+    logger.trace('[SiYuanMemo][WorkerReviewSessionQueueRuntime] review session lookahead state', {
       queueType: this.queueType,
       sessionId: this.sessionId,
       currentCardId: this.currentCard?.id ?? null,
@@ -306,6 +318,47 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
     };
   }
 
+  private withQueueImpactEvidence(
+    result: ReviewSessionQueueResult,
+    previousSnapshot: QueueCounterSnapshot | null,
+    backendQueueImpact: BackendReviewFeedbackQueueImpact | null,
+  ): ReviewSessionQueueResult {
+    const counterSnapshot = cloneCounterSnapshot(result.counterSnapshot);
+    const activeQueueCount = normalizeCount(counterSnapshot.remaining);
+    const previousCount = previousSnapshot
+      ? normalizeCount(previousSnapshot.remaining)
+      : activeQueueCount;
+    const countDelta = activeQueueCount - previousCount;
+    const affectedQueueTypes = this.resolveAffectedQueueTypes(backendQueueImpact);
+    const queueImpact: QueueFeedbackImpactEvidence = {
+      activeQueueType: this.queueType,
+      affectedQueueTypes,
+      counterSnapshot,
+      activeQueueCount,
+      countDelta,
+      source: 'session-counter',
+    };
+
+    return {
+      ...result,
+      affectedQueueTypes,
+      activeQueueCount,
+      countDelta,
+      queueImpact,
+    };
+  }
+
+  private resolveAffectedQueueTypes(backendQueueImpact: BackendReviewFeedbackQueueImpact | null): QueueType[] {
+    const affected = new Set<QueueType>([this.queueType]);
+    for (const entry of backendQueueImpact?.affectedQueues ?? []) {
+      const queueType = normalizeQueueType(entry.queueType);
+      if (queueType) {
+        affected.add(queueType);
+      }
+    }
+    return Array.from(affected);
+  }
+
   private unavailableResult(input: ReviewSessionAnswerCommand, reason: string): ReviewSessionQueueResult {
     return {
       ...this.buildResult('unavailable', input.card, null, reason),
@@ -329,6 +382,16 @@ function normalizeLimit(value: unknown): number | null {
 function normalizeRating(value: unknown): 1 | 2 | 3 | 4 {
   const numeric = Math.max(1, Math.min(4, Math.floor(Number(value) || 1)));
   return numeric as 1 | 2 | 3 | 4;
+}
+
+function normalizeQueueType(value: unknown): QueueType | null {
+  return Object.values(QueueType).includes(value as QueueType)
+    ? value as QueueType
+    : null;
+}
+
+function normalizeCount(value: unknown): number {
+  return Math.max(0, Math.floor(Number(value) || 0));
 }
 
 function isFsrsCard(value: unknown): value is FSRSCard {

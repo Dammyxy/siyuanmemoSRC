@@ -103,8 +103,26 @@ function createQueue(
   return queue;
 }
 
+function createProjectionCounters(total: number) {
+  return {
+    version: 1,
+    remaining: total,
+    due: total,
+    total,
+    buckets: {
+      all: total,
+      item: total,
+      descriptor: 0,
+      topic: 0,
+      concept: 0,
+    },
+    source: 'reconciled' as const,
+  };
+}
+
 describe('BrowserApplicationService queue counts', () => {
   let queueByType: Map<QueueType, QueueMock>;
+  let projectionCountersByType: Map<QueueType, ReturnType<typeof createProjectionCounters> | null>;
   let manager: {
     getQueue: ReturnType<typeof vi.fn>;
     readQueueProjectionSnapshot?: ReturnType<typeof vi.fn>;
@@ -114,6 +132,7 @@ describe('BrowserApplicationService queue counts', () => {
 
   beforeEach(() => {
     queueByType = new Map<QueueType, QueueMock>();
+    projectionCountersByType = new Map<QueueType, ReturnType<typeof createProjectionCounters> | null>();
     manager = {
       getQueue: vi.fn((type: QueueType) => {
         const queue = queueByType.get(type);
@@ -132,7 +151,7 @@ describe('BrowserApplicationService queue counts', () => {
           policyHash: `policy-${type}`,
           generation: 1,
           rows: await queue.getSnapshotRows(Boolean(options?.forceRefresh)),
-          counters: null,
+          counters: projectionCountersByType.get(type) ?? null,
         };
       }),
     };
@@ -172,7 +191,7 @@ describe('BrowserApplicationService queue counts', () => {
     );
   });
 
-  it('reads counts from browser-visible queue snapshots when projection counters are stale', async () => {
+  it('reads counts from browser-visible projection snapshots when projection counters are stale', async () => {
     const retrievalQueue = createQueue(59, 59, 59, { snapshotRowCount: 29 });
     const finalQueue = createQueue(8, 8, 8, { snapshotRowCount: 7 });
     const neuralQueue = createQueue(77, 77, 77, {
@@ -189,6 +208,10 @@ describe('BrowserApplicationService queue counts', () => {
     queueByType.set(QueueType.NeuralRoam, neuralQueue);
     queueByType.set(QueueType.FilterGroup, filterQueue);
     queueByType.set(QueueType.IncrementalLearning, incrementalQueue);
+    projectionCountersByType.set(QueueType.RetrievalPractice, createProjectionCounters(59));
+    projectionCountersByType.set(QueueType.FinalDrill, createProjectionCounters(8));
+    projectionCountersByType.set(QueueType.FilterGroup, createProjectionCounters(3));
+    projectionCountersByType.set(QueueType.IncrementalLearning, createProjectionCounters(59));
 
     const counts = await service.getQueueCounts();
 
@@ -202,25 +225,26 @@ describe('BrowserApplicationService queue counts', () => {
 
     expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getCards).not.toHaveBeenCalled();
-    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(finalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
     expect(finalQueue.getCards).not.toHaveBeenCalled();
-    expect(finalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
     expect(neuralQueue.getConceptBlocks).not.toHaveBeenCalled();
     expect(neuralQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(filterQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
     expect(filterQueue.getCards).not.toHaveBeenCalled();
-    expect(filterQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(filterQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(incrementalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
     expect(incrementalQueue.getCards).not.toHaveBeenCalled();
-    expect(incrementalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(incrementalQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
   });
 
   it('uses projection counter totals when counters match browser-visible snapshot rows', async () => {
     const retrievalQueue = createQueue(6, 6, 99, { snapshotRowCount: 6 });
     queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+    projectionCountersByType.set(QueueType.RetrievalPractice, createProjectionCounters(6));
 
     const counts = await service.getQueueCounts({
       forceRefresh: true,
@@ -230,9 +254,83 @@ describe('BrowserApplicationService queue counts', () => {
     expect(counts.retrieval).toBe(6);
     expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getCards).not.toHaveBeenCalled();
-    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
+  });
+
+  it('scopes broad count refresh to Retrieval during active Review without instantiating non-active queues', async () => {
+    const retrievalQueue = createQueue(4, 4, 4, { snapshotRowCount: 4 });
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+
+    const counts = await service.getQueueCounts({
+      forceRefresh: true,
+      reviewPressure: {
+        active: true,
+        activeQueueType: QueueType.RetrievalPractice,
+      },
+    });
+
+    expect(counts.retrieval).toBe(4);
+    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledTimes(1);
+    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, { forceRefresh: true });
+    expect(manager.getQueue).not.toHaveBeenCalled();
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getCounterSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('refreshes deferred non-active counts after Review pressure clears', async () => {
+    const retrievalQueue = createQueue(4, 4, 4, { snapshotRowCount: 4 });
+    const finalQueue = createQueue(2, 2, 2, { snapshotRowCount: 2 });
+    const incrementalQueue = createQueue(3, 3, 3, { snapshotRowCount: 3 });
+    const filterQueue = createQueue(1, 1, 1, { snapshotRowCount: 1 });
+    const neuralQueue = createQueue(5, 5, 5, {
+      sourceSnapshot: Array.from({ length: 5 }, (_, index) => ({ nodeId: `source-${index}` })),
+    });
+
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+    queueByType.set(QueueType.FinalDrill, finalQueue);
+    queueByType.set(QueueType.IncrementalLearning, incrementalQueue);
+    queueByType.set(QueueType.FilterGroup, filterQueue);
+    queueByType.set(QueueType.NeuralRoam, neuralQueue);
+
+    await service.getQueueCounts({
+      forceRefresh: true,
+      reviewPressure: {
+        active: true,
+        activeQueueType: QueueType.RetrievalPractice,
+      },
+    });
+    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledTimes(1);
+    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, { forceRefresh: true });
+    expect(manager.getQueue).not.toHaveBeenCalled();
+
+    manager.readQueueProjectionSnapshot?.mockClear();
+    manager.getQueue.mockClear();
+
+    const counts = await service.getQueueCounts({
+      forceRefresh: true,
+      reviewPressure: {
+        active: false,
+        activeQueueType: null,
+      },
+    });
+
+    expect(counts).toMatchObject({
+      retrieval: 4,
+      'final-drill': 2,
+      'incremental-learning': 3,
+      'filter-group': 1,
+      'neural-roam': 5,
+    });
+    expect(manager.readQueueProjectionSnapshot?.mock.calls.map((call) => call[0])).toEqual(expect.arrayContaining([
+      QueueType.RetrievalPractice,
+      QueueType.FinalDrill,
+      QueueType.IncrementalLearning,
+      QueueType.FilterGroup,
+    ]));
+    expect(manager.getQueue).toHaveBeenCalledTimes(1);
+    expect(manager.getQueue).toHaveBeenCalledWith(QueueType.NeuralRoam);
   });
 
   it('keeps neural-roam count on the route-owned queue size even when projection diagnostics exist', async () => {

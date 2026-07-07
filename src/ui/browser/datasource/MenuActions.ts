@@ -95,11 +95,6 @@ export function buildAddToQueueAction(
       label: translate('addToRetrievalQueue', '提取练习'),
       icon: 'iconList',
     });
-    queueActions.push({
-      id: 'add-to-retrieval-queue-all',
-      label: translate('addToRetrievalQueueAll', '提取练习（含今日已复习）'),
-      icon: 'iconAdd',
-    });
   }
   if (hasQueues.incremental) {
     logger.debug('[MenuActions] ✅ 添加渐进学习');
@@ -107,11 +102,6 @@ export function buildAddToQueueAction(
       id: 'add-to-incremental-queue',
       label: translate('addToIncrementalQueue', '渐进学习'),
       icon: 'iconBook',
-    });
-    queueActions.push({
-      id: 'add-to-incremental-queue-all',
-      label: translate('addToIncrementalQueueAll', '渐进学习（含今日已复习）'),
-      icon: 'iconAdd',
     });
   }
   if (hasQueues.finalDrill) {
@@ -229,7 +219,6 @@ export const QUEUE_ADD_ROUTES: Record<string, QueueAddRoute> = {
   'add-to-retrieval-queue-all': {
     queueType: QueueType.RetrievalPractice,
     actionType: 'retrieval',
-    source: 'manual-add-all',
   },
   'add-to-incremental-queue': {
     queueType: QueueType.IncrementalLearning,
@@ -238,7 +227,6 @@ export const QUEUE_ADD_ROUTES: Record<string, QueueAddRoute> = {
   'add-to-incremental-queue-all': {
     queueType: QueueType.IncrementalLearning,
     actionType: 'incremental',
-    source: 'manual-add-all',
   },
   'add-to-deliberate-queue': {
     queueType: QueueType.FinalDrill,
@@ -397,6 +385,26 @@ function collectRescheduleCards(
   if (!storage) {
     logger.error(`No UnifiedStorageManager available for ${action}WithConfig`);
     return [];
+  }
+
+  const cardIds = new Set(selectedRows.map((row) => row.cardId).filter(Boolean));
+  const blockIds = Array.from(new Set(selectedRows.map((row) => row.blockId).filter(Boolean)));
+  if (typeof (storage as unknown as RescheduleStoragePort).getCardsByBlockIds === 'function' && blockIds.length > 0) {
+    const cards = (storage as unknown as RescheduleStoragePort)
+      .getCardsByBlockIds!(blockIds)
+      .filter((card) => cardIds.has(card.id));
+
+    const foundCardIds = new Set(cards.map((card) => card.id));
+    for (const row of selectedRows) {
+      if (!row.cardId) {
+        logger.warn(`[${action}] Row missing cardId, skipping`, row);
+        continue;
+      }
+      if (!foundCardIds.has(row.cardId)) {
+        logger.warn(`[${action}] Card not found in storage: ${row.cardId}`);
+      }
+    }
+    return cards;
   }
 
   const cards: unknown[] = [];

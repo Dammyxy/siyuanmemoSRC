@@ -81,7 +81,7 @@ export class SchedulerRouter {
      * 生成 SRS v2 调度决策，但不执行持久化。
      */
     answer(card: FSRSCard, rating: Rating, options: SrsV2SchedulingContext = {}): SchedulingDecision {
-        logger.debug('answer() called:', {
+    logger.trace?.('answer() called:', {
             cardId: card.id,
             rating,
             reviewTime: options.reviewTime,
@@ -101,7 +101,7 @@ export class SchedulerRouter {
         });
 
         const decision = this.kernel.answer(card, rating, options);
-        logger.debug('SRS v2 decision created:', {
+    logger.trace?.('SRS v2 decision created:', {
             cardId: decision.attempt.cardId,
             attemptId: decision.attempt.id,
             schedulerType: decision.schedulerType,

@@ -401,7 +401,7 @@ export class SqliteDatabaseService {
           throw persistError;
         }
       }
-      logger.debug('SQLite transaction committed', {
+      logger.trace?.('SQLite transaction committed', {
         label,
         durationMs: Date.now() - startedAt,
         persisted: persistAfterCommit,

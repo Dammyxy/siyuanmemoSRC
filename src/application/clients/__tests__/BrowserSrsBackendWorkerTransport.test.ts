@@ -18,6 +18,7 @@ const transportLoggerMocks = vi.hoisted(() => ({
   warn: vi.fn(),
   error: vi.fn(),
   debug: vi.fn(),
+  trace: vi.fn(),
 }));
 
 vi.mock('@/utils/logger', () => ({
@@ -315,7 +316,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     });
 
     await expect(pending).resolves.toEqual(response);
-    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+    expect(transportLoggerMocks.trace).toHaveBeenCalledWith(
       '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
       expect.objectContaining({
         step: 'worker-received-delay',
@@ -373,13 +374,13 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         },
       }),
     );
-    expect(transportLoggerMocks.info).not.toHaveBeenCalledWith(
+    expect(transportLoggerMocks.trace).not.toHaveBeenCalledWith(
       '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
       expect.objectContaining({
         step: 'worker-handle',
       }),
     );
-    expect(transportLoggerMocks.info).not.toHaveBeenCalledWith(
+    expect(transportLoggerMocks.trace).not.toHaveBeenCalledWith(
       '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
       expect.objectContaining({
         step: 'worker-inner-step',
@@ -671,7 +672,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         unattributedMs: 96,
       }),
     );
-    expect(transportLoggerMocks.info).not.toHaveBeenCalledWith(
+    expect(transportLoggerMocks.trace).not.toHaveBeenCalledWith(
       '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
       expect.objectContaining({ step: 'worker-inner-step' }),
     );
@@ -950,7 +951,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     });
 
     await expect(pending).resolves.toEqual(response);
-    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+    expect(transportLoggerMocks.trace).toHaveBeenCalledWith(
       '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.session.feedback transport step',
       expect.objectContaining({
         step: 'worker-received-delay',

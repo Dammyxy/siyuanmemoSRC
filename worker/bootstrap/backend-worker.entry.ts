@@ -219,7 +219,7 @@ function logReviewFeedbackWorkerEntryStepIfSlow(
   if (durationMs < REVIEW_FEEDBACK_WORKER_ENTRY_STEP_SLOW_MS) {
     return;
   }
-  logger.info('[SiYuanMemo][BackendWorkerEntry] slow review.feedback worker entry step', {
+  logger.trace?.('[SiYuanMemo][BackendWorkerEntry] slow review.feedback worker entry step', {
     step,
     cardId,
     durationMs,

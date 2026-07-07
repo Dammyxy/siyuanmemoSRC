@@ -938,7 +938,7 @@ export class SrsBackendClient {
     } finally {
       const durationMs = Date.now() - startedAt;
       if (durationMs >= REVIEW_FEEDBACK_CLIENT_STEP_SLOW_MS) {
-        logger.info('[SiYuanMemo][SrsBackendClient] slow review.feedback client step', {
+        logger.trace?.('[SiYuanMemo][SrsBackendClient] slow review.feedback client step', {
           step,
           cardId: request.cardId,
           queueType: request.queueType,

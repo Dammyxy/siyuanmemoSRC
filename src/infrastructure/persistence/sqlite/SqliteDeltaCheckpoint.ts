@@ -525,11 +525,18 @@ const STORE_METADATA_COLUMNS: SqliteDeltaTableColumn[] = [
   toColumn('updated_at', 'INTEGER', true),
 ];
 
+const QUEUE_STATE_COLUMNS: SqliteDeltaTableColumn[] = [
+  toColumn('key', 'TEXT', false, 1),
+  toColumn('value_json', 'TEXT', true),
+  toColumn('updated_at', 'INTEGER', true),
+];
+
 export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
   tableMetadata('cards', ['id'], CARDS_COLUMNS),
   tableMetadata('algorithm_card_state', ['card_id', 'algorithm_id'], ALGORITHM_CARD_STATE_COLUMNS),
   tableMetadata('domain_sync_operations', ['operation_id'], DOMAIN_SYNC_OPERATIONS_COLUMNS),
   tableMetadata('store_metadata', ['key'], STORE_METADATA_COLUMNS),
+  tableMetadata('queue_state', ['key'], QUEUE_STATE_COLUMNS),
   tableMetadata('review_events', ['id'], REVIEW_EVENTS_COLUMNS, [
     REVIEW_EVENTS_LEGACY_COMMIT_COLUMN_ORDER,
   ]),

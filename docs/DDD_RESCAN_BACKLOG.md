@@ -1,8 +1,68 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-07 (Round 672)
+Last update: 2026-07-07 (Round 675)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-07 - Review Answer Pipeline deep module
+
+- Task: Implement OpenSpec change `deepen-review-answer-pipeline` so SRS v2 Review rate/skip orchestration lives behind a deep answer pipeline Module instead of a wide `UnifiedQueueStrategy.onFeedback()` branch.
+- Touched slice: Review answer hot path; `src/application/adapters/review-session/ReviewAnswerPipeline.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, focused pipeline/strategy tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: `ReviewAnswerPipeline` now owns the SRS v2 answer sequence behind one Interface: renderer-local transaction capture, runtime `answerAndAdvance`, conflict/unavailable fail-closed mapping, cursor/counter sync, next-card presentation preparation, history recording, queueImpact/commit result shaping, and timing step preservation. `UnifiedQueueStrategy` delegates the runtime-backed rate/skip branch to the pipeline and keeps NeuralRoam, local/legacy queues, custom actions, and compensation wrappers behavior-preserving.
+- Debt deferred: Non-runtime/local Review rate/skip branches still live in `UnifiedQueueStrategy`, and the pipeline coordinates existing CDF preparation rather than moving CDF repair/write ownership.
+- Why deferred: This slice deepens the hot SRS v2 answer path without crossing scheduler, CDF repair, queue projection rebuild, NeuralRoam, or legacy-local ownership.
+- Next safe step: After reload/live smoke, extract the remaining local/legacy rate/skip branch only if profiling or maintenance shows the same orchestration duplication there.
+- Validation: Focused `ReviewAnswerPipeline` and `UnifiedQueueStrategy.performance` tests passed（2 files / 55 tests）；`node scripts/check-hidden-fallbacks.cjs` passed；`pnpm run check:boundaries` passed；`pnpm build` passed（保留既有 i18n hardcoded / untranslated warnings 和 Sass legacy warnings，阻断 0）；`openspec validate deepen-review-answer-pipeline --strict` passed；`git diff --check` passed（仅 CRLF 工作区提示）。
+
+### 2026-07-07 - Review CDF preparation queue-impact decoupling
+
+- Task: Implement OpenSpec change `decouple-review-cdf-refresh-from-queue-invalidation` so Retrieval Practice scoring no longer refreshes unrelated queues through CDF metadata repair.
+- Touched slice: Review/CDF/Queue impact; `UnifiedQueueStrategy`, `ReviewApplicationService`, `CdfLiveRelationRefreshService`, `UnifiedDataSourceManager`, CDF/Review/queue-impact focused tests, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: Review CDF open preparation now runs read-only with `persist=false`, returning updated-card and duplicate evidence without synchronous metadata repair writes. Metadata-only CDF repair writes now declare `queueImpact.kind='metadata-only'`, and `UnifiedDataSourceManager` skips broad RetrievalPractice/IncrementalLearning/FilterGroup invalidation for that known impact. Focused Review scoring coverage now fails if Retrieval Practice CDF preparation tries to load FilterGroup or NeuralRoam queues.
+- Debt deferred: Deferred CDF repair reconciliation is only documented as the next owner; this change does not add a new background repair queue or move all CDF preparation into backend worker authority.
+- Why deferred: Adding a full repair scheduler would cross Review, Browser, worker persistence, and CDF write/repair ownership. This pass removes the scoring hot-path coupling first while keeping unknown mutations fail-closed with broad invalidation.
+- Next safe step: Reload plugin, rate CDF-heavy Retrieval Practice cards, and confirm logs no longer show FilterGroup/NeuralRoam queue creation after `consume-advance.prepare-selected-review-card`.
+- Validation: Focused Review/CDF preparation and queue-impact tests; hidden-fallback check; boundary check; build; OpenSpec strict validation; git diff whitespace check in this implementation pass.
+
+### 2026-07-07 - Browser queue count read model under Review pressure
+
+- Task: Implement OpenSpec change `separate-browser-queue-count-read-model` so Review scoring no longer triggers Browser count refresh that creates unrelated queues.
+- Touched slice: Review/Browser/Queue count path; `QueueFeedbackImpactEvidence`, `ReviewSessionQueueRuntime`, `SrsV2SessionQueueRuntime`, `WorkerReviewSessionQueueRuntime`, `UnifiedQueueStrategy`, `BrowserQueueCountReadModel`, `BrowserApplicationService`, `useQueueBridge`, and `SRSBrowser`.
+- Debt fixed now: Review feedback now exposes active queue count/count delta and affected queue types from session counter evidence. Browser sidebar counts now read projection/session evidence through a dedicated read model instead of calling `manager.getQueue(queueType)` for supported projection-backed queues. Active Review pressure scopes broad count refresh to the active Review queue and defers non-active queue count work until pressure clears, so Retrieval scoring does not create Incremental Learning or FilterGroup queues just to update badges.
+- Debt deferred: NeuralRoam remains explicit route-owned `getSize()` count because its sidebar count is not projection-backed. Broader Browser datasource action invalidation and non-Review log policy cleanup remain outside this change.
+- Why deferred: NeuralRoam has a different route/session owner and replacing it with projection counters would change semantics. Global Browser action/log cleanup crosses unrelated surfaces.
+- Next safe step: Reload plugin and rate Retrieval cards with console trace off; if count badges still lag, inspect only the deferred count flush after Review pressure clears.
+- Validation: Focused UnifiedQueueStrategy, Browser queue-count, queue bridge, and Browser projection warmup tests; hidden-fallback check; boundary check; build; OpenSpec strict validation; git diff whitespace check in this implementation pass.
+
+### 2026-07-07 - Review feedback diagnostics bounded normal logs
+
+- Task: Implement OpenSpec change `reduce-review-feedback-log-noise` so one Review rating no longer emits normal-path `info` logs from every Module in the scoring chain.
+- Touched slice: Review feedback diagnostics across `UnifiedQueueStrategy`, `SrsBackendClient`, `BrowserSrsBackendWorkerTransport`, `BackendKernel`, `backend-worker.entry`, `WorkerReviewFeedbackRuntime`, `WorkerReviewCardMutationPersistenceModule`, `SchedulerRouter`, `SqliteDatabaseService`, and Browser projection warmup runtime.
+- Debt fixed now: Per-step renderer/client/worker/kernel/transaction/queue-impact timing diagnostics now emit at `trace` while still recording structured timing evidence. Slow worker-handle copy summary remains `info`, and the frontend feedback summary is conditionally restored at `info` for slow ratings so live logs can distinguish worker latency from renderer-side next-card preparation/CDF work. Normal scheduler answer decisions, SQLite transaction commits, and Browser warmup deferrals during active Review moved below `info`, matching the Anki-style deep Review answer Interface where internals stay behind the seam unless explicitly traced.
+- Debt deferred: Broader non-Review application logs in `UnifiedQueueStrategy`, Browser datasource actions, FrontendInstanceRuntime, and setup/bootstrap remain outside this Review-feedback log policy pass.
+- Why deferred: This pass is scoped to the user-visible Review rating flood. Global log policy cleanup crosses unrelated product surfaces and should be done separately after live Review smoke confirms the rating console is quiet.
+- Next safe step: Rebuild/reload plugin, rate several cards, and compare slow worker-handle summary against slow frontend feedback summary. If frontend dominant step is `consume-advance.prepare-selected-review-card` or `consume-advance.refresh-cdf-live-relation`, optimize next-card preparation before touching worker storage further.
+- Validation: Focused Review feedback and Browser warmup Vitest suites; pending hidden-fallback, boundary, build, and OpenSpec validation in this implementation pass.
+
+### 2026-07-07 - Review feedback queue_state durability and log quieting
+
+- Task: Fix live `review.feedback` failure `unsupported-table:queue_state` and reduce normal Review console log flood.
+- Touched slice: Review/Queue persistence and diagnostics; `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, `src/application/adapters/review-session/{ReviewCdfPreparationEvidenceStore,WorkerReviewSessionQueueRuntime}.ts`, `src/ui/browser/browserQueueProjectionWarmupRuntime.ts`, and `src/application/services/queue-projection/QueueProjectionRuntime.ts`.
+- Debt fixed now: SQLite delta now registers `queue_state` as a durable replay table, so worker `review.feedback` can persist manual SRS queue membership cleanup without failing the hot path with `unsupported-table:queue_state`. Regression coverage now proves `queue_state` is captured with canonical Review feedback writes while queue projection cache tables stay derived-cache-only. Routine CDF preparation, review lookahead, projection warmup readiness/repair, and non-ready projection snapshot/row hydration diagnostics now log at `trace` instead of `info`, reducing per-review console noise while preserving opt-in diagnostics.
+- Debt deferred: Existing broader `SchedulerRouter`, `SqliteDatabaseService`, and deferred projection-maintenance info logs still appear in focused tests and may need a separate runtime log policy pass. The earlier manual SRS queue cleanup / Browser batch-action dirty changes remain their own active slice.
+- Why deferred: This task targets the attached failing hot path and the highest-frequency Review diagnostics only. Changing scheduler/database transaction logging globally would cross more modules and risk hiding operational warnings.
+- Next safe step: If Review console is still noisy after this reload, run a narrow log-policy pass on `SchedulerRouter`, `SqliteDatabaseService` transaction commits, and `WorkerReviewFeedbackRuntime` deferred projection maintenance.
+- Validation: `git diff --check`; focused Vitest suites for worker review feedback, SQLite delta persistence, CDF evidence store, and Browser queue projection warmup; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
+### 2026-07-07 - Manual SRS queue cleanup and Browser batch actions
+
+- Task: Implement `fix-manual-queue-review-and-bulk-performance`: manual Browser-added Retrieval/Incremental reviews must reschedule and stop reappearing after restart; duplicate add menu choices should collapse; Browser batch actions should avoid slow per-row paths.
+- Touched slice: Review/Queue/Browser; `worker/review/WorkerReviewCardMutationPersistenceModule.ts`, `src/core/queue/domain/{RetrievalPracticeQueue,IncrementalLearningQueue}.ts`, `src/ui/browser/datasource/{MenuActions,DataSourceUtils}.ts`, `src/core/scheduler/ports.ts`, Browser feedback/menu tests, queue review-removal tests, and worker feedback tests.
+- Debt fixed now: Worker review feedback now removes reviewed cards from persisted manual SRS queue membership after committed or compatible duplicate feedback, and leaves membership intact on failed commits. Explicit Browser-added Retrieval/Incremental future-card reviews now use `write-schedule` formal scheduling instead of preview-only. Browser add menu now shows one Retrieval and one Incremental action while legacy route IDs map to the same visible behavior. Large selected-row priority and time-adjust actions now use one bulk card lookup plus one bulk mutation/reschedule call where the active manager/storage supports it, and fail closed when bulk authority is present but unavailable.
+- Debt deferred: Broader global performance work outside Browser/queue selected-row actions remains separate; legacy per-action datasource invalidation calls are still spread across datasource classes, though adapter queue/count refresh is already coalesced by `useBrowserAdapterSync`.
+- Why deferred: This change targets the live restart-sensitive manual queue bug and the hottest Browser selected-row batch paths. Consolidating every datasource action wrapper into one shared mutation pipeline would cross more UI ownership than needed for this fix.
+- Next safe step: Extract a shared Browser mutation-result invalidation helper across `DeckDataSource`, `QueryDataSource`, `BlockIdsDataSource`, and queue datasources if future profiling still shows duplicate post-action refresh work.
+- Validation: Focused worker/session, queue/session, Browser datasource/menu, and batch-operation Vitest suites; `useBrowserAdapterSync` aggregation coverage; boundary/build/OpenSpec validation in this implementation pass.
 
 ### 2026-07-07 - Review Transaction Undo Journal durable worker slice
 

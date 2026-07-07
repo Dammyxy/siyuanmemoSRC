@@ -50,6 +50,7 @@ type QueueInsertLike = {
 };
 type UnifiedCardManagerLike = {
   getCard: (cardId: string, options?: { silent?: boolean }) => Promise<FSRSCard>;
+  getCards?: (filter?: { blockIds?: string[] }) => Promise<FSRSCard[]>;
   updateCard: (card: FSRSCard) => Promise<void>;
   batchUpdateCards?: (cards: FSRSCard[]) => Promise<BatchCardMutationResult>;
 };
@@ -247,17 +248,12 @@ export async function insertCardsIntoQueue(
   };
 }
 
-export async function setBrowserCardsPriority(
-  manager: UnifiedCardManagerLike,
-  selectedRows: BrowserActionTarget[],
-  priority: number,
-  options?: { scope?: string }
-): Promise<QueueCardActionResult> {
-  const scope = options?.scope || 'DataSource';
-  const normalizedPriority = Math.max(0, Math.min(100, Math.floor(Number(priority) || 0)));
-  const updated: BrowserActionTarget[] = [];
-  const skipped: BrowserActionTarget[] = [];
+function collectRowsByCardId(selectedRows: BrowserActionTarget[]): {
+  rowsByCardId: Map<string, BrowserActionTarget[]>;
+  skipped: BrowserActionTarget[];
+} {
   const rowsByCardId = new Map<string, BrowserActionTarget[]>();
+  const skipped: BrowserActionTarget[] = [];
 
   for (const row of selectedRows || []) {
     const cardId = resolveBrowserCardId(row);
@@ -274,21 +270,107 @@ export async function setBrowserCardsPriority(
     }
   }
 
+  return { rowsByCardId, skipped };
+}
+
+function buildCardLookup(cards: FSRSCard[]): Map<string, FSRSCard> {
+  const cardLookup = new Map<string, FSRSCard>();
+  for (const card of cards) {
+    const id = String(card.id || '').trim();
+    if (id) {
+      cardLookup.set(id, card);
+    }
+    const blockId = String(card.blockId || '').trim();
+    if (blockId) {
+      cardLookup.set(blockId, card);
+    }
+  }
+  return cardLookup;
+}
+
+async function loadCardsForBrowserActionRows(
+  manager: UnifiedCardManagerLike,
+  rowsByCardId: Map<string, BrowserActionTarget[]>,
+  scope: string,
+  actionLabel: string,
+  skipped: BrowserActionTarget[]
+): Promise<{ cardsByCardId: Map<string, FSRSCard>; loadFailedIds: Set<string> }> {
+  const cardsByCardId = new Map<string, FSRSCard>();
+  const loadFailedIds = new Set<string>();
+  const blockIds = uniqueStrings(
+    Array.from(rowsByCardId.values())
+      .flat()
+      .map((row) => String(row?.blockId || '').trim())
+      .filter(Boolean)
+  );
+
+  if (typeof manager.getCards === 'function' && blockIds.length > 0) {
+    try {
+      const loadedCards = await manager.getCards({ blockIds });
+      const cardLookup = buildCardLookup(loadedCards);
+      for (const cardId of rowsByCardId.keys()) {
+        const card = cardLookup.get(cardId);
+        if (card) {
+          cardsByCardId.set(cardId, card);
+          continue;
+        }
+        loadFailedIds.add(cardId);
+        skipped.push(...(rowsByCardId.get(cardId) || []));
+        logger.error(`[${scope}] Failed to load card ${cardId} before ${actionLabel} batch`);
+      }
+      return { cardsByCardId, loadFailedIds };
+    } catch (error) {
+      logger.error(`[${scope}] Failed to bulk load cards before ${actionLabel} batch`, error);
+      for (const cardId of rowsByCardId.keys()) {
+        loadFailedIds.add(cardId);
+        skipped.push(...(rowsByCardId.get(cardId) || []));
+      }
+      return { cardsByCardId, loadFailedIds };
+    }
+  }
+
+  for (const cardId of rowsByCardId.keys()) {
+    try {
+      const card = await manager.getCard(cardId);
+      cardsByCardId.set(cardId, card);
+    } catch (error) {
+      loadFailedIds.add(cardId);
+      skipped.push(...(rowsByCardId.get(cardId) || []));
+      logger.error(`[${scope}] Failed to load card ${cardId} before ${actionLabel} batch`, error);
+    }
+  }
+
+  return { cardsByCardId, loadFailedIds };
+}
+
+export async function setBrowserCardsPriority(
+  manager: UnifiedCardManagerLike,
+  selectedRows: BrowserActionTarget[],
+  priority: number,
+  options?: { scope?: string }
+): Promise<QueueCardActionResult> {
+  const scope = options?.scope || 'DataSource';
+  const normalizedPriority = Math.max(0, Math.min(100, Math.floor(Number(priority) || 0)));
+  const updated: BrowserActionTarget[] = [];
+  const { rowsByCardId, skipped } = collectRowsByCardId(selectedRows);
+
   if (typeof manager.batchUpdateCards === 'function') {
     const cardsToUpdate: FSRSCard[] = [];
-    const loadFailedIds = new Set<string>();
+    const { cardsByCardId, loadFailedIds } = await loadCardsForBrowserActionRows(
+      manager,
+      rowsByCardId,
+      scope,
+      'priority',
+      skipped
+    );
 
     for (const cardId of rowsByCardId.keys()) {
-      try {
-        const card = await manager.getCard(cardId);
+      const card = cardsByCardId.get(cardId);
+      if (card) {
         cardsToUpdate.push({
           ...card,
           priority: normalizedPriority,
         });
-      } catch (error) {
-        loadFailedIds.add(cardId);
-        skipped.push(...(rowsByCardId.get(cardId) || []));
-        logger.error(`[${scope}] Failed to load card ${cardId} before priority batch`, error);
       }
     }
 
@@ -357,46 +439,34 @@ export async function adjustBrowserCardsPriorityRelative(
   const scope = options?.scope || 'DataSource';
   const normalizedDelta = Math.trunc(Number(delta) || 0);
   const updated: BrowserActionTarget[] = [];
-  const skipped: BrowserActionTarget[] = [];
-  const rowsByCardId = new Map<string, BrowserActionTarget[]>();
+  const { rowsByCardId, skipped } = collectRowsByCardId(selectedRows);
   const nextPriorityByCardId = new Map<string, number>();
   let lowerBoundReached = false;
   let upperBoundReached = false;
 
-  for (const row of selectedRows || []) {
-    const cardId = resolveBrowserCardId(row);
-    if (!cardId) {
-      skipped.push(row);
-      continue;
-    }
-    const rows = rowsByCardId.get(cardId);
-    if (rows) {
-      rows.push(row);
-    } else {
-      rowsByCardId.set(cardId, [row]);
-    }
-  }
-
   const cardsToUpdate: FSRSCard[] = [];
-  const loadFailedIds = new Set<string>();
+  const { cardsByCardId, loadFailedIds } = await loadCardsForBrowserActionRows(
+    manager,
+    rowsByCardId,
+    scope,
+    'relative priority',
+    skipped
+  );
 
   for (const cardId of rowsByCardId.keys()) {
-    try {
-      const card = await manager.getCard(cardId);
-      const currentPriority = Number.isFinite(Number(card.priority)) ? Number(card.priority) : 50;
-      const nextPriority = Math.max(0, Math.min(100, Math.floor(currentPriority + normalizedDelta)));
-      lowerBoundReached = lowerBoundReached || nextPriority === 0;
-      upperBoundReached = upperBoundReached || nextPriority === 100;
-      nextPriorityByCardId.set(cardId, nextPriority);
-      cardsToUpdate.push({
-        ...card,
-        priority: nextPriority,
-      });
-    } catch (error) {
-      loadFailedIds.add(cardId);
-      skipped.push(...(rowsByCardId.get(cardId) || []));
-      logger.error(`[${scope}] Failed to load card ${cardId} before relative priority batch`, error);
+    const card = cardsByCardId.get(cardId);
+    if (!card) {
+      continue;
     }
+    const currentPriority = Number.isFinite(Number(card.priority)) ? Number(card.priority) : 50;
+    const nextPriority = Math.max(0, Math.min(100, Math.floor(currentPriority + normalizedDelta)));
+    lowerBoundReached = lowerBoundReached || nextPriority === 0;
+    upperBoundReached = upperBoundReached || nextPriority === 100;
+    nextPriorityByCardId.set(cardId, nextPriority);
+    cardsToUpdate.push({
+      ...card,
+      priority: nextPriority,
+    });
   }
 
   if (cardsToUpdate.length === 0) {

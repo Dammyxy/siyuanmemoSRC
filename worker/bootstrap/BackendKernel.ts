@@ -405,7 +405,7 @@ export class BackendKernel {
       durationMs,
       extra,
     });
-    logger.info('[SiYuanMemo][BackendKernel] slow review.feedback kernel step', {
+    logger.trace?.('[SiYuanMemo][BackendKernel] slow review.feedback kernel step', {
       step,
       cardId,
       durationMs,

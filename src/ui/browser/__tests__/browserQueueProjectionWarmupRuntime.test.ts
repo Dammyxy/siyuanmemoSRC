@@ -24,6 +24,7 @@ function createDeps(overrides: Record<string, unknown> = {}) {
     logger: {
       debug: vi.fn(),
       info: vi.fn(),
+      trace: vi.fn(),
       warn: vi.fn(),
     },
     searchQuery: ref(''),
@@ -56,7 +57,11 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
       QueueType.IncrementalLearning,
     ]);
-    expect(deps.logger.info).toHaveBeenCalledWith(
+    expect(deps.logger.info).not.toHaveBeenCalledWith(
+      '[SiYuanMemo][SRSBrowser] Queue projection warmup deferred during active Review',
+      expect.anything(),
+    );
+    expect(deps.logger.trace).toHaveBeenCalledWith(
       '[SiYuanMemo][SRSBrowser] Queue projection warmup deferred during active Review',
       expect.objectContaining({
         reason: 'browser-open',
@@ -120,7 +125,11 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       queueType: QueueType.FinalDrill,
       source: 'browser',
     }));
-    expect(deps.logger.info).toHaveBeenCalledWith(
+    expect(deps.logger.info).not.toHaveBeenCalledWith(
+      '[SiYuanMemo][SRSBrowser] Queue projection warmup deferred during active Review',
+      expect.anything(),
+    );
+    expect(deps.logger.trace).toHaveBeenCalledWith(
       '[SiYuanMemo][SRSBrowser] Queue projection warmup deferred during active Review',
       expect.objectContaining({
         reason: 'live-identity:materialized',

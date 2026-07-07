@@ -90,6 +90,10 @@ _Avoid_: mandatory Riff sync, shadow-card truth, default dual scheduling
 The authoritative Browser-facing read contract that resolves matched row identity, count, page hydration, row-by-ID hydration, action targets, and source-existence state for deck, query, block-ID, and queue views. It reads from the declared owner for each view and must not replace unavailable owner data with stale local queue or snapshot data.
 _Avoid_: grid cache, Browser UI state, Review projection builder, local queue fallback
 
+**Browser Queue Count Read Model**:
+The lightweight Browser count Interface that reads queue count evidence from projection counters, visible projection rows, or active Review session counter evidence without creating full Queue Modules for ordinary sidebar count refresh. During active Review pressure, it scopes immediate count work to the active Review queue and defers non-active Browser-derived count work until Review is idle.
+_Avoid_: queue creation as count read, full queue materialization for sidebar badges, stale row fallback
+
 **SessionQueueIndex**:
 The active Review session Module that owns current card, lookahead, session exclusions, session counters, and post-feedback advancement after a session starts. It may seed from a valid projection snapshot at session start, but Browser projection warmup, filter repair, and count refresh do not choose the next card after feedback.
 _Avoid_: Browser projection cache, Review UI presentation prepare, queue projection read model, renderer fallback cursor
@@ -125,6 +129,10 @@ _Avoid_: calling this a queue cursor or NeuralRoam advance owner; it only applie
 **Review Feedback Advancement**:
 The post-feedback Review session transition that applies local Review session state after queue feedback succeeds or fails; it does not choose queue membership, commit scheduling, call the writer, or select NeuralRoam next items.
 _Avoid_: review commit, scheduler feedback, queue membership update, NeuralRoam advance
+
+**Review Answer Pipeline**:
+The Review answer Module that owns the SRS v2 rate/skip click sequence behind one Interface: transaction capture when renderer-local authority is active, runtime answer submission, fail-closed conflict/unavailable mapping, session/counter sync, next-card presentation preparation, history recording, queue-impact result shaping, and timing evidence. It coordinates existing Review session owners; it does not own scheduler algorithms, CDF repair writes, queue projection rebuilds, or NeuralRoam advance.
+_Avoid_: queue strategy branch, scheduler commit owner, CDF repair owner, Browser projection fallback
 
 **Review CDF Preparation Evidence**:
 The Review-side evidence that a card has already passed CDF current-card open refresh and optional next-dues preparation for a specific card identity plus CDF-relevant metadata signature. It owns completed evidence, pending next-card preparation, and event-order invalidation for that evidence; it does not choose the next Review card, persist CDF repair actions, or own CDF source materialization.
@@ -190,6 +198,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - A **Review Session Cursor** sits inside a Review session and consumes queue rows/cards, but it is not the queue authority and does not decide scheduling outcomes.
 - A **Review Current Item Command** sits beside the **Review Session Cursor** and applies the visible current card after cursor restore, ordinary advancement, or compensation chooses that card.
 - **Review Feedback Advancement** consumes **Review Session Cursor** and **Review Current Item Command** state after a queue feedback result, while queue membership, scheduling commit, writer relay, and NeuralRoam next-item selection stay outside it.
+- **Review Answer Pipeline** wraps SRS v2 rate/skip orchestration before **Review Feedback Advancement** or visible current-item assignment sees the result; it consumes runtime answer results and **Review CDF Preparation Evidence** but does not become CDF repair or projection rebuild authority.
 - **Review CDF Preparation Evidence** consumes the card selected by Review session authority and prepares that card's CDF open-refresh result for reuse, while next-card selection, CDF write/repair, and backend prepared-card ownership stay outside it.
 - **NeuralRoam Advance** selects NeuralRoam next items before **Review Current Item Command** applies them to the visible Review session.
 - **Review Transaction Safety Envelope** wraps risky Review feedback mutation before **Review Feedback Advancement** applies local session transition.
@@ -223,6 +232,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - Semantic read assembly was ambiguous with core projection building. Resolved: **Semantic Session Read Model** names the presentation-ready read model derived from Semantic session owner state, while core projection remains the lower-level tree/path/branch derivation.
 - Review session state was ambiguous between UI session orchestration, shared surface registration, and volatile queue movement. Resolved: **Review Session Cursor** names only the in-memory movement state within one Review session.
 - Review feedback handling was ambiguous between scheduler commit, queue membership update, and local session transition. Resolved: **Review Feedback Advancement** names only the post-feedback local Review session transition.
+- Review answer orchestration was ambiguous between queue strategy branching, session runtime answer, transaction safety, next-card CDF preparation, and queue-impact result shaping. Resolved: **Review Answer Pipeline** names the deep Module that owns SRS v2 rate/skip answer sequencing while preserving existing scheduler, CDF repair, and projection ownership.
 - Review CDF preparation was ambiguous between queue cursor cache, current-card refresh glue, and next-card prewarm state. Resolved: **Review CDF Preparation Evidence** names only the keyed refresh/preparation evidence and its invalidation ordering.
 - NeuralRoam progression was ambiguous with local cursor/projection review. Resolved: **NeuralRoam Advance** is backend-authoritative and the renderer only consumes its result.
 - Review rollback handling was ambiguous between queue rollback, card snapshot restore, session exclusion restore, and visible current-item compensation. Resolved: **Review Transaction Safety Envelope** owns transaction safety; **Review Feedback Advancement** only applies the restored item locally.

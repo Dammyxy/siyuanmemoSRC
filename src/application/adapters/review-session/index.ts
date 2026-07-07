@@ -45,6 +45,13 @@ export {
   type ReviewFeedbackRateAdvancementInput,
 } from './ReviewFeedbackAdvancementCoordinator';
 export {
+  ReviewAnswerPipeline,
+  type ReviewAnswerPipelineDependencies,
+  type ReviewAnswerPipelineInput,
+  type ReviewAnswerPipelineTimingContext,
+  type ReviewAnswerPipelineTimingStep,
+} from './ReviewAnswerPipeline';
+export {
   ReviewHistoryStack,
   type ReviewHistoryEntry,
 } from './ReviewHistoryStack';

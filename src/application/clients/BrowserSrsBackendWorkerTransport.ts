@@ -648,7 +648,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     ) {
       return;
     }
-    logger.info(`[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow ${method} transport step`, {
+    logger.trace?.(`[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow ${method} transport step`, {
       step,
       cardId,
       durationMs,
