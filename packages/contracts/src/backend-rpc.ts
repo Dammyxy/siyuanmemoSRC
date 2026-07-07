@@ -440,6 +440,13 @@ export interface BackendReviewSyncDivergenceAuditRecord extends BackendSyncConfl
   sourceMissingAt: number | null;
 }
 
+export interface BackendReviewSyncUndoAuditSummary {
+  answerUndoPairs: number;
+  openUndoPlans: number;
+  staleUndoPlans: number;
+  undonePlans: number;
+}
+
 export interface BackendReviewSyncDivergenceAuditResult {
   ok: true;
   scannedCards: number;
@@ -447,6 +454,7 @@ export interface BackendReviewSyncDivergenceAuditResult {
   limit: number;
   truncated: boolean;
   reasons: Record<BackendSyncConflictMergeDivergenceReason, number>;
+  undo: BackendReviewSyncUndoAuditSummary;
   records: BackendReviewSyncDivergenceAuditRecord[];
 }
 

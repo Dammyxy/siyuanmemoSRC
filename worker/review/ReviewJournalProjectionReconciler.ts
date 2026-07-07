@@ -51,6 +51,10 @@ type ReviewJournalProjectionDurableEvent = {
   payload_json: string | null;
 };
 
+type ReviewJournalProjectionReversalEvent = {
+  payload_json: string | null;
+};
+
 type ReviewJournalProjectionReconciliation = {
   queueType: ReviewJournalProjectionQueueType;
   policyHash: string;
@@ -81,6 +85,7 @@ export type ReviewJournalProjectionReconcilerDeps = {
     queryCards(query?: StructuredCardQuery): FSRSCard[];
   } | null;
   getDurableReviewEventByIdempotencyKey(idempotencyKey: string): ReviewJournalProjectionDurableEvent | null;
+  getUndoReversalEventByReviewIdempotencyKey?(idempotencyKey: string): ReviewJournalProjectionReversalEvent | null;
   runTransaction<T>(
     label: string,
     task: () => T | Promise<T>,
@@ -161,6 +166,9 @@ export class ReviewJournalProjectionReconciler {
     if (!event || !reviewJournalMatchesDurableEvent(entry, event)) {
       return null;
     }
+    if (this.hasUndoReversalEvidence(idempotencyKey)) {
+      return this.buildReversalReconciliation(entry, event, queueType);
+    }
 
     const requestedGeneration = Math.max(0, Math.floor(Number(entry.request.projectionGeneration || 0)));
     const generation = Math.max(
@@ -189,6 +197,46 @@ export class ReviewJournalProjectionReconciler {
       blockIds: blockId ? [blockId] : [],
       preparedEntryIds: entry.status === 'prepared' ? [entry.id] : [],
     };
+  }
+
+  private buildReversalReconciliation(
+    entry: ReviewJournalProjectionEntry,
+    event: ReviewJournalProjectionDurableEvent,
+    queueType: ReviewJournalProjectionQueueType,
+  ): ReviewJournalProjectionReconciliation | null {
+    const requestedGeneration = Math.max(0, Math.floor(Number(entry.request.projectionGeneration || 0)));
+    const generation = Math.max(requestedGeneration + 1, 1);
+    const reviewedAt = Math.max(
+      1,
+      Math.floor(Number(event.reviewed_at ?? entry.request.reviewedAt ?? entry.appliedAt ?? this.now()) || this.now()),
+    );
+    const policyHash = normalizeString(entry.request.projectionPolicyHash)
+      || this.deps.queueProjection?.readGeneration(queueType)?.policyHash
+      || '';
+    if (!policyHash) {
+      return null;
+    }
+    const cardId = normalizeString(entry.cardId) || normalizeString(entry.request.cardId);
+    const payload = parseSqlJsonRecord(event.payload_json);
+    const blockId = readRecordString(payload, ['blockId', 'sourceBlockId']);
+    return {
+      queueType,
+      policyHash,
+      generation,
+      reviewedAt,
+      cardIds: cardId ? [cardId] : [],
+      blockIds: blockId ? [blockId] : [],
+      preparedEntryIds: entry.status === 'prepared' ? [entry.id] : [],
+    };
+  }
+
+  private hasUndoReversalEvidence(idempotencyKey: string): boolean {
+    const event = this.deps.getUndoReversalEventByReviewIdempotencyKey?.(idempotencyKey);
+    if (!event) {
+      return false;
+    }
+    const payload = parseSqlJsonRecord(event.payload_json);
+    return normalizeString(payload.originalReviewIdempotencyKey) === idempotencyKey;
   }
 
   private mergeReconciliation(

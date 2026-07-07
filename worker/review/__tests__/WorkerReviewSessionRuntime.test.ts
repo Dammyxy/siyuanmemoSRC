@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { QueueProjectionRow } from '@/application/ports/QueueProjectionPort';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { QueueType } from '@/types/unified-data-source';
+import { InMemoryReviewTransactionUndoJournal } from '../ReviewTransactionUndoJournal';
 import { WorkerReviewSessionRuntime } from '../WorkerReviewSessionRuntime';
 
 const NOW = 1_779_300_000_000;
@@ -197,7 +198,7 @@ describe('WorkerReviewSessionRuntime', () => {
       sessionId: 'session-a',
       queueType: QueueType.RetrievalPractice,
     });
-    const skipped = runtime.skip({
+    const skipped = await runtime.skip({
       sessionId: started.sessionId,
       cardId: first.id,
     });
@@ -266,5 +267,242 @@ describe('WorkerReviewSessionRuntime', () => {
     })).rejects.toThrow('WORKER_REVIEW_SESSION_REPAIR_GATE_BLOCKED: current-card-conflict');
 
     expect(feedbackRuntime.reviewFeedback).not.toHaveBeenCalled();
+  });
+
+  it('restores answer schedule and frontier from durable undo journal after runtime restart', async () => {
+    const first = createCard('card-1');
+    const second = createCard('card-2', 1_000);
+    const cardsById = new Map([first, second].map((card) => [card.id, card] as const));
+    const readRows = vi.fn(() => [createProjectionRow(first, 1), createProjectionRow(second, 2)]);
+    const undoJournal = new InMemoryReviewTransactionUndoJournal();
+    const repository = {
+      getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
+      upsertCards: vi.fn((cards: FSRSCard[]) => {
+        for (const card of cards) {
+          cardsById.set(card.id, { ...card });
+        }
+      }),
+    };
+    const feedbackRuntime = {
+      reviewFeedback: vi.fn(async () => {
+        const updatedCard = { ...first, reps: first.reps + 1, due: NOW + 86_400_000, lastReview: NOW };
+        cardsById.set(first.id, updatedCard);
+        return {
+          cardId: first.id,
+          committed: true,
+          reviewedAt: NOW,
+          queueType: QueueType.RetrievalPractice,
+          updatedCard,
+          idempotencyKey: 'feedback-key',
+          queueImpact: {
+            hotPatchable: false,
+            refreshRequired: false,
+            affectedQueues: [],
+          },
+        };
+      }),
+    };
+    const createRuntime = () => new WorkerReviewSessionRuntime({
+      repository,
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'retrieval-policy',
+          generation: 7,
+          status: 'ready',
+        })),
+        readRows,
+      },
+      feedbackRuntime,
+      undoJournal,
+    });
+
+    const runtime = createRuntime();
+    const started = await runtime.startSession({
+      sessionId: 'session-restart',
+      queueType: QueueType.RetrievalPractice,
+    });
+    const answered = await runtime.feedback({
+      sessionId: started.sessionId,
+      cardId: first.id,
+      rating: 3,
+      reviewedAt: NOW,
+      idempotencyKey: 'feedback-key',
+      repairGate: {
+        state: 'clean',
+        reason: 'test-clean-gate',
+        createdAt: NOW,
+        cardId: first.id,
+      },
+    });
+    expect(cardsById.get(first.id)).toMatchObject({ reps: first.reps + 1, lastReview: NOW });
+
+    const restarted = createRuntime();
+    const undone = await restarted.undo({
+      sessionId: started.sessionId,
+      undoToken: answered.undoToken,
+    });
+
+    expect(undone).toMatchObject({
+      restoredCardId: first.id,
+      replayedCardId: first.id,
+      current: expect.objectContaining({ id: first.id }),
+      lookaheadCards: [expect.objectContaining({ id: second.id })],
+      counters: expect.objectContaining({ remaining: 2, source: 'worker-session' }),
+    });
+    expect(cardsById.get(first.id)).toMatchObject({ reps: first.reps, lastReview: first.lastReview, due: first.due });
+    expect(repository.upsertCards).toHaveBeenCalledWith([expect.objectContaining({ id: first.id, reps: first.reps })]);
+  });
+
+  it('treats duplicate undo requests for the same durable token as idempotent', async () => {
+    const first = createCard('card-1');
+    const second = createCard('card-2', 1_000);
+    const cardsById = new Map([first, second].map((card) => [card.id, card] as const));
+    const undoJournal = new InMemoryReviewTransactionUndoJournal();
+    const repository = {
+      getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
+      upsertCards: vi.fn((cards: FSRSCard[]) => {
+        for (const card of cards) {
+          cardsById.set(card.id, { ...card });
+        }
+      }),
+    };
+    const feedbackRuntime = {
+      reviewFeedback: vi.fn(async () => {
+        const updatedCard = { ...first, reps: first.reps + 1, due: NOW + 86_400_000, lastReview: NOW };
+        cardsById.set(first.id, updatedCard);
+        return {
+          cardId: first.id,
+          committed: true,
+          reviewedAt: NOW,
+          queueType: QueueType.RetrievalPractice,
+          updatedCard,
+          idempotencyKey: 'feedback-key',
+          queueImpact: {
+            hotPatchable: false,
+            refreshRequired: false,
+            affectedQueues: [],
+          },
+        };
+      }),
+    };
+    const runtime = new WorkerReviewSessionRuntime({
+      repository,
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'retrieval-policy',
+          generation: 7,
+          status: 'ready',
+        })),
+        readRows: vi.fn(() => [createProjectionRow(first, 1), createProjectionRow(second, 2)]),
+      },
+      feedbackRuntime,
+      undoJournal,
+    });
+
+    const started = await runtime.startSession({
+      sessionId: 'session-duplicate-undo',
+      queueType: QueueType.RetrievalPractice,
+    });
+    const answered = await runtime.feedback({
+      sessionId: started.sessionId,
+      cardId: first.id,
+      rating: 3,
+      reviewedAt: NOW,
+      idempotencyKey: 'feedback-key',
+      repairGate: {
+        state: 'clean',
+        reason: 'test-clean-gate',
+        createdAt: NOW,
+        cardId: first.id,
+      },
+    });
+
+    const firstUndo = await runtime.undo({
+      sessionId: started.sessionId,
+      undoToken: answered.undoToken,
+    });
+    const secondUndo = await runtime.undo({
+      sessionId: started.sessionId,
+      undoToken: answered.undoToken,
+    });
+
+    expect(firstUndo).toMatchObject({
+      restoredCardId: first.id,
+      undoToken: answered.undoToken,
+      counters: expect.objectContaining({ remaining: 2, source: 'worker-session' }),
+    });
+    expect(secondUndo).toMatchObject({
+      restoredCardId: first.id,
+      undoToken: answered.undoToken,
+      counters: expect.objectContaining({ remaining: 2, source: 'worker-session' }),
+    });
+    expect(repository.upsertCards).toHaveBeenCalledTimes(1);
+    expect(cardsById.get(first.id)).toMatchObject({ reps: first.reps, lastReview: first.lastReview, due: first.due });
+  });
+
+  it('fails closed instead of using in-memory rollback when durable undo journal evidence is missing', async () => {
+    const first = createCard('card-1');
+    const second = createCard('card-2', 1_000);
+    const cardsById = new Map([first, second].map((card) => [card.id, card] as const));
+    const readRows = vi.fn(() => [createProjectionRow(first, 1), createProjectionRow(second, 2)]);
+    const undoJournal = new InMemoryReviewTransactionUndoJournal();
+    const feedbackRuntime = {
+      reviewFeedback: vi.fn(async () => ({
+        cardId: first.id,
+        committed: true,
+        reviewedAt: NOW,
+        queueType: QueueType.RetrievalPractice,
+        updatedCard: { ...first, reps: first.reps + 1 },
+        idempotencyKey: 'feedback-key',
+        queueImpact: {
+          hotPatchable: false,
+          refreshRequired: false,
+          affectedQueues: [],
+        },
+      })),
+    };
+    const runtime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
+        upsertCards: vi.fn(),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'retrieval-policy',
+          generation: 7,
+          status: 'ready',
+        })),
+        readRows,
+      },
+      feedbackRuntime,
+      undoJournal,
+    });
+
+    const started = await runtime.startSession({
+      sessionId: 'session-missing-evidence',
+      queueType: QueueType.RetrievalPractice,
+    });
+    await runtime.feedback({
+      sessionId: started.sessionId,
+      cardId: first.id,
+      rating: 3,
+      reviewedAt: NOW,
+      idempotencyKey: 'feedback-key',
+      repairGate: {
+        state: 'clean',
+        reason: 'test-clean-gate',
+        createdAt: NOW,
+        cardId: first.id,
+      },
+    });
+
+    await expect(runtime.undo({
+      sessionId: started.sessionId,
+      undoToken: 'missing-durable-token',
+    })).rejects.toThrow('WORKER_REVIEW_SESSION_UNDO_UNAVAILABLE: session-missing-evidence');
+    expect(runtime.getSessionState(started.sessionId).current?.id).toBe(second.id);
   });
 });

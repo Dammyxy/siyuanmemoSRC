@@ -463,6 +463,23 @@ export const SQL_SCHEMA_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_review_events_month ON review_events(year, month, reviewed_at)`,
   `CREATE INDEX IF NOT EXISTS idx_review_events_card ON review_events(card_id, reviewed_at)`,
+  `CREATE TABLE IF NOT EXISTS review_transaction_undo_journal (
+    undo_token TEXT PRIMARY KEY,
+    transaction_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    queue_type TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    card_id TEXT,
+    original_review_idempotency_key TEXT,
+    status TEXT NOT NULL,
+    recorded_at INTEGER NOT NULL,
+    undone_at INTEGER,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_review_transaction_undo_journal_session
+    ON review_transaction_undo_journal(session_id, status, recorded_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_review_transaction_undo_journal_card
+    ON review_transaction_undo_journal(card_id, recorded_at)`,
   `CREATE TABLE IF NOT EXISTS drill_events (
     id TEXT PRIMARY KEY,
     card_id TEXT,

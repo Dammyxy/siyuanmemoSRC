@@ -110,6 +110,17 @@ function createDurableEvent(
   };
 }
 
+function createUndoReversalEvent(idempotencyKey: string) {
+  return {
+    payload_json: JSON.stringify({
+      schemaVersion: 1,
+      projectionKind: 'review-transaction-undo-reversal',
+      originalReviewIdempotencyKey: idempotencyKey,
+      undoToken: `undo:${idempotencyKey}`,
+    }),
+  };
+}
+
 function createGeneration(overrides: Partial<QueueProjectionGeneration> = {}): QueueProjectionGeneration {
   return {
     queueType: QueueType.IncrementalLearning,
@@ -398,6 +409,64 @@ describe('ReviewJournalProjectionReconciler', () => {
       rows: [],
       metadata: expect.objectContaining({
         reconciledCardIds: ['card-1'],
+      }),
+    }));
+  });
+
+  it('rebuilds projection from restored card schedule when durable review was reversed by undo evidence', async () => {
+    const beforeCard = createCard({
+      id: 'card-undone',
+      blockId: 'block-undone',
+      due: REVIEWED_AT - 10_000,
+      reps: 4,
+      lastReview: REVIEWED_AT - 86_400_000,
+    });
+    const staleAfterReviewRow = createProjectionRow(createCard({
+      id: beforeCard.id,
+      blockId: beforeCard.blockId,
+      due: REVIEWED_AT + 86_400_000,
+      reps: 5,
+      lastReview: REVIEWED_AT,
+    }));
+    const entry = createJournalEntry({
+      id: 'review-feedback:undone',
+      idempotencyKey: 'review-commit:undone',
+      cardId: beforeCard.id,
+      blockId: beforeCard.blockId,
+      status: 'truth-flushed',
+      projectionGeneration: 4,
+    });
+    const deps = createDeps([entry]);
+    vi.mocked(deps.queueProjection!.readGeneration).mockReturnValue(createGeneration({ generation: 4 }));
+    vi.mocked(deps.queueProjection!.listReadyGenerations).mockReturnValue([createGeneration({ generation: 4 })]);
+    vi.mocked(deps.queueProjection!.readRows).mockReturnValue([staleAfterReviewRow]);
+    vi.mocked(deps.repository!.queryCards).mockReturnValue([beforeCard]);
+    vi.mocked(deps.getDurableReviewEventByIdempotencyKey).mockReturnValue(createDurableEvent({
+      cardId: beforeCard.id,
+      blockId: beforeCard.blockId,
+      reviewedAt: REVIEWED_AT,
+      queueType: QueueType.IncrementalLearning,
+    }));
+    deps.getUndoReversalEventByReviewIdempotencyKey = vi.fn(() => (
+      createUndoReversalEvent('review-commit:undone')
+    ));
+
+    await new ReviewJournalProjectionReconciler(deps).reconcile();
+
+    expect(deps.getUndoReversalEventByReviewIdempotencyKey).toHaveBeenCalledWith('review-commit:undone');
+    expect(deps.queueProjection?.replaceQueueProjection).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.IncrementalLearning,
+      policyHash: 'policy-a',
+      generation: 5,
+      rows: [expect.objectContaining({
+        cardId: beforeCard.id,
+        dueAt: beforeCard.due,
+      })],
+      metadata: expect.objectContaining({
+        reason: 'review-feedback-journal-reconciliation',
+        source: 'review-feedback-journal',
+        reconciledCardIds: [beforeCard.id],
+        reconciledBlockIds: [beforeCard.blockId],
       }),
     }));
   });

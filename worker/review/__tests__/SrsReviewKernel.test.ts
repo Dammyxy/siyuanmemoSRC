@@ -129,7 +129,7 @@ describe('SrsReviewKernel', () => {
     const { kernel, readRows, reviewFeedback } = createKernel([first, second]);
 
     const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
-    const skipped = kernel.skip({
+    const skipped = await kernel.skip({
       sessionId: started.sessionId,
       cardId: first.id,
     });
@@ -181,7 +181,7 @@ describe('SrsReviewKernel', () => {
     expect(answered.current?.id).toBe(second.id);
     expect(answered.undoToken).toBeTruthy();
 
-    const undone = kernel.undo({
+    const undone = await kernel.undo({
       sessionId: started.sessionId,
       undoToken: answered.undoToken,
     });
@@ -201,14 +201,14 @@ describe('SrsReviewKernel', () => {
     const { kernel, readRows, reviewFeedback } = createKernel([first, second]);
 
     const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
-    const skipped = kernel.skip({
+    const skipped = await kernel.skip({
       sessionId: started.sessionId,
       cardId: first.id,
     });
     expect(skipped.current?.id).toBe(second.id);
     expect(skipped.undoToken).toBeTruthy();
 
-    const undone = kernel.undo({
+    const undone = await kernel.undo({
       sessionId: started.sessionId,
       undoToken: skipped.undoToken,
     });
@@ -227,7 +227,7 @@ describe('SrsReviewKernel', () => {
 
     const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
 
-    expect(() => kernel.undo({ sessionId: started.sessionId })).toThrow(
+    await expect(kernel.undo({ sessionId: started.sessionId })).rejects.toThrow(
       `WORKER_REVIEW_SESSION_UNDO_UNAVAILABLE: ${started.sessionId}`,
     );
   });

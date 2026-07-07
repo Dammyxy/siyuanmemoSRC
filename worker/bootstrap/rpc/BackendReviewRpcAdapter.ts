@@ -125,7 +125,7 @@ export class BackendReviewRpcRuntime {
     return this.requireReviewKernel().answer(named);
   }
 
-  handleReviewSessionSkip(params: unknown): BackendReviewSessionSkipResult {
+  handleReviewSessionSkip(params: unknown): Promise<BackendReviewSessionSkipResult> {
     const named = readRequiredNamedParams<BackendReviewSessionSkipRequest>(
       params,
       'review.session.skip requires named params',
@@ -133,7 +133,7 @@ export class BackendReviewRpcRuntime {
     return this.requireReviewKernel().skip(named);
   }
 
-  handleReviewSessionUndo(params: unknown): BackendReviewSessionUndoResult {
+  handleReviewSessionUndo(params: unknown): Promise<BackendReviewSessionUndoResult> {
     const named = readRequiredNamedParams<BackendReviewSessionUndoRequest>(
       params,
       'review.session.undo requires named params',
@@ -505,14 +505,14 @@ const BACKEND_REVIEW_RPC_HANDLER_ADAPTERS: {
   'review.session.skip': {
     method: 'review.session.skip',
     family: 'review',
-    handle(params, context): BackendReviewSessionSkipResult {
+    handle(params, context): Promise<BackendReviewSessionSkipResult> {
       return context.review.handleReviewSessionSkip(params);
     },
   },
   'review.session.undo': {
     method: 'review.session.undo',
     family: 'review',
-    handle(params, context): BackendReviewSessionUndoResult {
+    handle(params, context): Promise<BackendReviewSessionUndoResult> {
       return context.review.handleReviewSessionUndo(params);
     },
   },

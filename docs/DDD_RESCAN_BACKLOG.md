@@ -4,6 +4,15 @@ Last update: 2026-07-07 (Round 672)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-07 - Review Transaction Undo Journal durable worker slice
+
+- Task: Start `formalize-review-transaction-undo-journal` by moving worker-backed answer/undo authority from session-local stack toward durable Review transaction evidence.
+- Touched slice: `worker/review/{SrsReviewKernel,WorkerReviewSessionRuntime,ReviewTransactionUndoJournal}.ts`, `worker/db/SqliteDatabaseService.ts`, `worker/bootstrap/{BackendKernel,rpc/BackendReviewRpcAdapter}.ts`, SQLite schema, focused worker/RPC tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec task state.
+- Debt fixed now: Worker-backed `answer` / `skip` now write Review Transaction Undo Journal evidence before returning undo tokens. `review.session.undo` restores Card Schedule Store before-state and SessionQueueIndex frontier from journal evidence, appends explicit `review-undo-v1` reversal evidence, invalidates derived queue projections, and fails closed when durable undo evidence is missing instead of falling back to renderer ReviewHistory / ReviewSessionCursor. Review journal reconciliation now treats reversal evidence as active fact derivation input, and Review Storage Audit reports answer/undo pairs, open undo plans, stale undo plans, and undone plans.
+- Debt deferred: Broader non-worker/local undo remains explicit legacy debt; BrowserProjectionIndex, SQLite delta optimization, Domain Sync repair, host bridge cache, and manual/right-click queue membership repair stay outside answer/undo authority.
+- Why deferred: This change closes worker-backed Review transaction undo authority without mixing independent Browser projection, sync repair, local queue, or storage topology ownership into the SRS Review Kernel.
+- Validation: Focused worker Review, storage, replay/reconciliation, audit, backend RPC contract tests, boundary/build/OpenSpec validation, and `git diff --check` run in this implementation pass.
+
 ### 2026-07-07 - Review storage repair apply guard
 
 - Task: Finish `formalize-review-ledger-card-schedule-authority` remaining repair preview/apply tasks for explicit, idempotent, stale-plan guarded Review Ledger/Card Schedule repair.

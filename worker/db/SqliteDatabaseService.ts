@@ -98,6 +98,11 @@ import type {
   ReviewSqlTruthBackfillProjectionPatch,
   ReviewSqlTruthBackfillRow,
 } from '../truth/ReviewSqlTruthBackfillRuntime';
+import type {
+  ReviewTransactionUndoJournal,
+  ReviewTransactionUndoJournalConsumeRequest,
+  ReviewTransactionUndoJournalEntry,
+} from '../review/ReviewTransactionUndoJournal';
 import type { WorkerXiuyuanSyncApplyInput } from '../xiuyuan/WorkerXiuyuanSyncPlanner';
 import type {
   SemanticEvent,
@@ -780,6 +785,15 @@ function buildReviewCardDivergenceRecords(
     }
   }
   return records;
+}
+
+function emptyReviewSyncUndoAuditSummary(): BackendReviewSyncDivergenceAuditResult['undo'] {
+  return {
+    answerUndoPairs: 0,
+    openUndoPlans: 0,
+    staleUndoPlans: 0,
+    undonePlans: 0,
+  };
 }
 
 function toSummarySize(source: Pick<SqliteConflictDatabaseSource, 'bytes' | 'size'>): number {
@@ -1939,6 +1953,13 @@ export class WorkerSqliteDatabaseService {
     });
   }
 
+  createReviewTransactionUndoJournal(): ReviewTransactionUndoJournal {
+    return {
+      append: (entry) => this.appendReviewTransactionUndoJournalEntry(entry),
+      consume: (request) => this.consumeReviewTransactionUndoJournalEntry(request),
+    };
+  }
+
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     const totalStartedAt = Date.now();
     await this.measureReviewFeedbackDatabaseStep('reviewFeedback.init', request.cardId, () => this.init());
@@ -2160,6 +2181,148 @@ export class WorkerSqliteDatabaseService {
       .slice(0, REVIEW_FEEDBACK_JOURNAL_REPLAY_BATCH_LIMIT);
   }
 
+  private async appendReviewTransactionUndoJournalEntry(entry: ReviewTransactionUndoJournalEntry): Promise<void> {
+    await this.init();
+    await this.runtime.runTransaction('review.session.undo-journal.append', () => {
+      this.runtime.run(
+        `INSERT OR REPLACE INTO review_transaction_undo_journal
+          (undo_token, transaction_id, session_id, queue_type, operation, card_id,
+           original_review_idempotency_key, status, recorded_at, undone_at, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          entry.undoToken,
+          entry.transactionId,
+          entry.sessionId,
+          String(entry.queueType),
+          entry.operation,
+          entry.cardId || null,
+          entry.originalReviewIdempotencyKey,
+          entry.status,
+          entry.recordedAt,
+          entry.undoneAt,
+          JSON.stringify(entry),
+        ],
+      );
+    }, { persist: true });
+  }
+
+  private async consumeReviewTransactionUndoJournalEntry(
+    request: ReviewTransactionUndoJournalConsumeRequest,
+  ): Promise<ReviewTransactionUndoJournalEntry | null> {
+    await this.init();
+    const sessionId = normalizeString(request.sessionId);
+    if (!sessionId) {
+      return null;
+    }
+    return this.runtime.runTransaction('review.session.undo-journal.consume', () => {
+      const token = normalizeString(request.undoToken);
+      const row = token
+        ? this.runtime.getOne<{
+          undo_token: string;
+          status: string;
+          payload_json: string;
+          recorded_at: number;
+        }>(
+          `SELECT undo_token, status, payload_json, recorded_at
+             FROM review_transaction_undo_journal
+            WHERE session_id = ? AND undo_token = ?
+            LIMIT 1`,
+          [sessionId, token],
+        )
+        : this.runtime.getOne<{
+          undo_token: string;
+          status: string;
+          payload_json: string;
+          recorded_at: number;
+        }>(
+          `SELECT undo_token, status, payload_json, recorded_at
+             FROM review_transaction_undo_journal
+            WHERE session_id = ? AND status = 'open'
+            ORDER BY recorded_at DESC, undo_token DESC
+            LIMIT 1`,
+          [sessionId],
+        );
+      if (!row) {
+        return null;
+      }
+      const entry = parseJsonObject(row.payload_json) as unknown as ReviewTransactionUndoJournalEntry;
+      if (row.status === 'open') {
+        const latestOpen = this.runtime.getOne<{ undo_token: string }>(
+          `SELECT undo_token
+             FROM review_transaction_undo_journal
+            WHERE session_id = ? AND status = 'open'
+            ORDER BY recorded_at DESC, undo_token DESC
+            LIMIT 1`,
+          [sessionId],
+        );
+        if (latestOpen && latestOpen.undo_token !== row.undo_token) {
+          throw new Error(`WORKER_REVIEW_SESSION_STALE_UNDO_TOKEN: ${row.undo_token}`);
+        }
+        const undoneAt = Date.now();
+        const restoredEntry: ReviewTransactionUndoJournalEntry = {
+          ...entry,
+          status: 'undone',
+          undoneAt,
+          scheduleRestoreApplied: true,
+        };
+        if (entry.beforeCard && this.repository) {
+          this.repository.upsertCards([entry.beforeCard]);
+        }
+        this.appendReviewTransactionUndoReversalEvent(restoredEntry, undoneAt);
+        this.invalidateQueueProjectionsForReviewUndo(restoredEntry, undoneAt);
+        this.runtime.run(
+          `UPDATE review_transaction_undo_journal
+              SET status = 'undone',
+                  undone_at = ?,
+                  payload_json = ?
+            WHERE undo_token = ?`,
+          [undoneAt, JSON.stringify(restoredEntry), row.undo_token],
+        );
+        return restoredEntry;
+      }
+      return {
+        ...entry,
+        status: 'undone',
+        scheduleRestoreApplied: true,
+      };
+    }, { persist: true });
+  }
+
+  private appendReviewTransactionUndoReversalEvent(
+    entry: ReviewTransactionUndoJournalEntry,
+    undoneAt: number,
+  ): void {
+    const month = new Date(undoneAt);
+    const eventId = `${entry.undoToken}:reversal`;
+    this.runtime.run(
+      `INSERT OR REPLACE INTO review_events
+        (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        eventId,
+        entry.cardId || entry.beforeCard?.id || null,
+        entry.transactionId,
+        null,
+        undoneAt,
+        `review-session-undo:${entry.undoToken}`,
+        month.getFullYear(),
+        month.getMonth() + 1,
+        'review-undo-v1',
+        JSON.stringify({
+          schemaVersion: 1,
+          projectionKind: 'review-transaction-undo-reversal',
+          undoToken: entry.undoToken,
+          transactionId: entry.transactionId,
+          sessionId: entry.sessionId,
+          cardId: entry.cardId,
+          originalReviewIdempotencyKey: entry.originalReviewIdempotencyKey,
+          operation: entry.operation,
+          undoneAt,
+        }),
+      ],
+    );
+  }
+
   private shouldReplayReviewFeedbackJournalEntry(entry: ReviewFeedbackJournalEntry): boolean {
     const queueType = normalizeString(entry.request.queueType) || 'retrieval-practice';
     const commitPolicy = normalizeString(entry.request.commitPolicy)
@@ -2215,6 +2378,17 @@ export class WorkerSqliteDatabaseService {
            FROM review_events
           WHERE commit_idempotency_key = ?
           ORDER BY reviewed_at ASC, id ASC
+          LIMIT 1`,
+        [idempotencyKey],
+      ),
+      getUndoReversalEventByReviewIdempotencyKey: (idempotencyKey) => this.runtime.getOne<{
+        payload_json: string | null;
+      }>(
+        `SELECT payload_json
+           FROM review_events
+          WHERE event_type = 'review-undo-v1'
+            AND json_extract(payload_json, '$.originalReviewIdempotencyKey') = ?
+          ORDER BY reviewed_at DESC, id DESC
           LIMIT 1`,
         [idempotencyKey],
       ),
@@ -2756,7 +2930,65 @@ export class WorkerSqliteDatabaseService {
       limit,
       truncated: records.length > limit,
       reasons,
+      undo: this.readReviewSyncUndoAuditSummary(cardIds),
       records: records.slice(0, limit),
+    };
+  }
+
+  private readReviewSyncUndoAuditSummary(cardIds: string[] = []): BackendReviewSyncDivergenceAuditResult['undo'] {
+    const uniqueCardIds = normalizeAuditCardIds(cardIds);
+    const params: SqlValue[] = [];
+    const scope = uniqueCardIds.length > 0
+      ? `AND j.card_id IN (${uniqueCardIds.map(() => '?').join(', ')})`
+      : '';
+    params.push(...uniqueCardIds);
+    const row = this.runtime.getOne<{
+      answer_undo_pairs: number | null;
+      open_undo_plans: number | null;
+      stale_undo_plans: number | null;
+      undone_plans: number | null;
+    }>(
+      `SELECT
+          SUM(CASE
+            WHEN j.status = 'undone'
+             AND EXISTS (
+               SELECT 1
+                 FROM review_events e
+                WHERE e.event_type = 'review-v2'
+                  AND e.commit_idempotency_key = j.original_review_idempotency_key
+             )
+             AND EXISTS (
+               SELECT 1
+                 FROM review_events undo
+                WHERE undo.event_type = 'review-undo-v1'
+                  AND json_extract(undo.payload_json, '$.originalReviewIdempotencyKey') = j.original_review_idempotency_key
+             )
+            THEN 1 ELSE 0 END) AS answer_undo_pairs,
+          SUM(CASE WHEN j.status = 'open' THEN 1 ELSE 0 END) AS open_undo_plans,
+          SUM(CASE
+            WHEN j.status = 'open'
+             AND EXISTS (
+               SELECT 1
+                 FROM review_transaction_undo_journal newer
+                WHERE newer.session_id = j.session_id
+                  AND newer.status = 'open'
+                  AND (newer.recorded_at > j.recorded_at OR (newer.recorded_at = j.recorded_at AND newer.undo_token > j.undo_token))
+             )
+            THEN 1 ELSE 0 END) AS stale_undo_plans,
+          SUM(CASE WHEN j.status = 'undone' THEN 1 ELSE 0 END) AS undone_plans
+         FROM review_transaction_undo_journal j
+        WHERE 1 = 1
+          ${scope}`,
+      params,
+    );
+    if (!row) {
+      return emptyReviewSyncUndoAuditSummary();
+    }
+    return {
+      answerUndoPairs: Math.max(0, Math.floor(Number(row.answer_undo_pairs) || 0)),
+      openUndoPlans: Math.max(0, Math.floor(Number(row.open_undo_plans) || 0)),
+      staleUndoPlans: Math.max(0, Math.floor(Number(row.stale_undo_plans) || 0)),
+      undonePlans: Math.max(0, Math.floor(Number(row.undone_plans) || 0)),
     };
   }
 
@@ -4117,6 +4349,12 @@ export class WorkerSqliteDatabaseService {
        FROM review_events e
        INNER JOIN cards c ON c.id = e.card_id
        WHERE e.event_type = 'review-v2'
+         AND NOT EXISTS (
+           SELECT 1
+             FROM review_events undo
+            WHERE undo.event_type = 'review-undo-v1'
+              AND json_extract(undo.payload_json, '$.originalReviewIdempotencyKey') = e.commit_idempotency_key
+         )
          AND ${activePluginCardSql('c')}
          ${scope}
        GROUP BY e.card_id, c.updated_at, c.reps, c.last_review,
@@ -4158,10 +4396,22 @@ export class WorkerSqliteDatabaseService {
            FROM review_events e2
            WHERE e2.card_id = e.card_id
              AND e2.event_type = 'review-v2'
+             AND NOT EXISTS (
+               SELECT 1
+                 FROM review_events undo
+                WHERE undo.event_type = 'review-undo-v1'
+                  AND json_extract(undo.payload_json, '$.originalReviewIdempotencyKey') = e2.commit_idempotency_key
+             )
            ORDER BY e2.reviewed_at DESC, e2.id DESC
            LIMIT 1
          )
        WHERE e.event_type = 'review-v2'
+         AND NOT EXISTS (
+           SELECT 1
+             FROM review_events undo
+            WHERE undo.event_type = 'review-undo-v1'
+              AND json_extract(undo.payload_json, '$.originalReviewIdempotencyKey') = e.commit_idempotency_key
+         )
          AND (c.id IS NULL OR (${activePluginCardSql('c')}))
          ${scope}
        GROUP BY e.card_id, latest.id, latest.payload_json, c.updated_at, c.due, c.state, c.scheduled_days,
@@ -4931,6 +5181,47 @@ export class WorkerSqliteDatabaseService {
     new SourceExistenceProjectionInvalidator({
       queueProjection: this.queueProjection,
     }).invalidateForSourceChanges(blockIds, checkedAt);
+  }
+
+  private invalidateQueueProjectionsForReviewUndo(
+    entry: ReviewTransactionUndoJournalEntry,
+    undoneAt: number,
+  ): number {
+    if (!this.queueProjection) {
+      return 0;
+    }
+    const cardId = normalizeString(entry.cardId) || normalizeString(entry.beforeCard?.id);
+    if (!cardId) {
+      return 0;
+    }
+    const affectedBlockIds = uniqueStrings([
+      entry.beforeCard?.blockId,
+      entry.afterCard?.blockId,
+      entry.frontierBefore.current?.blockId,
+      entry.frontierAfter.current?.blockId,
+    ]);
+    const queueTypes = [
+      QueueType.RetrievalPractice,
+      QueueType.IncrementalLearning,
+      QueueType.FilterGroup,
+      QueueType.Leech,
+      QueueType.NeuralRoam,
+    ];
+    const invalidated = this.queueProjection.invalidateQueues({
+      queueTypes,
+      reason: 'review-undo',
+      affectedCardIds: [cardId],
+      affectedBlockIds,
+      generation: Math.max(1, Math.floor(Number(entry.projectionGeneration ?? undoneAt) || undoneAt)),
+      createdAt: undoneAt,
+      metadata: {
+        source: 'review-transaction-undo-journal',
+        undoToken: entry.undoToken,
+        transactionId: entry.transactionId,
+        originalReviewIdempotencyKey: entry.originalReviewIdempotencyKey,
+      },
+    });
+    return invalidated.length;
   }
 
   private invalidateQueueProjectionsForSyncConflictMerge(input: {

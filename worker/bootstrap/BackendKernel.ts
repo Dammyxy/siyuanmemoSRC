@@ -200,6 +200,7 @@ export class BackendKernel {
       feedbackRuntime: {
         reviewFeedback: (request) => this.deps.database.reviewFeedback(request),
       },
+      undoJournal: this.deps.database.createReviewTransactionUndoJournal(),
     });
     this.reviewKernel = new WorkerSrsReviewKernelAdapter(this.reviewSessionRuntime);
     this.reviewRuntime = new BackendReviewRpcRuntime({

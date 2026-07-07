@@ -99,8 +99,12 @@ The Browser-facing projection Module that owns matched row identity, counts, fil
 _Avoid_: SessionQueueIndex, active Review frontier, Review answer authority, hidden stale-row fallback
 
 **SRS Review Kernel**:
-The worker-owned Review answer Module that owns active session start/current/answer/skip/undo/lookahead/counters/diagnostics for RetrievalPractice and IncrementalLearning after a session starts. It hides scheduler commit, Review Ledger, Card Schedule Store, SessionQueueIndex, session undo journal evidence, next-card preparation, and diagnostics behind one small Interface; renderer cursor, BrowserProjectionIndex, and projection patching cannot become fallback answer authority after this kernel is selected.
+The worker-owned Review answer Module that owns active session start/current/answer/skip/undo/lookahead/counters/diagnostics for RetrievalPractice and IncrementalLearning after a session starts. It hides scheduler commit, Review Ledger, Card Schedule Store, SessionQueueIndex, Review Transaction Undo Journal evidence, next-card preparation, and diagnostics behind one small Interface; renderer cursor, BrowserProjectionIndex, and projection patching cannot become fallback answer authority after this kernel is selected.
 _Avoid_: renderer session cursor, Browser projection fallback, queue hot patch authority, UI-owned scheduler commit
+
+**Review Transaction Undo Journal**:
+The durable worker-owned undo evidence for accepted SRS Review answer/skip transactions. It records transaction id, undo token, original review identity, before/after card state, SessionQueueIndex frontier before/after, queue impact, projection generation, and idempotency status. `SrsReviewKernel.undo` consumes this evidence to restore Card Schedule Store before-state, restore active Review frontier, and append explicit reversal evidence; missing or stale evidence fails closed.
+_Avoid_: renderer ReviewHistory fallback, BrowserProjectionIndex repair, physical review history deletion
 
 **Custom Review Surface**:
 A SiYuanMemo-owned review UI that renders card content outside SiYuan's native block renderer. It must explicitly preserve supported link and reference behavior because native rendering is not automatically available.
@@ -178,7 +182,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - **Native Riff Compatibility** must not create a second scheduling truth for cards already owned by **SiYuanMemo-owned SRS**.
 - A **Browser Read Model** consumes **SRS Browser Card Universe** and, for projection-backed queue views, consumes queue projection identity before hydrating Browser rows.
 - The **SRS Review Kernel** consumes **Review Ledger**, **Card Schedule Store**, and **SessionQueueIndex** internally, and exposes only active Review session operations to renderer-side adapters.
-- The **SRS Review Kernel** owns bounded session undo journal evidence for worker-backed `go-back`; **Review History** remains local-only for non-worker sessions and failed-feedback cleanup.
+- The **SRS Review Kernel** owns **Review Transaction Undo Journal** evidence for worker-backed `go-back`; **Review History** remains local-only for non-worker sessions and failed-feedback cleanup.
 - **Review Storage Audit** compares **Review Ledger** facts, **Card Schedule Store** rows, and derived projection evidence; repair remains explicit and evidence-complete, never a hidden Browser/queue projection fallback.
 - Once the **SRS Review Kernel** is selected, **BrowserProjectionIndex** and **Review Session Cursor** may provide diagnostics/display state, but must not choose post-answer current/next cards.
 - **Custom Review Surfaces** share review rendering requirements with native-like review surfaces, including supported link and reference behavior.

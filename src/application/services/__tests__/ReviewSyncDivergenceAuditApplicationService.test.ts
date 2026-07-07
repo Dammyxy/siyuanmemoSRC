@@ -14,6 +14,12 @@ describe('ReviewSyncDivergenceAuditApplicationService', () => {
         'review-history-newer-than-card-state': 1,
         'review-event-count-exceeds-card-reps': 0,
       },
+      undo: {
+        answerUndoPairs: 1,
+        openUndoPlans: 0,
+        staleUndoPlans: 0,
+        undonePlans: 1,
+      },
       records: [{
         cardId: 'card-1',
         blockId: 'block-1',
@@ -43,6 +49,12 @@ describe('ReviewSyncDivergenceAuditApplicationService', () => {
       reasons: {
         'review-history-newer-than-card-state': 1,
         'review-event-count-exceeds-card-reps': 0,
+      },
+      undo: {
+        answerUndoPairs: 1,
+        openUndoPlans: 0,
+        staleUndoPlans: 0,
+        undonePlans: 1,
       },
     });
   });

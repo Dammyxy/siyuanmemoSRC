@@ -26,6 +26,7 @@ export class ReviewSyncDivergenceAuditApplicationService {
       divergentCards: result.divergentCards,
       truncated: result.truncated,
       reasons: result.reasons,
+      undo: result.undo,
     });
     return result;
   }
