@@ -351,6 +351,76 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     }
   });
 
+  it('flushes Review truth before quiescing the frontend runtime on unload', async () => {
+    const calls: string[] = [];
+    const srsBackendClient = {
+      dispose: vi.fn(() => calls.push('backend-client.dispose')),
+      flushReviewTruthBeforeUnload: vi.fn(async () => {
+        calls.push('review-truth.flush');
+        return true;
+      }),
+    };
+    const srsBackendTransport = {
+      dispose: vi.fn(() => calls.push('backend-transport.dispose')),
+    };
+    const frontendInstanceRuntime = {
+      prepareForUnload: vi.fn(() => calls.push('frontend-runtime.prepareForUnload')),
+      dispose: vi.fn(async () => {
+        calls.push('frontend-runtime.dispose');
+      }),
+      getMode: () => 'writer',
+      getInstanceId: () => 'instance-review-truth-flush',
+    };
+    const runtimePolicy = {
+      flags: {
+        backendWorker: true,
+        writerLeaseGuard: true,
+        autoCardDecisionRelay: true,
+        kernelTransactionIngest: true,
+        privateApi: true,
+        aiBackendRuntime: true,
+      },
+      capabilities: {
+        backendWorkerAvailable: true,
+        writerRelayRuntimeEnabled: true,
+        writerRelayRequiredForBackendWrites: true,
+        reviewFeedbackWriteEnabled: true,
+        autoCardExecuteWriteEnabled: true,
+        autoCardDecisionBackendEnabled: true,
+        kernelTransactionIngestEnabled: true,
+        privateApiReadEnabled: true,
+        privateApiMutationEnabled: true,
+        aiBackendSessionEnabled: true,
+      },
+      behavior: {},
+    };
+    const TestableApplicationContext = ApplicationContext as unknown as new (
+      config: unknown,
+      services: unknown,
+    ) => ApplicationContext;
+    const context = new TestableApplicationContext({
+      plugin: { name: 'test-plugin', app: {} },
+      i18n: {},
+    }, {
+      storageManager: {},
+      unifiedStorageManager: { save: vi.fn() },
+      schedulerRouter: {},
+      rescheduleService: {},
+      unifiedDataSourceManager: {},
+      blockMenuHandler: {},
+      srsBackendClient,
+      srsBackendTransport,
+      frontendInstanceRuntime,
+      backendMigrationRuntimePolicy: runtimePolicy,
+    });
+
+    await context.dispose({ persistStorage: false });
+
+    expect(calls).toContain('review-truth.flush');
+    expect(calls).toContain('frontend-runtime.prepareForUnload');
+    expect(calls.indexOf('review-truth.flush')).toBeLessThan(calls.indexOf('frontend-runtime.prepareForUnload'));
+  });
+
   it('continues disposing later services when one service dispose hangs', async () => {
     vi.useFakeTimers();
     try {

@@ -4,6 +4,16 @@ Last update: 2026-07-07 (Round 671)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-07 - Plugin unload Review truth flush ordering
+
+- Task: Diagnose exit-time warnings after reviewed cards still reverted to the old Review record count (`42`) on restart.
+- Touched slice: Plugin/ApplicationContext unload durability in `src/index.ts`, `src/index.test.ts`, `src/application/ApplicationContext.ts`, and `src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts`.
+- Debt fixed now: Plugin `onunload()` now awaits `ApplicationContext.dispose()` instead of fire-and-forget disposal. `ApplicationContext.dispose()` now flushes Review truth before quiescing `FrontendInstanceRuntime`, so the unload path does not stop relay/heartbeat/background runtime activity before the durable `review.truth.flush` request can use the still-live writer path.
+- Debt deferred: This does not yet add a user-facing Review Ledger/Card Schedule repair command for already-diverged data, and it does not prove SiYuan itself awaits every plugin unload promise in every shutdown path.
+- Why deferred: The attached close log showed `Plugin not loaded` / writer lease observation failure during unload, while the current code also had a concrete ordering bug: durable Review truth flush ran after frontend runtime unload quiesce.
+- Next safe step: Rebuild/reload, review several cards, fully quit SiYuan, restart, and confirm Review record count/reps no longer return to `42`. If still divergent, capture both close-time logs and next startup logs including `review.truth.flush`, `srsBackendClient.reviewTruthFlush`, `reviewFeedbackJournal`, `sqlite-delta`, and startup replay diagnostics.
+- Validation: Added focused regressions proving plugin unload awaits context disposal and ApplicationContext flushes Review truth before frontend runtime quiesce. Focused unload/close tests passed; boundary/build/OpenSpec validation run in this implementation pass.
+
 ### 2026-07-07 - Review close durability flush/checkpoint
 
 - Task: Continue diagnosis after reviewing cards then quitting/restarting still returned Review records to the old `42` count.

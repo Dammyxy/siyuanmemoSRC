@@ -474,12 +474,42 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
 
     expect(rejectionEvent.defaultPrevented).toBe(true);
 
-    plugin.onunload();
+    await plugin.onunload();
 
     expect(removeEventListenerSpy).toHaveBeenCalledWith('error', errorHandler, true);
     expect(removeEventListenerSpy).toHaveBeenCalledWith('unhandledrejection', rejectionHandler);
 
     addEventListenerSpy.mockRestore();
     removeEventListenerSpy.mockRestore();
+  });
+
+  it('awaits ApplicationContext disposal during plugin unload', async () => {
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    const context = createContext(plugin);
+    let disposeResolved = false;
+    const disposeDeferred = createDeferred<void>();
+    context.dispose = vi.fn(async () => {
+      await disposeDeferred.promise;
+      disposeResolved = true;
+    });
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+
+    await plugin.onload();
+
+    let unloadResolved = false;
+    const unloadPromise = plugin.onunload().then(() => {
+      unloadResolved = true;
+    });
+    await flushMicrotasks();
+
+    expect(context.dispose).toHaveBeenCalledWith({ persistStorage: false });
+    expect(unloadResolved).toBe(false);
+
+    disposeDeferred.resolve();
+    await unloadPromise;
+
+    expect(disposeResolved).toBe(true);
+    expect(unloadResolved).toBe(true);
   });
 });

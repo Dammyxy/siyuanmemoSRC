@@ -328,7 +328,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.scheduleMobileSidebarToolbarEnsure();
   }
 
-  onunload() {
+  async onunload(): Promise<void> {
     this.contextReady.reject(new Error('Plugin unloading'));
     this.customTabsRegistered = false;
     this.removeSiyuanMenuErrorGuard();
@@ -354,15 +354,16 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.imageOcclusionHandler?.dispose();
     this.imageOcclusionHandler = null;
     if (context) {
-      context.dispose({ persistStorage: false })
-        .catch(err => this.logger.error('Error disposing context:', err))
-        .finally(() => {
-          if (this.isUninstalling) {
-            void this.cleanupLocalDataFiles();
-          }
-        });
+      try {
+        await context.dispose({ persistStorage: false });
+      } catch (err) {
+        this.logger.error('Error disposing context:', err);
+      }
+      if (this.isUninstalling) {
+        await this.cleanupLocalDataFiles();
+      }
     } else if (this.isUninstalling) {
-      void this.cleanupLocalDataFiles();
+      await this.cleanupLocalDataFiles();
     }
   }
 

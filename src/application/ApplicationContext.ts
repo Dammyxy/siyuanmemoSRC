@@ -2817,6 +2817,8 @@ export class ApplicationContext {
     try {
       logger.info('[ApplicationContext] Starting disposal...');
 
+      await this.flushReviewTruthBeforeUnloadIfWritable(errors);
+
       try {
         this.frontendInstanceRuntime?.prepareForUnload?.();
       } catch (error) {
@@ -2886,8 +2888,6 @@ export class ApplicationContext {
           errors.push({ service: 'hybridSyncService', error });
         }
       }
-
-      await this.flushReviewTruthBeforeUnloadIfWritable(errors);
 
       this.disposeSrsBackendRuntime(errors);
 
