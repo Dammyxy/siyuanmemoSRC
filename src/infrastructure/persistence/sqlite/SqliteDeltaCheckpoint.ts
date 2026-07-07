@@ -531,6 +531,20 @@ const QUEUE_STATE_COLUMNS: SqliteDeltaTableColumn[] = [
   toColumn('updated_at', 'INTEGER', true),
 ];
 
+const REVIEW_TRANSACTION_UNDO_JOURNAL_COLUMNS: SqliteDeltaTableColumn[] = [
+  toColumn('undo_token', 'TEXT', false, 1),
+  toColumn('transaction_id', 'TEXT', true),
+  toColumn('session_id', 'TEXT', true),
+  toColumn('queue_type', 'TEXT', true),
+  toColumn('operation', 'TEXT', true),
+  toColumn('card_id', 'TEXT', false),
+  toColumn('original_review_idempotency_key', 'TEXT', false),
+  toColumn('status', 'TEXT', true),
+  toColumn('recorded_at', 'INTEGER', true),
+  toColumn('undone_at', 'INTEGER', false),
+  toColumn('payload_json', 'TEXT', true),
+];
+
 export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
   tableMetadata('cards', ['id'], CARDS_COLUMNS),
   tableMetadata('algorithm_card_state', ['card_id', 'algorithm_id'], ALGORITHM_CARD_STATE_COLUMNS),
@@ -540,6 +554,7 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
   tableMetadata('review_events', ['id'], REVIEW_EVENTS_COLUMNS, [
     REVIEW_EVENTS_LEGACY_COMMIT_COLUMN_ORDER,
   ]),
+  tableMetadata('review_transaction_undo_journal', ['undo_token'], REVIEW_TRANSACTION_UNDO_JOURNAL_COLUMNS),
   tableMetadata('queue_projection_generations', ['queue_type'], [
     toColumn('queue_type', 'TEXT', false, 1),
     toColumn('policy_hash', 'TEXT', true),

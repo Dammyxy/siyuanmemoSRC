@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-07 (Round 675)
+Last update: 2026-07-07 (Round 676)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-07 - Review undo journal SQLite delta coverage
+
+- Task: Implement OpenSpec change `include-review-undo-journal-in-sqlite-delta` so Review scoring undo-journal append no longer forces a full `siyuanmemo.db` write.
+- Touched slice: Review/SQLite durability hot path; `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: `review_transaction_undo_journal` is now registered as a durable-replay SQLite delta table with schema-matched primary-key capture. Regression coverage proves `review.session.undo-journal.append` writes delta evidence, does not rewrite `siyuanmemo.db` under `volatile-projection`, and replays the undo row after reload.
+- Debt deferred: Undo consume can still touch cards, review reversal events, queue invalidation, and the undo journal in one transaction; this pass covers the missing undo-journal table registration rather than redesigning all undo-side write costs.
+- Why deferred: The live rating bottleneck was ordinary feedback append treating undo evidence as unsupported durable storage. Full undo optimization crosses Review transaction restore and queue projection invalidation ownership.
+- Next safe step: Rebuild/reload, rate Retrieval Practice cards, and confirm `review.session.undo-journal.append` no longer produces `unsupported-table:review_transaction_undo_journal` or a normal `sqlite.writeBinary siyuanmemo.db` checkpoint.
+- Validation: Focused SQLite persistence suite passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n/Sass warnings; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only.
 
 ### 2026-07-07 - Review Answer Pipeline deep module
 

@@ -252,6 +252,43 @@ function insertReviewEventForSqliteDeltaWindow(
   });
 }
 
+function insertReviewUndoJournalEntryForSqliteDeltaWindow(
+  database: SqliteDatabaseService,
+  undoToken: string,
+): Promise<void> {
+  return database.runTransaction('review.session.undo-journal.append', (db) => {
+    db.run(
+      `INSERT OR REPLACE INTO review_transaction_undo_journal
+        (undo_token, transaction_id, session_id, queue_type, operation, card_id,
+         original_review_idempotency_key, status, recorded_at, undone_at, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        undoToken,
+        `tx-${undoToken}`,
+        'session-review-hot-path',
+        'final-drill',
+        'feedback',
+        'card-review-hot-path',
+        `review-key-${undoToken}`,
+        'open',
+        1_700_000_005_000,
+        null,
+        JSON.stringify({
+          undoToken,
+          transactionId: `tx-${undoToken}`,
+          sessionId: 'session-review-hot-path',
+          queueType: 'final-drill',
+          operation: 'feedback',
+          cardId: 'card-review-hot-path',
+          originalReviewIdempotencyKey: `review-key-${undoToken}`,
+          status: 'open',
+          recordedAt: 1_700_000_005_000,
+        }),
+      ],
+    );
+  });
+}
+
 describe('SqliteDatabaseService', () => {
   afterEach(() => {
     setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
@@ -836,6 +873,79 @@ describe('SqliteDatabaseService', () => {
       truth_hash: 'truth-hash-a',
       truth_schema_version: 1,
       projection_generation: 1_700_000_000_100,
+    });
+  });
+
+  it('persists review transaction undo journal appends as sqlite delta without rewriting the database', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    fileService.resetWriteCounts();
+    const dbBytesBeforeAppend = fileService.binary.get(SQLITE_DB_FILE);
+    expect(dbBytesBeforeAppend).toBeTruthy();
+
+    await insertReviewUndoJournalEntryForSqliteDeltaWindow(database, 'undo-review-hot-path');
+
+    expect(fileService.binary.get(SQLITE_DB_FILE)).toBe(dbBytesBeforeAppend);
+    expect(fileService.writeBinaryFiles).not.toContain(SQLITE_DB_FILE);
+    expect(fileService.binary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeTruthy();
+    expect(fileService.json.get(SQLITE_DELTA_V2_MANIFEST)).toMatchObject({
+      version: 2,
+      openSegment: {
+        path: SQLITE_DELTA_V2_OPEN_SEGMENT,
+        entryCount: 1,
+      },
+    });
+    expect(readSqliteDeltaEntries(fileService)).toEqual([
+      expect.objectContaining({
+        tables: ['review_transaction_undo_journal'],
+        changes: [
+          expect.objectContaining({
+            table: 'review_transaction_undo_journal',
+          }),
+        ],
+      }),
+    ]);
+
+    const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await reloaded.init();
+    const row = reloaded.getOne<{
+      undo_token: string;
+      transaction_id: string;
+      session_id: string;
+      queue_type: string;
+      status: string;
+      recorded_at: number;
+      payload_json: string;
+    }>(
+      `SELECT undo_token, transaction_id, session_id, queue_type, status, recorded_at, payload_json
+         FROM review_transaction_undo_journal
+        WHERE undo_token = ?`,
+      ['undo-review-hot-path'],
+    );
+    expect(row).toMatchObject({
+      undo_token: 'undo-review-hot-path',
+      transaction_id: 'tx-undo-review-hot-path',
+      session_id: 'session-review-hot-path',
+      queue_type: 'final-drill',
+      status: 'open',
+      recorded_at: 1_700_000_005_000,
+    });
+    expect(JSON.parse(row?.payload_json || '{}')).toMatchObject({
+      undoToken: 'undo-review-hot-path',
+      transactionId: 'tx-undo-review-hot-path',
+      sessionId: 'session-review-hot-path',
+      queueType: 'final-drill',
+      status: 'open',
     });
   });
 

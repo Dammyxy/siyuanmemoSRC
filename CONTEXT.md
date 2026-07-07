@@ -107,7 +107,7 @@ The worker-owned Review answer Module that owns active session start/current/ans
 _Avoid_: renderer session cursor, Browser projection fallback, queue hot patch authority, UI-owned scheduler commit
 
 **Review Transaction Undo Journal**:
-The durable worker-owned undo evidence for accepted SRS Review answer/skip transactions. It records transaction id, undo token, original review identity, before/after card state, SessionQueueIndex frontier before/after, queue impact, projection generation, and idempotency status. `SrsReviewKernel.undo` consumes this evidence to restore Card Schedule Store before-state, restore active Review frontier, and append explicit reversal evidence; missing or stale evidence fails closed.
+The durable worker-owned undo evidence for accepted SRS Review answer/skip transactions. It records transaction id, undo token, original review identity, before/after card state, SessionQueueIndex frontier before/after, queue impact, projection generation, and idempotency status. Ordinary append/update mutations participate in SQLite delta durable replay so restart can restore undo-token evidence without treating this table as an unsupported full-checkpoint trigger. `SrsReviewKernel.undo` consumes this evidence to restore Card Schedule Store before-state, restore active Review frontier, and append explicit reversal evidence; missing or stale evidence fails closed.
 _Avoid_: renderer ReviewHistory fallback, BrowserProjectionIndex repair, physical review history deletion
 
 **Custom Review Surface**:
@@ -151,7 +151,7 @@ The diagnostic read model that compares Review Ledger facts, Card Schedule Store
 _Avoid_: hidden projection repair, Browser count refresh, silent schedule reconciliation
 
 **Delta Sync Adapter**:
-The SQLite delta/checkpoint layer that exports, checkpoints, diagnoses, and recovers storage changes from durable Review facts and schedule state. It may read sealed segment evidence during diagnostics/recovery/reload, but ordinary same-runtime Review answer success must not depend on reconstructing historical sealed segments.
+The SQLite delta/checkpoint layer that exports, checkpoints, diagnoses, and recovers storage changes from durable Review facts, schedule state, queue state, store metadata, and Review Transaction Undo Journal evidence. It may read sealed segment evidence during diagnostics/recovery/reload, but ordinary same-runtime Review answer success must not depend on reconstructing historical sealed segments.
 _Avoid_: Review Ledger, Card Schedule Store, kernel answer authority
 
 **NeuralRoam Advance**:
