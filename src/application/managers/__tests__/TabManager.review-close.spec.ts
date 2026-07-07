@@ -60,6 +60,7 @@ function createContext() {
       })),
       getSrsBackendClient: vi.fn(() => ({
         requestReviewTruthFlush: vi.fn(),
+        flushReviewTruthNow: vi.fn(async () => true),
       })),
     },
   };
@@ -123,7 +124,7 @@ describe('TabManager closeReviewTab', () => {
     const close = vi.fn();
     await reviewRegistration.init.call(createReviewRuntime('review-tab-1', { close }));
 
-    tabManager.closeReviewTab('review-tab-1');
+    await tabManager.closeReviewTab('review-tab-1');
 
     expect(close).toHaveBeenCalledTimes(1);
   });
@@ -138,8 +139,36 @@ describe('TabManager closeReviewTab', () => {
     const removeTab = vi.fn();
     await reviewRegistration.init.call(createReviewRuntime('review-tab-2', { removeTab }));
 
-    tabManager.closeReviewTab('review-tab-2');
+    await tabManager.closeReviewTab('review-tab-2');
 
     expect(removeTab).toHaveBeenCalledWith('review-tab-2');
+  });
+
+  it('awaits durable Review truth flush before closing review tab', async () => {
+    const calls: string[] = [];
+    const close = vi.fn(() => {
+      calls.push('close');
+    });
+    const flushReviewTruthNow = vi.fn(async () => {
+      calls.push('flush');
+      return true;
+    });
+    const { context } = createContext();
+    context.getSrsBackendClient = vi.fn(() => ({
+      requestReviewTruthFlush: vi.fn(),
+      flushReviewTruthNow,
+    }));
+    const plugin = createPlugin();
+    const tabManager = new TabManager(context as never, plugin, { siyuanApi: createSiyuanApiMock() } as never);
+    tabManager.registerAll();
+
+    const reviewRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0];
+    await reviewRegistration.init.call(createReviewRuntime('review-tab-3', { close }));
+
+    await tabManager.closeReviewTab('review-tab-3');
+
+    expect(flushReviewTruthNow).toHaveBeenCalledWith('review-exit');
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(['flush', 'close']);
   });
 });

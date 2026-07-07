@@ -24,7 +24,7 @@ describe('ReviewSyncManager idle sync policy', () => {
     });
   });
 
-  it('marks dialog-close sync as non-persistent when reviewed cards exist', async () => {
+  it('marks dialog-close sync as persistent when reviewed cards exist', async () => {
     const { manager, incrementalSync } = createManager();
     manager.onDataChanged({
       type: 'card-updated',
@@ -36,7 +36,7 @@ describe('ReviewSyncManager idle sync policy', () => {
 
     expect(incrementalSync).toHaveBeenCalledWith(undefined, {
       source: 'review-dialog-close',
-      persistIdleCheckpoint: false,
+      persistIdleCheckpoint: true,
     });
   });
 

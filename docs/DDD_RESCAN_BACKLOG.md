@@ -4,6 +4,16 @@ Last update: 2026-07-07 (Round 671)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-07 - Review close durability flush/checkpoint
+
+- Task: Continue diagnosis after reviewing cards then quitting/restarting still returned Review records to the old `42` count.
+- Touched slice: Review close/unload durability in `src/application/factories/createUnifiedReviewDialog.ts`, `src/application/managers/ReviewSyncManager.ts`, and `src/application/managers/TabManager.ts`.
+- Debt fixed now: Review dialog close now awaits `flushReviewTruthNow('review-exit')` before close sync, and dialog-close sync now permits an idle checkpoint instead of forcing `persistIdleCheckpoint: false`. Review tab close now also awaits durable Review truth flush before closing/removing the tab. This closes the fire-and-forget exit window where accepted Review answers could remain queued while SiYuan exited.
+- Debt deferred: Full Review Ledger/Card Schedule Store repair preview/apply remains in `formalize-review-ledger-card-schedule-authority` tasks 2.4 / 3.4. This slice does not add a user-facing repair command for already-diverged local data.
+- Why deferred: The live failure now points at exit durability ordering, not at a missing broad automatic repair system. Repair UI/API should remain explicit and stale-plan guarded.
+- Next safe step: Rebuild/reload, review several cards, close the Review dialog/tab, fully quit SiYuan, restart, and confirm Review record count/reps no longer return to `42`. If still divergent, capture the close-time `review.truth.flush`, `review-dialog-close`, `sqlite-delta`, and startup replay logs.
+- Validation: Added focused close-path regressions proving Review dialog/tab close waits for durable truth flush and dialog-close sync checkpoints persistently. Focused close/client tests passed; boundary/build/OpenSpec validation run in this implementation pass.
+
 ### 2026-07-07 - Truth-flushed Review journal SQL replay guard
 
 - Task: Continue diagnosis after live reload still returned Review record count to `42`, matching the old "Review record write did not survive restart" failure family.

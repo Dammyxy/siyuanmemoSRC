@@ -1434,7 +1434,7 @@ export class TabManager {
     }
   }
 
-  closeReviewTab(reviewSessionId: string): void {
+  async closeReviewTab(reviewSessionId: string): Promise<void> {
     const normalizedId = String(reviewSessionId || '').trim();
     if (!normalizedId) {
       return;
@@ -1446,7 +1446,12 @@ export class TabManager {
     }
 
     try {
-      this.context.getSrsBackendClient()?.requestReviewTruthFlush('review-exit');
+      const backendClient = this.context.getSrsBackendClient?.();
+      if (backendClient?.flushReviewTruthNow) {
+        await backendClient.flushReviewTruthNow('review-exit');
+      } else {
+        backendClient?.requestReviewTruthFlush?.('review-exit');
+      }
       if (typeof runtime.custom.tab?.close === 'function') {
         runtime.custom.tab.close();
         return;

@@ -171,7 +171,7 @@ export class ReviewSyncManager implements IDataSourceObserver {
 
       await this.xiuyuanSyncService.incrementalSync(undefined, {
         source: 'review-dialog-close',
-        persistIdleCheckpoint: false,
+        persistIdleCheckpoint: true,
       });
       logger.info('Data synced');
 

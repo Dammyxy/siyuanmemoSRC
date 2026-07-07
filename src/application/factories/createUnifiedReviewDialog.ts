@@ -50,6 +50,7 @@ type ReviewDialogPluginLike = {
         } | undefined;
         getSrsBackendClient?: () => {
             requestReviewTruthFlush?: (reason: 'review-exit' | 'queue-complete' | 'manual') => boolean;
+            flushReviewTruthNow?: (reason: 'review-exit' | 'queue-complete' | 'manual') => Promise<boolean>;
         } | null | undefined;
         getReviewService?: () => Pick<ReviewApplicationService, 'refreshCdfLiveRelationOnOpen'> | null | undefined;
     } | undefined;
@@ -156,7 +157,12 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             closeFinalized = true;
 
             try {
-                context.getSrsBackendClient?.()?.requestReviewTruthFlush?.('review-exit');
+                const backendClient = context.getSrsBackendClient?.();
+                if (backendClient?.flushReviewTruthNow) {
+                    await backendClient.flushReviewTruthNow('review-exit');
+                } else {
+                    backendClient?.requestReviewTruthFlush?.('review-exit');
+                }
             } catch (error) {
                 logger.warn('[SiYuanMemo][createUnifiedReviewDialog] Failed to request Review truth flush on close:', error);
             }
@@ -170,7 +176,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                     try {
                         await context.getHybridSyncService?.()?.incrementalSync(undefined, {
                             source: 'review-dialog-close',
-                            persistIdleCheckpoint: false,
+                            persistIdleCheckpoint: true,
                         });
                         logger.info('Data synced on close');
                     } catch (err) {

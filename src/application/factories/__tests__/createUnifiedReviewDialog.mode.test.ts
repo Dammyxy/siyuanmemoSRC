@@ -160,7 +160,7 @@ describe('createUnifiedReviewDialog', () => {
     expect(refreshCdfLiveRelationOnOpen).toHaveBeenCalledWith('card-1');
   });
 
-  it('marks dialog onClose sync as non-persistent when review count exists', async () => {
+  it('marks dialog onClose sync as persistent when review count exists', async () => {
     const incrementalSync = vi.fn(async () => ({ success: true }));
     const plugin = {
       app: {},
@@ -191,11 +191,57 @@ describe('createUnifiedReviewDialog', () => {
 
     expect(incrementalSync).toHaveBeenCalledWith(undefined, {
       source: 'review-dialog-close',
-      persistIdleCheckpoint: false,
+      persistIdleCheckpoint: true,
     });
   });
 
-  it('requests Review truth flush when the ReviewView close event destroys the dialog', () => {
+  it('awaits durable Review truth flush before close sync', async () => {
+    const calls: string[] = [];
+    const flushReviewTruthNow = vi.fn(async () => {
+      calls.push('flush');
+      return true;
+    });
+    const incrementalSync = vi.fn(async () => {
+      calls.push('sync');
+      return { success: true };
+    });
+    const plugin = {
+      app: {},
+      isMobile: false,
+      i18n: {},
+      reviewSyncManager: { reviewCount: 1 },
+      getContext: () => ({
+        getSchedulerRouter: () => ({}),
+        getSettingsService: () => ({
+          getSettings: () => ({
+            progressiveReading: {},
+          }),
+        }),
+        getSrsBackendClient: () => ({ flushReviewTruthNow }),
+        getHybridSyncService: () => ({ incrementalSync }),
+      }),
+    };
+
+    createUnifiedReviewDialog({
+      plugin,
+      queueType: QueueType.RetrievalPractice,
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      eventBus: { subscribe: vi.fn() } as never,
+    });
+
+    const dialogOptions = createVueDialogMock.mock.calls[0]?.[0];
+    await dialogOptions.onClose();
+
+    expect(flushReviewTruthNow).toHaveBeenCalledWith('review-exit');
+    expect(incrementalSync).toHaveBeenCalledWith(undefined, {
+      source: 'review-dialog-close',
+      persistIdleCheckpoint: true,
+    });
+    expect(calls).toEqual(['flush', 'sync']);
+  });
+
+  it('requests Review truth flush when the ReviewView close event destroys the dialog', async () => {
     const requestReviewTruthFlush = vi.fn();
     const plugin = {
       app: {},
@@ -222,6 +268,7 @@ describe('createUnifiedReviewDialog', () => {
 
     const dialogOptions = createVueDialogMock.mock.calls[0]?.[0];
     dialogOptions.events.close();
+    await Promise.resolve();
 
     expect(requestReviewTruthFlush).toHaveBeenCalledWith('review-exit');
   });
