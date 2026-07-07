@@ -1409,7 +1409,10 @@ export class SqliteDeltaCheckpointLayer {
         previous: openEnvelope,
       });
       const sealedBytes = encode(sealedEnvelope);
-      await this.fileService.writeBinary(sealedPath, sealedBytes);
+      await this.fileService.writeBinary(sealedPath, sealedBytes, {
+        purpose: 'sqlite-delta.append',
+        substep: 'write-sealed-segment',
+      });
       sealedSegments = [
         ...manifest.sealedSegments.filter((segment) => segment.path !== sealedPath),
         buildSegmentManifestEntry({
@@ -1423,7 +1426,10 @@ export class SqliteDeltaCheckpointLayer {
         envelope: sealedEnvelope,
       };
     } else {
-      await this.fileService.writeBinary(SQLITE_DELTA_OPEN_SEGMENT_FILE, candidateBytes);
+      await this.fileService.writeBinary(SQLITE_DELTA_OPEN_SEGMENT_FILE, candidateBytes, {
+        purpose: 'sqlite-delta.append',
+        substep: 'write-open-segment',
+      });
       openSegmentEntry = buildSegmentManifestEntry({
         envelope: candidateEnvelope,
         bytes: candidateBytes,
@@ -1440,7 +1446,10 @@ export class SqliteDeltaCheckpointLayer {
       nextSequence,
       checkpoint: null,
     };
-    await this.fileService.writeJSON(this.fileName, nextManifest);
+    await this.fileService.writeJSON(this.fileName, nextManifest, {
+      purpose: 'sqlite-delta.append',
+      substep: 'write-manifest',
+    });
     if (openSegmentEntry) {
       this.rememberVerifiedSegmentEvidence(openSegmentEntry, candidateEnvelope);
     } else {

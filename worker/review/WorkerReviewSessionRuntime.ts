@@ -195,9 +195,16 @@ export class WorkerReviewSessionRuntime {
   async feedback(request: WorkerReviewSessionFeedbackRequest): Promise<WorkerReviewSessionFeedbackResult> {
     const totalStartedAt = Date.now();
     const session = this.requireSession(request.sessionId);
-    this.requireCurrentCard(session, request.cardId);
-    this.requireValidRepairGate(request);
-    const undoEntry = this.pushUndoSnapshot(session, request.cardId);
+    const undoEntry = this.measureFeedbackStep(
+      'session-feedback-preflight',
+      session,
+      request,
+      () => {
+        this.requireCurrentCard(session, request.cardId);
+        this.requireValidRepairGate(request);
+        return this.pushUndoSnapshot(session, request.cardId);
+      },
+    );
 
     const feedback = await this.measureFeedbackStep(
       'session-feedback-commit',
@@ -224,15 +231,26 @@ export class WorkerReviewSessionRuntime {
       request,
       () => this.advanceAfterRating(session, request.cardId, request.rating),
     );
-    await this.appendUndoJournalEntry(session, undoEntry, 'answer', {
-      afterCard: feedback.updatedCard ?? null,
-      idempotencyKey: feedback.idempotencyKey ?? request.idempotencyKey ?? null,
-      queueImpact: feedback.queueImpact ?? null,
-    });
+    await this.measureFeedbackStep(
+      'session-feedback-undo-journal-append',
+      session,
+      request,
+      () => this.appendUndoJournalEntry(session, undoEntry, 'answer', {
+        afterCard: feedback.updatedCard ?? null,
+        idempotencyKey: feedback.idempotencyKey ?? request.idempotencyKey ?? null,
+        queueImpact: feedback.queueImpact ?? null,
+      }),
+    );
+    const state = this.measureFeedbackStep(
+      'session-feedback-state',
+      session,
+      request,
+      () => this.toState(session, resolveProjectionState(feedback)),
+    );
     this.recordFeedbackStep('session-feedback-total', session, request, Date.now() - totalStartedAt);
 
     return {
-      ...this.toState(session, resolveProjectionState(feedback)),
+      ...state,
       answeredCardId: request.cardId,
       feedback,
       undoToken: undoEntry.token,

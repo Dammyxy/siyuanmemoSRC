@@ -40,6 +40,8 @@ class MemorySqliteFileService implements JsonFileService {
   readonly readBinaryFiles: string[] = [];
   readonly readBinaryDiagnostics: Array<{ fileName: string; diagnostics: Record<string, unknown> | null }> = [];
   readonly readJSONDiagnostics: Array<{ fileName: string; diagnostics: Record<string, unknown> | null }> = [];
+  readonly writeBinaryDiagnostics: Array<{ fileName: string; diagnostics: Record<string, unknown> | null }> = [];
+  readonly writeJSONDiagnostics: Array<{ fileName: string; diagnostics: Record<string, unknown> | null }> = [];
   writeBinaryCount = 0;
   failNextWriteBinary = false;
   lastWriteBinaryDiagnostics: Record<string, unknown> | null = null;
@@ -53,8 +55,12 @@ class MemorySqliteFileService implements JsonFileService {
     return (this.json.get(fileName) as T | undefined) ?? null;
   }
 
-  async writeJSON(fileName: string, data: unknown): Promise<void> {
+  async writeJSON(fileName: string, data: unknown, options?: { diagnostics?: Record<string, unknown> }): Promise<void> {
     this.writeJSONFiles.push(fileName);
+    this.writeJSONDiagnostics.push({
+      fileName,
+      diagnostics: options?.diagnostics ?? null,
+    });
     this.json.set(fileName, data);
   }
 
@@ -71,6 +77,10 @@ class MemorySqliteFileService implements JsonFileService {
   async writeBinary(fileName: string, bytes: Uint8Array, options?: { diagnostics?: Record<string, unknown> }): Promise<void> {
     this.writeBinaryCount += 1;
     this.writeBinaryFiles.push(fileName);
+    this.writeBinaryDiagnostics.push({
+      fileName,
+      diagnostics: options?.diagnostics ?? null,
+    });
     this.lastWriteBinaryDiagnostics = options?.diagnostics ?? null;
     if (this.failNextWriteBinary) {
       this.failNextWriteBinary = false;
@@ -93,6 +103,8 @@ class MemorySqliteFileService implements JsonFileService {
     this.readBinaryFiles.length = 0;
     this.readJSONDiagnostics.length = 0;
     this.readBinaryDiagnostics.length = 0;
+    this.writeJSONDiagnostics.length = 0;
+    this.writeBinaryDiagnostics.length = 0;
     this.lastWriteBinaryDiagnostics = null;
   }
 }
@@ -947,6 +959,52 @@ describe('SqliteDatabaseService', () => {
       queueType: 'final-drill',
       status: 'open',
     });
+  });
+
+  it('labels sqlite delta append host effects for open, sealed, and manifest writes', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    fileService.resetWriteCounts();
+
+    for (let index = 0; index < 16; index += 1) {
+      await insertReviewEventForSqliteDeltaWindow(
+        database,
+        `event-delta-metadata-${index}`,
+        1_700_000_006_000 + index,
+      );
+    }
+
+    expect(fileService.writeBinaryDiagnostics).toEqual(expect.arrayContaining([
+      {
+        fileName: SQLITE_DELTA_V2_OPEN_SEGMENT,
+        diagnostics: {
+          sqliteDeltaPurpose: 'sqlite-delta.append',
+          sqliteDeltaSubstep: 'write-open-segment',
+        },
+      },
+      {
+        fileName: SQLITE_DELTA_V2_SEALED_1,
+        diagnostics: {
+          sqliteDeltaPurpose: 'sqlite-delta.append',
+          sqliteDeltaSubstep: 'write-sealed-segment',
+        },
+      },
+    ]));
+    expect(fileService.writeJSONDiagnostics).toEqual(expect.arrayContaining([
+      {
+        fileName: SQLITE_DELTA_V2_MANIFEST,
+        diagnostics: {
+          sqliteDeltaPurpose: 'sqlite-delta.append',
+          sqliteDeltaSubstep: 'write-manifest',
+        },
+      },
+    ]));
   });
 
   it('stores sqlite delta v2 manifest and segment files under one versioned directory', async () => {

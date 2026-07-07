@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-07 (Round 676)
+Last update: 2026-07-07 (Round 677)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-07 - Review session feedback latency attribution
+
+- Task: Implement OpenSpec change `trace-review-session-feedback-latency` so slow `review.session.feedback` reports can identify the expensive worker/storage substep instead of hiding it under `session-feedback-total`.
+- Touched slice: Review session feedback timing and SQLite delta host-effect diagnostics; `worker/review/WorkerReviewSessionRuntime.ts`, `worker/review/__tests__/WorkerReviewSessionRuntime.test.ts`, `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: Worker-backed Review scoring now measures preflight, commit, advance, undo-journal append, state shaping, and total as session spans. SQLite delta open/sealed/manifest writes now carry append purpose/substep metadata, so host breakdown distinguishes expected delta durable writes from unknown storage work.
+- Debt deferred: This does not optimize the remaining live `review.session.feedback` latency. The next optimization depends on whether new logs point at commit, undo journal append, state shaping, session advance, or host append writes.
+- Why deferred: Segment rollover tuning, async durability, host bridge cache, and journal batching all affect crash-recovery / fail-closed semantics and need evidence from the new spans before design work.
+- Next safe step: Rebuild/reload, rate Retrieval cards, then compare `session-feedback-commit`, `session-feedback-undo-journal-append`, `session-feedback-state`, `session-feedback-advance`, `hostBreakdown purpose=sqlite-delta.append`, and `session-feedback-total`.
+- Validation: Focused Review timing and SQLite persistence tests; hidden-fallback check; boundary check; build; OpenSpec strict validation; git diff whitespace check in this implementation pass.
 
 ### 2026-07-07 - Review undo journal SQLite delta coverage
 

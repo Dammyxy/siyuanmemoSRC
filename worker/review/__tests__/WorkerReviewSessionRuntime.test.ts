@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { QueueProjectionRow } from '@/application/ports/QueueProjectionPort';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { QueueType } from '@/types/unified-data-source';
+import {
+  beginBackendWorkerTiming,
+  endBackendWorkerRequest,
+} from '../../bootstrap/ReviewFeedbackTimingScope';
 import { InMemoryReviewTransactionUndoJournal } from '../ReviewTransactionUndoJournal';
 import { WorkerReviewSessionRuntime } from '../WorkerReviewSessionRuntime';
 
@@ -504,5 +508,95 @@ describe('WorkerReviewSessionRuntime', () => {
       undoToken: 'missing-durable-token',
     })).rejects.toThrow('WORKER_REVIEW_SESSION_UNDO_UNAVAILABLE: session-missing-evidence');
     expect(runtime.getSessionState(started.sessionId).current?.id).toBe(second.id);
+  });
+
+  it('attributes slow feedback undo journal append as its own session step', async () => {
+    const first = createCard('card-1');
+    const second = createCard('card-2', 1_000);
+    const cardsById = new Map([first, second].map((card) => [card.id, card] as const));
+    const timing = beginBackendWorkerTiming('review.session.feedback', first.id, {
+      queueType: QueueType.RetrievalPractice,
+    });
+    const undoJournal = {
+      append: vi.fn(async () => {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 130);
+        });
+      }),
+      consume: vi.fn(() => null),
+    };
+    const feedbackRuntime = {
+      reviewFeedback: vi.fn(async () => ({
+        cardId: first.id,
+        committed: true,
+        reviewedAt: NOW,
+        queueType: QueueType.RetrievalPractice,
+        updatedCard: { ...first, reps: first.reps + 1, due: NOW + 86_400_000 },
+        idempotencyKey: 'feedback-key',
+        queueImpact: {
+          hotPatchable: false,
+          refreshRequired: false,
+          affectedQueues: [],
+        },
+      })),
+    };
+    const runtime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'retrieval-policy',
+          generation: 7,
+          status: 'ready',
+        })),
+        readRows: vi.fn(() => [createProjectionRow(first, 1), createProjectionRow(second, 2)]),
+      },
+      feedbackRuntime,
+      undoJournal,
+    });
+
+    try {
+      const started = await runtime.startSession({
+        sessionId: 'session-slow-undo-journal',
+        queueType: QueueType.RetrievalPractice,
+      });
+
+      await runtime.feedback({
+        sessionId: started.sessionId,
+        cardId: first.id,
+        rating: 3,
+        reviewedAt: NOW,
+        idempotencyKey: 'feedback-key',
+        repairGate: {
+          state: 'clean',
+          reason: 'test-clean-gate',
+          createdAt: NOW,
+          cardId: first.id,
+        },
+      });
+
+      expect(timing.innerSteps).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          layer: 'session',
+          step: 'session-feedback-undo-journal-append',
+          cardId: first.id,
+          queueType: QueueType.RetrievalPractice,
+          durationMs: expect.any(Number),
+        }),
+        expect.objectContaining({
+          layer: 'session',
+          step: 'session-feedback-total',
+          cardId: first.id,
+          queueType: QueueType.RetrievalPractice,
+          durationMs: expect.any(Number),
+        }),
+      ]));
+      const undoStep = timing.innerSteps.find((step) => step.step === 'session-feedback-undo-journal-append');
+      expect(undoStep?.durationMs).toBeGreaterThanOrEqual(120);
+    } finally {
+      endBackendWorkerRequest(timing);
+    }
   });
 });
