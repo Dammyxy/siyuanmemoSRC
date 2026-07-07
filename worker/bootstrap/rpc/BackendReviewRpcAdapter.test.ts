@@ -43,6 +43,18 @@ function createDatabase(reviewFeedback: BackendReviewRpcDatabase['reviewFeedback
     mergeExternalDatabaseIfChanged: vi.fn(async () => undefined),
     markReviewFeedbackOwnPersistedMainDbClean: vi.fn(),
     getReviewFeedbackJournalStore: vi.fn(() => null),
+    getReviewFeedbackJournalDiagnostics: vi.fn(async () => ({
+      fileName: 'review-feedback-journal.v1',
+      storage: 'non-siyuan',
+      version: 1,
+      pendingCount: 0,
+      pendingBytes: 0,
+      statusCounts: {},
+      appliedInMemoryCount: 0,
+      lastWrite: null,
+      lastReplay: null,
+      lastCheckpoint: null,
+    })),
     listReviewEventsForTruthBackfill: vi.fn(async () => []),
     patchReviewTruthBackfillProjectionRefs: vi.fn(async () => undefined),
     countReviewEventsPendingTruthBackfill: vi.fn(async () => 0),
@@ -51,6 +63,58 @@ function createDatabase(reviewFeedback: BackendReviewRpcDatabase['reviewFeedback
 }
 
 describe('BackendReviewRpcAdapter worker session methods', () => {
+  it('dispatches review.truth.maintenanceStatus without broad diagnostics', async () => {
+    const database = createDatabase(vi.fn());
+    vi.mocked(database.getReviewFeedbackJournalDiagnostics).mockResolvedValueOnce({
+      fileName: 'review-feedback-journal.v1',
+      storage: 'non-siyuan',
+      version: 1,
+      pendingCount: 2,
+      pendingBytes: 512,
+      statusCounts: {
+        'projection-applied': 2,
+      },
+      appliedInMemoryCount: 0,
+      lastWrite: null,
+      lastReplay: null,
+      lastCheckpoint: null,
+    });
+    vi.mocked(database.countReviewEventsPendingTruthBackfill).mockResolvedValueOnce(3);
+    const review = new BackendReviewRpcRuntime({
+      database,
+      reviewKernel: null,
+    });
+    const dispatcher = new BackendRpcDispatcher(createBackendRpcHandlerRegistry(BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS));
+
+    const response = await dispatcher.dispatch({
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 1,
+      method: 'review.truth.maintenanceStatus',
+      params: [],
+    }, { review });
+
+    expect(response.result).toMatchObject({
+      family: 'review-events',
+      journal: {
+        pendingCount: 2,
+        pendingBytes: 512,
+      },
+      truthBackfill: {
+        family: 'review-events',
+        source: 'review_events',
+        storage: 'unavailable',
+        pendingSqlRows: 3,
+        syncVisible: false,
+        last: null,
+        lastError: null,
+      },
+    });
+    expect(database.getReviewFeedbackJournalDiagnostics).toHaveBeenCalledOnce();
+    expect(database.countReviewEventsPendingTruthBackfill).toHaveBeenCalledOnce();
+    expect(database.mergeExternalDatabaseIfChanged).not.toHaveBeenCalled();
+    expect(database.reviewFeedback).not.toHaveBeenCalled();
+  });
+
   it('dispatches review.session.feedback through worker session state and returns next card without projection reread', async () => {
     const first = createCard('card-1');
     const second = createCard('card-2', 1_000);

@@ -54,6 +54,7 @@ import type {
   BackendReviewFeedbackTruthFlushResult,
   BackendReviewTruthBackfillRequest,
   BackendReviewTruthBackfillResult,
+  BackendReviewTruthMaintenanceStatusResult,
   BackendReviewRiffFeedbackExecuteRequest,
   BackendReviewRiffFeedbackExecuteResult,
   BackendReviewSourceRefreshExecuteRequest,
@@ -253,11 +254,11 @@ export class SrsBackendClient {
       return false;
     }
     try {
-      const status = await this.diagnosticsStatus();
-      const journal = status.review?.journal;
+      const status = await this.reviewTruthMaintenanceStatus();
+      const journal = status.journal;
       const projectionApplied = Number(journal?.statusCounts?.['projection-applied'] ?? 0);
       const pendingCount = Number(journal?.pendingCount ?? 0);
-      const pendingBackfillRows = Number(status.review?.truthBackfill?.pendingSqlRows ?? 0);
+      const pendingBackfillRows = Number(status.truthBackfill?.pendingSqlRows ?? 0);
       if (projectionApplied <= 0 && pendingCount <= 0 && pendingBackfillRows <= 0) {
         this.reviewTruthBackfillPendingRows = 0;
         return false;
@@ -418,6 +419,10 @@ export class SrsBackendClient {
     request: BackendReviewTruthBackfillRequest,
   ): Promise<BackendReviewTruthBackfillResult> {
     return this.reviewClient.reviewTruthBackfill(request);
+  }
+
+  async reviewTruthMaintenanceStatus(): Promise<BackendReviewTruthMaintenanceStatusResult> {
+    return this.reviewClient.reviewTruthMaintenanceStatus();
   }
 
   private canRunReviewTruthFlush(reason: string): boolean {

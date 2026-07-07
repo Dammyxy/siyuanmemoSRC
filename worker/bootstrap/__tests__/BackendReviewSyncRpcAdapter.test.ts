@@ -7837,7 +7837,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     }));
     expect(audit).not.toHaveBeenCalled();
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);
-    expect(readSyncConflictDatabaseSources).toHaveBeenCalledOnce();
+    expect(readSyncConflictDatabaseSources).not.toHaveBeenCalled();
   });
 
   it('keeps review feedback main DB read fast path across clean read-only backend queries', async () => {

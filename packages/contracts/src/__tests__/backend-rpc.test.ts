@@ -37,6 +37,7 @@ import type {
   QueueProjectionReadinessCause,
   BackendDiagnosticsStatusResult,
   BackendReviewFeedbackResult,
+  BackendReviewTruthMaintenanceStatusResult,
   BackendStorageDiagnostic,
   BackendStorageErrorCode,
 } from '../backend-rpc';
@@ -339,6 +340,50 @@ describe('backend SQL projection rebuild contract', () => {
           status: 'delta-recorded',
           hotPath: true,
         },
+      },
+    });
+  });
+
+  it('serializes Review truth maintenance status without broad diagnostics', () => {
+    const status = {
+      family: 'review-events',
+      journal: {
+        fileName: 'review-feedback-journal.v1',
+        storage: 'non-siyuan',
+        version: 1,
+        pendingCount: 2,
+        pendingBytes: 512,
+        statusCounts: {
+          'projection-applied': 2,
+        },
+        appliedInMemoryCount: 0,
+        lastWrite: null,
+        lastReplay: null,
+        lastCheckpoint: null,
+      },
+      truthBackfill: {
+        family: 'review-events',
+        source: 'review_events',
+        storage: 'truth-segments',
+        pendingSqlRows: 3,
+        pendingSqlRowsCheckedAt: 1_700_000_000_000,
+        syncVisible: false,
+        last: null,
+        lastError: null,
+      },
+    } satisfies BackendReviewTruthMaintenanceStatusResult;
+
+    expect(JSON.parse(JSON.stringify(status))).toMatchObject({
+      family: 'review-events',
+      journal: {
+        pendingCount: 2,
+        statusCounts: {
+          'projection-applied': 2,
+        },
+      },
+      truthBackfill: {
+        source: 'review_events',
+        pendingSqlRows: 3,
       },
     });
   });

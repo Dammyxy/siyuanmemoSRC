@@ -706,38 +706,138 @@ describe('SrsBackendClient', () => {
       const transport: SrsBackendTransport = {
         request: vi.fn(async (request) => {
           requests.push({ method: request.method, params: request.params });
-          if (request.method === 'diagnostics.status') {
+          if (request.method === 'review.truth.maintenanceStatus') {
             return {
               jsonrpc: '2.0',
               id: request.id,
               result: {
-                runtime: 'srs-backend-worker',
-                initialized: true,
-                dbFile: 'siyuanmemo.db',
-                review: {
-                  feedbackTotal: 0,
-                  feedbackCommittedTotal: 0,
-                  feedbackPreviewTotal: 0,
-                  feedbackUnavailableTotal: 0,
-                  journal: {
-                    fileName: 'review-feedback-journal.v1',
-                    storage: 'non-siyuan',
-                    version: 1,
-                    pendingCount: 1,
-                    pendingBytes: 256,
-                    statusCounts: {
-                      'projection-applied': 1,
-                    },
-                    appliedInMemoryCount: 0,
-                    lastWrite: null,
-                    lastReplay: null,
-                    lastCheckpoint: null,
+                family: 'review-events',
+                journal: {
+                  fileName: 'review-feedback-journal.v1',
+                  storage: 'non-siyuan',
+                  version: 1,
+                  pendingCount: 1,
+                  pendingBytes: 256,
+                  statusCounts: {
+                    'projection-applied': 1,
                   },
-                  truthFlush: {
-                    family: 'review-events',
-                    storage: 'truth-segments',
-                    last: null,
+                  appliedInMemoryCount: 0,
+                  lastWrite: null,
+                  lastReplay: null,
+                  lastCheckpoint: null,
+                },
+                truthBackfill: {
+                  family: 'review-events',
+                  source: 'review_events',
+                  storage: 'truth-segments',
+                  pendingSqlRows: 0,
+                  pendingSqlRowsCheckedAt: 1_700_000_000_000,
+                  syncVisible: false,
+                  last: null,
+                  lastError: null,
+                },
+              },
+            };
+          }
+          if (request.method === 'diagnostics.status') {
+            throw new Error('diagnostics.status should not gate startup Review truth maintenance');
+          }
+          if (request.method === 'review.truth.flush') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                at: 1_700_000_000_100,
+                journalQueued: 1,
+                recordsWritten: 1,
+                segmentWritten: true,
+                manifestUpdated: true,
+                projectionRefreshScheduled: true,
+                idempotencyDuplicateSkipped: 0,
+                flushedEntryIds: ['review-feedback:startup-key'],
+                segmentPaths: ['truth/review-events/review-events-v1/device-device-A/seg-000001-startup.msgpack'],
+                error: null,
+              },
+            };
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 4,
+          delayMs: 25,
+        },
+      });
+
+      await expect(client.schedulePendingReviewTruthFlush('startup')).resolves.toBe(true);
+      expect(requests).toEqual([{
+        method: 'review.truth.maintenanceStatus',
+        params: [],
+      }]);
+
+      await vi.advanceTimersByTimeAsync(24);
+      expect(requests).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.waitFor(() => expect(requests).toHaveLength(2));
+      expect(requests[1]).toEqual({
+        method: 'review.truth.flush',
+        params: [{
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 4,
+        }],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps startup Review truth scheduling off broad diagnostics', async () => {
+    vi.useFakeTimers();
+    try {
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          requests.push({ method: request.method, params: request.params });
+          if (request.method === 'diagnostics.status') {
+            throw new Error('BACKEND_UNAVAILABLE: backend worker host effect sqlite.readBinary timed out after 5000ms');
+          }
+          if (request.method === 'review.truth.maintenanceStatus') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                family: 'review-events',
+                journal: {
+                  fileName: 'review-feedback-journal.v1',
+                  storage: 'non-siyuan',
+                  version: 1,
+                  pendingCount: 1,
+                  pendingBytes: 256,
+                  statusCounts: {
+                    'projection-applied': 1,
                   },
+                  appliedInMemoryCount: 0,
+                  lastWrite: null,
+                  lastReplay: null,
+                  lastCheckpoint: null,
+                },
+                truthBackfill: {
+                  family: 'review-events',
+                  source: 'review_events',
+                  storage: 'truth-segments',
+                  pendingSqlRows: 0,
+                  pendingSqlRowsCheckedAt: 1_700_000_000_000,
+                  syncVisible: false,
+                  last: null,
+                  lastError: null,
                 },
               },
             };
@@ -775,25 +875,11 @@ describe('SrsBackendClient', () => {
       });
 
       await expect(client.schedulePendingReviewTruthFlush('startup')).resolves.toBe(true);
-      expect(requests).toEqual([{
-        method: 'diagnostics.status',
-        params: [],
-      }]);
-
-      await vi.advanceTimersByTimeAsync(24);
-      expect(requests).toHaveLength(1);
-
-      await vi.advanceTimersByTimeAsync(1);
-      await vi.waitFor(() => expect(requests).toHaveLength(2));
-      expect(requests[1]).toEqual({
-        method: 'review.truth.flush',
-        params: [{
-          deviceId: 'device-A',
-          generationId: 'review-events-v1',
-          schemaVersion: 1,
-          batchLimit: 4,
-        }],
-      });
+      await vi.advanceTimersByTimeAsync(25);
+      await vi.waitFor(() => expect(requests.map((request) => request.method)).toEqual([
+        'review.truth.maintenanceStatus',
+        'review.truth.flush',
+      ]));
     } finally {
       vi.useRealTimers();
     }
@@ -854,49 +940,39 @@ describe('SrsBackendClient', () => {
       const transport: SrsBackendTransport = {
         request: vi.fn(async (request) => {
           requests.push({ method: request.method, params: request.params });
-          if (request.method === 'diagnostics.status') {
+          if (request.method === 'review.truth.maintenanceStatus') {
             return {
               jsonrpc: '2.0',
               id: request.id,
               result: {
-                runtime: 'srs-backend-worker',
-                initialized: true,
-                dbFile: 'siyuanmemo.db',
-                review: {
-                  feedbackTotal: 0,
-                  feedbackCommittedTotal: 0,
-                  feedbackPreviewTotal: 0,
-                  feedbackUnavailableTotal: 0,
-                  journal: {
-                    fileName: 'review-feedback-journal.v1',
-                    storage: 'non-siyuan',
-                    version: 1,
-                    pendingCount: 0,
-                    pendingBytes: 0,
-                    statusCounts: {},
-                    appliedInMemoryCount: 0,
-                    lastWrite: null,
-                    lastReplay: null,
-                    lastCheckpoint: null,
-                  },
-                  truthFlush: {
-                    family: 'review-events',
-                    storage: 'truth-segments',
-                    last: null,
-                  },
-                  truthBackfill: {
-                    family: 'review-events',
-                    source: 'review_events',
-                    storage: 'truth-segments',
-                    pendingSqlRows: 9,
-                    pendingSqlRowsCheckedAt: 1_700_000_000_000,
-                    syncVisible: false,
-                    last: null,
-                    lastError: null,
-                  },
+                family: 'review-events',
+                journal: {
+                  fileName: 'review-feedback-journal.v1',
+                  storage: 'non-siyuan',
+                  version: 1,
+                  pendingCount: 0,
+                  pendingBytes: 0,
+                  statusCounts: {},
+                  appliedInMemoryCount: 0,
+                  lastWrite: null,
+                  lastReplay: null,
+                  lastCheckpoint: null,
+                },
+                truthBackfill: {
+                  family: 'review-events',
+                  source: 'review_events',
+                  storage: 'truth-segments',
+                  pendingSqlRows: 9,
+                  pendingSqlRowsCheckedAt: 1_700_000_000_000,
+                  syncVisible: false,
+                  last: null,
+                  lastError: null,
                 },
               },
             };
+          }
+          if (request.method === 'diagnostics.status') {
+            throw new Error('diagnostics.status should not gate startup Review truth maintenance');
           }
           if (request.method === 'review.truth.backfill') {
             const backfillCount = requests.filter((item) => item.method === 'review.truth.backfill').length;
@@ -959,7 +1035,7 @@ describe('SrsBackendClient', () => {
       await vi.advanceTimersByTimeAsync(25);
       await vi.waitFor(() => expect(requests).toHaveLength(5));
       expect(requests.map((request) => request.method)).toEqual([
-        'diagnostics.status',
+        'review.truth.maintenanceStatus',
         'review.truth.backfill',
         'review.truth.backfill',
         'review.truth.backfill',

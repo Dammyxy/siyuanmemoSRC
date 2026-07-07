@@ -1213,11 +1213,13 @@ export class WorkerSqliteDatabaseService {
     const ignoreProcessedSourceDeduplication = options.ignoreProcessedSourceDeduplication === true;
     await this.measureReviewFeedbackDatabaseStep('merge.init', cardId, () => this.init());
     const sources: BackendSyncConflictMergeRequest['sources'] = [];
-    const conflictSources = await this.measureReviewFeedbackDatabaseStep(
-      'merge.read-conflict-sources',
-      cardId,
-      () => this.fileService.readSyncConflictDatabaseSources(),
-    );
+    const conflictSources = skipMainDbRead
+      ? []
+      : await this.measureReviewFeedbackDatabaseStep(
+        'merge.read-conflict-sources',
+        cardId,
+        () => this.fileService.readSyncConflictDatabaseSources(),
+      );
     let mainDbReadSkipped = false;
     let mainDbReadSkipReason: string | null = null;
     const nonEmptyConflictSources = conflictSources.filter((source) => source.bytes.byteLength > 0);

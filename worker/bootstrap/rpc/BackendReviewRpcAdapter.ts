@@ -2,6 +2,7 @@ import {
   MESSAGEPACK_TRUTH_SCHEMA_VERSION,
   type BackendReviewFeedbackRequest,
   type BackendReviewFeedbackResult,
+  type BackendReviewFeedbackJournalDiagnostics,
   type BackendReviewSessionCurrentRequest,
   type BackendReviewSessionFeedbackRequest,
   type BackendReviewSessionFeedbackResult,
@@ -21,6 +22,7 @@ import {
   type BackendReviewTruthBackfillDiagnostics,
   type BackendReviewTruthBackfillRequest,
   type BackendReviewTruthBackfillResult,
+  type BackendReviewTruthMaintenanceStatusResult,
   type BackendRpcHandlerAdapter,
 } from '../../../packages/contracts/src/backend-rpc';
 import { BACKEND_REVIEW_RPC_METHODS, type BackendReviewRpcMethod } from '../../../packages/contracts/src/backend-rpc';
@@ -53,6 +55,7 @@ export interface BackendReviewRpcDatabase {
   ): Promise<unknown>;
   markReviewFeedbackOwnPersistedMainDbClean(): void;
   getReviewFeedbackJournalStore(): ReviewFeedbackJournalStore | null;
+  getReviewFeedbackJournalDiagnostics(): Promise<BackendReviewFeedbackJournalDiagnostics>;
   listReviewEventsForTruthBackfill(limit?: number): Promise<ReviewSqlTruthBackfillRow[]>;
   patchReviewTruthBackfillProjectionRefs(patches: ReviewSqlTruthBackfillProjectionPatch[]): Promise<void>;
   countReviewEventsPendingTruthBackfill(): Promise<number>;
@@ -223,6 +226,14 @@ export class BackendReviewRpcRuntime {
     const result = await runtime.backfill();
     this.lastReviewTruthBackfill = result;
     return result;
+  }
+
+  async handleReviewTruthMaintenanceStatus(): Promise<BackendReviewTruthMaintenanceStatusResult> {
+    return {
+      family: 'review-events',
+      journal: await this.options.database.getReviewFeedbackJournalDiagnostics(),
+      truthBackfill: await this.getReviewTruthBackfillDiagnostics(),
+    };
   }
 
   async handleReviewRiffFeedbackExecute(params: unknown): Promise<BackendReviewRiffFeedbackExecuteResult> {
@@ -528,6 +539,13 @@ const BACKEND_REVIEW_RPC_HANDLER_ADAPTERS: {
     family: 'review',
     handle(params, context): Promise<BackendReviewTruthBackfillResult> {
       return context.review.handleReviewTruthBackfill(params);
+    },
+  },
+  'review.truth.maintenanceStatus': {
+    method: 'review.truth.maintenanceStatus',
+    family: 'review',
+    handle(_params, context): Promise<BackendReviewTruthMaintenanceStatusResult> {
+      return context.review.handleReviewTruthMaintenanceStatus();
     },
   },
   'review.riffFeedback.execute': {

@@ -33,6 +33,7 @@ export const SRS_BACKEND_CLIENT_METHOD_CATALOG = [
   { clientMethod: 'reviewSessionUndo', rpcMethod: 'review.session.undo' },
   { clientMethod: 'reviewTruthFlush', rpcMethod: 'review.truth.flush' },
   { clientMethod: 'reviewTruthBackfill', rpcMethod: 'review.truth.backfill' },
+  { clientMethod: 'reviewTruthMaintenanceStatus', rpcMethod: 'review.truth.maintenanceStatus' },
   { clientMethod: 'mergeSyncConflicts', rpcMethod: 'sync.conflict.merge' },
   { clientMethod: 'auditReviewSyncDivergence', rpcMethod: 'sync.reviewDivergence.audit' },
   { clientMethod: 'summarizeSyncConflicts', rpcMethod: 'sync.conflict.summarize' },

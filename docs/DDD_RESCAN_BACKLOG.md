@@ -4,6 +4,16 @@ Last update: 2026-07-08 (Round 681)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-08 - Review startup maintenance sync-scan decoupling
+
+- Task: Fix restart-time Review truth maintenance and passive Browser/Review preflights timing out on broad diagnostics or sync-conflict source scans after fast Review scoring.
+- Touched slice: Review startup truth maintenance + passive sync preflight; `SrsBackendClient`, backend Review RPC contracts/client/catalog/runtime, `SqliteDatabaseService`, focused Review/Browser/Sync tests, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: Startup Review truth scheduling now uses Review-owned `review.truth.maintenanceStatus` instead of broad `diagnostics.status`, so pending journal flush/backfill is no longer blocked by unrelated SQLite delta / Domain Sync diagnostics. `skipMainDbRead` read-only/review-feedback preflights no longer scan `sqlite.readSyncConflictDatabaseSources`; explicit sync-conflict merge/cleanup/repair paths keep source scanning and fail-closed semantics.
+- Debt deferred: Host `sqlite.readSyncConflictDatabaseSources` timeout root cause and SiYuan exit hang remain outside this bounded change.
+- Why deferred: This change removes wrong passive coupling from Review/Browser hot/restart paths. Host file-effect hangs need separate reproduction around the host bridge and shutdown lifecycle.
+- Next safe step: Rebuild/reload, rate cards, restart, and confirm Review progress survives restart; if exit still hangs, trace active host effects during unload/shutdown.
+- Validation: Focused Review startup maintenance, backend Review RPC, Browser read-only preflight, and Review sync preflight tests; hidden-fallback check; boundary check; OpenSpec strict validation; diff whitespace check; build.
+
 ### 2026-07-08 - Review answer hot transaction optimization
 
 - Task: Implement OpenSpec change `optimize-review-answer-hot-transaction` so ordinary Review answers stop doing full-store metadata/hash work and full pending-delta snapshot byte estimates inside `session-feedback-commit`.

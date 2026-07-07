@@ -105,6 +105,7 @@ export const BACKEND_RPC_METHODS = [
   'review.session.undo',
   'review.truth.flush',
   'review.truth.backfill',
+  'review.truth.maintenanceStatus',
   'private.health',
   'private.diagnostics.status',
   'private.audit.query',
@@ -236,6 +237,7 @@ export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.session.undo'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.flush'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.backfill'],
+  BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.maintenanceStatus'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['private.health'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['private.diagnostics.status'],
   BACKEND_PRIVATE_API_RPC_METHOD_CONTRACT_BY_METHOD['private.audit.query'],
@@ -1165,6 +1167,12 @@ export interface BackendReviewTruthBackfillDiagnostics {
   syncVisible: boolean;
   last: BackendReviewTruthBackfillResult | null;
   lastError: string | null;
+}
+
+export interface BackendReviewTruthMaintenanceStatusResult {
+  family: 'review-events';
+  journal: BackendReviewFeedbackJournalDiagnostics;
+  truthBackfill: BackendReviewTruthBackfillDiagnostics;
 }
 
 export type BackendUnavailableClass =

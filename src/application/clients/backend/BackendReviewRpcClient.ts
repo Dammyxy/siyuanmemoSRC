@@ -18,6 +18,7 @@ import type {
   BackendReviewSourceRefreshExecuteResult,
   BackendReviewTruthBackfillRequest,
   BackendReviewTruthBackfillResult,
+  BackendReviewTruthMaintenanceStatusResult,
 } from '../../../../packages/contracts/src/backend-rpc';
 import type { BackendRpcCaller } from './BackendRpcCaller';
 
@@ -30,6 +31,7 @@ export interface BackendReviewClientFacet {
   reviewSessionUndo(request: BackendReviewSessionUndoRequest): Promise<BackendReviewSessionUndoResult>;
   reviewTruthFlush(request: BackendReviewFeedbackTruthFlushRequest): Promise<BackendReviewFeedbackTruthFlushResult>;
   reviewTruthBackfill(request: BackendReviewTruthBackfillRequest): Promise<BackendReviewTruthBackfillResult>;
+  reviewTruthMaintenanceStatus(): Promise<BackendReviewTruthMaintenanceStatusResult>;
   executeReviewRiffFeedback(
     request: BackendReviewRiffFeedbackExecuteRequest,
   ): Promise<BackendReviewRiffFeedbackExecuteResult>;
@@ -71,6 +73,10 @@ export class BackendReviewRpcClient implements BackendReviewClientFacet {
 
   reviewTruthBackfill(request: BackendReviewTruthBackfillRequest): Promise<BackendReviewTruthBackfillResult> {
     return this.rpcCaller.call<BackendReviewTruthBackfillResult>('review.truth.backfill', request);
+  }
+
+  reviewTruthMaintenanceStatus(): Promise<BackendReviewTruthMaintenanceStatusResult> {
+    return this.rpcCaller.call<BackendReviewTruthMaintenanceStatusResult>('review.truth.maintenanceStatus');
   }
 
   executeReviewRiffFeedback(
