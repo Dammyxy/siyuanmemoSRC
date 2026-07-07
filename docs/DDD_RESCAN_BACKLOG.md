@@ -1,15 +1,35 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-07 (Round 671)
+Last update: 2026-07-07 (Round 672)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-07 - Review storage repair apply guard
+
+- Task: Finish `formalize-review-ledger-card-schedule-authority` remaining repair preview/apply tasks for explicit, idempotent, stale-plan guarded Review Ledger/Card Schedule repair.
+- Touched slice: Backend Domain Sync repair preview/apply authority in `worker/db/SqliteDatabaseService.ts`, focused backend repair tests, and OpenSpec task state.
+- Debt fixed now: `domainSync.repair.apply` now requires explicit confirmation text containing the preview `planId`, validates every planned `card-state-repair` mutation before entering the write transaction, and fails closed when persisted plan evidence has incomplete Card Schedule after-state. Existing idempotency, stale-plan fingerprint, ledger generation, scheduler evidence, and queue projection invalidation checks remain intact.
+- Debt deferred: This is still an explicit backend repair surface, not automatic startup repair or UI repair workflow polish. Manual/static queue membership count semantics remain separate and should be traced through `FilterGroupQueue`, `SubsetReviewQueue`, and Review transfer state.
+- Why deferred: Auto-repair would violate this change's audit-before-repair contract. UI flow and manual queue consumption cross Browser/Queue seams and should stay separate from Review Ledger/Card Schedule repair authority.
+- Next safe step: Use the repair preview/apply path only for evidence-complete ledger/schedule divergence; for the user's remaining `42`/manual queue count issue, trace queue membership consumption rather than Review fact storage.
+- Validation: Focused `BackendReviewSyncRpcAdapter` suite passed with explicit confirmation, stale-plan, idempotency, and incomplete-evidence fail-closed coverage.
+
+### 2026-07-07 - Review close persistence authority demotion
+
+- Task: Remove the misleading `ReviewSyncManager` close-time persistence semantics after Review exit durability was moved to the backend Review truth flush path.
+- Touched slice: Review dialog close factory and legacy Xiuyuan idle-sync observer wording; `src/application/factories/createUnifiedReviewDialog.ts`, `src/application/managers/ReviewSyncManager.ts`, and focused close/sync policy tests.
+- Debt fixed now: `createUnifiedReviewDialog` no longer reads `plugin.reviewSyncManager.reviewCount` or triggers `XiuyuanSyncService.incrementalSync({ source: 'review-dialog-close' })` as part of Review close finalization. Review close now treats `flushReviewTruthNow('review-exit')` / `requestReviewTruthFlush('review-exit')` as the only Review Ledger/Card Schedule durability surface. `ReviewSyncManager` is explicitly documented and tested as legacy Xiuyuan/browser idle-sync plumbing, not Review persistence authority.
+- Debt deferred: The manual/static browser queue membership count issue remains separate from Review fact persistence. Next diagnosis should trace right-click/manual queue membership consumption through `FilterGroupQueue`, `SubsetReviewQueue`, and tab/dialog transfer state.
+- Why deferred: The current slice prevents future misdiagnosis around Review close durability without mixing in queue membership semantics.
+- Next safe step: Rebuild/reload, review cards from both Incremental Learning and manual/right-click queue paths, restart SiYuan, and compare Review facts (`review_events`, reps, lastReview) separately from queue membership counts.
+- Validation: Focused Review dialog close, ReviewSyncManager idle-sync, TabManager close, and ReviewView close suites passed in this implementation pass.
 
 ### 2026-07-07 - Review exit durability close-path await
 
 - Task: Diagnose why Review records still returned to the old visible count after user reviewed cards and restarted SiYuan.
 - Touched slice: Renderer Review close surfaces and backend Review truth flush scheduling; `src/application/factories/createUnifiedReviewDialog.ts`, `src/ui/review/v2/ReviewView.vue`, and focused Review close / backend client tests.
 - Debt fixed now: Dialog close from `ReviewView` now awaits `flushReviewTruthNow('review-exit')` before destroying the dialog. Tab-mode completed Review exit now awaits `TabManager.closeReviewTab()`, preserving the existing TabManager guarantee that durable Review truth flush runs before tab close. Worker `review.session.feedback` now has explicit coverage proving the Review truth pending-count threshold triggers immediate `review.truth.flush` on the active worker Review path.
-- Debt deferred: `ReviewSyncManager` remains legacy Xiuyuan/browser observer plumbing and should not be treated as the Review Ledger/Card Schedule durability authority. A later cleanup should either remove it from Review close semantics or rename/scope it so it cannot be mistaken for the worker Review persistence path.
+- Debt deferred: `ReviewSyncManager` legacy close semantics were removed in the follow-up "Review close persistence authority demotion" slice above. Remaining debt is manual/static queue membership reconciliation, not Review close truth flushing.
 - Why deferred: The live rollback symptom needed the active answer/exit durability path fixed first. Removing obsolete sync plumbing crosses UI observer, Xiuyuan Sync, and Review ownership seams.
 - Next safe step: Rebuild/reload, review more than the truth flush threshold, close both dialog and tab Review surfaces, restart SiYuan, and verify Review record count/reps/lastReview do not return to `42`. If still divergent, inspect startup `pendingBackfillRows`, `reviewFeedbackJournal` status counts, and Domain Sync repair diagnostics.
 - Validation: Focused SrsBackendClient, Review dialog close, TabManager close, ReviewView empty-state, and reviewHostRuntime suites passed in this implementation pass.

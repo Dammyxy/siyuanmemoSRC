@@ -83,6 +83,10 @@ function authorizedPrivateCapability() {
   };
 }
 
+function confirmRepairPlan(planId: string): string {
+  return `apply repair plan ${planId}`;
+}
+
 async function seedQueueProjection(database: WorkerSqliteDatabaseService, input: {
   queueType?: string;
   policyHash?: string;
@@ -2000,11 +2004,13 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'apply-repair-key',
       confirmedAt: 1_700_002_100_002,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, 1_700_002_100_003);
     const duplicate = await database.applyDomainSyncRepair({
       planId: preview.planId,
       idempotencyKey: 'apply-repair-key',
       confirmedAt: 1_700_002_100_004,
+      confirmationText: confirmRepairPlan(preview.planId),
     }, 1_700_002_100_005);
 
     expect(applied).toMatchObject({
@@ -2054,6 +2060,104 @@ describe('BackendReviewSyncRpcAdapter', () => {
         divergentCardCount: 0,
       },
     });
+  });
+
+  it('rejects repair apply without explicit confirmation text and keeps card state unchanged', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardId = 'apply-confirmation-required-card';
+    await database.upsertCards([buildCard({
+      id: cardId,
+      blockId: 'apply-confirmation-required-block',
+      reps: 0,
+      lastReview: 1_700_002_010_000,
+      updatedAt: 1_700_002_010_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'apply-confirmation-required-review',
+      cardId,
+      reviewedAt: 1_700_002_020_000,
+    });
+    const preview = await database.previewDomainSyncRepair({ cardIds: [cardId] }, 1_700_002_020_001);
+
+    const rejected = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'apply-confirmation-required-key',
+      confirmedAt: 1_700_002_020_002,
+      confirmedBy: 'test',
+    }, 1_700_002_020_003);
+
+    expect(rejected).toMatchObject({
+      ok: false,
+      status: 'invalid-request',
+      reason: expect.stringContaining('confirmationText'),
+    });
+    await expect(database.getCard(cardId)).resolves.toMatchObject({
+      reps: 0,
+      lastReview: 1_700_002_010_000,
+    });
+  });
+
+  it('fails closed when a persisted repair plan contains incomplete schedule evidence', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardId = 'apply-incomplete-evidence-card';
+    await database.upsertCards([buildCard({
+      id: cardId,
+      blockId: 'apply-incomplete-evidence-block',
+      reps: 0,
+      lastReview: 1_700_002_030_000,
+      updatedAt: 1_700_002_030_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'apply-incomplete-evidence-review',
+      cardId,
+      reviewedAt: 1_700_002_040_000,
+    });
+    const preview = await database.previewDomainSyncRepair({ cardIds: [cardId] }, 1_700_002_040_001);
+    const damagedPreview = {
+      ...preview,
+      plannedMutations: preview.plannedMutations.map((mutation) => ({
+        ...mutation,
+        after: {
+          ...mutation.after,
+          stability: null,
+        },
+      })),
+    };
+    await database.runTransaction('seed.incomplete-repair-plan-evidence', (db) => {
+      db.run(
+        `UPDATE domain_sync_repair_plans
+         SET payload_json = ?
+         WHERE plan_id = ?`,
+        [JSON.stringify(damagedPreview), preview.planId],
+      );
+    });
+
+    const rejected = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'apply-incomplete-evidence-key',
+      confirmedAt: 1_700_002_040_002,
+      confirmedBy: 'test',
+      confirmationText: preview.planId,
+    }, 1_700_002_040_003);
+
+    expect(rejected).toMatchObject({
+      ok: false,
+      status: 'invalid-request',
+      reason: expect.stringContaining('incomplete evidence'),
+    });
+    await expect(database.getCard(cardId)).resolves.toMatchObject({
+      reps: 0,
+      lastReview: 1_700_002_030_000,
+    });
+    expect(database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_operations
+       WHERE operation_type = ?
+         AND entity_id = ?`,
+      ['repair-applied', cardId],
+    )?.count).toBe(0);
   });
 
   it('repairs full scheduling state from the newest formal review event', async () => {
@@ -2151,6 +2255,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'apply-full-schedule-repair-key',
       confirmedAt: 1_700_002_100_002,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, 1_700_002_100_003);
 
     expect(applied).toMatchObject({
@@ -2236,6 +2341,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'apply-elapsed-days-repair-key',
       confirmedAt: reviewedAt + 2,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, reviewedAt + 20 * 86_400_000);
 
     expect(applied).toMatchObject({
@@ -2324,6 +2430,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'apply-no-learning-step-repair-key',
       confirmedAt: reviewedAt + 2,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, reviewedAt + 3);
 
     expect(applied).toMatchObject({
@@ -2408,6 +2515,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'apply-mature-learning-repair-key',
       confirmedAt: reviewedAt + 2,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, reviewedAt + 3);
 
     expect(applied).toMatchObject({
@@ -2461,6 +2569,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'multi-repair-key',
       confirmedAt: 1_700_002_100_002,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, 1_700_002_100_003);
 
     expect(applied).toMatchObject({
@@ -2505,6 +2614,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'durable-repair-key',
       confirmedAt: 1_700_002_300_002,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, 1_700_002_300_003);
     expect(applied).toMatchObject({
       ok: true,
@@ -2569,6 +2679,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'restart-repair-key',
       confirmedAt: 1_700_002_500_002,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, 1_700_002_500_003)).resolves.toMatchObject({
       ok: true,
       status: 'applied',
@@ -2658,6 +2769,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'mixed-repair-key',
       confirmedAt: 1_700_002_700_002,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, 1_700_002_700_003)).resolves.toMatchObject({
       ok: true,
       status: 'applied',
@@ -2717,6 +2829,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'source-error-repair-key',
       confirmedAt: 1_700_002_120_002,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, 1_700_002_120_003);
 
     expect(applied).toMatchObject({
@@ -2766,6 +2879,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       planId: preview.planId,
       idempotencyKey: 'stale-repair-key',
       confirmedAt: 1_700_002_300_002,
+      confirmationText: confirmRepairPlan(preview.planId),
     }, 1_700_002_300_003)).resolves.toMatchObject({
       ok: false,
       status: 'stale-plan',
@@ -2801,6 +2915,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
         planId: preview.planId,
         idempotencyKey: 'apply-rpc-key',
         confirmedAt: 1_700_002_500_002,
+        confirmationText: confirmRepairPlan(preview.planId),
       }],
     });
 
@@ -7589,6 +7704,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       idempotencyKey: 'domain-status-refresh-repair',
       confirmedAt: 1_779_188_020_002,
       confirmedBy: 'test',
+      confirmationText: confirmRepairPlan(preview.planId),
     }, 1_779_188_020_003)).resolves.toMatchObject({
       ok: true,
       status: 'applied',

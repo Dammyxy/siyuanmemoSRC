@@ -160,51 +160,9 @@ describe('createUnifiedReviewDialog', () => {
     expect(refreshCdfLiveRelationOnOpen).toHaveBeenCalledWith('card-1');
   });
 
-  it('marks dialog onClose sync as persistent when review count exists', async () => {
+  it('does not treat legacy ReviewSyncManager as close-time Review persistence authority', async () => {
     const incrementalSync = vi.fn(async () => ({ success: true }));
-    const plugin = {
-      app: {},
-      isMobile: false,
-      i18n: {},
-      reviewSyncManager: { reviewCount: 1 },
-      getContext: () => ({
-        getSchedulerRouter: () => ({}),
-        getSettingsService: () => ({
-          getSettings: () => ({
-            progressiveReading: {},
-          }),
-        }),
-        getHybridSyncService: () => ({ incrementalSync }),
-      }),
-    };
-
-    createUnifiedReviewDialog({
-      plugin,
-      queueType: QueueType.RetrievalPractice,
-      title: '提取练习',
-      headerVariant: 'retrieval-practice',
-      eventBus: { subscribe: vi.fn() } as never,
-    });
-
-    const dialogOptions = createVueDialogMock.mock.calls[0]?.[0];
-    await dialogOptions.onClose();
-
-    expect(incrementalSync).toHaveBeenCalledWith(undefined, {
-      source: 'review-dialog-close',
-      persistIdleCheckpoint: true,
-    });
-  });
-
-  it('awaits durable Review truth flush before close sync', async () => {
-    const calls: string[] = [];
-    const flushReviewTruthNow = vi.fn(async () => {
-      calls.push('flush');
-      return true;
-    });
-    const incrementalSync = vi.fn(async () => {
-      calls.push('sync');
-      return { success: true };
-    });
+    const flushReviewTruthNow = vi.fn(async () => true);
     const plugin = {
       app: {},
       isMobile: false,
@@ -234,11 +192,49 @@ describe('createUnifiedReviewDialog', () => {
     await dialogOptions.onClose();
 
     expect(flushReviewTruthNow).toHaveBeenCalledWith('review-exit');
-    expect(incrementalSync).toHaveBeenCalledWith(undefined, {
-      source: 'review-dialog-close',
-      persistIdleCheckpoint: true,
+    expect(incrementalSync).not.toHaveBeenCalled();
+  });
+
+  it('awaits durable Review truth flush before close callback', async () => {
+    const calls: string[] = [];
+    const flushReviewTruthNow = vi.fn(async () => {
+      calls.push('flush');
+      return true;
     });
-    expect(calls).toEqual(['flush', 'sync']);
+    const onClose = vi.fn(() => {
+      calls.push('close');
+    });
+    const plugin = {
+      app: {},
+      isMobile: false,
+      i18n: {},
+      reviewSyncManager: { reviewCount: 1 },
+      getContext: () => ({
+        getSchedulerRouter: () => ({}),
+        getSettingsService: () => ({
+          getSettings: () => ({
+            progressiveReading: {},
+          }),
+        }),
+        getSrsBackendClient: () => ({ flushReviewTruthNow }),
+      }),
+    };
+
+    createUnifiedReviewDialog({
+      plugin,
+      queueType: QueueType.RetrievalPractice,
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      eventBus: { subscribe: vi.fn() } as never,
+      onClose,
+    });
+
+    const dialogOptions = createVueDialogMock.mock.calls[0]?.[0];
+    await dialogOptions.onClose();
+
+    expect(flushReviewTruthNow).toHaveBeenCalledWith('review-exit');
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(['flush', 'close']);
   });
 
   it('awaits durable Review truth flush before the ReviewView close event destroys the dialog', async () => {

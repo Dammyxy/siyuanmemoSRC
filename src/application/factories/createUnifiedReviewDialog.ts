@@ -32,7 +32,6 @@ type ReviewDialogPluginLike = {
     app: unknown;
     isMobile?: boolean;
     i18n?: Record<string, string>;
-    reviewSyncManager?: { reviewCount?: number };
     getContext?: () => {
         getSchedulerRouter: () => ISchedulerRouter;
         getSettingsService: () => {
@@ -42,12 +41,6 @@ type ReviewDialogPluginLike = {
                 };
             };
         };
-        getHybridSyncService?: () => {
-            incrementalSync: (
-                onProgress?: unknown,
-                options?: { source?: string; persistIdleCheckpoint?: boolean },
-            ) => Promise<unknown>;
-        } | undefined;
         getSrsBackendClient?: () => {
             requestReviewTruthFlush?: (reason: 'review-exit' | 'queue-complete' | 'manual') => boolean;
             flushReviewTruthNow?: (reason: 'review-exit' | 'queue-complete' | 'manual') => Promise<boolean>;
@@ -165,24 +158,6 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                 }
             } catch (error) {
                 logger.warn('[SiYuanMemo][createUnifiedReviewDialog] Failed to request Review truth flush on close:', error);
-            }
-
-            // 🆕 对话框关闭时只同步数据，不刷新 UI
-            // 因为增量更新已经实时更新了浏览器，这里只需要确保数据持久化
-            if (plugin.reviewSyncManager) {
-                // 只调用同步，不触发观察者通知
-                const syncManager = plugin.reviewSyncManager;
-                if (syncManager.reviewCount > 0) {
-                    try {
-                        await context.getHybridSyncService?.()?.incrementalSync(undefined, {
-                            source: 'review-dialog-close',
-                            persistIdleCheckpoint: true,
-                        });
-                        logger.info('Data synced on close');
-                    } catch (err) {
-                        logger.error('Sync failed on close:', err);
-                    }
-                }
             }
 
             // 调用用户提供的关闭回调

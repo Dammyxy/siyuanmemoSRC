@@ -2946,6 +2946,7 @@ export class WorkerSqliteDatabaseService {
     const planId = String(request?.planId || '').trim();
     const idempotencyKey = String(request?.idempotencyKey || '').trim();
     const confirmedAt = Math.max(0, Math.floor(Number(request?.confirmedAt || 0)));
+    const confirmationText = String(request?.confirmationText || '').trim();
     if (!planId || !idempotencyKey || confirmedAt <= 0) {
       return {
         ok: false,
@@ -2953,6 +2954,15 @@ export class WorkerSqliteDatabaseService {
         planId,
         idempotencyKey,
         reason: 'domainSync.repair.apply requires planId, idempotencyKey, and confirmedAt',
+      };
+    }
+    if (!confirmationText || !confirmationText.includes(planId)) {
+      return {
+        ok: false,
+        status: 'invalid-request',
+        planId,
+        idempotencyKey,
+        reason: 'domainSync.repair.apply requires confirmationText containing the planId',
       };
     }
 
@@ -3016,6 +3026,27 @@ export class WorkerSqliteDatabaseService {
         idempotencyKey,
         reason: 'repair plan no longer matches card state, review history, scheduler evidence, or ledger generation',
       };
+    }
+    for (const mutation of preview.plannedMutations) {
+      if (mutation.mutationType !== 'card-state-repair') {
+        return {
+          ok: false,
+          status: 'invalid-request',
+          planId,
+          idempotencyKey,
+          reason: 'repair plan contains unsupported mutation type',
+        };
+      }
+      const after = mutation.after || {};
+      if (!this.isCompleteDomainSyncRepairAfterState(after)) {
+        return {
+          ok: false,
+          status: 'invalid-request',
+          planId,
+          idempotencyKey,
+          reason: 'repair plan contains incomplete evidence for card schedule after-state',
+        };
+      }
     }
 
     return this.runtime.runTransaction('domain-sync.repair.apply', async () => {
@@ -4499,6 +4530,27 @@ export class WorkerSqliteDatabaseService {
       next.aFactor = aFactor;
     }
     return next;
+  }
+
+  private isCompleteDomainSyncRepairAfterState(after: Record<string, unknown>): boolean {
+    return hasRepairAfterStateValue(after, 'due')
+      && hasRepairAfterStateValue(after, 'stability')
+      && hasRepairAfterStateValue(after, 'difficulty')
+      && hasRepairAfterStateValue(after, 'reps')
+      && hasRepairAfterStateValue(after, 'lapses')
+      && hasRepairAfterStateValue(after, 'state')
+      && hasRepairAfterStateValue(after, 'lastReview')
+      && hasRepairAfterStateValue(after, 'elapsedDays')
+      && hasRepairAfterStateValue(after, 'scheduledDays')
+      && toNullableTimestamp(after.due) !== null
+      && readFiniteRepairNumber(after.stability) !== null
+      && readFiniteRepairNumber(after.difficulty) !== null
+      && readNonNegativeRepairInteger(after.reps) !== null
+      && readNonNegativeRepairInteger(after.lapses) !== null
+      && readCardStateRepairValue(after.state) !== null
+      && toNullableTimestamp(after.lastReview) !== null
+      && readNonNegativeRepairInteger(after.elapsedDays) !== null
+      && readNonNegativeRepairInteger(after.scheduledDays) !== null;
   }
 
   private buildDomainSyncRepairSchedulerConfigHash(rows: DomainSyncRepairPreviewEvidenceRow[]): string | null {
@@ -6652,6 +6704,12 @@ function normalizeOptionalString(value: unknown): string | null {
 function readFiniteRepairNumber(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function hasRepairAfterStateValue(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key)
+    && record[key] !== null
+    && record[key] !== undefined;
 }
 
 function readNonNegativeRepairInteger(value: unknown): number | null {

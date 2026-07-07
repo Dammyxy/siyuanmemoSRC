@@ -9,14 +9,14 @@
 - [x] 2.1 Add storage invariant tests proving answer success requires both ledger fact and card schedule after-state.
 - [x] 2.2 Add restart/replay tests proving projection/count state derives from ledger/schedule evidence, not stale Browser projection rows.
 - [x] 2.3 Add audit tests for divergence among Review Ledger count, card `reps/lastReview/due`, and derived queue counts.
-- [ ] 2.4 Add repair preview/apply tests proving repairs are explicit, idempotent, stale-plan guarded, and fail closed on incomplete evidence.
+- [x] 2.4 Add repair preview/apply tests proving repairs are explicit, idempotent, stale-plan guarded, and fail closed on incomplete evidence.
 
 ## 3. Implementation
 
 - [x] 3.1 Introduce named Review Ledger and Card Schedule Store interfaces around existing SQL/journal/card schedule writes.
 - [x] 3.2 Add Review storage audit read model for ledger/schedule/projection divergence.
 - [x] 3.3 Add replay/reconciliation path that rebuilds derived Review queue state from ledger/schedule authority.
-- [ ] 3.4 Add explicit repair preview/apply flow only for evidence-complete ledger/schedule divergence.
+- [x] 3.4 Add explicit repair preview/apply flow only for evidence-complete ledger/schedule divergence.
 - [x] 3.5 Keep SQLite delta, Domain Sync, and BrowserProjectionIndex as adapters/derived state, not answer authority.
 
 ## 4. Docs and Validation

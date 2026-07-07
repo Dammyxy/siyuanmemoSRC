@@ -1,10 +1,11 @@
 /**
  * ReviewSyncManager
  *
- * Observes review data changes and triggers incremental sync at key points:
- * - periodic auto sync during review
- * - forced sync when review completes
- * - forced sync when review dialog closes
+ * Legacy Xiuyuan idle-sync observer for browser/Riff refresh policy.
+ *
+ * This is not the Review Ledger/Card Schedule durability authority. Review
+ * close/exit persistence is owned by the SRS backend Review truth flush path.
+ * Keep this module out of Review close commit semantics.
  */
 
 import type { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
@@ -67,7 +68,7 @@ export class ReviewSyncManager implements IDataSourceObserver {
     logger.info('Initialized with config:', this.config);
   }
 
-  /** Set UnifiedDataSourceManager for UI refresh notification on dialog close. */
+  /** Set UnifiedDataSourceManager for legacy UI refresh notification. */
   setUnifiedDataSourceManager(manager: UnifiedDataSourceManager): void {
     this.unifiedDataSourceManager = manager;
   }
@@ -108,7 +109,7 @@ export class ReviewSyncManager implements IDataSourceObserver {
     }
   }
 
-  /** Force sync when review queue is completed. */
+  /** Legacy passive sync when a review queue is completed. */
   async onReviewCompleted(): Promise<void> {
     if (this.isSyncing) {
       logger.info('Already syncing, skipping onReviewCompleted');
@@ -150,7 +151,7 @@ export class ReviewSyncManager implements IDataSourceObserver {
     }
   }
 
-  /** Force sync when review dialog closes. */
+  /** Legacy passive Xiuyuan sync hook; not used by Review close persistence. */
   async onDialogClose(): Promise<void> {
     if (this.isSyncing) {
       logger.info('Already syncing, skipping onDialogClose');

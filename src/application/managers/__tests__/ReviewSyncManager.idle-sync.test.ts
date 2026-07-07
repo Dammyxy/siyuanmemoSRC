@@ -12,8 +12,8 @@ function createManager(config?: ConstructorParameters<typeof ReviewSyncManager>[
   return { manager, incrementalSync, publish };
 }
 
-describe('ReviewSyncManager idle sync policy', () => {
-  it('marks review completion sync as non-persistent when idle', async () => {
+describe('ReviewSyncManager legacy Xiuyuan idle sync policy', () => {
+  it('keeps legacy review completion Xiuyuan sync non-persistent when idle', async () => {
     const { manager, incrementalSync } = createManager();
 
     await manager.onReviewCompleted();
@@ -24,7 +24,7 @@ describe('ReviewSyncManager idle sync policy', () => {
     });
   });
 
-  it('marks dialog-close sync as persistent when reviewed cards exist', async () => {
+  it('keeps the legacy dialog-close Xiuyuan hook persistent when called directly', async () => {
     const { manager, incrementalSync } = createManager();
     manager.onDataChanged({
       type: 'card-updated',
@@ -40,7 +40,7 @@ describe('ReviewSyncManager idle sync policy', () => {
     });
   });
 
-  it('marks auto sync as non-persistent when idle', async () => {
+  it('keeps legacy auto Xiuyuan sync non-persistent when idle', async () => {
     const { manager, incrementalSync } = createManager({ autoSyncCardInterval: 1 });
 
     manager.onDataChanged({
