@@ -34,6 +34,7 @@ type ProjectionWorkerQueueType =
 
 type WorkerReviewFeedbackTransactionOptions = {
   persist?: boolean;
+  diagnosticRecorder?: (step: string, durationMs: number, extra?: Record<string, unknown>) => void;
 };
 
 type WorkerReviewFeedbackTransactionDb =
@@ -54,7 +55,7 @@ export type WorkerReviewFeedbackRequest = BackendReviewFeedbackRequest & {
 };
 
 export type WorkerReviewFeedbackRuntimeDeps = {
-  repository: Pick<SqlUnifiedStorageRepository, 'getCard' | 'upsertCards' | 'queryCards' | 'touchSyncMetadata'>;
+  repository: Pick<SqlUnifiedStorageRepository, 'getCard' | 'upsertCards' | 'queryCards' | 'touchReviewMutationMetadata'>;
   queueProjection: Pick<SqlQueueProjectionRepository, 'readGeneration' | 'readRows' | 'applyQueueProjectionDelta'> | null;
   runtime: WorkerReviewFeedbackRuntimeDatabase;
   domainSyncLedger?: DomainSyncLedger;

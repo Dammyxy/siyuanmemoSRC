@@ -99,6 +99,7 @@ function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDril
       }
     }),
     queryCards: vi.fn(() => Array.from(storedCards.values())),
+    touchReviewMutationMetadata: vi.fn(),
     touchSyncMetadata: vi.fn(),
   };
   const runtime = {
@@ -313,7 +314,7 @@ describe('WorkerReviewFeedbackRuntime', () => {
       'queue-impact.build',
       'sql.manual-queue-state-cleanup',
       'sql.undo-journal-write',
-      'sql.sync-metadata-touch',
+      'sql.review-mutation-stamp',
     ]));
     expect(timing?.innerSteps.find((step) => step.step === 'scheduler.compute')).toMatchObject({
       layer: 'transaction',
@@ -583,7 +584,12 @@ describe('WorkerReviewFeedbackRuntime', () => {
     expect(reviewEventInsertCalls).toHaveLength(1);
     expect(domainSyncInsertCalls).toHaveLength(1);
     expect(repository.upsertCards).toHaveBeenCalledOnce();
-    expect(repository.touchSyncMetadata).toHaveBeenCalledOnce();
+    expect(repository.touchReviewMutationMetadata).toHaveBeenCalledOnce();
+    expect(repository.touchReviewMutationMetadata).toHaveBeenCalledWith({
+      modifiedAt: REVIEWED_AT,
+      modifiedBy: 'srs-backend-worker:review.feedback',
+    });
+    expect(repository.touchSyncMetadata).not.toHaveBeenCalled();
     expect(queueStateValues.get('retrievalPracticeQueue')).toEqual(['keep-duplicate']);
     expect(readRows).not.toHaveBeenCalled();
     expect(applyQueueProjectionDelta).not.toHaveBeenCalled();
@@ -621,6 +627,7 @@ describe('WorkerReviewFeedbackRuntime', () => {
 
     expect(reviewEventInsertCalls).toHaveLength(0);
     expect(domainSyncInsertCalls).toHaveLength(0);
+    expect(repository.touchReviewMutationMetadata).not.toHaveBeenCalled();
     expect(repository.touchSyncMetadata).not.toHaveBeenCalled();
     expect(readRows).not.toHaveBeenCalled();
     expect(applyQueueProjectionDelta).not.toHaveBeenCalled();

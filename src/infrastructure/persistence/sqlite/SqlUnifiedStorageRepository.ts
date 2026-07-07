@@ -657,6 +657,51 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     );
   }
 
+  async touchReviewMutationMetadata(input: {
+    modifiedAt?: number;
+    modifiedBy?: string;
+  } = {}): Promise<void> {
+    const current = this.database.getOne<{ value_json: string }>(
+      'SELECT value_json FROM store_metadata WHERE key = ?',
+      ['sync_metadata'],
+    );
+    const previous = parseJson<UnifiedCardStore['syncMetadata'] | undefined>(
+      current?.value_json,
+      undefined,
+    );
+    const versionRow = this.database.getOne<{ value_json: string }>(
+      'SELECT value_json FROM store_metadata WHERE key = ?',
+      ['unified_store_version'],
+    );
+    const now = input.modifiedAt ?? Date.now();
+    const revision = (Number(previous?.revision) || 0) + 1;
+    const lastModifiedBy = String(input.modifiedBy || previous?.lastModifiedBy || 'srs-backend-worker');
+    const metadata = {
+      revision,
+      contentHash: fnv1aHash(stableStringify({
+        kind: 'review-mutation-stamp',
+        revision,
+        lastModifiedAt: now,
+        lastModifiedBy,
+      })),
+      lastModifiedAt: now,
+      lastModifiedBy,
+    };
+    const version = Math.max(
+      2,
+      Math.floor(Number(parseJson<number | undefined>(versionRow?.value_json, 2)) || 2),
+    );
+
+    this.database.run(
+      'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+      ['sync_metadata', stringifyJson(metadata), now],
+    );
+    this.database.run(
+      'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+      ['unified_store_version', stringifyJson(version), now],
+    );
+  }
+
   upsertCards(cards: FSRSCard[]): void {
     for (const card of cards) {
       this.upsertCard(card);

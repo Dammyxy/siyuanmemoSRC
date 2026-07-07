@@ -111,8 +111,12 @@ The durable worker-owned undo evidence for accepted SRS Review answer/skip trans
 _Avoid_: renderer ReviewHistory fallback, BrowserProjectionIndex repair, physical review history deletion
 
 **Review Feedback Transaction Diagnostics**:
-The structured timing evidence emitted by the worker-owned Review answer Module when a slow `review.feedback` / `review.session.feedback` needs attribution. It distinguishes card/idempotency reads, scheduler compute/commit, Review Ledger and domain sync writes, queue-impact build, undo journal write, sync metadata touch, SQLite transaction bookkeeping, delta capture, append preflight, segment encode/write, manifest write, and delta persist total without making callers orchestrate those phases.
+The structured timing evidence emitted by the worker-owned Review answer Module when a slow `review.feedback` / `review.session.feedback` needs attribution. It distinguishes card/idempotency reads, scheduler compute/commit, Review Ledger and domain sync writes, queue-impact build, undo journal write, Review mutation stamp, SQLite transaction bookkeeping, delta capture, append preflight, pending-byte accounting, segment encode/write, manifest write, and delta persist total without making callers orchestrate those phases.
 _Avoid_: normal-path console flood, renderer-owned commit phases, split durable answer transaction
+
+**Review Mutation Stamp**:
+The O(1) SQL store metadata mutation evidence written inside a committed Review answer transaction. It advances revision/modifiedAt/modifiedBy and a stamp hash without loading the full Unified Card Store or recalculating full content hash; full content-hash metadata remains a non-hot-path sync/checkpoint concern.
+_Avoid_: full-store content hash, Review Ledger fact, queue projection generation
 
 **Custom Review Surface**:
 A SiYuanMemo-owned review UI that renders card content outside SiYuan's native block renderer. It must explicitly preserve supported link and reference behavior because native rendering is not automatically available.
@@ -155,7 +159,7 @@ The diagnostic read model that compares Review Ledger facts, Card Schedule Store
 _Avoid_: hidden projection repair, Browser count refresh, silent schedule reconciliation
 
 **Delta Sync Adapter**:
-The SQLite delta/checkpoint layer that exports, checkpoints, diagnoses, and recovers storage changes from durable Review facts, schedule state, queue state, store metadata, and Review Transaction Undo Journal evidence. It may read sealed segment evidence during diagnostics/recovery/reload, but ordinary same-runtime Review answer success must not depend on reconstructing historical sealed segments.
+The SQLite delta/checkpoint layer that exports, checkpoints, diagnoses, and recovers storage changes from durable Review facts, schedule state, queue state, store metadata, and Review Transaction Undo Journal evidence. It may read sealed segment evidence during diagnostics/recovery/reload, but ordinary same-runtime Review answer success must not depend on reconstructing historical sealed segments or stringifying the full pending delta snapshot for threshold checks; append classification uses tracked pending bytes plus the new entry estimate.
 _Avoid_: Review Ledger, Card Schedule Store, kernel answer authority
 
 **NeuralRoam Advance**:

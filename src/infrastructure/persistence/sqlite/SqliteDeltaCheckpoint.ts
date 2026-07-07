@@ -87,6 +87,7 @@ export interface SqliteDeltaLogSnapshot {
   entries: SqliteDeltaEntry[];
   updatedAt: number;
   manifest: SqliteDeltaSegmentManifest;
+  pendingBytes: number;
 }
 
 export interface SqliteDeltaSegmentManifestEntry {
@@ -236,6 +237,36 @@ interface TableInfoRow {
 function estimateJsonByteLength(value: unknown): number {
   const json = JSON.stringify(value);
   return json ? new TextEncoder().encode(json).byteLength : 0;
+}
+
+function normalizeByteEstimate(value: unknown): number {
+  const parsed = Math.ceil(Number(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function estimatePendingEntryBytes(entries: SqliteDeltaEntry[]): number {
+  return entries.reduce((total, entry) => total + normalizeByteEstimate(entry.byteEstimate), 0);
+}
+
+function estimateManifestPendingBytes(manifest: SqliteDeltaSegmentManifest): number {
+  return [
+    ...manifest.sealedSegments,
+    ...(manifest.openSegment ? [manifest.openSegment] : []),
+  ].reduce((total, segment) => total + normalizeByteEstimate(segment.byteSize), 0);
+}
+
+function calculateSnapshotPendingBytes(
+  entries: SqliteDeltaEntry[],
+  manifest: SqliteDeltaSegmentManifest,
+): number {
+  const manifestBytes = estimateManifestPendingBytes(manifest);
+  return manifestBytes > 0 || entries.length === 0
+    ? manifestBytes
+    : estimatePendingEntryBytes(entries);
+}
+
+function calculateNextPendingBytes(snapshot: SqliteDeltaLogSnapshot, entry: SqliteDeltaEntry): number {
+  return snapshot.pendingBytes + normalizeByteEstimate(entry.byteEstimate);
 }
 
 function checksumBytes(bytes: Uint8Array): string {
@@ -1174,12 +1205,13 @@ export class SqliteDeltaCheckpointLayer {
       status: 'ok',
       pendingCount: snapshot.entries.length,
     });
-    const pendingEstimateStartedAt = Date.now();
-    const pendingBytes = estimateJsonByteLength(snapshot);
-    recordSqliteDeltaDiagnostic(input.diagnosticRecorder, 'sqlite.delta-pending-estimate', pendingEstimateStartedAt, {
+    const pendingAccountingStartedAt = Date.now();
+    const pendingBytes = snapshot.pendingBytes;
+    recordSqliteDeltaDiagnostic(input.diagnosticRecorder, 'sqlite.delta-pending-accounting', pendingAccountingStartedAt, {
       label: input.label,
       pendingCount: snapshot.entries.length,
       pendingBytes,
+      source: 'snapshot.pendingBytes',
     });
     const rawCheckpointReason = this.classifyCheckpointReason(input, snapshot, pendingBytes);
     const checkpointReason = rawCheckpointReason === 'delta-threshold-exceeded' && !this.canUseCheckpointForThreshold()
@@ -1287,13 +1319,17 @@ export class SqliteDeltaCheckpointLayer {
       entries: nextEntries,
       updatedAt: Date.now(),
       manifest: snapshot.manifest,
+      pendingBytes: calculateNextPendingBytes(snapshot, entry),
     };
-    const nextPendingEstimateStartedAt = Date.now();
-    const nextPendingBytes = estimateJsonByteLength(nextSnapshot);
-    recordSqliteDeltaDiagnostic(input.diagnosticRecorder, 'sqlite.delta-next-pending-estimate', nextPendingEstimateStartedAt, {
+    const nextPendingAccountingStartedAt = Date.now();
+    const nextPendingBytes = nextSnapshot.pendingBytes;
+    recordSqliteDeltaDiagnostic(input.diagnosticRecorder, 'sqlite.delta-next-pending-accounting', nextPendingAccountingStartedAt, {
       label: input.label,
       pendingCount: nextEntries.length,
       pendingBytes: nextPendingBytes,
+      previousPendingBytes: pendingBytes,
+      entryByteEstimate: normalizeByteEstimate(entry.byteEstimate),
+      source: 'snapshot.pendingBytes+entry.byteEstimate',
     });
     if (this.canUseCheckpointForThreshold()
       && (nextEntries.length > MAX_PENDING_DELTA_ENTRIES || nextPendingBytes > MAX_PENDING_DELTA_BYTES)) {
@@ -1565,7 +1601,7 @@ export class SqliteDeltaCheckpointLayer {
   async replayPending(db: Database): Promise<SqliteDeltaOperationStatus> {
     this.clearAppendHotPathSnapshot();
     const snapshot = await this.readSnapshot();
-    const pendingBytes = estimateJsonByteLength(snapshot);
+    const pendingBytes = snapshot.pendingBytes;
     if (snapshot.entries.length === 0) {
       this.lastReplay = {
         ok: true,
@@ -1637,7 +1673,7 @@ export class SqliteDeltaCheckpointLayer {
     } catch (error) {
       snapshotReadError = error;
     }
-    const pendingBytes = snapshot ? estimateJsonByteLength(snapshot) : 0;
+    const pendingBytes = snapshot ? snapshot.pendingBytes : 0;
     const coveredSegmentPaths = snapshot
       ? uniqueStrings([
         ...snapshot.manifest.sealedSegments.map((segment) => segment.path),
@@ -1692,7 +1728,7 @@ export class SqliteDeltaCheckpointLayer {
     if (!snapshot) {
       return;
     }
-    const pendingBytes = estimateJsonByteLength(snapshot);
+    const pendingBytes = snapshot.pendingBytes;
     const clearCoveredDeltas = this.canClearDeltaAfterCheckpoint()
       || isCorruptOpenSegmentCheckpointRepairReason(reason);
     let cleanupError: string | null = null;
@@ -1800,7 +1836,7 @@ export class SqliteDeltaCheckpointLayer {
       hotPath: diagnostics.hotPath || labelLooksHotPath(reason),
       reason,
       pendingCount: snapshot?.entries.length ?? 0,
-      pendingBytes: snapshot ? estimateJsonByteLength(snapshot) : 0,
+      pendingBytes: snapshot ? snapshot.pendingBytes : 0,
       cleared: false,
       checkpointStorageClass: this.checkpointStorageClass,
       error: error instanceof Error ? error.message : String(error),
@@ -1836,7 +1872,7 @@ export class SqliteDeltaCheckpointLayer {
         .filter((table) => table.durability === 'derived-cache')
         .map((table) => table.tableName),
       pendingCount: snapshot.entries.length,
-      pendingBytes: estimateJsonByteLength(snapshot),
+      pendingBytes: snapshot.pendingBytes,
       affectedTables: uniqueStrings(snapshot.entries.flatMap((entry) => entry.tables)),
       deltaWritesTotal: this.deltaWritesTotal,
       checkpointWritesTotal: this.checkpointWritesTotal,
@@ -1943,6 +1979,7 @@ export class SqliteDeltaCheckpointLayer {
       entries,
       updatedAt: recoveredManifest.updatedAt,
       manifest: recoveredManifest,
+      pendingBytes: calculateSnapshotPendingBytes(entries, recoveredManifest),
     };
   }
 

@@ -1359,6 +1359,63 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     expect(repository.getAlgorithmCardStateDiagnostic().dirty).toBe(0);
   });
 
+  it('touches Review mutation metadata without loading the full unified store', async () => {
+    const { database, repository } = await seedRepositories();
+    let loadStoreCalls = 0;
+    const originalLoadStore = repository.loadStore.bind(repository);
+    repository.loadStore = async (reason?: Parameters<typeof repository.loadStore>[0]) => {
+      loadStoreCalls += 1;
+      return originalLoadStore(reason);
+    };
+
+    await repository.touchReviewMutationMetadata({
+      modifiedAt: 1_700_300_000_000,
+      modifiedBy: 'srs-backend-worker:review.feedback',
+    });
+
+    const reviewStampRow = database.getOne<{ value_json: string }>(
+      'SELECT value_json FROM store_metadata WHERE key = ?',
+      ['sync_metadata'],
+    );
+    const reviewStamp = JSON.parse(reviewStampRow?.value_json ?? '{}') as {
+      revision?: number;
+      contentHash?: string;
+      lastModifiedAt?: number;
+      lastModifiedBy?: string;
+    };
+    expect(loadStoreCalls).toBe(0);
+    expect(Number(reviewStamp.revision)).toBeGreaterThan(0);
+    expect(reviewStamp).toMatchObject({
+      lastModifiedAt: 1_700_300_000_000,
+      lastModifiedBy: 'srs-backend-worker:review.feedback',
+    });
+    expect(reviewStamp.contentHash).toMatch(/^[0-9a-f]{16}$/);
+
+    await repository.touchSyncMetadata({
+      modifiedAt: 1_700_300_000_001,
+      modifiedBy: 'full-sync',
+    });
+
+    const fullTouchRow = database.getOne<{ value_json: string }>(
+      'SELECT value_json FROM store_metadata WHERE key = ?',
+      ['sync_metadata'],
+    );
+    const fullTouch = JSON.parse(fullTouchRow?.value_json ?? '{}') as {
+      revision?: number;
+      contentHash?: string;
+      lastModifiedAt?: number;
+      lastModifiedBy?: string;
+    };
+    expect(loadStoreCalls).toBe(1);
+    expect(fullTouch).toMatchObject({
+      revision: Number(reviewStamp.revision) + 1,
+      lastModifiedAt: 1_700_300_000_001,
+      lastModifiedBy: 'full-sync',
+    });
+    expect(fullTouch.contentHash).toMatch(/^[0-9a-f]{16}$/);
+    expect(fullTouch.contentHash).not.toBe(reviewStamp.contentHash);
+  });
+
   it('diagnoses missing and invalid algorithm_card_state rows and backfills them cleanly', async () => {
     const database = new SqliteDatabaseService(new MemorySqliteFileService());
     await database.init();

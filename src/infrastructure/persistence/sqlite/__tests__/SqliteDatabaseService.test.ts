@@ -1049,15 +1049,29 @@ describe('SqliteDatabaseService', () => {
       'sqlite.delta-capture',
       'sqlite.transaction-sql-commit',
       'sqlite.delta-append-preflight',
-      'sqlite.delta-pending-estimate',
+      'sqlite.delta-pending-accounting',
       'sqlite.delta-build-entry',
-      'sqlite.delta-next-pending-estimate',
+      'sqlite.delta-next-pending-accounting',
       'sqlite.delta-encode-segment',
       'sqlite.delta-write-segment',
       'sqlite.delta-write-manifest',
       'sqlite.delta-append-entry-to-segments',
       'sqlite.delta-persist-total',
     ]));
+    expect(spans.map((span) => span.step)).not.toContain('sqlite.delta-pending-estimate');
+    expect(spans.map((span) => span.step)).not.toContain('sqlite.delta-next-pending-estimate');
+    expect(spans.find((span) => span.step === 'sqlite.delta-pending-accounting')?.extra).toMatchObject({
+      label: 'review.feedback',
+      source: 'snapshot.pendingBytes',
+      pendingBytes: expect.any(Number),
+    });
+    expect(spans.find((span) => span.step === 'sqlite.delta-next-pending-accounting')?.extra).toMatchObject({
+      label: 'review.feedback',
+      source: 'snapshot.pendingBytes+entry.byteEstimate',
+      previousPendingBytes: expect.any(Number),
+      entryByteEstimate: expect.any(Number),
+      pendingBytes: expect.any(Number),
+    });
     expect(spans.find((span) => span.step === 'sqlite.delta-capture')?.extra).toMatchObject({
       label: 'review.feedback',
       touchedTables: expect.arrayContaining(['review_events']),

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-08 (Round 680)
+Last update: 2026-07-08 (Round 681)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-08 - Review answer hot transaction optimization
+
+- Task: Implement OpenSpec change `optimize-review-answer-hot-transaction` so ordinary Review answers stop doing full-store metadata/hash work and full pending-delta snapshot byte estimates inside `session-feedback-commit`.
+- Touched slice: Review answer hot transaction + SQL delta accounting; `worker/review/WorkerReviewCardMutationPersistenceModule.ts`, `worker/review/WorkerReviewFeedbackRuntime.ts`, `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`, `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, focused Review/SQLite repository tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: `WorkerReviewCardMutationPersistenceModule` now owns the Review Answer Transaction Envelope behind one answer Interface and routes committed answers through `touchReviewMutationMetadata()` instead of full `touchSyncMetadata()`. The Review mutation stamp updates revision/modifiedAt/modifiedBy and stamp hash without `loadStore()` or full content hash. SQLite delta snapshots now carry normalized `pendingBytes`, and append threshold checks use tracked pending bytes plus `entry.byteEstimate`; diagnostics report `sqlite.delta-pending-accounting` / `sqlite.delta-next-pending-accounting` instead of full snapshot estimate spans.
+- Debt deferred: Manifest writes, open/sealed segment writes, host bridge IO, native SQLite/WAL redesign, and async durability remain outside this change.
+- Why deferred: The live logs proved CPU-side metadata/hash and pending-size estimates were wrong hot-path work. Changing durable write policy or storage host behavior needs separate crash-recovery semantics and fail-closed design.
+- Next safe step: Rebuild/reload, rate Retrieval Practice cards, and confirm slow summaries show `sql.review-mutation-stamp` and `sqlite.delta-*-pending-accounting` near-zero while `hostBreakdown` still labels actual open/sealed/manifest writes.
+- Validation: Focused Review feedback runtime, SQLite database service, and SQL unified repository tests passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n hardcoded/untranslated warnings and Sass legacy JS API warnings.
 
 ### 2026-07-08 - Review feedback transaction internals tracing
 
