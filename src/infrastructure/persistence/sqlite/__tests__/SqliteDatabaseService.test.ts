@@ -1007,6 +1007,68 @@ describe('SqliteDatabaseService', () => {
     ]));
   });
 
+  it('records sqlite transaction and delta internals through diagnosticRecorder', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    const spans: Array<{ step: string; durationMs: number; extra?: Record<string, unknown> }> = [];
+    await database.init();
+    await database.persist('seed-schema');
+
+    await database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT OR REPLACE INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-transaction-trace',
+          'card-transaction-trace',
+          'attempt-transaction-trace',
+          3,
+          1_700_000_006_100,
+          'commit-transaction-trace',
+          2026,
+          7,
+          'review-v2',
+          JSON.stringify({ cardId: 'card-transaction-trace' }),
+        ],
+      );
+    }, {
+      diagnosticRecorder: (step, durationMs, extra) => {
+        spans.push({ step, durationMs, extra });
+      },
+    });
+
+    expect(spans.map((span) => span.step)).toEqual(expect.arrayContaining([
+      'sqlite.transaction-begin',
+      'sqlite.transaction-writer',
+      'sqlite.transaction-change-detection',
+      'sqlite.delta-capture',
+      'sqlite.transaction-sql-commit',
+      'sqlite.delta-append-preflight',
+      'sqlite.delta-pending-estimate',
+      'sqlite.delta-build-entry',
+      'sqlite.delta-next-pending-estimate',
+      'sqlite.delta-encode-segment',
+      'sqlite.delta-write-segment',
+      'sqlite.delta-write-manifest',
+      'sqlite.delta-append-entry-to-segments',
+      'sqlite.delta-persist-total',
+    ]));
+    expect(spans.find((span) => span.step === 'sqlite.delta-capture')?.extra).toMatchObject({
+      label: 'review.feedback',
+      touchedTables: expect.arrayContaining(['review_events']),
+      changeCount: expect.any(Number),
+    });
+    expect(spans.find((span) => span.step === 'sqlite.delta-persist-total')?.extra).toMatchObject({
+      label: 'review.feedback',
+      mode: 'delta',
+    });
+  });
+
   it('stores sqlite delta v2 manifest and segment files under one versioned directory', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {

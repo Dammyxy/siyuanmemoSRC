@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-07 (Round 678)
+Last update: 2026-07-08 (Round 680)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-08 - Review feedback transaction internals tracing
+
+- Task: Implement OpenSpec change `trace-review-feedback-transaction-internals` so slow Review scoring logs can attribute the remaining `session-feedback-commit` cost inside the durable answer transaction.
+- Touched slice: Review answer transaction diagnostics; `worker/review/WorkerReviewCardMutationPersistenceModule.ts`, `worker/bootstrap/ReviewFeedbackTimingScope.ts`, `src/infrastructure/persistence/sqlite/SqliteDatabaseService.ts`, `src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts`, `src/application/clients/BrowserSrsBackendWorkerTransport.ts`, focused Review/SQLite/transport tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: The SRS Review Kernel now records narrow transaction spans for card read, idempotency check, scheduler compute/commit, Review Ledger write, domain sync write, truth candidate build, queue-impact build, manual queue cleanup, undo journal write, and sync metadata touch. SQL-first persistence can record transaction begin/writer/change-detection/delta-capture/SQL-commit/delta-persist spans, and SQLite delta append can record preflight, pending estimates, entry build, segment encode/write, manifest write, and append-to-segments timing. Slow worker summaries now surface `transactionBreakdown=`, `sqliteBreakdown=`, and `innerTruncated=`.
+- Debt deferred: No scheduler, SQL, delta, manifest, or storage-host optimization was made in this pass.
+- Why deferred: Latest live logs proved the remaining latency sits inside `session-feedback-commit`, but did not prove which internal Module dominates. Optimizing before this evidence risks changing durable Review answer semantics or crash-recovery behavior blindly.
+- Next safe step: Rebuild/reload, rate Retrieval Practice cards, and inspect `transactionBreakdown=` / `sqliteBreakdown=`. If `scheduler.*` dominates, optimize scheduler commit construction; if `sql.*` dominates, optimize Review Ledger/domain-sync/manual cleanup writes; if `sqlite.delta-encode-segment` or estimates dominate, reduce delta payload/segment work; if `sqlite.delta-write-*` dominates, storage host IO remains the bottleneck.
+- Validation: Focused Review feedback runtime, SQLite persistence, and worker transport tests passed; OpenSpec strict validation passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n hardcoded/untranslated warnings and Sass legacy JS API warnings; git diff whitespace check passed with CRLF working-copy warnings only.
+
+### 2026-07-07 - Unified Review answer transaction
+
+- Task: Implement OpenSpec change `unify-review-answer-transaction` so worker-backed Review answers no longer run a second durable undo-journal append after the answer commit.
+- Touched slice: Review answer transaction hot path; `worker/review/WorkerReviewSessionRuntime.ts`, `worker/review/WorkerReviewFeedbackRuntime.ts`, `worker/review/WorkerReviewCardMutationPersistenceModule.ts`, `worker/review/ReviewTransactionUndoJournalStore.ts`, `worker/db/SqliteDatabaseService.ts`, backend RPC contract typing, focused worker tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: `WorkerReviewSessionRuntime.feedback()` now previews the SessionQueueIndex frontier after rating, builds answer undo evidence before commit, and passes that evidence into `WorkerReviewFeedbackRuntime.reviewFeedback()`. `WorkerReviewCardMutationPersistenceModule.commitReviewFeedback()` inserts the answer `review_transaction_undo_journal` row inside the same durable `review.feedback` transaction that writes card schedule / Review Ledger / domain sync evidence. Answer scoring no longer emits or pays the separate `session-feedback-undo-journal-append` step; skip undo remains explicit and unchanged.
+- Debt deferred: The remaining `session-feedback-commit` cost is still inside `review.feedback.transaction`; split scheduler / SQL writes / delta encode / append-preflight in a separate tracing change only if live logs still show commit as dominant after this merge.
+- Why deferred: This change removes a proven second durable write without changing scheduler, Review Ledger, SQLite WAL/native persistence, or skip semantics. Internal commit bucket tracing is a separate evidence-gathering slice.
+- Next safe step: Rebuild/reload, rate Retrieval Practice cards, and verify `sessionBreakdown=` no longer includes `session-feedback-undo-journal-append` for answers. If `session-feedback-commit` remains slow, open a small follow-up to trace `review.feedback.transaction` internals.
+- Validation: Focused Review session / feedback / undo journal tests passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n hardcoded/untranslated warnings and Sass legacy JS API warnings; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only.
 
 ### 2026-07-07 - Review session feedback gap diagnostics
 

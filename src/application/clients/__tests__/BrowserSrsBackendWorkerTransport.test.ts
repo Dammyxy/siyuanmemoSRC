@@ -936,12 +936,34 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           },
           {
             layer: 'transaction',
-            step: 'transaction',
+            step: 'scheduler.compute',
             durationMs: 160,
             cardId: 'card-1',
             queueType: 'retrieval-practice',
             extra: {
               backendMethod: 'review.session.feedback',
+            },
+          },
+          {
+            layer: 'database',
+            step: 'sqlite.delta-append-preflight',
+            durationMs: 42,
+            cardId: 'card-1',
+            queueType: 'retrieval-practice',
+            extra: {
+              backendMethod: 'review.session.feedback',
+              pendingCount: 3,
+            },
+          },
+          {
+            layer: 'database',
+            step: 'sqlite.delta-write-manifest',
+            durationMs: 12,
+            cardId: 'card-1',
+            queueType: 'retrieval-practice',
+            extra: {
+              backendMethod: 'review.session.feedback',
+              sealedSegmentCount: 2,
             },
           },
         ],
@@ -971,7 +993,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         topInnerStepSummary: expect.arrayContaining([
           expect.stringContaining('kernel:pre-request-merge 240ms'),
           'session:session-feedback-commit 220ms',
-          'transaction:transaction 160ms',
+          'transaction:scheduler.compute 160ms',
         ]),
         slowestHostEffect: expect.objectContaining({
           path: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
@@ -985,6 +1007,14 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       expect.stringContaining(
         'hostBreakdown=sqlite.readJSON 180ms count=1 path=sqlite-delta/v2/sqlite-delta-log.v2.manifest.json storage=sqlite-delta-log purpose=sqlite-delta.append-preflight substep=persist-committed-transaction-read-snapshot max=180ms bytes=unknown',
       ),
+      expect.anything(),
+    );
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      expect.stringContaining('transactionBreakdown=transaction:scheduler.compute 160ms'),
+      expect.anything(),
+    );
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      expect.stringContaining('sqliteBreakdown=database:sqlite.delta-append-preflight 42ms | database:sqlite.delta-write-manifest 12ms'),
       expect.anything(),
     );
     transport.dispose();

@@ -138,6 +138,7 @@ import { SemanticSessionReadModelBuilder } from '../semantic/SemanticSessionRead
 import { WorkerReviewFeedbackRuntime } from '../review/WorkerReviewFeedbackRuntime';
 import { ReviewFeedbackStorageEnvelope } from '../review/ReviewFeedbackStorageEnvelope';
 import { ReviewJournalProjectionReconciler } from '../review/ReviewJournalProjectionReconciler';
+import { appendReviewTransactionUndoJournalEntryInCurrentTransaction } from '../review/ReviewTransactionUndoJournalStore';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { recordBackendWorkerInnerStep, recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
 import {
@@ -2184,25 +2185,7 @@ export class WorkerSqliteDatabaseService {
   private async appendReviewTransactionUndoJournalEntry(entry: ReviewTransactionUndoJournalEntry): Promise<void> {
     await this.init();
     await this.runtime.runTransaction('review.session.undo-journal.append', () => {
-      this.runtime.run(
-        `INSERT OR REPLACE INTO review_transaction_undo_journal
-          (undo_token, transaction_id, session_id, queue_type, operation, card_id,
-           original_review_idempotency_key, status, recorded_at, undone_at, payload_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          entry.undoToken,
-          entry.transactionId,
-          entry.sessionId,
-          String(entry.queueType),
-          entry.operation,
-          entry.cardId || null,
-          entry.originalReviewIdempotencyKey,
-          entry.status,
-          entry.recordedAt,
-          entry.undoneAt,
-          JSON.stringify(entry),
-        ],
-      );
+      appendReviewTransactionUndoJournalEntryInCurrentTransaction(this.runtime, entry);
     }, { persist: true });
   }
 

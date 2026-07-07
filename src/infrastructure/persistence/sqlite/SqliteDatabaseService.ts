@@ -27,9 +27,15 @@ const logger = createLogger('SqliteDatabaseService');
 const SQLITE_CORRUPT_OPEN_SEGMENT_REPAIR_REASON = 'corrupt-open-segment-checkpoint-repair';
 
 type SqlParams = SqlValue[] | ParamsObject;
+type TransactionDiagnosticRecorder = (
+  step: string,
+  durationMs: number,
+  extra?: Record<string, unknown>,
+) => void;
 type TransactionOptions = {
   persist?: boolean;
   label?: string;
+  diagnosticRecorder?: TransactionDiagnosticRecorder;
 };
 type PersistOptions = {
   force?: boolean;
@@ -331,21 +337,41 @@ export class SqliteDatabaseService {
       return result;
     }
 
+    const startedAt = Date.now();
+    const beginStartedAt = Date.now();
     db.run('BEGIN IMMEDIATE');
+    options.diagnosticRecorder?.('sqlite.transaction-begin', Date.now() - beginStartedAt, { label });
     this.transactionDepth = 1;
     this.currentTransactionMutated = false;
     this.currentTransactionSchemaDirty = false;
     const deltaCapture = this.deltaLayer?.beginTransaction(db, label) ?? null;
     const changeMark = this.captureDatabaseChangeMark();
     const schemaVersionBefore = changeMark.schemaVersion;
-    const startedAt = Date.now();
     let committed = false;
     try {
+      const writerStartedAt = Date.now();
       const result = await writer(db);
+      options.diagnosticRecorder?.('sqlite.transaction-writer', Date.now() - writerStartedAt, { label });
+      const changeDetectionStartedAt = Date.now();
       const transactionMutated = this.currentTransactionMutated || this.hasDatabaseChangedSince(changeMark);
       const schemaChanged = this.getSchemaChangeVersion() !== schemaVersionBefore || this.currentTransactionSchemaDirty;
+      options.diagnosticRecorder?.('sqlite.transaction-change-detection', Date.now() - changeDetectionStartedAt, {
+        label,
+        transactionMutated,
+        schemaChanged,
+      });
+      const captureStartedAt = Date.now();
       const deltaCaptureResult = deltaCapture?.finish() ?? null;
+      options.diagnosticRecorder?.('sqlite.delta-capture', Date.now() - captureStartedAt, {
+        label,
+        touchedTables: deltaCaptureResult?.touchedTables ?? [],
+        changeCount: deltaCaptureResult?.changes.length ?? 0,
+        skippedDerivedTables: deltaCaptureResult?.skippedDerivedTables ?? [],
+        skippedDerivedChangeCount: deltaCaptureResult?.skippedDerivedChangeCount ?? 0,
+      });
+      const commitStartedAt = Date.now();
       db.run('COMMIT');
+      options.diagnosticRecorder?.('sqlite.transaction-sql-commit', Date.now() - commitStartedAt, { label });
       committed = true;
       this.transactionDepth = 0;
       let persistAfterCommit = (shouldPersist || this.pendingPersist)
@@ -360,16 +386,23 @@ export class SqliteDatabaseService {
       if (persistAfterCommit) {
         try {
           if (this.deltaLayer && transactionMutated) {
+            const deltaPersistStartedAt = Date.now();
             const deltaResult = await this.deltaLayer.persistCommittedTransaction({
               label,
               capture: deltaCaptureResult,
               schemaChanged,
+              diagnosticRecorder: options.diagnosticRecorder,
               diagnostics: {
                 cause: label,
                 initiator: label,
                 projectionGeneration: null,
                 hotPath: label.startsWith('review.feedback'),
               },
+            });
+            options.diagnosticRecorder?.('sqlite.delta-persist-total', Date.now() - deltaPersistStartedAt, {
+              label,
+              mode: deltaResult.mode,
+              reason: 'reason' in deltaResult ? deltaResult.reason : null,
             });
             if (deltaResult.mode === 'delta' || deltaResult.mode === 'skipped') {
               this.dirtySincePersist = false;

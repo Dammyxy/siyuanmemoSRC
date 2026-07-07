@@ -6,6 +6,7 @@ import {
   beginBackendWorkerRequest,
   endBackendWorkerRequest,
 } from '../../bootstrap/ReviewFeedbackTimingScope';
+import type { ReviewTransactionUndoJournalEntry } from '../ReviewTransactionUndoJournal';
 import { WorkerReviewFeedbackRuntime } from '../WorkerReviewFeedbackRuntime';
 
 const REVIEWED_AT = 1_700_200_000_000;
@@ -65,6 +66,7 @@ function createProjectionRow(
 function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDrill) {
   const storedCards = new Map(cards.map((card) => [card.id, card] as const));
   const queueStateValues = new Map<string, unknown>();
+  const undoJournalEntries = new Map<string, ReviewTransactionUndoJournalEntry>();
   const reviewEventsByIdempotencyKey = new Map<string, {
     id: string;
     card_id: string | null;
@@ -118,6 +120,10 @@ function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDril
       }
       if (sql.includes('INSERT OR REPLACE INTO queue_state') && params) {
         queueStateValues.set(String(params[0]), JSON.parse(String(params[1])));
+        return;
+      }
+      if (sql.includes('INSERT OR REPLACE INTO review_transaction_undo_journal') && params) {
+        undoJournalEntries.set(String(params[0]), JSON.parse(String(params[10])) as ReviewTransactionUndoJournalEntry);
       }
     }),
     getOne: vi.fn((_sql: string, params?: unknown[]) => {
@@ -146,6 +152,7 @@ function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDril
     readRows,
     applyQueueProjectionDelta,
     queueStateValues,
+    undoJournalEntries,
   };
 }
 
@@ -201,6 +208,122 @@ describe('WorkerReviewFeedbackRuntime', () => {
     })).rejects.toThrow('BACKEND_UNAVAILABLE: card schedule store unavailable');
 
     expect(queueStateValues.get('retrievalPracticeQueue')).toEqual([reviewed.id, reviewed.blockId, 'keep-retrieval']);
+  });
+
+  it('persists answer undo evidence inside the review feedback transaction', async () => {
+    const reviewed = createCard({ id: 'card-inline-undo', blockId: 'block-inline-undo' });
+    const {
+      reviewRuntime,
+      runtime,
+      undoJournalEntries,
+    } = createRuntimeFixture([reviewed], QueueType.RetrievalPractice);
+
+    const result = await reviewRuntime.reviewFeedback({
+      cardId: reviewed.id,
+      rating: 3,
+      queueType: QueueType.RetrievalPractice,
+      reviewedAt: REVIEWED_AT,
+      idempotencyKey: 'inline-undo-1',
+      sessionId: 'session-inline-undo',
+      transactionUndoJournalEntry: {
+        schemaVersion: 1,
+        transactionId: 'undo-token-inline',
+        undoToken: 'undo-token-inline',
+        sessionId: 'session-inline-undo',
+        queueType: QueueType.RetrievalPractice,
+        operation: 'answer',
+        cardId: reviewed.id,
+        replayedCardId: reviewed.id,
+        originalReviewIdempotencyKey: 'inline-undo-1',
+        beforeCard: reviewed,
+        afterCard: null,
+        frontierBefore: {
+          cards: [],
+          current: reviewed,
+          avoidOnceCardId: null,
+          avoidOnceBlockId: null,
+          projectionGeneration: 2,
+          projectionPolicyHash: 'policy-a',
+        },
+        frontierAfter: {
+          cards: [],
+          current: null,
+          avoidOnceCardId: null,
+          avoidOnceBlockId: null,
+          projectionGeneration: 2,
+          projectionPolicyHash: 'policy-a',
+        },
+        queueImpact: null,
+        projectionGeneration: 2,
+        projectionPolicyHash: 'policy-a',
+        recordedAt: REVIEWED_AT,
+        status: 'open',
+        undoneAt: null,
+      },
+    });
+
+    expect(result).toMatchObject({
+      committed: true,
+      undoJournalPersisted: true,
+    });
+    expect(runtime.runTransaction).toHaveBeenCalledWith(
+      'review.feedback',
+      expect.any(Function),
+      {
+        persist: true,
+        diagnosticRecorder: expect.any(Function),
+      },
+    );
+    expect(undoJournalEntries.get('undo-token-inline')).toMatchObject({
+      undoToken: 'undo-token-inline',
+      originalReviewIdempotencyKey: 'inline-undo-1',
+      status: 'open',
+      afterCard: expect.objectContaining({
+        id: reviewed.id,
+        reps: reviewed.reps + 1,
+      }),
+    });
+  });
+
+  it('records review feedback transaction internals in the active timing scope', async () => {
+    const reviewed = createCard({ id: 'card-transaction-trace', blockId: 'block-transaction-trace' });
+    const { reviewRuntime } = createRuntimeFixture([reviewed], QueueType.RetrievalPractice);
+    const timing = beginBackendWorkerRequest(true, reviewed.id);
+
+    try {
+      await reviewRuntime.reviewFeedback({
+        cardId: reviewed.id,
+        rating: 3,
+        queueType: QueueType.RetrievalPractice,
+        reviewedAt: REVIEWED_AT,
+        idempotencyKey: 'transaction-trace-1',
+      });
+    } finally {
+      endBackendWorkerRequest(timing);
+    }
+
+    expect(timing?.innerSteps.map((step) => step.step)).toEqual(expect.arrayContaining([
+      'sql.card-read',
+      'sql.idempotency-check',
+      'scheduler.compute',
+      'scheduler.commit',
+      'sql.review-events-write',
+      'sql.domain-sync-write',
+      'truth-candidate-build',
+      'queue-impact.build',
+      'sql.manual-queue-state-cleanup',
+      'sql.undo-journal-write',
+      'sql.sync-metadata-touch',
+    ]));
+    expect(timing?.innerSteps.find((step) => step.step === 'scheduler.compute')).toMatchObject({
+      layer: 'transaction',
+      cardId: reviewed.id,
+      queueType: QueueType.RetrievalPractice,
+      extra: expect.objectContaining({
+        backendMethod: 'review.feedback',
+        rating: 3,
+      }),
+    });
   });
 
   it('returns deferred impact before SRS projection maintenance reads rows', async () => {

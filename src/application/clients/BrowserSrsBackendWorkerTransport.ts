@@ -667,6 +667,8 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     topInnerSteps: Array<Record<string, unknown>>;
     topInnerStepSummary: string[];
     sessionStepSummary: string[];
+    transactionStepSummary: string[];
+    sqliteStepSummary: string[];
     dominantInnerStepSummary: string | null;
     preRequestMergeSummary: string | null;
     mainDbReadSummary: string | null;
@@ -703,6 +705,15 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     const sessionStepSummary = innerSteps
       .filter((innerStep) => innerStep.layer === 'session' && innerStep.step.startsWith('session-feedback-'))
       .map((innerStep) => this.formatReviewFeedbackInnerStepSummary(innerStep));
+    const transactionStepSummary = innerSteps
+      .filter((innerStep) => (
+        innerStep.layer === 'transaction'
+        && !innerStep.step.startsWith('sqlite.')
+      ))
+      .map((innerStep) => this.formatReviewFeedbackInnerStepSummary(innerStep));
+    const sqliteStepSummary = innerSteps
+      .filter((innerStep) => innerStep.step.startsWith('sqlite.'))
+      .map((innerStep) => this.formatReviewFeedbackInnerStepSummary(innerStep));
     return {
       innerStepCount: innerSteps.length,
       innerStepTotalMs,
@@ -710,6 +721,8 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       topInnerSteps,
       topInnerStepSummary,
       sessionStepSummary,
+      transactionStepSummary,
+      sqliteStepSummary,
       dominantInnerStepSummary: topInnerStepSummary[0] ?? null,
       preRequestMergeSummary: (preRequestMerge ?? preRequestMergeSkip)
         ? this.formatReviewFeedbackInnerStepSummary({
@@ -781,18 +794,23 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       : 'none';
     const top = input.innerStepSummary.topInnerStepSummary.slice(0, 3).join(' | ') || 'none';
     const sessionBreakdown = input.innerStepSummary.sessionStepSummary.join(' | ') || 'none';
+    const transactionBreakdown = input.innerStepSummary.transactionStepSummary.slice(0, 12).join(' | ') || 'none';
+    const sqliteBreakdown = input.innerStepSummary.sqliteStepSummary.slice(0, 12).join(' | ') || 'none';
     const hostBreakdown = this.formatHostEffectBreakdownSummary(input.timing.hostEffectBreakdown);
     return [
       `card=${input.pending.cardId ?? 'unknown'}`,
       `duration=${Math.round(input.timing.handleDurationMs)}ms`,
       `dominant=${input.innerStepSummary.dominantInnerStepSummary ?? 'none'}`,
       `sessionBreakdown=${sessionBreakdown}`,
+      `transactionBreakdown=${transactionBreakdown}`,
+      `sqliteBreakdown=${sqliteBreakdown}`,
       `preMerge=${input.innerStepSummary.preRequestMergeSummary ?? 'none'}`,
       `mainDb=${input.innerStepSummary.mainDbReadSummary ?? 'none'}`,
       `host=${host}`,
       `hostTotal=${Math.round(input.timing.hostEffectTotalMs)}ms`,
       `hostBreakdown=${hostBreakdown}`,
       `innerAttribution=${input.timing.innerStepAttribution}`,
+      `innerTruncated=${input.timing.innerStepsTruncated}`,
       `top=${top}`,
     ].join(' ');
   }

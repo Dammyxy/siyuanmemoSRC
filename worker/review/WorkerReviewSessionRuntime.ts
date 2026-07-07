@@ -32,7 +32,11 @@ type WorkerReviewSessionRepository = {
 };
 
 type WorkerReviewSessionFeedbackRuntime = {
-  reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult>;
+  reviewFeedback(
+    request: BackendReviewFeedbackRequest & {
+      transactionUndoJournalEntry?: ReviewTransactionUndoJournalEntry | null;
+    },
+  ): Promise<BackendReviewFeedbackResult>;
 };
 
 export interface WorkerReviewSessionStartRequest {
@@ -219,19 +223,21 @@ export class WorkerReviewSessionRuntime {
       feedbackTiming,
     );
 
+    const transactionUndoJournalEntry = this.createAnswerUndoJournalEntry(session, undoEntry, request);
     const feedback = await this.measureFeedbackStep(
       'session-feedback-commit',
       session,
       request,
       () => this.deps.feedbackRuntime.reviewFeedback({
-      cardId: request.cardId,
-      rating: request.rating,
-      queueType: session.queueType,
-      queueMode: 'formal',
-      commitPolicy: 'write-schedule',
-      sessionId: session.sessionId,
-      reviewedAt: request.reviewedAt ?? Date.now(),
-      idempotencyKey: request.idempotencyKey ?? null,
+        cardId: request.cardId,
+        rating: request.rating,
+        queueType: session.queueType,
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        sessionId: session.sessionId,
+        reviewedAt: request.reviewedAt ?? Date.now(),
+        idempotencyKey: request.idempotencyKey ?? null,
+        transactionUndoJournalEntry,
       }),
       feedbackTiming,
     );
@@ -244,17 +250,6 @@ export class WorkerReviewSessionRuntime {
       session,
       request,
       () => this.advanceAfterRating(session, request.cardId, request.rating),
-      feedbackTiming,
-    );
-    await this.measureFeedbackStep(
-      'session-feedback-undo-journal-append',
-      session,
-      request,
-      () => this.appendUndoJournalEntry(session, undoEntry, 'answer', {
-        afterCard: feedback.updatedCard ?? null,
-        idempotencyKey: feedback.idempotencyKey ?? request.idempotencyKey ?? null,
-        queueImpact: feedback.queueImpact ?? null,
-      }),
       feedbackTiming,
     );
     const state = this.measureFeedbackStep(
@@ -645,7 +640,54 @@ export class WorkerReviewSessionRuntime {
     if (!journal) {
       return;
     }
-    const entry: ReviewTransactionUndoJournalEntry = {
+    const entry = this.createUndoJournalEntry(session, undoEntry, operation, {
+      ...evidence,
+      frontierAfter: this.captureFrontier(session),
+      recordedAt: Date.now(),
+    });
+    try {
+      await journal.append(entry);
+    } catch (error) {
+      throw new Error(
+        `WORKER_REVIEW_SESSION_UNDO_JOURNAL_UNAVAILABLE: ${session.sessionId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  private createAnswerUndoJournalEntry(
+    session: WorkerReviewSession,
+    undoEntry: WorkerReviewSessionUndoEntry,
+    request: WorkerReviewSessionFeedbackRequest,
+  ): ReviewTransactionUndoJournalEntry | null {
+    if (!this.deps.undoJournal) {
+      return null;
+    }
+    const preview = this.cloneSession(session);
+    this.advanceAfterRating(preview, request.cardId, request.rating);
+    return this.createUndoJournalEntry(session, undoEntry, 'answer', {
+      afterCard: null,
+      idempotencyKey: request.idempotencyKey ?? null,
+      queueImpact: null,
+      frontierAfter: this.captureFrontier(preview),
+      recordedAt: request.reviewedAt ?? Date.now(),
+    });
+  }
+
+  private createUndoJournalEntry(
+    session: WorkerReviewSession,
+    undoEntry: WorkerReviewSessionUndoEntry,
+    operation: ReviewTransactionUndoOperation,
+    evidence: {
+      afterCard: FSRSCard | null;
+      idempotencyKey: string | null;
+      queueImpact: BackendReviewFeedbackResult['queueImpact'] | null;
+      frontierAfter: ReviewTransactionUndoJournalFrontier;
+      recordedAt: number;
+    },
+  ): ReviewTransactionUndoJournalEntry {
+    return {
       schemaVersion: 1,
       transactionId: undoEntry.token,
       undoToken: undoEntry.token,
@@ -658,23 +700,14 @@ export class WorkerReviewSessionRuntime {
       beforeCard: undoEntry.snapshot.current ? cloneCard(undoEntry.snapshot.current) : null,
       afterCard: evidence.afterCard ? cloneCard(evidence.afterCard) : null,
       frontierBefore: this.cloneFrontier(undoEntry.snapshot),
-      frontierAfter: this.captureFrontier(session),
+      frontierAfter: evidence.frontierAfter,
       queueImpact: evidence.queueImpact ?? null,
       projectionGeneration: session.projectionGeneration,
       projectionPolicyHash: session.projectionPolicyHash,
-      recordedAt: Date.now(),
+      recordedAt: evidence.recordedAt,
       status: 'open',
       undoneAt: null,
     };
-    try {
-      await journal.append(entry);
-    } catch (error) {
-      throw new Error(
-        `WORKER_REVIEW_SESSION_UNDO_JOURNAL_UNAVAILABLE: ${session.sessionId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
   }
 
   private async consumeUndoJournalEntry(
@@ -753,6 +786,32 @@ export class WorkerReviewSessionRuntime {
       avoidOnceBlockId: session.avoidOnceBlockId,
       projectionGeneration: session.projectionGeneration,
       projectionPolicyHash: session.projectionPolicyHash,
+    };
+  }
+
+  private cloneSession(session: WorkerReviewSession): WorkerReviewSession {
+    return {
+      sessionId: session.sessionId,
+      queueType: session.queueType,
+      cards: session.cards.map(cloneCard),
+      current: session.current ? cloneCard(session.current) : null,
+      avoidOnceCardId: session.avoidOnceCardId,
+      avoidOnceBlockId: session.avoidOnceBlockId,
+      projectionGeneration: session.projectionGeneration,
+      projectionPolicyHash: session.projectionPolicyHash,
+      undoSequence: session.undoSequence,
+      undoStack: session.undoStack.map((entry) => ({
+        token: entry.token,
+        replayedCardId: entry.replayedCardId,
+        snapshot: {
+          cards: entry.snapshot.cards.map(cloneCard),
+          current: entry.snapshot.current ? cloneCard(entry.snapshot.current) : null,
+          avoidOnceCardId: entry.snapshot.avoidOnceCardId,
+          avoidOnceBlockId: entry.snapshot.avoidOnceBlockId,
+          projectionGeneration: entry.snapshot.projectionGeneration,
+          projectionPolicyHash: entry.snapshot.projectionPolicyHash,
+        },
+      })),
     };
   }
 

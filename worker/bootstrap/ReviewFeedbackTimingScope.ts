@@ -5,7 +5,7 @@ import type {
   BackendWorkerResponseTiming,
 } from './BackendWorkerProtocol';
 
-const MAX_BACKEND_WORKER_INNER_STEPS = 24;
+const MAX_BACKEND_WORKER_INNER_STEPS = 96;
 
 export type ActiveBackendWorkerTiming = {
   method: string;

@@ -17,6 +17,7 @@ import {
   WorkerReviewCardMutationPersistenceModule,
   type WorkerReviewFeedbackTruthCandidate,
 } from './WorkerReviewCardMutationPersistenceModule';
+import type { ReviewTransactionUndoJournalEntry } from './ReviewTransactionUndoJournal';
 import { recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
 import { createLogger } from '@/utils/logger';
 
@@ -46,6 +47,10 @@ type WorkerReviewFeedbackRuntimeDatabase = Pick<RuntimeSqliteDatabaseService, 'r
     writer: (db: WorkerReviewFeedbackTransactionDb) => T | Promise<T>,
     options?: WorkerReviewFeedbackTransactionOptions,
   ): Promise<T>;
+};
+
+export type WorkerReviewFeedbackRequest = BackendReviewFeedbackRequest & {
+  transactionUndoJournalEntry?: ReviewTransactionUndoJournalEntry | null;
 };
 
 export type WorkerReviewFeedbackRuntimeDeps = {
@@ -85,7 +90,7 @@ const deferredReviewFeedbackProjectionMaintenance = new WeakMap<
 export class WorkerReviewFeedbackRuntime {
   constructor(private readonly deps: WorkerReviewFeedbackRuntimeDeps) {}
 
-  async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
+  async reviewFeedback(request: WorkerReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     const queueType = String(request.queueType || 'retrieval-practice').trim() || 'retrieval-practice';
     const defaultCommitPolicy = queueType === 'final-drill' ? 'drill-only' : 'write-schedule';
     const commitPolicy = String(request.commitPolicy || defaultCommitPolicy).trim() || defaultCommitPolicy;
@@ -145,7 +150,7 @@ export class WorkerReviewFeedbackRuntime {
       }
     }
 
-    const normalizedRequest: BackendReviewFeedbackRequest = {
+    const normalizedRequest: WorkerReviewFeedbackRequest = {
       ...request,
       cardId,
       rating,
@@ -154,10 +159,15 @@ export class WorkerReviewFeedbackRuntime {
       commitPolicy,
       reviewedAt,
       idempotencyKey,
+      transactionUndoJournalEntry: request.transactionUndoJournalEntry ?? null,
     };
-    const durableRequest = commitPolicy === 'write-schedule' && this.deps.persistReviewJournal
-      ? await this.deps.persistReviewJournal(normalizedRequest)
-      : normalizedRequest;
+    const durableRequestBase = commitPolicy === 'write-schedule' && this.deps.persistReviewJournal
+      ? await this.deps.persistReviewJournal(stripTransactionUndoJournalEntry(normalizedRequest))
+      : stripTransactionUndoJournalEntry(normalizedRequest);
+    const durableRequest: WorkerReviewFeedbackRequest = {
+      ...durableRequestBase,
+      transactionUndoJournalEntry: normalizedRequest.transactionUndoJournalEntry ?? null,
+    };
     const durableIdempotencyKey = normalizeOptionalString(durableRequest.idempotencyKey);
 
     const mutationModule = new WorkerReviewCardMutationPersistenceModule({
@@ -175,6 +185,7 @@ export class WorkerReviewFeedbackRuntime {
         reviewedAt,
         rating,
         idempotencyKey: durableIdempotencyKey,
+        transactionUndoJournalEntry: durableRequest.transactionUndoJournalEntry ?? null,
       },
       (input) => this.buildReviewFeedbackQueueImpact(input),
       (candidate) => this.deps.recordReviewTruthCandidate?.(candidate),
@@ -551,6 +562,11 @@ function resolveProjectionQueueType(queueType: string): ProjectionWorkerQueueTyp
     return queueType;
   }
   return null;
+}
+
+function stripTransactionUndoJournalEntry(request: WorkerReviewFeedbackRequest): BackendReviewFeedbackRequest {
+  const { transactionUndoJournalEntry: _transactionUndoJournalEntry, ...base } = request;
+  return base;
 }
 
 function isFormalSrsProjectionQueueType(queueType: ProjectionWorkerQueueType): boolean {

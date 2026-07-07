@@ -288,9 +288,15 @@ describe('WorkerReviewSessionRuntime', () => {
       }),
     };
     const feedbackRuntime = {
-      reviewFeedback: vi.fn(async () => {
+      reviewFeedback: vi.fn(async (request) => {
         const updatedCard = { ...first, reps: first.reps + 1, due: NOW + 86_400_000, lastReview: NOW };
         cardsById.set(first.id, updatedCard);
+        if (request.transactionUndoJournalEntry) {
+          await undoJournal.append({
+            ...request.transactionUndoJournalEntry,
+            afterCard: updatedCard,
+          });
+        }
         return {
           cardId: first.id,
           committed: true,
@@ -372,9 +378,15 @@ describe('WorkerReviewSessionRuntime', () => {
       }),
     };
     const feedbackRuntime = {
-      reviewFeedback: vi.fn(async () => {
+      reviewFeedback: vi.fn(async (request) => {
         const updatedCard = { ...first, reps: first.reps + 1, due: NOW + 86_400_000, lastReview: NOW };
         cardsById.set(first.id, updatedCard);
+        if (request.transactionUndoJournalEntry) {
+          await undoJournal.append({
+            ...request.transactionUndoJournalEntry,
+            afterCard: updatedCard,
+          });
+        }
         return {
           cardId: first.id,
           committed: true,
@@ -510,7 +522,7 @@ describe('WorkerReviewSessionRuntime', () => {
     expect(runtime.getSessionState(started.sessionId).current?.id).toBe(second.id);
   });
 
-  it('attributes slow feedback undo journal append as its own session step', async () => {
+  it('passes answer undo evidence into feedback and avoids a separate session append', async () => {
     const first = createCard('card-1');
     const second = createCard('card-2', 1_000);
     const cardsById = new Map([first, second].map((card) => [card.id, card] as const));
@@ -518,11 +530,7 @@ describe('WorkerReviewSessionRuntime', () => {
       queueType: QueueType.RetrievalPractice,
     });
     const undoJournal = {
-      append: vi.fn(async () => {
-        await new Promise((resolve) => {
-          setTimeout(resolve, 130);
-        });
-      }),
+      append: vi.fn(async () => undefined),
       consume: vi.fn(() => null),
     };
     const feedbackRuntime = {
@@ -577,24 +585,22 @@ describe('WorkerReviewSessionRuntime', () => {
         },
       });
 
-      expect(timing.innerSteps).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          layer: 'session',
-          step: 'session-feedback-undo-journal-append',
+      expect(undoJournal.append).not.toHaveBeenCalled();
+      expect(feedbackRuntime.reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+        transactionUndoJournalEntry: expect.objectContaining({
+          undoToken: expect.stringContaining('worker-review-session-undo:session-slow-undo-journal:'),
+          operation: 'answer',
           cardId: first.id,
-          queueType: QueueType.RetrievalPractice,
-          durationMs: expect.any(Number),
+          beforeCard: expect.objectContaining({ id: first.id }),
+          frontierBefore: expect.objectContaining({
+            current: expect.objectContaining({ id: first.id }),
+          }),
+          frontierAfter: expect.objectContaining({
+            current: expect.objectContaining({ id: second.id }),
+          }),
         }),
-        expect.objectContaining({
-          layer: 'session',
-          step: 'session-feedback-total',
-          cardId: first.id,
-          queueType: QueueType.RetrievalPractice,
-          durationMs: expect.any(Number),
-        }),
-      ]));
-      const undoStep = timing.innerSteps.find((step) => step.step === 'session-feedback-undo-journal-append');
-      expect(undoStep?.durationMs).toBeGreaterThanOrEqual(120);
+      }));
+      expect(timing.innerSteps.some((step) => step.step === 'session-feedback-undo-journal-append')).toBe(false);
     } finally {
       endBackendWorkerRequest(timing);
     }
@@ -650,7 +656,7 @@ describe('WorkerReviewSessionRuntime', () => {
     const dateNow = vi.spyOn(Date, 'now');
     const nowSequence = [
       1_000, 1_000, 1_000, 1_000, 1_050, 1_050, 1_050,
-      1_050, 1_050, 1_080, 1_080, 1_080, 1_600,
+      1_050, 1_080, 1_600,
     ];
     dateNow.mockImplementation(() => nowSequence.shift() ?? 1_600);
 
@@ -673,13 +679,12 @@ describe('WorkerReviewSessionRuntime', () => {
         'session-feedback-preflight',
         'session-feedback-commit',
         'session-feedback-advance',
-        'session-feedback-undo-journal-append',
         'session-feedback-state',
         'session-feedback-unattributed-gap',
         'session-feedback-total',
       ]);
       expect(timing.innerSteps.find((step) => step.step === 'session-feedback-commit')?.durationMs).toBe(50);
-      expect(timing.innerSteps.find((step) => step.step === 'session-feedback-undo-journal-append')?.durationMs).toBe(30);
+      expect(timing.innerSteps.some((step) => step.step === 'session-feedback-undo-journal-append')).toBe(false);
       expect(timing.innerSteps.find((step) => step.step === 'session-feedback-unattributed-gap')).toEqual(
         expect.objectContaining({
           durationMs: 520,

@@ -20,6 +20,8 @@ import type {
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
 import { createLogger } from '@/utils/logger';
+import type { ReviewTransactionUndoJournalEntry } from './ReviewTransactionUndoJournal';
+import { appendReviewTransactionUndoJournalEntryInCurrentTransaction } from './ReviewTransactionUndoJournalStore';
 
 type ReviewFeedbackRepository = Pick<SqlUnifiedStorageRepository, 'getCard' | 'upsertCards' | 'touchSyncMetadata'>;
 type ReviewFeedbackTransactionDb =
@@ -30,7 +32,10 @@ type ReviewFeedbackRuntime = Pick<RuntimeSqliteDatabaseService, 'run' | 'getOne'
   runTransaction<T>(
     label: string,
     writer: (db: ReviewFeedbackTransactionDb) => T | Promise<T>,
-    options?: { persist?: boolean },
+    options?: {
+      persist?: boolean;
+      diagnosticRecorder?: (step: string, durationMs: number, extra?: Record<string, unknown>) => void;
+    },
   ): Promise<T>;
 };
 const logger = createLogger('WorkerReviewCardMutationPersistenceModule');
@@ -57,6 +62,7 @@ export type WorkerReviewFeedbackMutationInput = {
   reviewedAt: number;
   rating: 1 | 2 | 3 | 4;
   idempotencyKey: string | null;
+  transactionUndoJournalEntry?: ReviewTransactionUndoJournalEntry | null;
 };
 
 export type WorkerReviewFeedbackQueueImpactBuilder = (input: {
@@ -105,17 +111,29 @@ export class WorkerReviewCardMutationPersistenceModule {
       const domainSyncLedger = this.deps.domainSyncLedger ?? new DomainSyncLedger(this.deps.runtime);
       const reviewLedger = new SqlReviewLedgerStore(this.deps.runtime);
       const cardScheduleStore = new SqlCardScheduleStore(this.deps.repository);
-      const card = this.deps.repository.getCard(input.cardId);
+      const card = this.measureReviewFeedbackTransactionStep('sql.card-read', input, () => (
+        this.deps.repository.getCard(input.cardId)
+      ));
       if (!card) {
         throw new Error(`review.feedback card not found: ${input.cardId}`);
       }
 
-      const existingCommit = input.idempotencyKey
+      const existingCommit = this.measureReviewFeedbackTransactionStep('sql.idempotency-check', input, () => (input.idempotencyKey
         ? reviewLedger.findByIdempotencyKey(input.idempotencyKey)
-        : null;
+        : null));
       if (existingCommit) {
         this.assertCompatibleDuplicateCommit(existingCommit, input);
-        this.removeReviewedCardFromManualSrsQueueState(card);
+        this.measureReviewFeedbackTransactionStep('sql.manual-queue-state-cleanup', input, () => (
+          this.removeReviewedCardFromManualSrsQueueState(card)
+        ));
+        const duplicateQueueImpact = null;
+        const duplicateUndoPersisted = this.measureReviewFeedbackTransactionStep('sql.undo-journal-write', input, () => (
+          this.appendTransactionUndoJournalEntryIfRequested(input, {
+          afterCard: card,
+          queueImpact: duplicateQueueImpact,
+          recordedAt: existingCommit.reviewedAt,
+          })
+        ));
         return {
           cardId: input.cardId,
           committed: true,
@@ -124,7 +142,8 @@ export class WorkerReviewCardMutationPersistenceModule {
           updatedCard: card,
           idempotencyKey: input.idempotencyKey,
           duplicate: true,
-          queueImpact: null,
+          queueImpact: duplicateQueueImpact,
+          undoJournalPersisted: duplicateUndoPersisted,
         };
       }
 
@@ -142,15 +161,17 @@ export class WorkerReviewCardMutationPersistenceModule {
         },
       );
 
-      const decision = scheduler.answer(card, input.rating, {
+      const decision = this.measureReviewFeedbackTransactionStep('scheduler.compute', input, () => scheduler.answer(card, input.rating, {
         queueType: input.queueType,
         queueMode: input.queueMode,
         commitPolicy: input.commitPolicy as 'write-schedule' | 'preview-only' | 'drill-only',
         source: 'queue',
         sessionId: input.request.sessionId,
         reviewTime: input.reviewedAt,
-      });
-      const commitResult = await scheduler.commit(decision);
+      }));
+      const commitResult = await this.measureReviewFeedbackTransactionStep('scheduler.commit', input, () => (
+        scheduler.commit(decision)
+      ));
 
       if (commitResult.committed && commitResult.updatedCard) {
         const log = createReviewLogV2({
@@ -178,12 +199,12 @@ export class WorkerReviewCardMutationPersistenceModule {
             `INVALID_STATE: committed review feedback produced non-formal review fact: ${fact.classification.exclusionReasons.join(',')}`,
           );
         }
-        reviewLedger.appendCommittedReviewFact({
+        this.measureReviewFeedbackTransactionStep('sql.review-events-write', input, () => reviewLedger.appendCommittedReviewFact({
           log,
           factSummary: summarizeReviewEventFact(fact),
           idempotencyKey: input.idempotencyKey,
-        });
-        domainSyncLedger.appendReviewCommitted({
+        }));
+        this.measureReviewFeedbackTransactionStep('sql.domain-sync-write', input, () => domainSyncLedger.appendReviewCommitted({
           reviewEventId: log.id,
           card,
           rating: input.rating,
@@ -192,8 +213,8 @@ export class WorkerReviewCardMutationPersistenceModule {
           queueMode: input.queueMode,
           commitPolicy: input.commitPolicy,
           idempotencyKey: input.idempotencyKey ?? null,
-        });
-        onTruthCandidate?.(buildReviewFeedbackTruthCandidate({
+        }));
+        this.measureReviewFeedbackTransactionStep('truth-candidate-build', input, () => onTruthCandidate?.(buildReviewFeedbackTruthCandidate({
           input,
           log,
           beforeCard: decision.before,
@@ -201,7 +222,7 @@ export class WorkerReviewCardMutationPersistenceModule {
           schedulerType: decision.schedulerType,
           algorithm: decision.algorithm,
           attemptId: decision.attempt.id,
-        }));
+        })));
       }
 
       const queueImpactInput = {
@@ -214,17 +235,24 @@ export class WorkerReviewCardMutationPersistenceModule {
       };
       const queueImpact = shouldBuildQueueImpactAfterReviewTransaction(input.queueType)
         ? null
-        : this.measureReviewFeedbackStep('queue-impact', input, () => buildQueueImpact(queueImpactInput));
+        : this.measureReviewFeedbackTransactionStep('queue-impact.build', input, () => buildQueueImpact(queueImpactInput));
       if (shouldBuildQueueImpactAfterReviewTransaction(input.queueType)) {
         postCommitQueueImpactInput = queueImpactInput;
       }
 
       if (commitResult.committed) {
-        this.removeReviewedCardFromManualSrsQueueState(card);
-        await this.deps.repository.touchSyncMetadata({
+        this.measureReviewFeedbackTransactionStep('sql.manual-queue-state-cleanup', input, () => (
+          this.removeReviewedCardFromManualSrsQueueState(card)
+        ));
+        this.measureReviewFeedbackTransactionStep('sql.undo-journal-write', input, () => this.appendTransactionUndoJournalEntryIfRequested(input, {
+          afterCard: commitResult.updatedCard ?? null,
+          queueImpact,
+          recordedAt: input.reviewedAt,
+        }));
+        await this.measureReviewFeedbackTransactionStep('sql.sync-metadata-touch', input, () => this.deps.repository.touchSyncMetadata({
           modifiedAt: input.reviewedAt,
           modifiedBy: 'srs-backend-worker:review.feedback',
-        });
+        }));
       }
 
       return {
@@ -236,8 +264,14 @@ export class WorkerReviewCardMutationPersistenceModule {
         idempotencyKey: input.idempotencyKey ?? null,
         duplicate: false,
         queueImpact,
+        undoJournalPersisted: Boolean(input.transactionUndoJournalEntry && commitResult.committed),
       };
-    }, { persist: input.commitPolicy === 'write-schedule' }));
+    }, {
+      persist: input.commitPolicy === 'write-schedule',
+      diagnosticRecorder: (step, durationMs, extra) => (
+        this.recordReviewFeedbackTransactionDiagnosticStep(step, input, durationMs, extra)
+      ),
+    }));
     if (!postCommitQueueImpactInput) {
       return result;
     }
@@ -308,6 +342,63 @@ export class WorkerReviewCardMutationPersistenceModule {
     }
   }
 
+  private async measureReviewFeedbackTransactionStep<TResult>(
+    step: string,
+    input: WorkerReviewFeedbackMutationInput,
+    task: () => Promise<TResult>,
+  ): Promise<TResult>;
+  private measureReviewFeedbackTransactionStep<TResult>(
+    step: string,
+    input: WorkerReviewFeedbackMutationInput,
+    task: () => TResult,
+  ): TResult;
+  private measureReviewFeedbackTransactionStep<TResult>(
+    step: string,
+    input: WorkerReviewFeedbackMutationInput,
+    task: () => TResult | Promise<TResult>,
+  ): TResult | Promise<TResult> {
+    const startedAt = Date.now();
+    const record = (): void => {
+      this.recordReviewFeedbackTransactionDiagnosticStep(step, input, Date.now() - startedAt);
+    };
+    try {
+      const result = task();
+      if (result && typeof (result as Promise<TResult>).then === 'function') {
+        return (result as Promise<TResult>).finally(record);
+      }
+      record();
+      return result;
+    } catch (error) {
+      record();
+      throw error;
+    }
+  }
+
+  private recordReviewFeedbackTransactionDiagnosticStep(
+    step: string,
+    input: WorkerReviewFeedbackMutationInput,
+    durationMs: number,
+    extra: Record<string, unknown> = {},
+  ): void {
+    const layer = step.startsWith('sqlite.')
+      ? 'database'
+      : (step.startsWith('queue-impact.') ? 'queue-impact' : 'transaction');
+    recordReviewFeedbackInnerStep({
+      layer,
+      step,
+      cardId: input.cardId,
+      queueType: input.queueType,
+      durationMs: Math.max(0, durationMs),
+      extra: {
+        backendMethod: input.request.sessionId ? 'review.session.feedback' : 'review.feedback',
+        queueMode: input.queueMode,
+        commitPolicy: input.commitPolicy,
+        rating: input.rating,
+        ...extra,
+      },
+    });
+  }
+
   private assertCompatibleDuplicateCommit(
     existing: ReviewLedgerDuplicateCommit,
     request: WorkerReviewFeedbackMutationInput,
@@ -325,6 +416,32 @@ export class WorkerReviewCardMutationPersistenceModule {
         `INVALID_REQUEST: conflicting review commit idempotency key: ${request.idempotencyKey}`,
       );
     }
+  }
+
+  private appendTransactionUndoJournalEntryIfRequested(
+    input: WorkerReviewFeedbackMutationInput,
+    evidence: {
+      afterCard: FSRSCard | null;
+      queueImpact: BackendReviewFeedbackQueueImpact | null;
+      recordedAt: number;
+    },
+  ): boolean {
+    const entry = input.transactionUndoJournalEntry;
+    if (!entry) {
+      return false;
+    }
+    appendReviewTransactionUndoJournalEntryInCurrentTransaction(this.deps.runtime, {
+      ...entry,
+      originalReviewIdempotencyKey: input.idempotencyKey ?? entry.originalReviewIdempotencyKey,
+      afterCard: evidence.afterCard ? cloneCard(evidence.afterCard) : null,
+      queueImpact: evidence.queueImpact,
+      recordedAt: Number.isFinite(Number(entry.recordedAt)) && Number(entry.recordedAt) > 0
+        ? entry.recordedAt
+        : evidence.recordedAt,
+      status: 'open',
+      undoneAt: null,
+    });
+    return true;
   }
 
   private removeReviewedCardFromManualSrsQueueState(card: Pick<FSRSCard, 'id' | 'blockId'>): void {
@@ -511,6 +628,10 @@ function buildReviewFeedbackTruthCandidate(input: {
     beforeCard: createReviewLogV2SnapshotCompat(input.beforeCard),
     afterCard: createReviewLogV2SnapshotCompat(input.afterCard),
   };
+}
+
+function cloneCard(card: FSRSCard): FSRSCard {
+  return JSON.parse(JSON.stringify(card)) as FSRSCard;
 }
 
 function createReviewLogV2SnapshotCompat(card: FSRSCard): Record<string, unknown> {

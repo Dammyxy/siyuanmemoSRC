@@ -2853,6 +2853,7 @@ export interface BackendReviewFeedbackResult {
   updatedCard: unknown | null;
   idempotencyKey?: string | null;
   duplicate?: boolean;
+  undoJournalPersisted?: boolean;
   queueImpact?: BackendReviewFeedbackQueueImpact | null;
   storage?: BackendReviewFeedbackStorageState;
 }
