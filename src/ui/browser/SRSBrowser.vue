@@ -65,6 +65,7 @@
         @toggleViewMode="toggleViewMode"
         @toggleNavigator="toggleNavigator"
         @forceRefresh="forceRefreshData"
+        @openMaintenanceMenu="openMaintenanceMenu"
         @showPerformanceReport="showPerformanceReport"
         @convertToTab="convertToTab"
         @openFilterDialog="showFilterDialog = true"
@@ -687,6 +688,7 @@ type BrowserTabApplicationServicePort = {
 type BrowserDialogManagerPort = {
   getActiveReviewQueueType?: () => QueueType | null;
   hasOpenNeuralReviewDialog?: () => boolean;
+  openSrsCardSemanticsRepairDialog?: () => Promise<void> | void;
   openNeuralRoamDialog?: (options?: {
     focusBlockId?: string;
     includeFocusAsFirst?: boolean;
@@ -2912,6 +2914,7 @@ function convertToTab() {
 let handleActionImpl: (actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) => Promise<void> = async () => {};
 let onCellContextMenuImpl: (event: CellContextMenuEvent) => void = () => {};
 let openPracticeMenuImpl: (event: MouseEvent) => void = () => {};
+let openMaintenanceMenuImpl: (event: MouseEvent) => void = () => {};
 
 async function handleAction(actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) {
   return handleActionImpl(actionId, targetCards, anchorRow);
@@ -2923,6 +2926,10 @@ function onCellContextMenu(event: CellContextMenuEvent) {
 
 function openPracticeMenu(event: MouseEvent) {
   return openPracticeMenuImpl(event);
+}
+
+function openMaintenanceMenu(event: MouseEvent) {
+  return openMaintenanceMenuImpl(event);
 }
 
 async function autoSortFinalDrillQueue() {
@@ -3650,6 +3657,7 @@ const browserActionMenuRuntime = createBrowserActionMenuRuntime({
 handleActionImpl = browserActionMenuRuntime.handleAction;
 onCellContextMenuImpl = browserActionMenuRuntime.onCellContextMenu;
 openPracticeMenuImpl = browserActionMenuRuntime.openPracticeMenu;
+openMaintenanceMenuImpl = browserActionMenuRuntime.openMaintenanceMenu;
 
 const cardTypeDetection = useCardTypeDetection(() => rows.value, {
   siyuanApi: () => browserSiyuanApi.value || null,

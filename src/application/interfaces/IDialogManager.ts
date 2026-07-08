@@ -118,6 +118,11 @@ export interface IDialogManager {
   }): Promise<void>;
 
   /**
+   * 打开 SRS 卡片语义诊断与修复对话框
+   */
+  openSrsCardSemanticsRepairDialog(): Promise<void>;
+
+  /**
    * 打开移动端队列启动面板
    */
   openMobileQueueLauncherDialog(): Promise<void>;

@@ -93,6 +93,7 @@ type BrowserPracticeDialogManager = {
   openFinalDrillDialog?: () => Promise<void> | void;
   openNeuralRoamDialog?: () => Promise<void> | void;
   openFilterGroupPracticeDialog?: () => Promise<void> | void;
+  openSrsCardSemanticsRepairDialog?: () => Promise<void> | void;
 };
 
 export type BrowserActionMenuRuntimeDeps = {
@@ -753,10 +754,58 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
     });
   }
 
+  function openMaintenanceMenu(event: MouseEvent): void {
+    try {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+    } catch {}
+
+    const dialogManager = deps.getDialogManager();
+    if (!dialogManager) return;
+
+    const label = deps.t('repairSrsCardSemantics', 'Diagnose and Repair Card Types');
+    const menu = createMenu('fsrs-browser-maintenance-menu');
+    menu.addItem({
+      icon: 'iconRefresh',
+      label,
+      click: wrapBrowserMenuAction(
+        label,
+        () => dialogManager.openSrsCardSemanticsRepairDialog?.(),
+      ),
+    });
+
+    const target = (event?.currentTarget || event?.target) as HTMLElement | null;
+    const rect = target?.getBoundingClientRect?.();
+    const rawX = Number(event?.clientX);
+    const rawY = Number(event?.clientY);
+    const hasMousePoint = Number.isFinite(rawX) && Number.isFinite(rawY);
+    const pos = rect
+      ? { x: rect.left, y: rect.bottom }
+      : hasMousePoint
+        ? { x: rawX, y: rawY }
+        : null;
+
+    if (!pos) {
+      deps.logger.error('[SiYuanMemo][CardBrowser] openMaintenanceMenu failed: invalid pointer position');
+      void deps.pushErrMsg(deps.t('openBrowserMaintenanceMenuFailed', 'Failed to open maintenance menu'));
+      return;
+    }
+
+    defer(() => {
+      try {
+        menu.open({ x: pos.x, y: pos.y, isLeft: !deps.isMobileMode.value });
+      } catch (err) {
+        deps.logger.error('[SiYuanMemo][CardBrowser] openMaintenanceMenu failed:', err);
+        void deps.pushErrMsg(deps.t('openBrowserMaintenanceMenuFailed', 'Failed to open maintenance menu'));
+      }
+    });
+  }
+
   return {
     ensureReviewSubsetAction,
     handleAction,
     onCellContextMenu,
+    openMaintenanceMenu,
     openPracticeMenu,
     resolveActionTargets,
     showBatchMenu,

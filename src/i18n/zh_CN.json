@@ -26,6 +26,8 @@
   "countReasonUnresolved": "未归因差异",
   "openSrsBrowserTab": "打开浏览器 TAB",
   "openBrowserTabFailed": "打开浏览器 TAB 失败",
+  "browserMaintenance": "维护",
+  "openBrowserMaintenanceMenuFailed": "打开维护菜单失败",
   "browserNavigator": "导航",
   "reviewTitle": "提取练习",
   "reviewSideAreaTabs": "复习侧栏",

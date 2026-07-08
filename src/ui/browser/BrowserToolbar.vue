@@ -138,6 +138,16 @@
         {{ t('spread', '分摊压力') }}
       </button>
 
+      <button
+        v-if="!props.mobileMode"
+        class="b3-button b3-button--outline"
+        @click.stop.prevent="$emit('openMaintenanceMenu', $event)"
+        :disabled="!hasPlugin || loading"
+        :title="t('browserMaintenance', '维护')"
+      >
+        <svg><use xlink:href="#iconSettings"></use></svg>
+      </button>
+
       <div v-if="!props.mobileMode && !isTabNarrow" class="toolbar__divider"></div>
 
       <button
@@ -258,6 +268,7 @@ const emit = defineEmits<{
   (e: 'toggleViewMode'): void;
   (e: 'forceRefresh'): void;
   (e: 'showPerformanceReport'): void;
+  (e: 'openMaintenanceMenu', event: MouseEvent): void;
   (e: 'convertToTab'): void;
   (e: 'toggleNavigator'): void;
   (e: 'openFilterDialog'): void;

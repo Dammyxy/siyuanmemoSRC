@@ -13,7 +13,7 @@ import type { Plugin } from 'siyuan';
 import { reactive } from 'vue';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { IDialogManager } from '../interfaces/IDialogManager';
-import { confirmDialog, createVueDialog } from '@/utils/dialog';
+import { applyDialogChrome, confirmDialog, createVueDialog } from '@/utils/dialog';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import {
   createUnavailableHostBlockQueryPort,
@@ -80,6 +80,7 @@ import {
   loadSrsBrowserComponent,
   loadTemplateSelectDialogComponent,
 } from './lazySurfaceComponents';
+import type { SrsCardSemanticsRepairPreviewReady } from '@/application/services/SrsCardSemanticsRepairService';
 
 const logger = createLogger('DialogManager');
 
@@ -223,6 +224,15 @@ export class DialogManager implements IDialogManager {
 
   private isMobileFrontend(): boolean {
     return (this.plugin as PluginWithMobileFlag).isMobile === true;
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   private resolveBrowserDialogSize(): { width: string; height: string } {
@@ -877,6 +887,113 @@ export class DialogManager implements IDialogManager {
       this.srsBrowserDialog.destroy();
       this.srsBrowserDialog = null;
     }
+  }
+
+  async openSrsCardSemanticsRepairDialog(): Promise<void> {
+    if (!(await this.checkInitialized('browser'))) return;
+
+    const repairService = this.context.getSrsCardSemanticsRepairService();
+    const preview = await repairService.preview();
+    if (preview.status === 'unavailable') {
+      await this.siyuanApi.pushErrMsg(
+        preview.diagnostics[0]?.message || '卡片类型诊断暂不可用',
+      );
+      return;
+    }
+
+    const shouldCommit = await this.showSrsCardSemanticsRepairDialog(preview);
+    if (!shouldCommit) {
+      return;
+    }
+
+    const result = await repairService.commit();
+    if (result.status === 'unavailable') {
+      await this.siyuanApi.pushErrMsg(
+        result.diagnostics[0]?.message || '卡片类型修复暂不可用',
+      );
+      return;
+    }
+
+    if (result.status === 'failed') {
+      await this.siyuanApi.pushErrMsg(
+        `卡片类型修复失败：已修复 ${result.appliedCount} 张，失败 ${result.failedCount} 张`,
+      );
+      return;
+    }
+
+    await this.siyuanApi.pushMsg(
+      `卡片类型修复完成：已修复 ${result.appliedCount} 张，跳过 ${result.skippedCount} 张`,
+    );
+  }
+
+  private async showSrsCardSemanticsRepairDialog(preview: SrsCardSemanticsRepairPreviewReady): Promise<boolean> {
+    const { Dialog } = await import('siyuan') as {
+      Dialog: new (options: { title: string; content: string; width?: string }) => {
+        element: HTMLElement;
+        destroy: () => void;
+      };
+    };
+    return new Promise((resolve) => {
+      const exampleRows = preview.rows
+        .filter((row) => row.status === 'safe-repair')
+        .slice(0, 5)
+        .map((row) => `
+          <tr>
+            <td>${this.escapeHtml(row.cardId)}</td>
+            <td>${this.escapeHtml(String(row.beforeKind ?? 'unknown'))}</td>
+            <td>${this.escapeHtml(String(row.afterKind ?? 'unknown'))}</td>
+            <td>${row.evidenceCount}</td>
+          </tr>
+        `)
+        .join('');
+      const i18n = this.context.getI18n?.() || {};
+      const dialog = new Dialog({
+        title: i18n.repairSrsCardSemantics || '诊断并修复卡片类型',
+        content: `
+          <div class="siyuanmemo-choice-dialog">
+            <p class="siyuanmemo-choice-dialog__message">
+              将按确定性证据修复卡片类型。先预览，不会自动改库。
+            </p>
+            <ul class="b3-list b3-list--background">
+              <li class="b3-list-item">总卡片：<strong>${preview.counts.total}</strong></li>
+              <li class="b3-list-item">可安全修复：<strong>${preview.counts.safeRepair}</strong></li>
+              <li class="b3-list-item">有冲突跳过：<strong>${preview.counts.ambiguous}</strong></li>
+              <li class="b3-list-item">证据不足跳过：<strong>${preview.counts.insufficient}</strong></li>
+              <li class="b3-list-item">无需修复：<strong>${preview.counts.noop}</strong></li>
+            </ul>
+            ${exampleRows ? `
+              <table class="b3-table">
+                <thead>
+                  <tr><th>卡片</th><th>当前</th><th>修复为</th><th>证据</th></tr>
+                </thead>
+                <tbody>${exampleRows}</tbody>
+              </table>
+            ` : '<p class="ft__secondary">没有可安全修复的卡片。</p>'}
+            <div class="siyuanmemo-choice-dialog__actions">
+              <button class="b3-button b3-button--cancel">取消</button>
+              <button class="b3-button b3-button--text" data-action="commit" ${preview.counts.safeRepair === 0 ? 'disabled' : ''}>提交修复</button>
+            </div>
+          </div>
+        `,
+        width: '640px',
+      });
+      applyDialogChrome(dialog, {
+        visualVariant: 'manager',
+        containerClass: 'siyuanmemo-srs-card-semantics-repair-dialog',
+        dialogWidth: '640px',
+        dialogHeight: 'auto',
+      });
+
+      const element = dialog.element;
+      element.querySelector('[data-action="commit"]')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve(true);
+      });
+      element.querySelector('.b3-button--cancel')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve(false);
+      });
+    });
   }
 
   private closeProgressiveSplitDialog(): void {

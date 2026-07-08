@@ -51,6 +51,8 @@
   "semanticTemporaryContentPending": "Semantic temporary content will render here.",
   "semanticTemporaryReviewFailed": "Temporary Semantic review failed",
   "semanticTemporaryViewFailed": "Temporary Semantic card view failed",
+  "browserMaintenance": "Maintenance",
+  "openBrowserMaintenanceMenuFailed": "Failed to open maintenance menu",
   "browserSemanticReview": "Browser Semantic Review",
   "browserSemanticReviewDescription": "Review Semantic session history without changing active exploration.",
   "semanticContinueExploration": "Continue Exploration",

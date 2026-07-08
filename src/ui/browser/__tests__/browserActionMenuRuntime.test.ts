@@ -67,6 +67,7 @@ function createRuntimeDeps(overrides: Record<string, unknown> = {}) {
   } as unknown as ICardDataSource;
   const menuRecorder = createMenuRecorder();
   const openReviewDialog = vi.fn();
+  const openSrsCardSemanticsRepairDialog = vi.fn();
   const deps = {
     applyRandomSort: vi.fn(),
     applySort: vi.fn(),
@@ -81,6 +82,7 @@ function createRuntimeDeps(overrides: Record<string, unknown> = {}) {
       openFinalDrillDialog: vi.fn(),
       openNeuralRoamDialog: vi.fn(),
       openFilterGroupPracticeDialog: vi.fn(),
+      openSrsCardSemanticsRepairDialog,
     })),
     getNeuralRoamQueue: vi.fn(() => null),
     getPlugin: vi.fn(() => null),
@@ -112,7 +114,7 @@ function createRuntimeDeps(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 
-  return { dataSource, deps, menuRecorder, openReviewDialog };
+  return { dataSource, deps, menuRecorder, openReviewDialog, openSrsCardSemanticsRepairDialog };
 }
 
 describe('browserActionMenuRuntime', () => {
@@ -259,6 +261,37 @@ describe('browserActionMenuRuntime', () => {
 
     menuRecorder.menus[0].items[0].click?.();
     expect(openReviewDialog).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds maintenance menu through dialog manager and routes semantic repair', () => {
+    const { deps, menuRecorder, openSrsCardSemanticsRepairDialog } = createRuntimeDeps({
+      t: (key: string, fallback: string) => ({
+        repairSrsCardSemantics: '诊断并修复卡片类型',
+      } as Record<string, string>)[key] || fallback,
+    });
+    const runtime = createBrowserActionMenuRuntime(deps);
+    const target = {
+      getBoundingClientRect: () => ({ left: 11, bottom: 22 }),
+    };
+    const event = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      currentTarget: target,
+      target,
+      clientX: 1,
+      clientY: 2,
+    } as unknown as MouseEvent;
+
+    runtime.openMaintenanceMenu(event);
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(event.stopPropagation).toHaveBeenCalled();
+    expect(menuRecorder.menus[0].id).toBe('fsrs-browser-maintenance-menu');
+    expect(menuRecorder.menus[0].open).toHaveBeenCalledWith({ x: 11, y: 22, isLeft: true });
+    expect(menuRecorder.menus[0].items[0].label).toBe('诊断并修复卡片类型');
+
+    menuRecorder.menus[0].items[0].click?.();
+    expect(openSrsCardSemanticsRepairDialog).toHaveBeenCalledTimes(1);
   });
 
   it('prepends state-specific CDF diagnostic actions to row context menus', async () => {

@@ -9,12 +9,29 @@ import type { Plugin } from 'siyuan';
 import { createVueDialog } from '@/utils/dialog';
 import { QueueType } from '@/types/unified-data-source';
 
-const { openManualSyncConflictResolutionDialogMock } = vi.hoisted(() => ({
+const { dialogInstances, DialogMock, openManualSyncConflictResolutionDialogMock } = vi.hoisted(() => ({
+  dialogInstances: [] as Array<{
+    options: { title: string; content: string; width?: string };
+    element: HTMLElement;
+    destroy: ReturnType<typeof vi.fn>;
+  }>,
+  DialogMock: vi.fn((options: { title: string; content: string; width?: string }) => {
+    const element = document.createElement('div');
+    element.innerHTML = options.content;
+    const dialog = {
+      options,
+      element,
+      destroy: vi.fn(),
+    };
+    dialogInstances.push(dialog);
+    return dialog;
+  }),
   openManualSyncConflictResolutionDialogMock: vi.fn(async () => undefined),
 }));
 
 // Mock dependencies
 vi.mock('@/utils/dialog', () => ({
+  applyDialogChrome: vi.fn(),
   createVueDialog: vi.fn((options) => {
     const mockDialog = {
       dialog: { element: document.createElement('div') },
@@ -44,6 +61,10 @@ const { createUnifiedReviewDialogMock } = vi.hoisted(() => ({
 
 vi.mock('@/application/factories/createUnifiedReviewDialog', () => ({
   createUnifiedReviewDialog: createUnifiedReviewDialogMock,
+}));
+
+vi.mock('siyuan', () => ({
+  Dialog: DialogMock,
 }));
 
 vi.mock('@/ui/syncConflict/manualSyncConflictResolutionDialog', () => ({
@@ -162,6 +183,25 @@ describe('DialogManager', () => {
       getEventBus: vi.fn(() => ({})),
       getHybridSyncService: vi.fn(() => undefined),
       getReviewQueuePreparationService: vi.fn(() => null),
+      getReviewAdmissionModule: vi.fn(() => ({
+        admitReviewSession: vi.fn(async ({ queueType, entrySurface }) => ({
+          queueType,
+          entrySurface: entrySurface ?? null,
+          projectionPolicyHash: 'test-policy',
+          projectionGeneration: 1,
+          readinessRequest: {
+            queueType,
+            preset: 'all',
+            searchText: null,
+            docId: null,
+            scopeDocIds: [],
+            cardType: 'all',
+            source: 'browser',
+          },
+          admittedAt: Date.now(),
+          source: 'ready-projection',
+        })),
+      })),
       getPracticeQueueManager: vi.fn(() => mockPracticeQueueManager),
       getRetrievalQueue: vi.fn(() => mockRetrievalQueue),
       getUnifiedDataSourceManager: vi.fn(() => ({
@@ -172,6 +212,13 @@ describe('DialogManager', () => {
       readDomainSyncDiagnostics: mockReadDomainSyncDiagnostics,
       getI18n: vi.fn(() => mockI18n),
       getPlugin: vi.fn(() => mockPlugin),
+      getSrsCardSemanticsRepairService: vi.fn(() => ({
+        preview: vi.fn(async () => ({
+          status: 'unavailable',
+          diagnostics: [{ message: 'repair unavailable' }],
+        })),
+        commit: vi.fn(),
+      })),
       getConfiguredCaptureStorageService: vi.fn(() => ({
         listOpenNotebooks: vi.fn(async () => []),
       })),
@@ -198,6 +245,7 @@ describe('DialogManager', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    dialogInstances.length = 0;
   });
 
   describe('构造函数', () => {
@@ -386,6 +434,73 @@ describe('DialogManager', () => {
       expect(createUnifiedReviewDialogMock).toHaveBeenNthCalledWith(3, expect.objectContaining({
         headerVariant: 'subset-review',
       }));
+    });
+  });
+
+  describe('SRS 卡片语义修复对话框', () => {
+    it('fails closed when semantic repair preview is unavailable', async () => {
+      const repairService = {
+        preview: vi.fn(async () => ({
+          status: 'unavailable',
+          diagnostics: [{ message: 'SQL unavailable' }],
+        })),
+        commit: vi.fn(),
+      };
+      vi.mocked(mockContext.getSrsCardSemanticsRepairService).mockReturnValueOnce(repairService as never);
+
+      await dialogManager.openSrsCardSemanticsRepairDialog();
+
+      expect(repairService.preview).toHaveBeenCalledTimes(1);
+      expect(repairService.commit).not.toHaveBeenCalled();
+      expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalledWith('SQL unavailable');
+      expect(DialogMock).not.toHaveBeenCalled();
+    });
+
+    it('previews before committing deterministic card semantic repairs', async () => {
+      const repairService = {
+        preview: vi.fn(async () => ({
+          status: 'ready',
+          counts: {
+            total: 3,
+            safeRepair: 1,
+            ambiguous: 1,
+            insufficient: 0,
+            noop: 1,
+            skipped: 1,
+          },
+          rows: [{
+            cardId: '<card-a>',
+            status: 'safe-repair',
+            beforeKind: 'topic',
+            afterKind: 'item',
+            evidenceCount: 2,
+            diagnosticCodes: [],
+          }],
+          audits: [],
+        })),
+        commit: vi.fn(async () => ({
+          status: 'committed',
+          appliedCount: 1,
+          skippedCount: 2,
+          failedCount: 0,
+          updatedCardIds: ['card-a'],
+          diagnostics: [],
+        })),
+      };
+      vi.mocked(mockContext.getSrsCardSemanticsRepairService).mockReturnValueOnce(repairService as never);
+
+      const pending = dialogManager.openSrsCardSemanticsRepairDialog();
+      await vi.waitFor(() => expect(dialogInstances).toHaveLength(1));
+      expect(dialogInstances[0].options.title).toBe('诊断并修复卡片类型');
+      expect(dialogInstances[0].element.innerHTML).toContain('&lt;card-a&gt;');
+      expect(repairService.commit).not.toHaveBeenCalled();
+
+      dialogInstances[0].element.querySelector<HTMLButtonElement>('[data-action="commit"]')?.click();
+      await pending;
+
+      expect(dialogInstances[0].destroy).toHaveBeenCalledTimes(1);
+      expect(repairService.commit).toHaveBeenCalledTimes(1);
+      expect(mockSiyuanApi.pushMsg).toHaveBeenCalledWith('卡片类型修复完成：已修复 1 张，跳过 2 张');
     });
   });
 

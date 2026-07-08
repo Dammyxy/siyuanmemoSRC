@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-08 (Round 682)
+Last update: 2026-07-09 (Round 683)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-09 - Browser semantic repair surface
+
+- Task: Move global SRS card semantic repair out of the block menu and surface it from the SRS Browser maintenance menu.
+- Touched slice: Browser toolbar/action menu, DialogManager repair dialog flow, block menu cleanup, i18n, `ARCHITECTURE.md`, and OpenSpec change `surface-srs-card-semantic-repair`.
+- Debt fixed now: The global card-type repair flow is no longer owned by block-scoped menu code. Browser calls one DialogManager Interface, while DialogManager owns preview/commit dialog locality and unavailable/failure reporting.
+- Debt deferred: Settings maintenance does not get a duplicate entry in this change, and mobile Browser toolbar does not expose the maintenance menu yet.
+- Why deferred: Browser toolbar is the primary discovery surface for wrong card types; adding more entrypoints now would increase duplicate surface area without changing repair capability.
+- Next safe step: If users still miss the action, add a secondary Settings maintenance launcher that calls the same DialogManager Interface.
+- Validation: Focused Browser menu and DialogManager repair-flow tests passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n/Sass warnings; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only.
 
 ### 2026-07-08 - SRS card semantic repair and receipts
 
