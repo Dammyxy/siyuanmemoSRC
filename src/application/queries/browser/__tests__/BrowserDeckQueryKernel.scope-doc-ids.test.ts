@@ -140,7 +140,7 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
     expect(hydrated[0]?.meta?.blockType).toBe('missing');
   });
 
-  it('excludes live CDF abnormal and content-incomplete cards from normal deck snapshots', async () => {
+  it('keeps live CDF relation cards visible in normal deck snapshots', async () => {
     const now = Date.now();
     const cards = [
       buildCard('card-active', 'block-active', 'doc-1', now - 1_000, 'active', {
@@ -238,19 +238,26 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
 
     const normal = await kernel.buildSnapshot({ preset: 'all' });
 
-    expect(normal.rows.map((row) => row.id)).toEqual(['card-active', 'card-legacy']);
-
-    const abnormal = await kernel.buildSnapshot({ preset: 'cdf-abnormal' });
-    expect(abnormal.rows.map((row) => row.id)).toEqual([
+    expect(normal.rows.map((row) => row.id)).toEqual([
+      'card-active',
       'card-incomplete',
       'card-orphaned',
       'card-duplicate',
       'card-legacy-unavailable',
       'card-blocking',
+      'card-legacy',
     ]);
 
-    const contentIncomplete = await kernel.buildSnapshot({ preset: 'cdf-content-incomplete' });
-    expect(contentIncomplete.rows.map((row) => row.id)).toEqual(['card-incomplete']);
+    const unknownDiagnosticPreset = await kernel.buildSnapshot({ preset: 'cdf-content-incomplete' });
+    expect(unknownDiagnosticPreset.rows.map((row) => row.id)).toEqual([
+      'card-active',
+      'card-incomplete',
+      'card-orphaned',
+      'card-duplicate',
+      'card-legacy-unavailable',
+      'card-blocking',
+      'card-legacy',
+    ]);
   });
 
   it('hydrates riff-managed cards from riffCardId content when the local block payload is blank', async () => {

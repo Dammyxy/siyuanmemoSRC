@@ -323,7 +323,7 @@ function pushNoScoreRemovalDiagnostic(
   context: AdapterContext,
   options?: ReviewAdvanceWithoutFeedbackOptions,
 ): void {
-  const shouldDecrementTotal = options?.decrementTotal === true || options?.diagnostic?.kind === 'blocked-cdf';
+  const shouldDecrementTotal = options?.decrementTotal === true;
   if (shouldDecrementTotal) {
     const session = ensureSessionState(context);
     session.initialTotal = Math.max(0, (Number(session.initialTotal) || 0) - 1);

@@ -8,7 +8,6 @@ export { default as PostponeDialog } from './PostponeDialog.vue';
 export { default as AdvanceDialog } from './AdvanceDialog.vue';
 export { default as SpreadDialog } from './SpreadDialog.vue';
 export { default as RescheduleResultDialog } from './RescheduleResultDialog.vue';
-export { default as CdfRepairResultDialog } from './CdfRepairResultDialog.vue';
 export { default as RescheduleDialog } from './RescheduleDialog.vue';
 export { default as PriorityDialog } from './PriorityDialog.vue';
 export { default as FilterDialog } from './FilterDialog.vue';

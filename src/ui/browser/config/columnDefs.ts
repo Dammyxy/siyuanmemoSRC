@@ -8,10 +8,6 @@ import type { ColDef, ICellRendererParams, RowClassParams, ValueGetterParams } f
 import type { BrowserCard } from '../types';
 import { formatSortContractDisplayValue } from './sortDisplayContract';
 import { getCardVisualColor } from '@/ui/shared/cardVisualTokens';
-import {
-  resolveBrowserCdfDiagnostic,
-  type BrowserCdfDiagnosticBadge,
-} from '@/application/queries/browser/shared/CdfBrowserDiagnostics';
 
 function formatWithContract(card: BrowserCard | undefined, colId: string): string {
   if (!card) {
@@ -75,18 +71,6 @@ export function renderBrowserStateCell(
   if (card.suspended === true) {
     const badge = escapeHtml(translate('suspendedBadge', '已暂停'));
     parts.push(`<span class="card-browser-grid__suspended-badge">${badge}</span>`);
-  }
-
-  const diagnostic = resolveBrowserCdfDiagnostic(card);
-  const diagnosticBadges = diagnostic
-    ? [diagnostic.primary, diagnostic.secondary].filter((badge): badge is BrowserCdfDiagnosticBadge => Boolean(badge))
-    : [];
-  for (const diagnosticBadge of diagnosticBadges) {
-    const badgeLabel = escapeHtml(translate(diagnosticBadge.i18nKey, diagnosticBadge.label));
-    const badgeKind = escapeHtml(diagnosticBadge.kind);
-    parts.push(
-      `<span class="card-browser-grid__cdf-badge card-browser-grid__cdf-badge--${badgeKind}">${badgeLabel}</span>`,
-    );
   }
 
   return parts.join('');

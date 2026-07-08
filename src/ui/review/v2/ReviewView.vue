@@ -85,67 +85,8 @@
           </div>
         </div>
 
-        <div
-          v-if="reviewCdfInterruptionPanel && !reviewInlineCardEditorOpen"
-          class="fsrs-review-v2__cdf-interruption"
-          role="alert"
-        >
-          <div class="fsrs-review-v2__cdf-interruption-main">
-            <div class="fsrs-review-v2__cdf-interruption-kicker">
-              {{ t('reviewCdfBlockingKicker', 'CDF') }}
-            </div>
-            <div class="fsrs-review-v2__cdf-interruption-title">
-              {{ reviewCdfInterruptionPanel.title }}
-            </div>
-            <div class="fsrs-review-v2__cdf-interruption-reason">
-              {{ reviewCdfInterruptionPanel.reasonLabel }}
-            </div>
-            <div class="fsrs-review-v2__cdf-interruption-meta">
-              <span v-if="reviewCdfInterruptionPanel.sourceBlockId">
-                {{ t('reviewCdfBlockingSourceLabel', 'Source') }} {{ reviewCdfInterruptionPanel.sourceBlockId }}
-              </span>
-              <span v-if="reviewCdfInterruptionPanel.cardId">
-                {{ t('reviewCdfBlockingCardLabel', 'Card') }} {{ reviewCdfInterruptionPanel.cardId }}
-              </span>
-            </div>
-          </div>
-          <div class="fsrs-review-v2__cdf-interruption-actions">
-            <button
-              type="button"
-              class="b3-button b3-button--outline"
-              :disabled="!reviewCdfInterruptionPanel.locateBlockId"
-              @click="locateReviewCdfBlockingSource"
-            >
-              {{ t('reviewCdfBlockingLocate', '定位') }}
-            </button>
-            <button
-              type="button"
-              class="b3-button b3-button--outline"
-              :disabled="!reviewCdfInterruptionPanel.canEdit"
-              @click="openReviewCdfBlockingEditor"
-            >
-              {{ t('reviewCdfBlockingEdit', '编辑') }}
-            </button>
-            <button
-              type="button"
-              class="b3-button b3-button--outline"
-              @click="openReviewCdfBlockingBrowser"
-            >
-              {{ t('reviewCdfBlockingOpenAbnormal', '异常列表') }}
-            </button>
-            <button
-              type="button"
-              class="b3-button b3-button--text"
-              data-review-cdf-blocking-next
-              @click="advanceReviewCdfBlockingCard"
-            >
-              {{ t('nextCard', '下一张') }}
-            </button>
-          </div>
-        </div>
-
         <ReviewContent
-          v-show="!reviewInlineCardEditorOpen && !reviewCdfInterruptionPanel"
+          v-show="!reviewInlineCardEditorOpen"
           ref="contentRef"
           :app="app"
           :plugin="props.plugin"
@@ -231,40 +172,6 @@
             {{ t('exitFocus', '退出') }}
           </button>
         </div>
-
-        <details
-          v-if="showReviewBlockedSkippedSummary"
-          class="fsrs-review-v2__blocked-summary"
-        >
-          <summary>
-            {{ t('reviewCdfBlockedSummaryTitle', '本轮已移出 {count} 张阻断卡').replace('{count}', String(reviewBlockedSkippedCards.length)) }}
-          </summary>
-          <ul class="fsrs-review-v2__blocked-summary-list">
-            <li
-              v-for="entry in reviewBlockedSkippedCards"
-              :key="`${entry.cardId || entry.blockId || entry.reasonCode}:${entry.occurredAt || 0}`"
-              class="fsrs-review-v2__blocked-summary-item"
-            >
-              <span class="fsrs-review-v2__blocked-summary-reason">{{ entry.reasonLabel }}</span>
-              <span class="fsrs-review-v2__blocked-summary-id">{{ entry.cardId || entry.blockId || entry.sourceBlockId }}</span>
-              <button
-                type="button"
-                class="b3-button b3-button--outline"
-                :disabled="!(entry.sourceBlockId || entry.blockId)"
-                @click="locateReviewBlockedSkippedEntry(entry)"
-              >
-                {{ t('reviewCdfBlockingLocate', '定位') }}
-              </button>
-              <button
-                type="button"
-                class="b3-button b3-button--outline"
-                @click="openReviewBlockedSkippedEntryInBrowser(entry)"
-              >
-                {{ t('reviewCdfBlockingOpenAbnormal', '异常列表') }}
-              </button>
-            </li>
-          </ul>
-        </details>
 
         <div v-if="state.meta.resumePrompt" class="fsrs-review-v2-resume">
           <div class="fsrs-review-v2-resume__panel b3-card">
@@ -372,7 +279,6 @@ import {
   type ReviewHeaderRouteControl,
   type ReviewMidSessionInsertedOrigin,
   type ReviewNeuralRoamJourneyProgress,
-  type ReviewNoScoreRemovalDiagnostic,
   type ReviewNativeSplitGuardState,
   type ReviewUIState,
   type ReviewViewTabBridge,
@@ -554,7 +460,6 @@ import {
   type CdfConceptBindingEditDiagnostic,
   type CdfConceptBindingEditPlan,
   extractSafeCardSourceGrammarFields,
-  hasCdfLiveRelationMetadata,
   readCdfLiveRelationMetadata,
   replaceDefinitionInCardSourceGrammar,
   replaceDescriptorInCardSourceGrammar,
@@ -795,17 +700,6 @@ type CdfRelationPreviewRaw = {
 type CdfConceptBindingConfirmationRaw = {
   kind: 'cdf-concept-binding-confirmation';
   plan: CdfConceptBindingEditPlan;
-};
-
-type ReviewCdfInterruptionPanel = {
-  cardId: string;
-  blockId: string;
-  sourceBlockId: string;
-  locateBlockId: string;
-  reasonCode: string;
-  reasonLabel: string;
-  title: string;
-  canEdit: boolean;
 };
 
 function getPluginContext(plugin: unknown): ReviewPluginContextLike | undefined {
@@ -1846,72 +1740,6 @@ const displayedReviewContent = computed<ReviewUIState['content']>(() => {
   };
 });
 
-function resolveReviewCdfBlockingReason(card: FSRSCard | null | undefined): { code: string; label: string } | null {
-  if (props.mode === 'tab') {
-    return null;
-  }
-  if (!hasCdfLiveRelationMetadata(card)) {
-    return null;
-  }
-
-  const liveMeta = readCdfLiveRelationMetadata(card);
-  const blockingIssue = (liveMeta.liveRelationIssues || []).find(issue => issue.severity === 'blocking');
-  if (blockingIssue) {
-    return {
-      code: blockingIssue.code,
-      label: t(`cdfIssue_${blockingIssue.code}`, blockingIssue.detail || blockingIssue.code),
-    };
-  }
-
-  if (liveMeta.liveRelationStatus && liveMeta.liveRelationStatus !== 'active-live') {
-    const labels: Record<string, string> = {
-      'orphaned-by-live-relation': t('reviewCdfBlockingReasonOrphaned', 'Live relation no longer exists'),
-      'duplicate-live-relation': t('reviewCdfBlockingReasonDuplicate', 'Duplicate live relation'),
-      'legacy-relation-unavailable': t('reviewCdfBlockingReasonLegacyUnavailable', 'Legacy relation cannot be derived from live blocks'),
-    };
-    return {
-      code: liveMeta.liveRelationStatus,
-      label: labels[liveMeta.liveRelationStatus] || liveMeta.liveRelationStatus,
-    };
-  }
-
-  if (liveMeta.liveContentStatus === 'content-incomplete') {
-    return {
-      code: 'content-incomplete',
-      label: t('reviewCdfBlockingReasonContentIncomplete', 'Content incomplete'),
-    };
-  }
-
-  return null;
-}
-
-const reviewCdfInterruptionPanel = computed<ReviewCdfInterruptionPanel | null>(() => {
-  if (reviewSemanticTemporaryView.value) {
-    return null;
-  }
-  const card = state.value.content.card as FSRSCard | null | undefined;
-  const reason = resolveReviewCdfBlockingReason(card);
-  if (!card || !reason) {
-    return null;
-  }
-
-  const liveMeta = readCdfLiveRelationMetadata(card);
-  const cardId = String(card.id || resolveCurrentReviewCardId() || '').trim();
-  const blockId = String(card.blockId || resolveCurrentReviewBlockId() || '').trim();
-  const sourceBlockId = String(liveMeta.sourceBlockId || resolveCurrentReviewSourceBlockId() || '').trim();
-
-  return {
-    cardId,
-    blockId,
-    sourceBlockId,
-    locateBlockId: sourceBlockId || blockId,
-    reasonCode: reason.code,
-    reasonLabel: reason.label,
-    title: t('reviewCdfBlockingTitle', 'This CDF card needs repair before review'),
-    canEdit: canOpenInlineCardEditor(),
-  };
-});
-
 const displayedReviewHeader = computed<ReviewUIState['header']>(() => {
   const header = state.value.header;
   let toolbar = Array.isArray(header.toolbar) ? header.toolbar : [];
@@ -2057,13 +1885,7 @@ const neuralRoamJourneyProgress = computed<ReviewNeuralRoamJourneyProgress | nul
 const displayedReviewActions = computed<ReviewUIState['actions']>(() => {
   const temporary = reviewSemanticTemporaryView.value;
   if (!temporary?.uiState) {
-    return reviewCdfInterruptionPanel.value
-      ? {
-          ...state.value.actions,
-          showAnswer: false,
-          grades: [],
-        }
-      : state.value.actions;
+    return state.value.actions;
   }
   return {
     ...temporary.uiState.actions,
@@ -2090,20 +1912,10 @@ const isEmptyReviewContent = computed(() => state.value.content.type === 'empty'
 
 const showReviewActions = computed(() => (
   !isEmptyReviewContent.value
-  && !reviewCdfInterruptionPanel.value
   && (
     !reviewSemanticTemporaryView.value
     || (reviewSemanticTemporaryView.value.card !== null && reviewSemanticTemporaryView.value.uiState !== null)
   )
-));
-
-const reviewBlockedSkippedCards = computed<ReviewNoScoreRemovalDiagnostic[]>(() => (
-  hook.context.value.session?.blockedSkippedCards || []
-));
-
-const showReviewBlockedSkippedSummary = computed(() => (
-  showCompletedEmptyStateExit.value
-  && reviewBlockedSkippedCards.value.length > 0
 ));
 
 const showCompletedEmptyStateExit = computed(() => (
@@ -2598,17 +2410,6 @@ function handleReviewKeyAction(
   event.preventDefault();
   event.stopPropagation();
 
-  if (reviewCdfInterruptionPanel.value) {
-    if (action.type === 'skip') {
-      void advanceReviewCdfBlockingCard();
-      return;
-    }
-    if (action.type === 'back') {
-      void hook.back();
-    }
-    return;
-  }
-
   if (action.type === 'reveal') {
     logger.debug('[SiYuanMemo][ReviewView] Revealing answer...');
     hook.reveal();
@@ -2730,105 +2531,8 @@ function handleKeyDown(e: KeyboardEvent) {
   handleReviewKeyAction('keydown', key, e);
 }
 
-async function locateReviewCdfBlockingSource(): Promise<void> {
-  const panel = reviewCdfInterruptionPanel.value;
-  if (!panel?.locateBlockId || !props.app) {
-    showMessage(t('reviewLocateNoCurrentCard', '当前没有可定位的复习卡片'), 3000, 'info');
-    return;
-  }
-
-  try {
-    await openReviewBlockAtSource({
-      app: props.app,
-      blockId: panel.locateBlockId,
-    });
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to locate blocking CDF source:', {
-      blockId: panel.locateBlockId,
-      error,
-    });
-    showMessage(t('reviewLocateSourceFailed', '定位当前复习卡原块失败'), 3000, 'error');
-  }
-}
-
-function openReviewCdfBlockingEditor(): void {
-  if (!reviewCdfInterruptionPanel.value?.canEdit) {
-    showMessage(t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
-    return;
-  }
-  void openInlineCardEditor();
-}
-
-function openCdfAbnormalBrowser(queryText: string): void {
-  const dialogManager = getDialogManager();
-  if (!dialogManager || typeof dialogManager.openBrowserDialog !== 'function') {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-  dialogManager.openBrowserDialog({
-    initialOpenState: {
-      preset: 'cdf-abnormal',
-      queryText,
-    },
-  });
-}
-
-function openReviewCdfBlockingBrowser(): void {
-  const panel = reviewCdfInterruptionPanel.value;
-  openCdfAbnormalBrowser(panel?.sourceBlockId || panel?.cardId || panel?.blockId || '');
-}
-
-function buildReviewCdfBlockingDiagnostic(panel: ReviewCdfInterruptionPanel): ReviewNoScoreRemovalDiagnostic {
-  return {
-    kind: 'blocked-cdf',
-    cardId: panel.cardId,
-    blockId: panel.blockId,
-    sourceBlockId: panel.sourceBlockId,
-    reasonCode: panel.reasonCode,
-    reasonLabel: panel.reasonLabel,
-  };
-}
-
-async function advanceReviewCdfBlockingCard(): Promise<void> {
-  const panel = reviewCdfInterruptionPanel.value;
-  if (!panel) {
-    return;
-  }
-
-  await removeCardIdsFromActiveQueue([panel.cardId || panel.blockId]);
-  await hook.advanceWithoutFeedback({
-    diagnostic: buildReviewCdfBlockingDiagnostic(panel),
-  });
-}
-
-async function locateReviewBlockedSkippedEntry(entry: ReviewNoScoreRemovalDiagnostic): Promise<void> {
-  const blockId = String(entry.sourceBlockId || entry.blockId || '').trim();
-  if (!blockId || !props.app) {
-    return;
-  }
-
-  try {
-    await openReviewBlockAtSource({
-      app: props.app,
-      blockId,
-    });
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to locate skipped CDF entry:', {
-      blockId,
-      error,
-    });
-  }
-}
-
-function openReviewBlockedSkippedEntryInBrowser(entry: ReviewNoScoreRemovalDiagnostic): void {
-  openCdfAbnormalBrowser(entry.sourceBlockId || entry.cardId || entry.blockId || '');
-}
-
 function handleReveal(): void {
   if (reviewInlineCardEditorOpen.value) {
-    return;
-  }
-  if (reviewCdfInterruptionPanel.value) {
     return;
   }
   if (reviewSemanticTemporaryRuntime.revealTemporaryView()) {
@@ -2860,9 +2564,6 @@ function handleGrade(rating: number): void {
   if (reviewInlineCardEditorOpen.value) {
     return;
   }
-  if (reviewCdfInterruptionPanel.value) {
-    return;
-  }
   if (reviewSemanticTemporaryView.value?.card) {
     void reviewSemanticTemporaryRuntime.gradeTemporaryReview(rating);
     return;
@@ -2878,10 +2579,6 @@ function handleGrade(rating: number): void {
 
 function handleSkip(): void {
   if (reviewInlineCardEditorOpen.value) {
-    return;
-  }
-  if (reviewCdfInterruptionPanel.value) {
-    void advanceReviewCdfBlockingCard();
     return;
   }
   if (reviewSemanticTemporaryView.value) {
@@ -3722,10 +3419,6 @@ function isReviewCardStillSessionReviewable(card: FSRSCard | null | undefined): 
   if (!card) {
     return false;
   }
-  if (hasCdfLiveRelationMetadata(card)) {
-    return isCdfMetaReviewEligible(readReviewCardMeta(card));
-  }
-
   const blockId = String(card.blockId || '').trim();
   if (!blockId) {
     return false;
@@ -4142,17 +3835,6 @@ function resolveCdfWriteRepairCardMetaForCurrent(
   return null;
 }
 
-function isCdfMetaReviewEligible(meta: Record<string, unknown> | null | undefined): boolean {
-  if (!meta) {
-    return false;
-  }
-  const liveMeta = readCdfLiveRelationMetadata(meta);
-  const hasBlockingIssue = (liveMeta.liveRelationIssues || []).some(issue => issue.severity === 'blocking');
-  return liveMeta.liveRelationStatus === 'active-live'
-    && liveMeta.liveContentStatus === 'content-complete'
-    && !hasBlockingIssue;
-}
-
 async function appendDueCdfCardsFromCurrentEditorSave(
   result: CdfLiveRelationWriteRepairResult,
 ): Promise<void> {
@@ -4336,18 +4018,9 @@ async function applyCurrentReviewSessionImpactFromCdfWriteRepair(
 
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
   const currentMeta = resolveCdfWriteRepairCardMetaForCurrent(result, currentCardId, currentCard);
-  if (isCdfMetaReviewEligible(currentMeta)) {
+  if (currentMeta) {
     await refreshCurrentReviewCard();
     return;
-  }
-
-  await removeCardIdsFromActiveQueue([currentCardId || currentReference.blockId]);
-  const latestReference = getCurrentReviewCardReference();
-  if (
-    latestReference.cardId === currentReference.cardId
-    || (currentReference.blockId && latestReference.blockId === currentReference.blockId)
-  ) {
-    await hook.advanceWithoutFeedback();
   }
 }
 

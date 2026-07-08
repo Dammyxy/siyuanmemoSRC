@@ -928,7 +928,7 @@ describe('useReviewSession', () => {
     wrapper.unmount();
   });
 
-  it('advances blocked CDF cards without feedback while recording only session diagnostics', async () => {
+  it('advances invalid cards without feedback while recording session diagnostics', async () => {
     const queue = {
       ...createQueue(),
       next: vi.fn(async () => createItem('card-2')),
@@ -951,27 +951,27 @@ describe('useReviewSession', () => {
     const hook = getHook();
     await hook.advanceWithoutFeedback({
       diagnostic: {
-        kind: 'blocked-cdf',
+        kind: 'invalid-after-source-edit',
         cardId: 'card-1',
         blockId: 'block-card-1',
         sourceBlockId: 'source-1',
-        reasonCode: 'content-incomplete',
-        reasonLabel: 'Content incomplete',
+        reasonCode: 'invalid-after-source-edit',
+        reasonLabel: 'Invalid after source edit',
       },
     });
 
     expect(queue.onFeedback).not.toHaveBeenCalled();
     expect(hook.state.value.content.id).toBe('card-2');
-    expect(hook.context.value.session?.initialTotal).toBe(2);
+    expect(hook.context.value.session?.initialTotal).toBe(3);
     expect(hook.context.value.session?.answeredCount).toBe(0);
     expect(hook.context.value.session?.correctCount).toBe(0);
     expect(hook.context.value.session?.blockedSkippedCount).toBe(1);
     expect(hook.context.value.session?.blockedSkippedCards).toEqual([
       expect.objectContaining({
-        kind: 'blocked-cdf',
+        kind: 'invalid-after-source-edit',
         cardId: 'card-1',
         blockId: 'block-card-1',
-        reasonCode: 'content-incomplete',
+        reasonCode: 'invalid-after-source-edit',
       }),
     ]);
     expect(hook.context.value.session?.reviewHistory).toEqual([]);

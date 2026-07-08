@@ -294,14 +294,8 @@ describe('browserActionMenuRuntime', () => {
     expect(openSrsCardSemanticsRepairDialog).toHaveBeenCalledTimes(1);
   });
 
-  it('prepends state-specific CDF diagnostic actions to row context menus', async () => {
-    const { dataSource, deps, menuRecorder } = createRuntimeDeps({
-      t: (key: string, fallback: string) => ({
-        cdfViewCanonical: 'View canonical',
-        cdfKeepDuplicatePaused: 'Keep duplicate paused',
-        cdfRepairActionUnavailable: 'CDF repair unavailable',
-      } as Record<string, string>)[key] || fallback,
-    });
+  it('does not prepend CDF diagnostic actions to row context menus', () => {
+    const { dataSource, deps, menuRecorder } = createRuntimeDeps();
     dataSource.getSupportedActions = vi.fn(() => [
       { id: 'open', label: 'Open' },
       { id: 'delete-card', label: 'Delete card' },
@@ -325,24 +319,12 @@ describe('browserActionMenuRuntime', () => {
 
     const menu = menuRecorder.menus.find((entry) => entry.id === 'card-browser-context');
     const labels = menu?.items.map((item) => item.label).filter(Boolean) || [];
-    expect(labels).toEqual(expect.arrayContaining([
-      'View canonical',
-      'Keep duplicate paused',
+    expect(labels).toEqual([
+      'Sort',
       'Open',
       'Delete card',
       'Custom Action',
-    ]));
-    expect(labels.indexOf('View canonical')).toBeLessThan(labels.indexOf('Open'));
-
-    const viewCanonical = menu?.items.find((item) => item.label === 'View canonical');
-    viewCanonical?.click?.();
-    await Promise.resolve();
-
-    expect(dataSource.performAction).not.toHaveBeenCalledWith(
-      'cdf-view-canonical',
-      expect.anything(),
-      expect.anything(),
-    );
-    expect(deps.pushErrMsg).toHaveBeenCalledWith('CDF repair unavailable');
+    ]);
+    expect(labels.some((label) => label.includes('CDF'))).toBe(false);
   });
 });

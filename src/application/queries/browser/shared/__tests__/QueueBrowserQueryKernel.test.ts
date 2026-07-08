@@ -122,6 +122,22 @@ describe('QueueBrowserQueryKernel', () => {
     };
     const manager = {
       getQueue: vi.fn(() => queue),
+      readQueueProjectionSnapshot: vi.fn(async () => ({
+        queueType: 'retrieval-practice',
+        policyHash: 'retrieval-practice:queue-snapshot',
+        generation: 'generation-a',
+        rows: projectionRows,
+        counters: null,
+      })),
+      getQueueProjectionCardsBySnapshotIds: vi.fn(async (_queueType: string, ids: string[]) => {
+        const cardById = new Map([
+          ['card-a', hydratedCards[0]],
+          ['card-b', hydratedCards[1]],
+          ['row-a', hydratedCards[0]],
+          ['row-b', hydratedCards[1]],
+        ]);
+        return ids.map((id) => cardById.get(id)).filter(Boolean);
+      }),
       getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
         queueType: 'retrieval-practice',
         projectionBacked: true,
@@ -145,18 +161,20 @@ describe('QueueBrowserQueryKernel', () => {
       queueId: 'retrieval',
       projectionBacked: true,
     });
-    expect(queue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledTimes(1);
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
     expect(queue.getCards).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
 
     const hydrated = await kernel.getQueueRowsByIds('retrieval', ['card-a']);
     expect(hydrated.map((row) => row.fsrsCardId)).toEqual(['card-a']);
     expect(hydrated[0]?.queueIndex).toBe(2);
-    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(['card-a'], false);
+    expect(manager.getQueueProjectionCardsBySnapshotIds).toHaveBeenCalledWith('retrieval-practice', ['card-a'], { forceRefresh: false });
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
     expect(queue.getCards).not.toHaveBeenCalled();
   });
 
-  it('filters projection-backed queue rows through CDF diagnostic visibility', async () => {
+  it('keeps projection-backed queue rows visible regardless of CDF diagnostic metadata', async () => {
     const snapshotRows = [
       buildSnapshotRow('row-active', {
         fsrsCardId: 'card-active',
@@ -200,6 +218,13 @@ describe('QueueBrowserQueryKernel', () => {
     };
     const manager = {
       getQueue: vi.fn(() => queue),
+      readQueueProjectionSnapshot: vi.fn(async () => ({
+        queueType: 'retrieval-practice',
+        policyHash: 'retrieval-practice:queue-snapshot',
+        generation: 'generation-a',
+        rows: snapshotRows,
+        counters: null,
+      })),
       getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
         queueType: 'retrieval-practice',
         projectionBacked: true,
@@ -212,12 +237,11 @@ describe('QueueBrowserQueryKernel', () => {
     const kernel = new QueueBrowserQueryKernel(manager);
 
     const normal = await kernel.buildSnapshot({ queueId: 'retrieval', preset: 'all' });
-    const abnormal = await kernel.buildSnapshot({ queueId: 'retrieval', preset: 'cdf-abnormal' });
-    const incomplete = await kernel.buildSnapshot({ queueId: 'retrieval', preset: 'cdf-content-incomplete' });
+    const unknownDiagnosticPreset = await kernel.buildSnapshot({ queueId: 'retrieval', preset: 'cdf-content-incomplete' });
 
-    expect(normal.rows.map((row) => row.id)).toEqual(['card-active']);
-    expect(abnormal.rows.map((row) => row.id)).toEqual(['card-incomplete', 'card-orphaned']);
-    expect(incomplete.rows.map((row) => row.id)).toEqual(['card-incomplete']);
+    expect(normal.rows.map((row) => row.id)).toEqual(['card-active', 'card-incomplete', 'card-orphaned']);
+    expect(unknownDiagnosticPreset.rows.map((row) => row.id)).toEqual(['card-active', 'card-incomplete', 'card-orphaned']);
+    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledTimes(2);
     expect(queue.getCards).not.toHaveBeenCalled();
   });
 
@@ -293,7 +317,7 @@ describe('QueueBrowserQueryKernel', () => {
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
   });
 
-  it('filters explicit local queue rows through CDF diagnostic visibility', async () => {
+  it('keeps explicit local queue rows visible regardless of CDF diagnostic metadata', async () => {
     const localCards = [
       buildCard('card-active', {
         meta: {
@@ -332,12 +356,10 @@ describe('QueueBrowserQueryKernel', () => {
     const kernel = new QueueBrowserQueryKernel(manager);
 
     const normal = await kernel.buildSnapshot({ queueId: 'final-drill', preset: 'all' });
-    const duplicate = await kernel.buildSnapshot({ queueId: 'final-drill', preset: 'cdf-duplicate' });
-    const incomplete = await kernel.buildSnapshot({ queueId: 'final-drill', preset: 'cdf-content-incomplete' });
+    const unknownDiagnosticPreset = await kernel.buildSnapshot({ queueId: 'final-drill', preset: 'cdf-duplicate' });
 
-    expect(normal.rows.map((row) => row.id)).toEqual(['card-active']);
-    expect(duplicate.rows.map((row) => row.id)).toEqual(['card-duplicate']);
-    expect(incomplete.rows.map((row) => row.id)).toEqual(['card-duplicate']);
+    expect(normal.rows.map((row) => row.id)).toEqual(['card-active', 'card-duplicate']);
+    expect(unknownDiagnosticPreset.rows.map((row) => row.id)).toEqual(['card-active', 'card-duplicate']);
   });
 
   it('fails closed instead of using local queue rows when no explicit local policy exists', async () => {

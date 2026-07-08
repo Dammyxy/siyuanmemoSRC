@@ -1927,7 +1927,7 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
-  it('removes current CDF card without scoring when editor save makes content incomplete', async () => {
+  it('keeps current CDF card reviewable when editor save makes content incomplete', async () => {
     reviewContentEditableTargets = [
       buildEditableTarget('definition:definition:definition-block', 'definition-block', '编辑定义', 'definition'),
     ];
@@ -2007,9 +2007,9 @@ describe('ReviewView more menu', () => {
     await saveButton!.trigger('click');
     await flushPromises();
 
-    expect(queue.removeCard).toHaveBeenCalledWith('card-1');
+    expect(queue.removeCard).not.toHaveBeenCalledWith('card-1');
     expect(queue.onFeedback).not.toHaveBeenCalled();
-    expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
 
     wrapper.unmount();
   });
@@ -3605,52 +3605,33 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
-  it('shows a CDF blocking interruption panel and advances without review feedback', async () => {
+  it('keeps blocking CDF relation cards on the normal Review surface', async () => {
     reviewContentEditableTargets = [
       buildEditableTarget('main-protyle:current-content:source-block-1', 'source-block-1', 'Source'),
     ];
     const blockedCard = {
-      ...buildCdfLiveCard('blocked-cdf-card', 'source-block-1'),
+      ...buildCdfLiveCard('cdf-relation-card', 'source-block-1'),
       meta: {
-        ...buildCdfLiveCard('blocked-cdf-card', 'source-block-1').meta,
+        ...buildCdfLiveCard('cdf-relation-card', 'source-block-1').meta,
         liveContentStatus: 'content-incomplete',
       },
     };
     const nextCard = buildCard('card-2', 'block-2');
-    const dialogManager = {
-      openBrowserDialog: vi.fn(),
-    };
     const { wrapper, queue } = mountReviewView({
       cards: [blockedCard, nextCard],
-      dialogManager,
       attachInDialog: true,
     });
     await flushPromises();
 
-    expect(wrapper.get('.fsrs-review-v2__cdf-interruption').text()).toContain('Content incomplete');
-    expect(wrapper.findComponent(ReviewActionsStub).exists()).toBe(false);
+    expect(wrapper.find('.fsrs-review-v2__cdf-interruption').exists()).toBe(false);
+    expect(wrapper.findComponent(ReviewActionsStub).exists()).toBe(true);
+    expect(wrapper.get('.review-content-card-id').text()).toBe('cdf-relation-card');
 
-    await wrapper.get('.fsrs-review-v2__cdf-interruption-actions .b3-button--outline').trigger('click');
-    await flushPromises();
-    expect(openReviewBlockAtSource).toHaveBeenCalledWith({
-      app: {},
-      blockId: 'source-block-1',
-    });
-
-    const actionButtons = wrapper.findAll('.fsrs-review-v2__cdf-interruption-actions button');
-    await actionButtons[2].trigger('click');
-    expect(dialogManager.openBrowserDialog).toHaveBeenCalledWith({
-      initialOpenState: {
-        preset: 'cdf-abnormal',
-        queryText: 'source-block-1',
-      },
-    });
-
-    await wrapper.get('[data-review-cdf-blocking-next]').trigger('click');
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('grade', 3);
     await flushPromises();
 
-    expect(queue.removeCard).toHaveBeenCalledWith('blocked-cdf-card');
-    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(queue.removeCard).not.toHaveBeenCalledWith('cdf-relation-card');
+    expect(queue.onFeedback).toHaveBeenCalledTimes(1);
     expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
 
     wrapper.unmount();
@@ -3682,9 +3663,9 @@ describe('ReviewView more menu', () => {
 
   it('does not interrupt tab Review for blocking CDF relation metadata', async () => {
     const blockedCard = {
-      ...buildCdfLiveCard('blocked-cdf-card', 'source-block-1'),
+      ...buildCdfLiveCard('cdf-relation-card', 'source-block-1'),
       meta: {
-        ...buildCdfLiveCard('blocked-cdf-card', 'source-block-1').meta,
+        ...buildCdfLiveCard('cdf-relation-card', 'source-block-1').meta,
         liveContentStatus: 'content-incomplete',
       },
     };

@@ -33,7 +33,6 @@ import type {
   BrowserDeckSnapshotQuery,
   BrowserDeckSnapshotResult,
 } from '../browser-deck-query';
-import { applyBrowserCdfDiagnosticVisibility } from './CdfBrowserDiagnostics';
 
 const logger = createLogger('BrowserDeckQueryKernel');
 
@@ -86,7 +85,6 @@ export class BrowserDeckQueryKernel {
     if (candidateResolution.path !== 'sql-candidate-query') {
       rows = await this.blockQuerySource.markMissingBlockRows(rows);
     }
-    rows = applyBrowserCdfDiagnosticVisibility(rows, query.preset);
     rows = applyDocFilter(rows, query.docId, query.scopeDocIds);
     rows = applyDeckPresetFilter(rows, query.preset);
     rows = this.applyExplicitStateFilter(rows, query.states);

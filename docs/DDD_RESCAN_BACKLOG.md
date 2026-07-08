@@ -4,6 +4,16 @@ Last update: 2026-07-09 (Round 683)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-09 - Remove CDF review interruption surface
+
+- Task: Remove CDF abnormal diagnostics/repair surfaces that interrupted Review and pulled Browser users into repair mode.
+- Touched slice: Review CDF interruption path, Browser CDF diagnostic presets/actions/dialogs, queue/browser CDF row visibility tests, i18n, `ARCHITECTURE.md`, and OpenSpec change `remove-cdf-review-interruption`.
+- Debt fixed now: Review no longer hides the normal card behind a CDF interruption panel, no longer advances CDF cards without scoring as `blocked-cdf`, and keeps CDF relation cards on the normal Review surface. Browser no longer exposes `cdf-abnormal` diagnostic presets, CDF repair row actions, diagnostic badges, or CDF repair result dialogs.
+- Debt deferred: The core CDF live-relation engine remains because CDF creation, rendering, preview, editor-save refresh, and due-card insertion still depend on it.
+- Why deferred: This change removes disruptive user-facing diagnosis/repair surfaces without deleting runtime CDF card behavior that still owns valid study and edit paths.
+- Next safe step: If CDF runtime relation metadata remains noisy, review the core CDF live-relation engine separately behind a new change rather than reintroducing Review/Browser repair gates.
+- Validation: Focused Review/Browser tests passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n/Sass warnings; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only.
+
 ### 2026-07-09 - Browser semantic repair surface
 
 - Task: Move global SRS card semantic repair out of the block menu and surface it from the SRS Browser maintenance menu.

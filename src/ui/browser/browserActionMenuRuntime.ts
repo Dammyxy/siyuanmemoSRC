@@ -21,10 +21,6 @@ import { SORT_FIELD_CONFIGS } from './constants';
 import { interpolateI18n } from './utils/i18n';
 import { resolveSubsetReviewSelection } from './utils/subsetReviewSelection';
 import {
-  resolveBrowserCdfDiagnostic,
-  type BrowserCdfDiagnosticAction,
-} from '@/application/queries/browser/shared/CdfBrowserDiagnostics';
-import {
   formatMenuActionError,
   wrapSafeMenuAction,
 } from '@/utils/safeMenuAction';
@@ -145,16 +141,6 @@ function isDevMode(): boolean {
   return typeof process !== 'undefined' && String(process.env.DEV_MODE) === 'true';
 }
 
-const CDF_ACTIONS_REQUIRING_REPAIR_SURFACE = new Set<string>([
-  'cdf-rescan-source',
-  'cdf-keep-paused',
-  'cdf-view-canonical',
-  'cdf-keep-duplicate-paused',
-  'cdf-attempt-live-migrate',
-  'cdf-mark-retained',
-  'cdf-open-structured-editor',
-]);
-
 export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDeps) {
   const createMenu = deps.createMenu ?? createDefaultMenu;
   const defer = deps.defer ?? defaultDefer;
@@ -203,40 +189,6 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
     }
 
     return [getReviewSubsetAction(), ...actions];
-  }
-
-  function toBrowserActionLike(action: BrowserCdfDiagnosticAction): BrowserActionLike {
-    return {
-      id: action.id,
-      label: deps.t(action.i18nKey, action.label),
-      icon: action.icon,
-    };
-  }
-
-  function prependCdfDiagnosticActions(
-    actions: BrowserActionLike[],
-    rowData: BrowserCard | null | undefined,
-  ): BrowserActionLike[] {
-    const diagnostic = resolveBrowserCdfDiagnostic(rowData);
-    if (!diagnostic) {
-      return actions;
-    }
-
-    const seen = new Set(actions.map((action) => action.id));
-    const cdfActions = diagnostic.actions
-      .map(toBrowserActionLike)
-      .filter((action) => {
-        if (seen.has(action.id)) {
-          return false;
-        }
-        seen.add(action.id);
-        return true;
-      });
-
-    if (cdfActions.length === 0) {
-      return actions;
-    }
-    return [...cdfActions, ...actions];
   }
 
   async function openSubsetReviewFromSelection(
@@ -343,14 +295,6 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
 
     if (actionId === 'review-subset') {
       await openSubsetReviewFromSelection(materializedTargets, anchorRow);
-      return;
-    }
-
-    if (CDF_ACTIONS_REQUIRING_REPAIR_SURFACE.has(actionId)) {
-      await deps.pushErrMsg(deps.t(
-        'cdfRepairActionUnavailable',
-        'CDF repair action is not available in this version yet',
-      ));
       return;
     }
 
@@ -601,10 +545,7 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
     const dataSource = deps.currentDataSource.value;
     const rawActions = dataSource?.getSupportedActions?.() || [];
     const rowData = event.data as BrowserCard;
-    const actions = prependCdfDiagnosticActions(
-      ensureReviewSubsetAction(rawActions.filter((action) => action && action.id)),
-      rowData,
-    );
+    const actions = ensureReviewSubsetAction(rawActions.filter((action) => action && action.id));
     deps.logger.debug('context menu actions:', {
       rawCount: rawActions.length,
       validCount: actions.length,
