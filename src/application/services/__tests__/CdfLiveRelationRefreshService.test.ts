@@ -153,6 +153,127 @@ describe('CdfLiveRelationRefreshService', () => {
     expect(manager.updateCard).not.toHaveBeenCalled();
   });
 
+  it('keeps backlink-bound descriptor cards live on Review open without inline concept refs', async () => {
+    const liveRelationKey = `${SOURCE_ID}:${CONCEPT_ID}:descriptor-forward`;
+    const card = buildCard({
+      type: CardType.Descriptor,
+      meta: {
+        xiuyuanID: 'xiuyuan-1',
+        templateID: 'builtin-concept-descriptor',
+        typeMarker: 'concept-descriptor-forward',
+        relationAuthority: 'live-backlink',
+        liveRelationKey,
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        relationKind: 'descriptor-forward',
+        sourceBlockId: SOURCE_ID,
+        conceptBlockId: CONCEPT_ID,
+        fieldMapping: {
+          concept: CONCEPT_ID,
+          descriptor: SOURCE_ID,
+        },
+      },
+    });
+    const manager = createManager(new Map([[card.id, card]]));
+    const service = new CdfLiveRelationRefreshService({ manager });
+
+    const result = await service.refreshCurrentCardOnOpen(card, {
+      surface: 'review-open',
+      sourceTree: {
+        id: SOURCE_ID,
+        type: 'i',
+        markdown: 'cue ;; answer',
+      },
+    });
+
+    expect(result.reason).toBe('refreshed');
+    expect(result.derivedRelationCount).toBe(1);
+    expect(result.actions).toEqual([
+      expect.objectContaining({
+        kind: 'update-card-meta',
+        cardId: 'card-1',
+        status: 'active-live',
+        reason: 'active-live',
+      }),
+    ]);
+    expect(result.updatedCard).toEqual(expect.objectContaining({
+      id: 'card-1',
+      meta: expect.objectContaining({
+        liveRelationStatus: 'active-live',
+        liveRelationKey,
+        conceptBlockId: CONCEPT_ID,
+      }),
+    }));
+  });
+
+  it('keeps legacy backlink-bound descriptors live when body context points to another concept', async () => {
+    const bodyConceptId = '20260101000002-ccccccc';
+    const liveRelationKey = `${SOURCE_ID}:${CONCEPT_ID}:descriptor-forward`;
+    const card = buildCard({
+      type: CardType.Descriptor,
+      meta: {
+        xiuyuanID: 'xiuyuan-1',
+        templateID: 'builtin-concept-descriptor',
+        typeMarker: 'concept-descriptor-forward',
+        frontBlockIDs: [SOURCE_ID],
+        backBlockIDs: [SOURCE_ID],
+        relationKind: 'descriptor-forward',
+        fieldMapping: {
+          concept: CONCEPT_ID,
+          descriptor: SOURCE_ID,
+        },
+      },
+    });
+    const manager = createManager(new Map([[card.id, card]]));
+    const service = new CdfLiveRelationRefreshService({
+      manager,
+      now: () => 1_700_000_000_789,
+    });
+
+    const result = await service.refreshCurrentCardOnOpen(card, {
+      surface: 'review-open',
+      sourceTree: {
+        id: bodyConceptId,
+        type: 'd',
+        markdown: 'Body concept',
+        children: [
+          {
+            id: SOURCE_ID,
+            type: 'p',
+            markdown: 'cue ;; answer',
+          },
+        ],
+      },
+    });
+
+    expect(result.reason).toBe('refreshed');
+    expect(result.updatedCard).toMatchObject({
+      id: 'card-1',
+      updatedAt: 1_700_000_000_789,
+      meta: expect.objectContaining({
+        liveRelationKey,
+        relationAuthority: 'live-backlink',
+        liveRelationStatus: 'active-live',
+        relationKind: 'descriptor-forward',
+        sourceBlockId: SOURCE_ID,
+        conceptBlockId: CONCEPT_ID,
+      }),
+    });
+    expect(result.updatedCard?.meta).not.toEqual(expect.objectContaining({
+      conceptBlockId: bodyConceptId,
+    }));
+    expect(result.actions).toEqual([
+      expect.objectContaining({
+        kind: 'update-card-meta',
+        cardId: 'card-1',
+        status: 'active-live',
+        relation: expect.objectContaining({
+          descriptorConceptBindingEvidenceKind: 'list-backlink',
+        }),
+      }),
+    ]);
+  });
+
   it('marks missing current live relation unavailable and never backfills from fieldMapping', async () => {
     const card = buildCard({
       meta: {

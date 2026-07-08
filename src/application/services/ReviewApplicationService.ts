@@ -13,6 +13,7 @@ import {
 import type { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import type { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { CdfConceptTarget } from '@/core/card/cdf-live-relation';
 import type { SchedulerRouter } from '@/core/scheduler';
 import type { FSRSCard, Rating } from '@/types';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
@@ -35,6 +36,7 @@ export interface ReviewConceptReferenceSearchOption {
 
 type ReviewConceptReferenceSearchRow = {
   id?: unknown;
+  type?: unknown;
   content?: unknown;
   markdown?: unknown;
   hpath?: unknown;
@@ -205,6 +207,34 @@ export class ReviewApplicationService {
       LIMIT 8
     `);
     return normalizeConceptReferenceSearchRows(rows);
+  }
+
+  async resolveConceptReferenceTarget(blockId: string): Promise<CdfConceptTarget | null> {
+    const normalized = String(blockId || '').trim();
+    if (!/^\d{14}-[a-z0-9]{7}$/i.test(normalized)) {
+      return null;
+    }
+
+    const escaped = escapeSqlLiteral(normalized);
+    const rows = await this.siyuanApi.sql<ReviewConceptReferenceSearchRow>(`
+      SELECT id, type, content, markdown, hpath
+      FROM blocks
+      WHERE id = '${escaped}'
+      LIMIT 1
+    `);
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    const id = String(row.id || normalized).trim();
+    const type = String(row.type || '').trim() || null;
+    const title = String(row.content || row.markdown || row.hpath || id).trim();
+    return {
+      id,
+      type,
+      title: title || id,
+    };
   }
 
   async refreshCdfLiveRelationOnOpen(card: FSRSCard | string): Promise<CdfLiveRelationRefreshResult> {

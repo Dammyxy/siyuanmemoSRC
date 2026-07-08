@@ -2,7 +2,9 @@ import {
   deriveCdfLiveRelations,
   reconcileCdfLiveRelations,
   scopeCdfLiveBlockEditTree,
+  type CdfDescriptorConceptBindingEvidenceKind,
   type CdfLiveBlockNode,
+  type CdfLiveDeriveOptions,
   type CdfLiveRelationCandidate,
   type CdfRelationKind,
   type CdfReconciliationAction,
@@ -175,6 +177,43 @@ function resolveSourceBlockId(card: FSRSCard, meta: Record<string, unknown>): st
 function resolveLegacyConceptBlockId(meta: Record<string, unknown>): string {
   const mapping = readFieldMapping(meta);
   return readString(meta.conceptBlockId) || readString(mapping.concept);
+}
+
+function isDescriptorRelationKind(relationKind: string | null): boolean {
+  return relationKind === 'descriptor-forward' || relationKind === 'descriptor-reverse';
+}
+
+function isSourceBoundDescriptorEvidenceKind(
+  evidenceKind: CdfDescriptorConceptBindingEvidenceKind | undefined,
+): boolean {
+  return evidenceKind === 'inline-ref' || evidenceKind === 'list-parent-ref';
+}
+
+function buildDescriptorConceptEvidenceFromCards(
+  cards: FSRSCard[],
+  excludeSourceBlockIds: Set<string> = new Set(),
+): NonNullable<CdfLiveDeriveOptions['descriptorConceptEvidence']> {
+  const evidence: NonNullable<CdfLiveDeriveOptions['descriptorConceptEvidence']> = {};
+  for (const card of cards) {
+    const meta = readMeta(card);
+    const relationKind = resolveExpectedRelationKind(card, meta);
+    if (!isDescriptorRelationKind(relationKind)) {
+      continue;
+    }
+    const sourceBlockId = resolveSourceBlockId(card, meta);
+    const conceptBlockId = resolveLegacyConceptBlockId(meta);
+    if (!sourceBlockId || !conceptBlockId || excludeSourceBlockIds.has(sourceBlockId)) {
+      continue;
+    }
+    const existing = evidence[sourceBlockId];
+    const next = { conceptBlockId, evidenceKind: 'list-backlink' as const };
+    evidence[sourceBlockId] = Array.isArray(existing)
+      ? [...existing, next]
+      : existing
+        ? [existing, next]
+        : [next];
+  }
+  return evidence;
 }
 
 function findLegacyRelationForCard(
@@ -382,8 +421,15 @@ export class CdfLiveRelationRefreshService {
       return this.result(true, card, null, [], 0, null, 'source-missing');
     }
 
-    const deriveResult = deriveCdfLiveRelations(sourceTree);
     const existingCards = await this.loadExistingCardsForRefresh(card, sourceBlockId);
+    const sourceDerivedResult = deriveCdfLiveRelations(sourceTree);
+    const sourceBoundDescriptorBlockIds = new Set(sourceDerivedResult.relations
+      .filter((relation) => relation.relationKind.startsWith('descriptor'))
+      .filter((relation) => isSourceBoundDescriptorEvidenceKind(relation.descriptorConceptBindingEvidenceKind))
+      .map((relation) => relation.sourceBlockId));
+    const deriveResult = deriveCdfLiveRelations(sourceTree, {
+      descriptorConceptEvidence: buildDescriptorConceptEvidenceFromCards(existingCards, sourceBoundDescriptorBlockIds),
+    });
     const reconciliation = reconcileCdfLiveRelations({
       liveRelations: deriveResult.relations,
       existingCards,

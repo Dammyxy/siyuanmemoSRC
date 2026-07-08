@@ -1,5 +1,7 @@
 export * from './blockEditScope';
 export * from './contentStatus';
+export * from './conceptBindingEditor';
+export * from './descriptorConceptBindingResolver';
 export * from './liveRelationScanner';
 export * from './metadata';
 export * from './reconciler';

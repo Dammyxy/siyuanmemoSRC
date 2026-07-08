@@ -78,6 +78,20 @@ export function createReviewNativeSplitRuntime(options: ReviewNativeSplitRuntime
     return isCurrentReviewTabActive() && resolveCurrentNativeSplitGuardState()?.blockNativeTabSplit === true;
   }
 
+  function isCurrentReviewTabHeader(target: EventTarget | null): boolean {
+    if (options.mode() !== 'tab') {
+      return false;
+    }
+    const targetElement = getReviewEventElement(target);
+    const tabHeader = targetElement?.closest('[data-type="tab-header"]');
+    if (!(tabHeader instanceof HTMLElement)) {
+      return false;
+    }
+    const normalizedReviewSessionId = String(options.reviewSessionId() || '').trim();
+    return normalizedReviewSessionId.length > 0
+      && String(tabHeader.getAttribute('data-id') || '').trim() === normalizedReviewSessionId;
+  }
+
   function showNativeSplitBlockedNotice(): void {
     const timestamp = now();
     if (timestamp - blockedNoticeAt < NATIVE_SPLIT_BLOCKED_NOTICE_COOLDOWN_MS) {
@@ -101,15 +115,15 @@ export function createReviewNativeSplitRuntime(options: ReviewNativeSplitRuntime
     }
   }
 
-  function scheduleMenuPrune(): void {
+  function scheduleTabMenuHandling(): void {
     clearMenuPruneTimer();
     menuPruneTimer = schedule(() => {
       menuPruneTimer = null;
-      if (!shouldBlockCurrentNativeTabSplit()) {
-        return;
-      }
       const commonMenu = document.getElementById('commonMenu');
       if (!(commonMenu instanceof HTMLElement) || commonMenu.getAttribute('data-name') !== 'tab') {
+        return;
+      }
+      if (!shouldBlockCurrentNativeTabSplit()) {
         return;
       }
       const removed = pruneNativeTabSplitMenu(commonMenu);
@@ -123,21 +137,11 @@ export function createReviewNativeSplitRuntime(options: ReviewNativeSplitRuntime
   }
 
   function handleTabContextMenu(event: MouseEvent): void {
-    if (!shouldBlockCurrentNativeTabSplit()) {
+    if (!isCurrentReviewTabHeader(event.target)) {
       return;
     }
 
-    const targetElement = getReviewEventElement(event.target);
-    const tabHeader = targetElement?.closest('[data-type="tab-header"]');
-    if (!(tabHeader instanceof HTMLElement)) {
-      return;
-    }
-
-    if (String(tabHeader.getAttribute('data-id') || '').trim() !== String(options.reviewSessionId() || '').trim()) {
-      return;
-    }
-
-    scheduleMenuPrune();
+    scheduleTabMenuHandling();
   }
 
   function isInsideReviewRoot(target: EventTarget | null): boolean {

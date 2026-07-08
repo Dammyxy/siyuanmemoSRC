@@ -1,4 +1,5 @@
 import { evaluateCdfContentStatus } from './contentStatus';
+import { resolveCdfDescriptorConceptBinding } from './descriptorConceptBindingResolver';
 import { createCdfLiveRelationKey } from './relationKey';
 import {
   parseCardSourceGrammar,
@@ -10,6 +11,8 @@ import type {
   CdfConceptBinding,
   CdfConceptTarget,
   CdfContentShape,
+  CdfDescriptorConceptBindingEvidence,
+  CdfDescriptorConceptBindingEvidenceKind,
   CdfLiveBlockNode,
   CdfLiveDeriveOptions,
   CdfLiveDeriveResult,
@@ -28,6 +31,8 @@ interface ConceptResolution {
 interface ScanContext {
   descriptorConcepts: ConceptResolution | null;
   definitionConcepts: ConceptResolution | null;
+  bodyHeadingConcept: CdfConceptBinding | null;
+  bodyDocumentConcept: CdfConceptBinding | null;
   breadcrumbs: string[];
   definitionGroup: boolean;
   descriptorGroup: boolean;
@@ -59,6 +64,18 @@ function isLeaf(node: CdfLiveBlockNode): boolean {
   return !node.children || node.children.length === 0;
 }
 
+function isDocumentNode(node: CdfLiveBlockNode): boolean {
+  return node.type === 'd';
+}
+
+function isHeadingNode(node: CdfLiveBlockNode): boolean {
+  return node.type === 'h' || /^h\d$/i.test(String(node.subtype || ''));
+}
+
+function isListItemNode(node: CdfLiveBlockNode): boolean {
+  return node.type === 'i' || node.subtype === 'u' || node.subtype === 'o';
+}
+
 function extractRefs(source: string): RefOccurrence[] {
   return [...String(source || '').matchAll(BLOCK_REF_RE)].map((match, index) => ({
     id: match[1],
@@ -83,10 +100,23 @@ function normalizeTarget(
   return target;
 }
 
+function createStructuralConcept(
+  node: CdfLiveBlockNode,
+  evidenceKind: Extract<CdfDescriptorConceptBindingEvidenceKind, 'body-heading' | 'body-document'>,
+): CdfConceptBinding {
+  return {
+    conceptBlockId: node.id,
+    displayText: normalizeText(node.markdown || node.content || node.id) || node.id,
+    order: 0,
+    evidenceKind,
+  };
+}
+
 function resolveConceptBindings(
   sourceBlockId: string,
   source: string,
   options: CdfLiveDeriveOptions,
+  evidenceKind?: CdfDescriptorConceptBindingEvidenceKind,
 ): ConceptResolution {
   const refs = extractRefs(source);
   const issues: CdfLiveRelationIssue[] = [];
@@ -130,6 +160,7 @@ function resolveConceptBindings(
       conceptBlockId: ref.id,
       displayText: target.title,
       order: ref.order,
+      evidenceKind,
     });
   }
 
@@ -161,6 +192,100 @@ function resolveConceptBindings(
 
   return {
     bindings: validBindings.sort((left, right) => left.order - right.order),
+    issues,
+  };
+}
+
+function resolveDescriptorInlineConceptBindings(
+  sourceBlockId: string,
+  source: string,
+  operator: CardSourceOperatorToken | null,
+  options: CdfLiveDeriveOptions,
+): ConceptResolution | null {
+  if (!operator || operator.family !== 'descriptor') {
+    return null;
+  }
+  const leftSource = source.slice(0, operator.index);
+  if (extractRefs(leftSource).length === 0) {
+    return null;
+  }
+  return resolveConceptBindings(sourceBlockId, leftSource, options, 'inline-ref');
+}
+
+function normalizeEvidenceEntry(
+  sourceBlockId: string,
+  entry: string | CdfDescriptorConceptBindingEvidence,
+  index: number,
+  options: CdfLiveDeriveOptions,
+): { binding?: CdfConceptBinding; issue?: CdfLiveRelationIssue } | null {
+  const conceptBlockId = typeof entry === 'string' ? entry.trim() : String(entry.conceptBlockId || '').trim();
+  if (!conceptBlockId) {
+    return null;
+  }
+  const target = normalizeTarget(conceptBlockId, options);
+  if (!target) {
+    return {
+      issue: {
+        code: 'missing-concept-target',
+        severity: 'blocking',
+        sourceBlockId,
+        conceptBlockId,
+      },
+    };
+  }
+  if (target.type !== 'd') {
+    return {
+      issue: {
+        code: 'invalid-concept-ref',
+        severity: 'blocking',
+        sourceBlockId,
+        conceptBlockId,
+      },
+    };
+  }
+  const evidence = typeof entry === 'string' ? {} : entry;
+  return {
+    binding: {
+      conceptBlockId,
+      displayText: evidence.displayText ?? target.title,
+      order: evidence.order ?? index,
+      evidenceKind: evidence.evidenceKind ?? 'list-backlink',
+    },
+  };
+}
+
+function resolveDescriptorBacklinkConceptBindings(
+  sourceBlockId: string,
+  options: CdfLiveDeriveOptions,
+): ConceptResolution | null {
+  const evidence = options.descriptorConceptEvidence?.[sourceBlockId];
+  if (!evidence) {
+    return null;
+  }
+  const entries = Array.isArray(evidence) ? evidence : [evidence];
+  const bindings: CdfConceptBinding[] = [];
+  const issues: CdfLiveRelationIssue[] = [];
+  const seen = new Set<string>();
+
+  entries.forEach((entry, index) => {
+    const normalized = normalizeEvidenceEntry(sourceBlockId, entry, index, options);
+    if (!normalized) {
+      return;
+    }
+    if (normalized.issue) {
+      issues.push(normalized.issue);
+      return;
+    }
+    const binding = normalized.binding;
+    if (!binding || seen.has(binding.conceptBlockId)) {
+      return;
+    }
+    seen.add(binding.conceptBlockId);
+    bindings.push(binding);
+  });
+
+  return {
+    bindings: bindings.sort((left, right) => left.order - right.order),
     issues,
   };
 }
@@ -251,6 +376,7 @@ function createCandidate(input: {
     contentShape: input.shape,
     content: input.content,
     fieldMappingSnapshot,
+    descriptorConceptBindingEvidenceKind: family === 'descriptor' ? input.concept.evidenceKind : undefined,
   };
 }
 
@@ -270,6 +396,10 @@ function addCandidatesForConcepts(input: {
   const allIssues = [...input.issues, ...conceptIssues];
 
   if (!hasValidBinding(input.concepts)) {
+    if (allIssues.some(issue => issue.severity === 'blocking')) {
+      addSourceIssues(input.state, sourceBlockId, allIssues);
+      return;
+    }
     const missingIssue: CdfLiveRelationIssue = {
       code: input.missingConceptCode ?? 'missing-concept-ref',
       severity: 'blocking',
@@ -325,15 +455,26 @@ function scanDescriptorRelation(
   node: CdfLiveBlockNode,
   operator: CardSourceOperatorToken,
   context: ScanContext,
+  options: CdfLiveDeriveOptions,
   state: MutableDeriveState,
   grammarIssues: CdfLiveRelationIssue[],
 ): void {
   const source = readNodeMarkdown(node);
   const split = splitSourceByOperator(source, operator);
+  const concepts = resolveCdfDescriptorConceptBinding({
+    sourceBlockId: node.id,
+    inlineConcepts: resolveDescriptorInlineConceptBindings(node.id, source, operator, options),
+    listParentConcepts: context.descriptorConcepts,
+    listBacklinkConcepts: resolveDescriptorBacklinkConceptBindings(node.id, options),
+    bodyHeadingConcept: context.bodyHeadingConcept,
+    bodyDocumentConcept: context.bodyDocumentConcept,
+    allowBodyContext: !isListItemNode(node),
+  });
+
   addCandidatesForConcepts({
     state,
     node,
-    concepts: context.descriptorConcepts,
+    concepts,
     relationKinds: operator.relationKinds,
     issues: grammarIssues,
     shape: 'descriptor-explicit',
@@ -342,6 +483,7 @@ function scanDescriptorRelation(
       answer: split.right,
     },
     breadcrumbs: context.breadcrumbs,
+    missingConceptCode: 'missing-descriptor-concept-binding',
   });
 }
 
@@ -365,18 +507,29 @@ function scanDefinitionGroupPlainChild(
 function scanDescriptorGroupLeaf(
   node: CdfLiveBlockNode,
   context: ScanContext,
+  options: CdfLiveDeriveOptions,
   state: MutableDeriveState,
 ): void {
   const parsed = splitGroupedDescriptorLeafSource(readNodeMarkdown(node));
+  const concepts = resolveCdfDescriptorConceptBinding({
+    sourceBlockId: node.id,
+    listParentConcepts: context.descriptorConcepts,
+    listBacklinkConcepts: resolveDescriptorBacklinkConceptBindings(node.id, options),
+    bodyHeadingConcept: context.bodyHeadingConcept,
+    bodyDocumentConcept: context.bodyDocumentConcept,
+    allowBodyContext: !isListItemNode(node),
+  });
+
   addCandidatesForConcepts({
     state,
     node,
-    concepts: context.descriptorConcepts,
+    concepts,
     relationKinds: ['descriptor-forward'],
     issues: [],
     shape: parsed.shape,
     content: parsed.content,
     breadcrumbs: context.breadcrumbs,
+    missingConceptCode: 'missing-descriptor-concept-binding',
   });
 }
 
@@ -389,7 +542,27 @@ function childHasBoundaryRefs(
   if (refs.length === 0) {
     return null;
   }
-  return resolveConceptBindings(child.id, source, options);
+  return resolveConceptBindings(child.id, source, options, 'list-parent-ref');
+}
+
+function contextForNode(
+  node: CdfLiveBlockNode,
+  context: ScanContext,
+): ScanContext {
+  if (isDocumentNode(node)) {
+    return {
+      ...context,
+      bodyDocumentConcept: createStructuralConcept(node, 'body-document'),
+      bodyHeadingConcept: null,
+    };
+  }
+  if (isHeadingNode(node)) {
+    return {
+      ...context,
+      bodyHeadingConcept: createStructuralConcept(node, 'body-heading'),
+    };
+  }
+  return context;
 }
 
 function scanChildren(
@@ -403,25 +576,35 @@ function scanChildren(
   }
 
   let currentDescriptorConcepts = context.descriptorConcepts;
+  let currentBodyHeadingConcept = context.bodyHeadingConcept;
   for (const child of children) {
+    const childBaseContext = {
+      ...context,
+      descriptorConcepts: currentDescriptorConcepts,
+      bodyHeadingConcept: currentBodyHeadingConcept,
+    };
+    const childContext = contextForNode(child, childBaseContext);
     if (!context.suppressDirectBoundaries && !context.definitionGroup && !context.descriptorGroup) {
       const boundaryConcepts = childHasBoundaryRefs(child, options);
       if (boundaryConcepts) {
         currentDescriptorConcepts = boundaryConcepts;
         addSourceIssues(state, child.id, boundaryConcepts.issues);
         scanChildren(child.children, {
-          ...context,
+          ...childContext,
           descriptorConcepts: boundaryConcepts,
           suppressDirectBoundaries: true,
         }, options, state);
+        if (isHeadingNode(child)) {
+          currentBodyHeadingConcept = childContext.bodyHeadingConcept;
+        }
         continue;
       }
     }
 
-    scanNode(child, {
-      ...context,
-      descriptorConcepts: currentDescriptorConcepts,
-    }, options, state);
+    scanNode(child, childContext, options, state);
+    if (isHeadingNode(child)) {
+      currentBodyHeadingConcept = childContext.bodyHeadingConcept;
+    }
   }
 }
 
@@ -431,6 +614,7 @@ function scanNode(
   options: CdfLiveDeriveOptions,
   state: MutableDeriveState,
 ): void {
+  context = contextForNode(node, context);
   const source = readNodeMarkdown(node);
   const grammar = parseCardSourceGrammar(source);
   const operator = grammar.primaryOperator;
@@ -464,11 +648,11 @@ function scanNode(
   if (isDefinitionOperator(operator)) {
     scanDefinitionRelation(node, operator, context, options, state, grammarIssues);
   } else if (isDescriptorOperator(operator)) {
-    scanDescriptorRelation(node, operator, context, state, grammarIssues);
+    scanDescriptorRelation(node, operator, context, options, state, grammarIssues);
   } else if (context.definitionGroup && source.length > 0) {
     scanDefinitionGroupPlainChild(node, context, state);
   } else if (context.descriptorGroup && isLeaf(node) && source.length > 0) {
-    scanDescriptorGroupLeaf(node, context, state);
+    scanDescriptorGroupLeaf(node, context, options, state);
   } else {
     addSourceIssues(state, node.id, grammarIssues);
   }
@@ -488,6 +672,8 @@ export function deriveCdfLiveRelations(
   const context: ScanContext = {
     descriptorConcepts: null,
     definitionConcepts: null,
+    bodyHeadingConcept: null,
+    bodyDocumentConcept: null,
     breadcrumbs: [],
     definitionGroup: false,
     descriptorGroup: false,

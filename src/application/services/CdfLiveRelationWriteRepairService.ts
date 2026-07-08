@@ -5,6 +5,7 @@ import {
   scopeCdfLiveBlockEditTree,
   writeCdfLiveRelationMetadata,
   type CdfLiveBlockNode,
+  type CdfLiveDeriveOptions,
   type CdfLiveRelationCandidate,
   type CdfReconciliationAction,
 } from '@/core/card/cdf-live-relation';
@@ -493,6 +494,37 @@ function resolveLegacyConceptBlockId(meta: Record<string, unknown>): string {
   return readString(meta.conceptBlockId) || readString(mapping.concept);
 }
 
+function isDescriptorRelationKind(relationKind: string | null): boolean {
+  return relationKind === 'descriptor-forward' || relationKind === 'descriptor-reverse';
+}
+
+function buildDescriptorConceptEvidenceFromCards(
+  cards: FSRSCard[],
+  excludeSourceBlockIds: Set<string> = new Set(),
+): NonNullable<CdfLiveDeriveOptions['descriptorConceptEvidence']> {
+  const evidence: NonNullable<CdfLiveDeriveOptions['descriptorConceptEvidence']> = {};
+  for (const card of cards) {
+    const meta = isRecord(card.meta) ? card.meta : {};
+    const relationKind = resolveExpectedRelationKind(card, meta);
+    if (!isDescriptorRelationKind(relationKind)) {
+      continue;
+    }
+    const sourceBlockId = resolveSourceBlockId(card, meta);
+    const conceptBlockId = resolveLegacyConceptBlockId(meta);
+    if (!sourceBlockId || !conceptBlockId || excludeSourceBlockIds.has(sourceBlockId)) {
+      continue;
+    }
+    const existing = evidence[sourceBlockId];
+    const next = { conceptBlockId, evidenceKind: 'list-backlink' as const };
+    evidence[sourceBlockId] = Array.isArray(existing)
+      ? [...existing, next]
+      : existing
+        ? [existing, next]
+        : [next];
+  }
+  return evidence;
+}
+
 function readCdfRelationCardSourceBlockId(card: FSRSCard): string {
   const meta = isRecord(card.meta) ? card.meta : {};
   return resolveSourceBlockId(card, meta);
@@ -754,6 +786,7 @@ function buildRelationMetadata(
       order: relation.conceptSnapshot.order,
     },
     fieldMapping: relation.fieldMappingSnapshot,
+    descriptorConceptBindingEvidenceKind: relation.descriptorConceptBindingEvidenceKind,
   });
 }
 
@@ -1248,13 +1281,22 @@ export class CdfLiveRelationWriteRepairService {
       return this.result(true, [], [], [], 0, 'source-missing');
     }
 
-    const deriveResult = deriveCdfLiveRelations(scopedSourceTree);
-    const sourceBlockIds = this.resolveExistingCardScope(scopedSourceTree, deriveResult.relations, options.sourceBlockId);
+    const initialSourceBlockIds = Array.from(new Set([
+      ...collectNodeIds(scopedSourceTree),
+      readString(options.sourceBlockId),
+    ].filter(Boolean)));
     const existingCards = options.existingCards ?? (
-      sourceBlockIds.length > 0
-        ? (await this.deps.manager.getCards({ blockIds: sourceBlockIds })).filter(isCdfRelationCard)
+      initialSourceBlockIds.length > 0
+        ? (await this.deps.manager.getCards({ blockIds: initialSourceBlockIds })).filter(isCdfRelationCard)
         : []
     );
+    const sourceDerivedResult = deriveCdfLiveRelations(scopedSourceTree);
+    const sourceBoundDescriptorBlockIds = new Set(sourceDerivedResult.relations
+      .filter((relation) => relation.relationKind.startsWith('descriptor'))
+      .map((relation) => relation.sourceBlockId));
+    const deriveResult = deriveCdfLiveRelations(scopedSourceTree, {
+      descriptorConceptEvidence: buildDescriptorConceptEvidenceFromCards(existingCards, sourceBoundDescriptorBlockIds),
+    });
     const reconciliation = reconcileCdfLiveRelations({
       liveRelations: deriveResult.relations,
       existingCards,

@@ -214,6 +214,11 @@ function createNativeTabMenu(): HTMLElement {
   splitItem.setAttribute('data-id', 'split');
   splitItem.textContent = 'split';
   menuItems.appendChild(splitItem);
+  const closeItem = document.createElement('button');
+  closeItem.className = 'b3-menu__item';
+  closeItem.setAttribute('data-id', 'close');
+  closeItem.textContent = 'close';
+  menuItems.appendChild(closeItem);
   menu.appendChild(menuItems);
   document.body.appendChild(menu);
   return menu;
@@ -353,7 +358,9 @@ describe('ReviewView native split guard', () => {
     createNativeTabMenu();
     guardedTabHeader.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     await settleNativeMenuPrune();
+    expect((document.getElementById('commonMenu') as HTMLElement | null)?.style.zIndex).toBe('');
     expect(document.querySelector('#commonMenu .b3-menu__item[data-id="split"]')).toBeNull();
+    expect(document.querySelector('#commonMenu .b3-menu__item[data-id="close"]')).not.toBeNull();
 
     reviewNativeSplitGuardState = {
       rendererKind: 'main-protyle',
@@ -362,7 +369,9 @@ describe('ReviewView native split guard', () => {
     createNativeTabMenu();
     guardedTabHeader.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     await settleNativeMenuPrune();
+    expect((document.getElementById('commonMenu') as HTMLElement | null)?.style.zIndex).toBe('');
     expect(document.querySelector('#commonMenu .b3-menu__item[data-id="split"]')).not.toBeNull();
+    expect(document.querySelector('#commonMenu .b3-menu__item[data-id="close"]')).not.toBeNull();
 
     reviewNativeSplitGuardState = {
       rendererKind: 'concept',

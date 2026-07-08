@@ -40,6 +40,12 @@ function createNativeTabMenu(): HTMLElement {
   splitItem.className = 'b3-menu__item';
   splitItem.setAttribute('data-id', 'split');
   menu.appendChild(splitItem);
+
+  const closeItem = document.createElement('button');
+  closeItem.className = 'b3-menu__item';
+  closeItem.setAttribute('data-id', 'close');
+  menu.appendChild(closeItem);
+
   document.body.appendChild(menu);
   return menu;
 }
@@ -95,6 +101,26 @@ describe('reviewNativeSplitRuntime', () => {
     runtime.handleTabContextMenu(event);
     await vi.runAllTimersAsync();
 
+    expect(menu.style.zIndex).toBe('');
     expect(menu.querySelector('.b3-menu__item[data-id="split"]')).toBeNull();
+    expect(menu.querySelector('.b3-menu__item[data-id="close"]')).not.toBeNull();
+  });
+
+  it('leaves native tab menu styling untouched without pruning normal review tab actions', async () => {
+    const root = document.createElement('div');
+    root.className = 'fsrs-review-v2';
+    document.body.appendChild(root);
+    const runtime = createRuntime(root, { rendererKind: 'main-protyle', blockNativeTabSplit: false });
+    const tabHeader = createActiveTabHeader();
+    const menu = createNativeTabMenu();
+    const event = new MouseEvent('contextmenu', { bubbles: true });
+    Object.defineProperty(event, 'target', { value: tabHeader });
+
+    runtime.handleTabContextMenu(event);
+    await vi.runAllTimersAsync();
+
+    expect(menu.style.zIndex).toBe('');
+    expect(menu.querySelector('.b3-menu__item[data-id="split"]')).not.toBeNull();
+    expect(menu.querySelector('.b3-menu__item[data-id="close"]')).not.toBeNull();
   });
 });

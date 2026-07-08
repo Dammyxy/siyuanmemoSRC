@@ -97,4 +97,27 @@ describe('DescriptorCardRepository live CDF fusion context', () => {
     expect(result).not.toBeNull();
     expect(result?.cdfFusionContext).toBeUndefined();
   });
+
+  it('uses live CDF concept metadata before parent-chain lookup', async () => {
+    const adapter = createAdapter();
+    const repository = new DescriptorCardRepository(adapter as never);
+
+    const result = await repository.loadDescriptorCard('descriptor-block', {
+      meta: {
+        liveRelationKey: 'descriptor-block:concept-block:descriptor-forward',
+        relationAuthority: 'live-backlink',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        sourceBlockId: 'descriptor-block',
+        conceptBlockId: 'concept-block',
+        relationKind: 'descriptor-forward',
+      },
+    });
+
+    expect(result?.parentConcept).toEqual(expect.objectContaining({
+      blockId: 'concept-block',
+      isConceptCard: true,
+    }));
+    expect(adapter.getBlock).not.toHaveBeenCalledWith('descriptor-item');
+  });
 });

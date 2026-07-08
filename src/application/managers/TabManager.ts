@@ -707,6 +707,10 @@ export class TabManager {
       this.normalizeReviewTabData(runtime.data),
       this.resolveReviewTabRuntimeId(runtime),
     );
+    data = {
+      ...data,
+      reviewAdmissionTicket: null,
+    };
     data = await this.admitReviewTabData(data, {
       entrySurface: 'tab-manager:init-review-tab',
     });
@@ -1565,9 +1569,7 @@ export class TabManager {
       neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(data?.neuralRoamStartFromFocus),
       neuralRoamTemporaryEngineModeTouched: data?.neuralRoamTemporaryEngineModeTouched === true,
       initialSemanticPinnedSessionId: normalizeOptionalId(data?.initialSemanticPinnedSessionId),
-      reviewAdmissionTicket: isValidReviewAdmissionTicket(data?.reviewAdmissionTicket, queueType)
-        ? data.reviewAdmissionTicket
-        : null,
+      reviewAdmissionTicket: null,
     };
   }
 

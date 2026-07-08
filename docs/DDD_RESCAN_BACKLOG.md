@@ -1,8 +1,58 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-08 (Round 681)
+Last update: 2026-07-08 (Round 682)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-08 - Review tab host ownership and CDF blocking rollback
+
+- Task: Fix the remaining Review tab host-overlay bug and stop CDF abnormal metadata from blocking tab Review.
+- Touched slice: Review header drag surface, Review CDF interruption policy, focused Review header/View tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Review tab headers no longer render plugin `resize__move` / drag-region hit surfaces, so native tab close/menu/window gestures remain host-owned. Tab Review no longer shows the CDF interruption panel for CDF abnormal metadata.
+- Debt deferred: CDF abnormal repair infrastructure remains available in Browser/manual repair; full removal is deferred until we decide whether CDF repair should be Browser-only.
+- Why deferred: The repair path still provides useful diagnostics and explicit repair entrypoints, but it is too disruptive as an automatic Review gate.
+- Next safe step: Rebuild/reload, right-click the Review tab header and verify the native close item is clickable; open the reported CDF card in tab Review and confirm it reviews normally instead of showing the blocking panel.
+- Validation: Focused Review header/View/native-split tests passed; boundary check, hidden-fallback check, build, and diff whitespace check passed with CRLF working-copy warnings only.
+
+### 2026-07-08 - Review tab menu and descriptor backlink precedence follow-up
+
+- Task: Fix the live follow-up where normal Review tab close actions were still covered and CDF Review open still marked backlink-bound body descriptors as legacy unavailable.
+- Touched slice: Review native tab menu runtime, CDF live relation scanner/refresh, focused Review/CDF regression tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Review tab context-menu handling now applies to every current Review tab header while native split pruning remains limited to special renderer tabs and leaves the native menu styling untouched. CDF descriptor derivation now accepts relation-card backlink evidence for body descriptors too, and Review-open refresh only excludes backlink evidence when the source itself has explicit inline/list-parent binding, not when body heading/document fallback produced a different relation.
+- Debt deferred: No global Siyuan native menu patch and no automatic descriptor source-structure rewrite were added.
+- Why deferred: Global host menu policy crosses non-Review surfaces, and structural descriptor rewrites still need a previewable repair flow before mutating user note shape.
+- Next safe step: Rebuild/reload, right-click a normal restored Review tab to confirm native close is selectable, then open the reported abnormal CDF card and confirm it no longer shows `legacy-relation-unavailable` when an existing relation card supplies the backlink concept.
+- Validation: Focused Review native menu, ReviewView native split guard, CDF refresh, and UnifiedQueueStrategy CDF open-refresh tests passed; boundary check, hidden-fallback check, build, and diff whitespace check passed. No matching OpenSpec change exists for this follow-up, so no OpenSpec validation was run.
+
+### 2026-07-08 - Review tab and CDF runtime authority stabilization
+
+- Task: Fix three runtime-authority leaks: restored Review tabs reusing persisted admission tickets, native tab close hidden under the Review tab surface, and descriptor rendering falling back to legacy parent-chain concept lookup despite live CDF metadata.
+- Touched slice: `TabManager` restore/admission, Review native split menu runtime, DescriptorCardRepository concept resolution, focused regression tests, `ARCHITECTURE.md`, and OpenSpec change `stabilize-review-tab-and-cdf-runtime-authority`.
+- Debt fixed now: Restored Review tabs discard serialized `reviewAdmissionTicket` and re-admit against the current runtime projection before mount. Review tab context menus keep the native tab menu above Review overlays while pruning only the split action. Descriptor render-time parent concept resolution now trusts live CDF descriptor metadata before `fieldMapping` / `frontBlockIDs` / ancestor lookup.
+- Debt deferred: This does not add automatic structural rewrites for descriptor sources with no derivable concept evidence, and it does not redesign the native custom-tab lifecycle beyond the Review surface guard.
+- Why deferred: Source-structure mutation still needs a previewable descriptor-boundary repair flow, and broader custom-tab/native menu policy would cross non-Review surfaces.
+- Next safe step: Rebuild/reload, reopen a previously restored Review tab, right-click its tab header, and open known abnormal CDF descriptors; remaining failures should now be fresh projection unavailable or typed CDF binding diagnostics, not stale ticket reuse, covered close action, or parent-chain-only concept lookup.
+- Validation: Focused TabManager/native-menu/descriptor tests passed; full boundary, hidden-fallback, build, OpenSpec, and diff checks tracked in the active change verification.
+
+### 2026-07-08 - CDF descriptor concept binding resolver
+
+- Task: Unify CDF descriptor concept binding so backlink-bound list descriptors and heading/document-bound body descriptors repair and refresh through one live relation derivation path.
+- Touched slice: Core CDF live relation scanner/resolver, block edit scope, Review-open refresh, write repair reconciliation, focused CDF scanner/refresh/repair tests, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: `descriptorConceptBindingResolver` now owns descriptor binding evidence for inline refs, list parent refs, list backlink/card evidence, body headings, and body documents. Scanner, Review-open refresh, and write repair all use the same typed evidence path; conflicts report `descriptor-concept-conflict`, and descriptors with no safe evidence report `missing-descriptor-concept-binding` instead of pretending all failures are missing inline concept refs.
+- Debt deferred: No automatic rewrite of arbitrary descriptor source structure was added; invalid/missing concept targets and disagreeing evidence remain blocking diagnostics.
+- Why deferred: Binding can be derived from explicit source/backlink/heading/document evidence, but changing user block structure needs a separate previewable editor flow so repair does not silently reshape notes.
+- Next safe step: Rebuild/reload and open known abnormal CDF cards from both backlink-bound list descriptors and heading/document-bound body descriptors; remaining blockers should now name missing or conflicting binding evidence directly.
+- Validation: Targeted CDF scanner/write repair/refresh tests passed; OpenSpec strict validation passed; boundary, hidden-fallback, build, and diff checks tracked in the active change verification.
+
+### 2026-07-08 - CDF concept binding editor
+
+- Task: Repair abnormal CDF concept-reference edits from Review so document-block targets can replace stale or missing concept bindings without requiring pre-existing concept simple cards.
+- Touched slice: Review structured current-content editor, core CDF live relation binding planner, CDF write repair handoff tests, i18n diagnostics, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: Review no longer owns ad hoc concept source replacement. `conceptBindingEditor` centralizes normal replacement, stale-source repair, empty definition binding, document-target validation, typed unavailable diagnostics, and alias/block-attr preservation. Review now supports multiple relation confirmations so stale-source confirmation can precede the existing same-source/CDF relation preview, and successful writes still feed the existing CDF live relation write repair owner to create relation cards and missing concept simple assets.
+- Debt deferred: Empty descriptor binding still rejects unsafe metadata-only activation with `descriptor-structure-repair-unavailable`; no first-version structural descriptor rewrite was shipped.
+- Why deferred: Descriptor concept authority is derived from live ancestor/boundary structure, not arbitrary descriptor text or `fieldMapping`. Auto-creating that structure needs a separate previewable block-structure design to avoid silently changing user content shape.
+- Next safe step: Design one safe descriptor boundary repair shape, then add scanner/repair tests proving the live relation scanner derives the selected concept document block after the structural write.
+- Validation: Focused CDF source grammar/live scanner/binding editor/repair/Review tests passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n hardcoded/untranslated warnings and Sass legacy JS API warnings.
 
 ### 2026-07-08 - Review Admission Module
 

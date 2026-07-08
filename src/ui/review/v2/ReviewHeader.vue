@@ -309,7 +309,11 @@ const usesNativeDialogTitlebar = computed(() => (
   && props.mode === 'dialog'
   && props.isMobile !== true
 ));
-const showDragSurface = computed(() => !props.isMobile && !usesNativeDialogTitlebar.value);
+const showDragSurface = computed(() => (
+  !props.isMobile
+  && props.mode === 'dialog'
+  && !usesNativeDialogTitlebar.value
+));
 const showInlineQueueSwitchTrigger = computed(() => !props.isMobile && props.mode === 'tab');
 
 const counterSummary = computed(() => props.header?.counterSummary || null);

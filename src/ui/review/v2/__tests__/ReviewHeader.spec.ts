@@ -160,6 +160,8 @@ describe('ReviewHeader', () => {
     });
 
     const trigger = wrapper.get('.siyuanmemo-review-header__queue-switch');
+    expect(wrapper.find('.siyuanmemo-review-header__drag-surface').exists()).toBe(false);
+    expect(wrapper.find('.resize__move').exists()).toBe(false);
     expect(trigger.text()).toBe('神经漫游');
     expect(trigger.attributes('title')).toBe('神经漫游');
 

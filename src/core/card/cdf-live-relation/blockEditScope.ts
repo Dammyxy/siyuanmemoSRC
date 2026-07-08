@@ -16,6 +16,10 @@ function hasBlockRefs(node: CdfLiveBlockNode): boolean {
   return BLOCK_REF_RE.test(readNodeMarkdown(node));
 }
 
+function isHeadingNode(node: CdfLiveBlockNode): boolean {
+  return node.type === 'h' || /^h\d$/i.test(String(node.subtype || ''));
+}
+
 function isGroupNode(node: CdfLiveBlockNode): boolean {
   const operator = parseCardSourceGrammar(readNodeMarkdown(node)).primaryOperator;
   return operator?.role === 'group';
@@ -61,7 +65,7 @@ function findNearestPreviousBoundary(
 ): CdfLiveBlockNode | null {
   for (let index = targetIndex - 1; index >= 0; index -= 1) {
     const sibling = siblings[index];
-    if (hasBlockRefs(sibling)) {
+    if (hasBlockRefs(sibling) || isHeadingNode(sibling)) {
       return sibling;
     }
   }

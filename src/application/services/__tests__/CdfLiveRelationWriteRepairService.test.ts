@@ -667,8 +667,39 @@ describe('CdfLiveRelationWriteRepairService', () => {
       createCardCount: 1,
       persistedMutationCount: 1,
     }));
-    expect(creator.createCards).toHaveBeenCalled();
-    expect(manager.onCardCreated).toHaveBeenCalled();
+    expect(creator.createCards).toHaveBeenNthCalledWith(
+      1,
+      [
+        expect.objectContaining({
+          id: `card_xy_${CONCEPT_A_ID}_0`,
+          blockId: CONCEPT_A_ID,
+          meta: expect.objectContaining({
+            templateID: 'builtin-concept-simple',
+            fieldMapping: { concept: CONCEPT_A_ID },
+          }),
+        }),
+      ],
+      [
+        expect.objectContaining({
+          id: `xy_${CONCEPT_A_ID}`,
+          blockIDs: [CONCEPT_A_ID],
+          templateID: 'builtin-concept-simple',
+        }),
+      ],
+      { suppressDueIndexSort: true },
+    );
+    expect(creator.createCards).toHaveBeenNthCalledWith(
+      2,
+      result.result.createdCards,
+      expect.any(Array),
+      { suppressDueIndexSort: true },
+    );
+    expect(manager.onCardCreated).toHaveBeenCalledWith(expect.objectContaining({
+      id: `card_xy_${CONCEPT_A_ID}_0`,
+    }));
+    expect(manager.onCardCreated).toHaveBeenCalledWith(expect.objectContaining({
+      id: `card-${CONCEPT_A_ID}-definition-forward`,
+    }));
     expect(manager.updateCard).not.toHaveBeenCalled();
   });
 
@@ -1333,6 +1364,52 @@ describe('CdfLiveRelationWriteRepairService', () => {
       result.updatedCards[0],
       { suppressDueIndexSort: true },
     );
+  });
+
+  it('reactivates backlink-bound list descriptors that have no inline concept refs', async () => {
+    const orphaned = relationCard({
+      id: 'backlink-bound-descriptor',
+      sourceBlockId: 'descriptor-a',
+      conceptBlockId: CONCEPT_A_ID,
+      relationKind: 'descriptor-forward',
+      status: 'orphaned-by-live-relation',
+      reps: 5,
+    });
+    const manager = createManager([], {
+      cardsByBlockId: {
+        'descriptor-a': [orphaned],
+      },
+    });
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      now: () => NOW,
+    });
+
+    const result = await service.reconcileWriteOrRepair({
+      reconciliationScope: 'block-edit',
+      changedBlockId: 'descriptor-a',
+      sourceTree: node('doc-root', 'root', [
+        node('descriptor-a', 'cue A ;; answer A'),
+      ]),
+    });
+
+    expect(result.derivedRelationCount).toBe(1);
+    expect(result.createdCards).toHaveLength(0);
+    expect(result.updatedCards).toEqual([
+      expect.objectContaining({
+        id: 'backlink-bound-descriptor',
+        reps: 5,
+        meta: expect.objectContaining({
+          liveRelationStatus: 'active-live',
+          liveRelationKey: `descriptor-a:${CONCEPT_A_ID}:descriptor-forward`,
+          conceptBlockId: CONCEPT_A_ID,
+        }),
+      }),
+    ]);
   });
 
   it('restores content-complete eligibility after required fields are filled while preserving FSRS', async () => {

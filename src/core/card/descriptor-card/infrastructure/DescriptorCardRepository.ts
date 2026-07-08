@@ -18,6 +18,7 @@ import {
   type ReviewMarkdownRenderOptions,
   type ReviewRenderedMarkdown,
 } from '@/core/card/common/application/reviewMarkdownRender';
+import { readCdfLiveRelationMetadata } from '@/core/card/cdf-live-relation/metadata';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DescriptorCardRepository');
@@ -270,6 +271,15 @@ export class DescriptorCardRepository {
     const meta = fsrsCard?.meta;
     if (!meta) {
       return null;
+    }
+
+    const liveMeta = readCdfLiveRelationMetadata(meta);
+    if (
+      liveMeta.conceptBlockId
+      && liveMeta.conceptBlockId !== descriptorBlockId
+      && liveMeta.relationKind?.startsWith('descriptor')
+    ) {
+      return liveMeta.conceptBlockId;
     }
 
     const conceptFromFieldMapping = this.getFieldMappingValue(meta.fieldMapping, 'concept');

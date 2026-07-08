@@ -65,6 +65,7 @@ export interface ReviewCurrentContentEditorValidationResult {
   conflicts?: ReviewCurrentContentEditorWriteConflict[];
   updates?: ReviewCurrentContentEditorWriteUpdate[];
   relationPreview?: ReviewCurrentContentEditorRelationPreview | null;
+  relationPreviews?: ReviewCurrentContentEditorRelationPreview[];
 }
 
 export interface ReviewCurrentContentEditorAfterSuccessfulWritesResult {
@@ -362,8 +363,12 @@ export function createReviewCurrentContentEditorRuntime(
         write.entry.value = update.value;
       }
 
-      const relationPreview = validation.relationPreview || null;
-      if (relationPreview) {
+      const relationPreviews = validation.relationPreviews?.length
+        ? validation.relationPreviews
+        : validation.relationPreview
+          ? [validation.relationPreview]
+          : [];
+      for (const relationPreview of relationPreviews) {
         const confirmed = await options.confirmRelationPreview?.(relationPreview, pendingWrites);
         if (currentSeq !== seq) {
           return false;

@@ -548,10 +548,14 @@ import {
 } from './reviewStructuredFieldModel';
 import {
   type CdfReconciliationAction,
+  applyCdfConceptBindingEdit,
+  planCdfConceptBindingEdit,
+  type CdfConceptTarget,
+  type CdfConceptBindingEditDiagnostic,
+  type CdfConceptBindingEditPlan,
   extractSafeCardSourceGrammarFields,
   hasCdfLiveRelationMetadata,
   readCdfLiveRelationMetadata,
-  replaceConceptReferenceInCardSourceGrammar,
   replaceDefinitionInCardSourceGrammar,
   replaceDescriptorInCardSourceGrammar,
   replaceItemInCardSourceGrammar,
@@ -786,6 +790,11 @@ type CdfRelationPreviewRaw = {
   dryRun: CdfLiveRelationWriteRepairResult;
   options: CdfLiveRelationWriteRepairOptions;
   dialogProps: CdfRelationPreviewDialogProps;
+};
+
+type CdfConceptBindingConfirmationRaw = {
+  kind: 'cdf-concept-binding-confirmation';
+  plan: CdfConceptBindingEditPlan;
 };
 
 type ReviewCdfInterruptionPanel = {
@@ -1838,6 +1847,9 @@ const displayedReviewContent = computed<ReviewUIState['content']>(() => {
 });
 
 function resolveReviewCdfBlockingReason(card: FSRSCard | null | undefined): { code: string; label: string } | null {
+  if (props.mode === 'tab') {
+    return null;
+  }
   if (!hasCdfLiveRelationMetadata(card)) {
     return null;
   }
@@ -3263,54 +3275,151 @@ function findCurrentContentEditorMarkdownWriteForConceptReference(
   const preferredSourceBlockId = mapping.definition || mapping.descriptor || resolveCurrentCdfLiveSourceBlockId(pendingWrites);
   const markdownWrites = pendingWrites.filter(write => write.sourceKind === 'block-markdown');
   return markdownWrites.find(write => write.blockId === preferredSourceBlockId)
-    || markdownWrites.find(write => write.target.rendererKind === conceptWrite.target.rendererKind)
+    || markdownWrites.find(write => write.entry.target.rendererKind === conceptWrite.entry.target.rendererKind)
     || markdownWrites[0]
     || null;
 }
 
 async function mergeConceptReferenceWritesIntoMarkdown(
   pendingWrites: ReviewCurrentContentEditorPendingWrite[],
-): Promise<ReviewCurrentContentEditorWriteConflict[]> {
+): Promise<ReviewCurrentContentEditorValidationResult> {
   const conceptWrites = pendingWrites.filter(write => write.sourceKind === 'concept-reference');
+  const result: ReviewCurrentContentEditorValidationResult = {
+    conflicts: [],
+    relationPreview: null,
+  };
   if (conceptWrites.length === 0) {
-    return [];
+    return result;
   }
 
-  const reviewService = getReviewService();
-  if (!reviewService) {
-    return [];
-  }
-
-  const conflicts: ReviewCurrentContentEditorWriteConflict[] = [];
   for (const conceptWrite of conceptWrites) {
     const markdownWrite = findCurrentContentEditorMarkdownWriteForConceptReference(pendingWrites, conceptWrite);
     if (!markdownWrite) {
-      conflicts.push({
+      result.conflicts?.push({
         targetId: conceptWrite.targetId,
         message: t('reviewConceptReferenceSourceMissing', '找不到可改写的关系源码块'),
       });
       continue;
     }
 
-    const source = markdownWrite.value || String(await reviewService.getEditableBlockMarkdown(markdownWrite.blockId) ?? '');
-    const rewritten = replaceConceptReferenceInCardSourceGrammar({
+    const reviewService = getReviewService();
+    const source = markdownWrite.value
+      || String(await reviewService?.getEditableBlockMarkdown(markdownWrite.blockId) ?? '');
+    const target = await resolveCurrentCdfConceptBindingTarget(conceptWrite.value);
+    const plan = planCdfConceptBindingEdit({
+      sourceBlockId: markdownWrite.blockId,
       source,
-      conceptBlockId: conceptWrite.value,
+      selectedConceptBlockId: conceptWrite.value,
       expectedConceptBlockId: conceptWrite.originalValue,
+      relationFamily: resolveCurrentCdfConceptBindingRelationFamily(conceptWrite),
+      relationKind: resolveCurrentCdfConceptBindingRelationKind(),
+      target,
     });
-    if (!rewritten.ok) {
-      conflicts.push({
+    const applied = applyCdfConceptBindingEdit(plan);
+    if (!applied.ok) {
+      result.conflicts?.push({
         targetId: conceptWrite.targetId,
-        message: t('reviewConceptReferenceWriteUnavailable', '当前关系源码无法安全改写概念引用'),
+        message: formatCdfConceptBindingDiagnostic(applied.diagnostics[0], plan),
       });
       continue;
     }
 
-    markdownWrite.value = rewritten.source;
-    markdownWrite.entry.value = rewritten.source;
+    if (plan.requiresConfirmation && !result.relationPreview) {
+      result.relationPreview = buildCdfConceptBindingConfirmationPreview(plan);
+    }
+
+    markdownWrite.value = applied.source;
+    markdownWrite.entry.value = applied.source;
   }
 
-  return conflicts;
+  return result;
+}
+
+async function resolveCurrentCdfConceptBindingTarget(
+  selectedConceptBlockId: string,
+): Promise<CdfConceptTarget | null> {
+  const normalized = String(selectedConceptBlockId || '').trim();
+  const reviewService = getReviewService();
+  if (!normalized || typeof reviewService?.resolveConceptReferenceTarget !== 'function') {
+    return null;
+  }
+  try {
+    return await reviewService.resolveConceptReferenceTarget(normalized);
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to resolve concept reference target:', {
+      blockId: normalized,
+      error,
+    });
+    return null;
+  }
+}
+
+function resolveCurrentCdfConceptBindingRelationFamily(
+  conceptWrite: ReviewCurrentContentEditorPendingWrite,
+): 'definition' | 'descriptor' | undefined {
+  if (conceptWrite.entry.target.rendererKind === 'concept-definition') {
+    return 'definition';
+  }
+  if (conceptWrite.entry.target.rendererKind === 'descriptor') {
+    return 'descriptor';
+  }
+  return undefined;
+}
+
+function resolveCurrentCdfConceptBindingRelationKind() {
+  const meta = readReviewCardMeta(state.value.content.card as FSRSCard | null | undefined);
+  const relationKind = readReviewRecordString(meta, 'relationKind');
+  return relationKind.includes('definition') || relationKind.includes('descriptor')
+    ? relationKind as ReturnType<typeof readCdfLiveRelationMetadata>['relationKind']
+    : undefined;
+}
+
+function buildCdfConceptBindingConfirmationPreview(
+  plan: CdfConceptBindingEditPlan,
+): ReviewCurrentContentEditorRelationPreview {
+  const diagnostic = plan.diagnostics[0];
+  return {
+    title: t('reviewConceptReferenceStaleConfirmTitle', '确认修复异常概念引用'),
+    message: formatCdfConceptBindingDiagnostic(diagnostic, plan),
+    confirmText: t('reviewConceptReferenceStaleConfirmText', '修复并保存'),
+    cancelText: t('cancel', '取消'),
+    raw: {
+      kind: 'cdf-concept-binding-confirmation',
+      plan,
+    } satisfies CdfConceptBindingConfirmationRaw,
+  };
+}
+
+function formatCdfConceptBindingDiagnostic(
+  diagnostic: CdfConceptBindingEditDiagnostic | undefined,
+  plan?: CdfConceptBindingEditPlan,
+): string {
+  const code = diagnostic?.code;
+  if (code === 'invalid-target-block') {
+    return t('reviewConceptReferenceInvalidTarget', '请选择文档块作为概念卡');
+  }
+  if (code === 'invalid-source-grammar') {
+    return t('reviewConceptReferenceInvalidGrammar', '当前关系源码含有多个 CDF 操作符，无法安全改写概念引用');
+  }
+  if (code === 'ambiguous-concept-reference') {
+    return t('reviewConceptReferenceAmbiguous', '当前关系源码里有多个块引用，无法判断哪个是概念引用');
+  }
+  if (code === 'descriptor-structure-repair-unavailable') {
+    return t('reviewConceptReferenceDescriptorStructureUnavailable', '当前描述符没有可安全绑定的概念边界，请先在源文档建立概念边界后再保存');
+  }
+  if (code === 'missing-source-block') {
+    return t('reviewConceptReferenceSourceMissing', '找不到可改写的关系源码块');
+  }
+  if (code === 'stale-old-concept-reference') {
+    return t(
+      'reviewConceptReferenceStaleConfirmContent',
+      '编辑器记录的旧概念与源码当前概念不一致：记录 {expected}，源码 {actual}，将改为 {selected}。确认修复？',
+    )
+      .replace('{expected}', diagnostic?.expectedConceptBlockId || plan?.expectedConceptBlockId || '-')
+      .replace('{actual}', diagnostic?.actualConceptBlockId || '-')
+      .replace('{selected}', diagnostic?.selectedConceptBlockId || plan?.selectedConceptBlockId || '-');
+  }
+  return t('reviewConceptReferenceWriteUnavailable', '当前关系源码无法安全改写概念引用');
 }
 
 function getCurrentStructuredDescriptorGroupLeaf(): boolean {
@@ -3449,8 +3558,13 @@ async function validateCurrentContentEditorPendingWrites(
     conflicts: [],
     updates: [],
   };
+  const relationPreviews: ReviewCurrentContentEditorRelationPreview[] = [];
 
-  result.conflicts?.push(...await mergeConceptReferenceWritesIntoMarkdown(pendingWrites));
+  const conceptBindingValidation = await mergeConceptReferenceWritesIntoMarkdown(pendingWrites);
+  result.conflicts?.push(...(conceptBindingValidation.conflicts || []));
+  if (conceptBindingValidation.relationPreview) {
+    relationPreviews.push(conceptBindingValidation.relationPreview);
+  }
   if ((result.conflicts || []).length > 0) {
     return result;
   }
@@ -3557,7 +3671,14 @@ async function validateCurrentContentEditorPendingWrites(
   }
 
   if ((result.conflicts || []).length === 0) {
-    result.relationPreview = await buildCurrentContentEditorRelationPreview(pendingWrites, result);
+    const relationPreview = await buildCurrentContentEditorRelationPreview(pendingWrites, result);
+    if (relationPreview) {
+      relationPreviews.push(relationPreview);
+    }
+  }
+  if (relationPreviews.length > 0) {
+    result.relationPreviews = relationPreviews;
+    result.relationPreview = relationPreviews[0] || null;
   }
 
   return result;
@@ -4268,6 +4389,15 @@ async function confirmCurrentContentEditorRelationPreview(
   pendingWrites: ReviewCurrentContentEditorPendingWrite[],
 ): Promise<boolean> {
   const raw = preview.raw;
+  if (isRecord(raw) && raw.kind === 'cdf-concept-binding-confirmation') {
+    return confirmDialog({
+      title: preview.title,
+      content: preview.message,
+      confirmText: preview.confirmText || t('reviewConceptReferenceStaleConfirmText', '修复并保存'),
+      cancelText: preview.cancelText || t('cancel', '取消'),
+      visualVariant: 'form',
+    });
+  }
   if (isRecord(raw) && raw.kind === 'cdf-live-relation-preview') {
     const cdfPreview = raw as CdfRelationPreviewRaw;
     const confirmedPreview = await new Promise<boolean>((resolve) => {

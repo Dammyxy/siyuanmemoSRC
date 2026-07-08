@@ -350,6 +350,7 @@ function createPluginContext(overrides?: {
     getBlockKramdown: ReturnType<typeof vi.fn>;
     updateBlockMarkdown: ReturnType<typeof vi.fn>;
     searchConceptReferenceBlocks?: ReturnType<typeof vi.fn>;
+    resolveConceptReferenceTarget?: ReturnType<typeof vi.fn>;
     executeReviewSourceRefresh?: ReturnType<typeof vi.fn>;
     reconcileCdfLiveRelationsInWriteRepairFlow?: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
@@ -368,15 +369,21 @@ function createPluginContext(overrides?: {
       getCard: (cardId: string) => ({ id: cardId, blockId: 'block-1' }),
       getCardByBlockId: (blockId: string) => ({ id: 'card-1', blockId }),
     }),
-    getReviewService: () => overrides?.reviewService ?? ({
+    getReviewService: () => ({
       getEditableBlockMarkdown: vi.fn(async () => ''),
       getBlockKramdown: vi.fn(async () => ''),
       updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
+      resolveConceptReferenceTarget: vi.fn(async (blockId: string) => ({
+        id: blockId,
+        type: 'd',
+        title: blockId,
+      })),
       getSiyuanApi: () => ({
         BUILTIN_DECK_ID: 'deck-1',
         pushMsg: vi.fn(),
         pushErrMsg: vi.fn(),
       }),
+      ...overrides?.reviewService,
     }),
     getCardService: () => overrides?.cardService,
     getCardEditorService: () => overrides?.cardEditorService,
@@ -437,6 +444,7 @@ function mountReviewView(options?: {
     getEditableBlockMarkdown: ReturnType<typeof vi.fn>;
     getBlockKramdown: ReturnType<typeof vi.fn>;
     updateBlockMarkdown: ReturnType<typeof vi.fn>;
+    resolveConceptReferenceTarget?: ReturnType<typeof vi.fn>;
     executeReviewSourceRefresh?: ReturnType<typeof vi.fn>;
     reconcileCdfLiveRelationsInWriteRepairFlow?: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
@@ -3414,6 +3422,189 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
+  it('requires confirmation when concept-reference save repairs stale source evidence', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:20260703010101-abcdefg', '20260703010101-abcdefg', 'Definition', 'definition'),
+      {
+        id: 'definition:concept-reference:20260703099999-staleaa',
+        blockId: '20260703099999-staleaa',
+        title: 'Concept',
+        role: 'concept',
+        rendererKind: 'concept-definition',
+        sourceKind: 'concept-reference',
+        referenceLabel: 'Stale concept',
+      },
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === '20260703010101-abcdefg') {
+          return '((20260703020202-bcdefgh "Old concept")) :> old definition';
+        }
+        return `${blockId} markdown`;
+      }),
+      getBlockKramdown: vi.fn(async () => ''),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => ({
+        changed: false,
+        actions: [],
+        diagnostics: [],
+      })),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    reviewViewDialogMocks.confirmDialogMock.mockResolvedValueOnce(true);
+    const { wrapper } = mountReviewView({
+      cards: [buildCdfLiveCard('card-1', '20260703010101-abcdefg')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-target-concept-reference-input"]').setValue('20260703030303-cdefghi');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-targets-confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewViewDialogMocks.confirmDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '确认修复异常概念引用',
+      content: expect.stringContaining('记录 20260703099999-staleaa，源码 20260703020202-bcdefgh，将改为 20260703030303-cdefghi'),
+      confirmText: '修复并保存',
+    }));
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      '20260703010101-abcdefg',
+      '((20260703030303-cdefghi "Old concept")) :> old definition',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('saves empty definition concept binding by inserting a document block ref', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:20260703010101-abcdefg', '20260703010101-abcdefg', 'Definition', 'definition'),
+      {
+        id: 'definition:concept-reference:',
+        blockId: '',
+        title: 'Concept',
+        role: 'concept',
+        rendererKind: 'concept-definition',
+        sourceKind: 'concept-reference',
+        referenceLabel: '',
+      },
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === '20260703010101-abcdefg') {
+          return 'Old concept :> definition text';
+        }
+        return `${blockId} markdown`;
+      }),
+      getBlockKramdown: vi.fn(async () => ''),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => ({
+        changed: false,
+        actions: [],
+        diagnostics: [],
+      })),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [buildCdfLiveCard('card-1', '20260703010101-abcdefg')],
+      reviewService,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-target-concept-reference-input"]').setValue('20260703030303-cdefghi');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-targets-confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      '20260703010101-abcdefg',
+      '((20260703030303-cdefghi)) Old concept :> definition text',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('shows unavailable diagnostics for empty descriptor concept binding without metadata-only activation', async () => {
+    reviewContentEditableTargets = [
+      {
+        ...buildEditableTarget('descriptor:descriptor:20260703010101-abcdefg', '20260703010101-abcdefg', 'Descriptor', 'descriptor'),
+        rendererKind: 'descriptor',
+      },
+      {
+        id: 'descriptor:concept-reference:',
+        blockId: '',
+        title: 'Concept',
+        role: 'concept',
+        rendererKind: 'descriptor',
+        sourceKind: 'concept-reference',
+        referenceLabel: '',
+      },
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === '20260703010101-abcdefg') {
+          return 'cue ;; answer';
+        }
+        return `${blockId} markdown`;
+      }),
+      getBlockKramdown: vi.fn(async () => ''),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => ({
+        changed: false,
+        actions: [],
+        diagnostics: [],
+      })),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const descriptorCard = {
+      ...buildCdfLiveCard('card-1', '20260703010101-abcdefg'),
+      type: 'descriptor',
+      meta: {
+        ...buildCdfLiveCard('card-1', '20260703010101-abcdefg').meta,
+        relationKind: 'descriptor-forward',
+      },
+    };
+    const { wrapper } = mountReviewView({
+      cards: [descriptorCard],
+      reviewService,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-target-concept-reference-input"]').setValue('20260703030303-cdefghi');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-editable-targets-confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith(
+      expect.stringContaining('当前描述符没有可安全绑定的概念边界'),
+      5000,
+      'error',
+    );
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
+    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
   it('shows a CDF blocking interruption panel and advances without review feedback', async () => {
     reviewContentEditableTargets = [
       buildEditableTarget('main-protyle:current-content:source-block-1', 'source-block-1', 'Source'),
@@ -3480,6 +3671,26 @@ describe('ReviewView more menu', () => {
     };
     const { wrapper } = mountReviewView({
       cards: [warningCard, buildCard('card-2', 'block-2')],
+    });
+    await flushPromises();
+
+    expect(wrapper.find('.fsrs-review-v2__cdf-interruption').exists()).toBe(false);
+    expect(wrapper.findComponent(ReviewActionsStub).exists()).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it('does not interrupt tab Review for blocking CDF relation metadata', async () => {
+    const blockedCard = {
+      ...buildCdfLiveCard('blocked-cdf-card', 'source-block-1'),
+      meta: {
+        ...buildCdfLiveCard('blocked-cdf-card', 'source-block-1').meta,
+        liveContentStatus: 'content-incomplete',
+      },
+    };
+    const { wrapper } = mountReviewView({
+      cards: [blockedCard],
+      mode: 'tab',
     });
     await flushPromises();
 

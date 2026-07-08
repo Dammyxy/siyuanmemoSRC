@@ -18,6 +18,22 @@ function node(id: string, markdown: string, children: CdfLiveBlockNode[] = []): 
   };
 }
 
+function typedNode(
+  id: string,
+  type: string,
+  markdown: string,
+  children: CdfLiveBlockNode[] = [],
+  subtype?: string,
+): CdfLiveBlockNode {
+  return {
+    id,
+    type,
+    subtype,
+    markdown,
+    children,
+  };
+}
+
 describe('CDF live relation scanner', () => {
   it('derives definition relations from source-block concept refs and expands both direction', () => {
     const result = deriveCdfLiveRelations(node('source-definition', `((${conceptA} "Concept A")) :: definition text`));
@@ -239,12 +255,95 @@ describe('CDF live relation scanner', () => {
     expect(result.issues.map(issue => issue.sourceBlockId)).not.toContain('new-blank-descriptor-child');
   });
 
-  it('records missing concept ref instead of falling back to source document context', () => {
+  it('records missing descriptor concept binding for list descriptors without evidence', () => {
     const result = deriveCdfLiveRelations(node('descriptor-without-boundary', 'cue ;; answer'));
 
     expect(result.relations).toHaveLength(0);
     expect(result.issues.map((entry) => entry.issue)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'missing-concept-ref', severity: 'blocking' }),
+      expect.objectContaining({ code: 'missing-descriptor-concept-binding', severity: 'blocking' }),
     ]));
+  });
+
+  it('derives list descriptors from backlink evidence without inline refs', () => {
+    const result = deriveCdfLiveRelations(
+      node('doc-root', 'document title', [
+        node('descriptor-a', 'cue ;; answer'),
+      ]),
+      { descriptorConceptEvidence: { 'descriptor-a': conceptA } },
+    );
+
+    expect(result.relations).toHaveLength(1);
+    expect(result.relations[0]).toEqual(expect.objectContaining({
+      sourceBlockId: 'descriptor-a',
+      conceptBlockId: conceptA,
+      relationKind: 'descriptor-forward',
+      descriptorConceptBindingEvidenceKind: 'list-backlink',
+    }));
+  });
+
+  it('prefers backlink evidence over body document fallback for body descriptors', () => {
+    const result = deriveCdfLiveRelations(
+      typedNode(conceptB, 'd', 'Body Concept', [
+        typedNode('descriptor-a', 'p', 'cue ;; answer'),
+      ]),
+      { descriptorConceptEvidence: { 'descriptor-a': conceptA } },
+    );
+
+    expect(result.relations).toHaveLength(1);
+    expect(result.relations[0]).toEqual(expect.objectContaining({
+      sourceBlockId: 'descriptor-a',
+      conceptBlockId: conceptA,
+      descriptorConceptBindingEvidenceKind: 'list-backlink',
+    }));
+  });
+
+  it('records conflict when list parent ref and backlink evidence disagree', () => {
+    const result = deriveCdfLiveRelations(
+      node('doc-root', 'document title', [
+        node('boundary-a', `((${conceptA}))`),
+        node('descriptor-a', 'cue ;; answer'),
+      ]),
+      { descriptorConceptEvidence: { 'descriptor-a': conceptB } },
+    );
+
+    expect(result.relations).toHaveLength(0);
+    expect(result.issues.map(entry => entry.issue)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'descriptor-concept-conflict',
+        severity: 'blocking',
+        sourceBlockId: 'descriptor-a',
+      }),
+    ]));
+  });
+
+  it('binds body descriptors to the nearest heading block', () => {
+    const result = deriveCdfLiveRelations(typedNode('doc-root', 'd', 'Document', [
+      typedNode(conceptA, 'h', 'Concept A'),
+      typedNode('descriptor-a', 'p', 'cue ;; answer'),
+      typedNode(conceptB, 'h', 'Concept B'),
+      typedNode('descriptor-b', 'p', 'cue ;; answer'),
+    ]));
+
+    expect(result.relations.map(relation => [
+      relation.sourceBlockId,
+      relation.conceptBlockId,
+      relation.descriptorConceptBindingEvidenceKind,
+    ])).toEqual([
+      ['descriptor-a', conceptA, 'body-heading'],
+      ['descriptor-b', conceptB, 'body-heading'],
+    ]);
+  });
+
+  it('binds body descriptors to the document block when no heading exists', () => {
+    const result = deriveCdfLiveRelations(typedNode(conceptA, 'd', 'Concept Document', [
+      typedNode('descriptor-a', 'p', 'cue ;; answer'),
+    ]));
+
+    expect(result.relations).toHaveLength(1);
+    expect(result.relations[0]).toEqual(expect.objectContaining({
+      sourceBlockId: 'descriptor-a',
+      conceptBlockId: conceptA,
+      descriptorConceptBindingEvidenceKind: 'body-document',
+    }));
   });
 });

@@ -54,6 +54,25 @@ function createReviewServiceContextSlice() {
         reason: 'non-cdf-card',
       })),
     })),
+    getReviewAdmissionModule: vi.fn(() => ({
+      admitReviewSession: vi.fn(async (request: { queueType: QueueType; entrySurface?: string | null }) => ({
+        queueType: request.queueType,
+        entrySurface: request.entrySurface ?? null,
+        projectionPolicyHash: `${request.queueType}:test-policy`,
+        projectionGeneration: 1,
+        readinessRequest: {
+          queueType: request.queueType,
+          preset: 'all',
+          searchText: null,
+          docId: null,
+          scopeDocIds: [],
+          cardType: 'all',
+          source: 'browser',
+        },
+        admittedAt: 1,
+        source: 'ready-projection',
+      })),
+    })),
   };
 }
 
@@ -764,6 +783,100 @@ describe('TabManager filter-group review transfer restore', () => {
     expect(runtime.tab.model.data.sharedReviewSessionId).toBe('shared-review-1');
   });
 
+  it('re-admits restored projection-backed review tabs instead of reusing persisted admission tickets', async () => {
+    const staleTicket = {
+      queueType: QueueType.IncrementalLearning,
+      entrySurface: 'tab-manager:open-review-tab',
+      projectionPolicyHash: 'stale-policy',
+      projectionGeneration: 2,
+      readinessRequest: {
+        queueType: QueueType.IncrementalLearning,
+        preset: 'all',
+        searchText: null,
+        docId: null,
+        scopeDocIds: [],
+        cardType: 'all',
+        source: 'browser',
+      },
+      admittedAt: 1,
+      source: 'ready-projection',
+    };
+    const freshTicket = {
+      ...staleTicket,
+      entrySurface: 'tab-manager:init-review-tab',
+      projectionPolicyHash: 'fresh-policy',
+      projectionGeneration: 9,
+      admittedAt: 2,
+    };
+    const sharedQueue = {
+      getType: () => 'incremental-learning',
+      getCards: vi.fn(async () => []),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    const manager = {
+      getQueue: vi.fn(() => sharedQueue),
+      notifyObservers: vi.fn(),
+    };
+    const admitReviewSession = vi.fn(async () => freshTicket);
+    const context = {
+      getI18n: vi.fn(() => ({})),
+      getUnifiedDataSourceManager: vi.fn(() => manager),
+      getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
+      getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
+      getReviewAdmissionModule: vi.fn(() => ({ admitReviewSession })),
+      getSettingsService: vi.fn(() => ({
+        getSettings: () => ({
+          progressiveReading: {},
+        }),
+      })),
+    } as any;
+    const plugin = {
+      name: 'test-plugin',
+      app: {},
+      addTab: vi.fn(),
+    } as any;
+
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
+    tabManager.registerAll();
+
+    const reviewRegistration = plugin.addTab.mock.calls[1][0];
+    await reviewRegistration.init.call({
+      id: 'restored-incremental-tab',
+      element: document.createElement('div'),
+      data: {
+        providerId: 'queue-based',
+        title: '渐进学习',
+        queueType: 'incremental-learning',
+        headerVariant: 'incremental-learning',
+        reviewAdmissionTicket: staleTicket,
+      },
+      tab: {
+        id: 'restored-incremental-tab',
+        headElement: document.createElement('button'),
+        model: {
+          data: null,
+        },
+        parent: {
+          switchTab: vi.fn(),
+        },
+      },
+    });
+
+    expect(admitReviewSession).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.IncrementalLearning,
+      entrySurface: 'tab-manager:init-review-tab',
+      queueInstance: sharedQueue,
+    }));
+    const [, props] = mocks.createApp.mock.calls[0];
+    expect((props.queue as any).reviewAdmissionTicket).toMatchObject({
+      projectionPolicyHash: 'fresh-policy',
+      projectionGeneration: 9,
+      entrySurface: 'tab-manager:init-review-tab',
+    });
+  });
+
   it('opens plugin-managed review tabs on the requested split position with shared session metadata', async () => {
     vi.mocked(openTab).mockClear();
 
@@ -805,21 +918,22 @@ describe('TabManager filter-group review transfer restore', () => {
         currentBlockId: 'block-special',
       },
     });
-
-    expect(openTab).toHaveBeenCalledWith(expect.objectContaining({
-      position: 'bottom',
-      custom: expect.objectContaining({
-        data: expect.objectContaining({
-          title: '提取练习',
-          sharedReviewSessionId: 'shared-review-open',
-          reviewState: expect.objectContaining({
+    await vi.waitFor(() => {
+      expect(openTab).toHaveBeenCalledWith(expect.objectContaining({
+        position: 'bottom',
+        custom: expect.objectContaining({
+          data: expect.objectContaining({
+            title: '提取练习',
             sharedReviewSessionId: 'shared-review-open',
-            currentCardId: 'card-special',
-            currentBlockId: 'block-special',
+            reviewState: expect.objectContaining({
+              sharedReviewSessionId: 'shared-review-open',
+              currentCardId: 'card-special',
+              currentBlockId: 'block-special',
+            }),
           }),
         }),
-      }),
-    }));
+      }));
+    });
   });
 
   it('refreshes the active review tab surface on custom tab resize and update using the persisted current card id', async () => {

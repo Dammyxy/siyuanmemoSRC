@@ -221,6 +221,73 @@ describe('ReviewApplicationService reschedule queue membership', () => {
     expect(siyuanApi.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Updated body');
   });
 
+  it('resolves a concept-reference target document block through the review siyuan port', async () => {
+    const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
+    const schedulerRouter = {} as never;
+    const blockId = '20260703030303-cdefghi';
+    const sql = vi.fn(async () => [{
+      id: blockId,
+      type: 'd',
+      content: 'Target concept document',
+      markdown: '',
+      hpath: '/Target concept document',
+    }]);
+    const siyuanApi = createReviewSiyuanApi({ sql });
+    const service = new ReviewApplicationService(manager, schedulerRouter, siyuanApi);
+
+    await expect(service.resolveConceptReferenceTarget(blockId)).resolves.toEqual({
+      id: blockId,
+      type: 'd',
+      title: 'Target concept document',
+    });
+    expect(sql).toHaveBeenCalledTimes(1);
+    expect(sql.mock.calls[0]?.[0]).toContain(`WHERE id = '${blockId}'`);
+  });
+
+  it('returns non-document target type so the binding editor can reject it', async () => {
+    const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
+    const schedulerRouter = {} as never;
+    const blockId = '20260703040404-ddddddd';
+    const siyuanApi = createReviewSiyuanApi({
+      sql: vi.fn(async () => [{
+        id: blockId,
+        type: 'p',
+        content: 'Paragraph target',
+        markdown: '',
+        hpath: '',
+      }]),
+    });
+    const service = new ReviewApplicationService(manager, schedulerRouter, siyuanApi);
+
+    await expect(service.resolveConceptReferenceTarget(blockId)).resolves.toEqual({
+      id: blockId,
+      type: 'p',
+      title: 'Paragraph target',
+    });
+  });
+
+  it('does not query blocks for invalid concept-reference target ids', async () => {
+    const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
+    const schedulerRouter = {} as never;
+    const siyuanApi = createReviewSiyuanApi();
+    const service = new ReviewApplicationService(manager, schedulerRouter, siyuanApi);
+
+    await expect(service.resolveConceptReferenceTarget('not-a-block-id')).resolves.toBeNull();
+    expect(siyuanApi.sql).not.toHaveBeenCalled();
+  });
+
+  it('returns null when concept-reference target block is missing', async () => {
+    const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
+    const schedulerRouter = {} as never;
+    const siyuanApi = createReviewSiyuanApi({
+      sql: vi.fn(async () => []),
+    });
+    const service = new ReviewApplicationService(manager, schedulerRouter, siyuanApi);
+
+    await expect(service.resolveConceptReferenceTarget('20260703050505-eeeeeee')).resolves.toBeNull();
+    expect(siyuanApi.sql).toHaveBeenCalledTimes(1);
+  });
+
   it('returns CDF live relation evidence on Review open without persisting metadata repair', async () => {
     const conceptId = '20260101000000-aaaaaaa';
     const sourceId = '20260101000001-bbbbbbb';

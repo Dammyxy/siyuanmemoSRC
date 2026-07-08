@@ -22,6 +22,8 @@ export type CdfIssueSeverity = 'blocking' | 'warning';
 
 export type CdfLiveRelationIssueCode =
   | 'missing-concept-ref'
+  | 'missing-descriptor-concept-binding'
+  | 'descriptor-concept-conflict'
   | 'invalid-concept-ref'
   | 'missing-concept-target'
   | 'missing-source-block'
@@ -43,6 +45,26 @@ export interface CdfConceptBinding {
   conceptBlockId: CdfConceptBlockId;
   displayText?: string;
   order: number;
+  evidenceKind?: CdfDescriptorConceptBindingEvidenceKind;
+}
+
+export type CdfDescriptorConceptBindingEvidenceKind =
+  | 'inline-ref'
+  | 'list-parent-ref'
+  | 'list-backlink'
+  | 'body-heading'
+  | 'body-document';
+
+export interface CdfConceptResolution {
+  bindings: CdfConceptBinding[];
+  issues: CdfLiveRelationIssue[];
+}
+
+export interface CdfDescriptorConceptBindingEvidence {
+  conceptBlockId: CdfConceptBlockId;
+  displayText?: string;
+  order?: number;
+  evidenceKind?: CdfDescriptorConceptBindingEvidenceKind;
 }
 
 export interface CdfLiveRelationSourceSnapshot {
@@ -84,6 +106,7 @@ export interface CdfLiveRelationCandidate {
   contentShape: CdfContentShape;
   content: CdfLiveRelationContentFields;
   fieldMappingSnapshot: Record<string, string>;
+  descriptorConceptBindingEvidenceKind?: CdfDescriptorConceptBindingEvidenceKind;
 }
 
 export interface CdfLiveBlockNode {
@@ -103,6 +126,14 @@ export interface CdfConceptTarget {
 
 export interface CdfLiveDeriveOptions {
   conceptTargets?: Record<string, CdfConceptTarget | string | null | undefined>;
+  descriptorConceptEvidence?: Record<
+    string,
+    | CdfConceptBlockId
+    | CdfDescriptorConceptBindingEvidence
+    | Array<CdfConceptBlockId | CdfDescriptorConceptBindingEvidence>
+    | null
+    | undefined
+  >;
 }
 
 export interface CdfSourceIssue {
