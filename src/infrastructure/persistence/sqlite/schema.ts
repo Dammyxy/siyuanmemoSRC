@@ -361,6 +361,18 @@ export const SQL_SCHEMA_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_queue_projection_rebuilds_queue
     ON queue_projection_rebuilds(queue_type, started_at)`,
+  `CREATE TABLE IF NOT EXISTS srs_card_semantic_repair_receipts (
+    receipt_id TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    repaired_count INTEGER NOT NULL,
+    skipped_count INTEGER NOT NULL,
+    ambiguous_count INTEGER NOT NULL,
+    insufficient_count INTEGER NOT NULL,
+    failed_count INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_srs_card_semantic_repair_receipts_created
+    ON srs_card_semantic_repair_receipts(created_at)`,
   `CREATE TABLE IF NOT EXISTS domain_sync_operations (
     operation_id TEXT PRIMARY KEY,
     source_id TEXT NOT NULL,

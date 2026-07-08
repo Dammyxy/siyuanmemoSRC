@@ -634,6 +634,7 @@
   "skipReason": "跳过原因",
   "skipReasonPlaceholder": "可选：输入跳过原因或备注",
   "editSrsData": "编辑SRS数据",
+  "repairSrsCardSemantics": "诊断并修复卡片类型",
   "cardMeta": "闪卡元数据",
   "question": "问题内容",
   "answer": "答案内容",

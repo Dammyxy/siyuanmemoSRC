@@ -4,6 +4,16 @@ Last update: 2026-07-08 (Round 682)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-08 - SRS card semantic repair and receipts
+
+- Task: Implement OpenSpec change `reconcile-srs-card-semantics` so migrated list/CDF/progressive cards that lost concrete type can be diagnosed and safely repaired.
+- Touched slice: Card CRUD / Xiuyuan / SQL persistence / block-menu Review entry; `src/core/card/semantics/*`, `src/application/services/SrsCardSemanticsRepairService.ts`, `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`, `src/application/managers/BlockMenuHandler.ts`, creation use cases, i18n, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: Effective SRS semantic kind now lives behind one core resolver instead of scattered raw `FSRSCard.type` checks. SQL repair is dry-run first, commit-only for deterministic patches, invalidates queue projection evidence, and records repair receipts. New creation paths attach append-safe semantic receipts. Block menu drill/concept/descriptor checks now consume resolver output, so corrupted list/CDF-as-topic cards no longer silently fall through the wrong raw-type path.
+- Debt deferred: Browser-wide card type presentation, queue read-model projection rebuild policy, and richer CDF kinds such as `concept-definition` remain unchanged.
+- Why deferred: This change fixes lost `item | topic | concept | descriptor` semantics without changing public card-kind vocabulary, scheduler algorithms, or Browser grid contracts.
+- Next safe step: Run the new `诊断并修复卡片类型` action on the affected library, inspect dry-run safe/ambiguous counts, then commit only deterministic repairs.
+- Validation: Focused semantics resolver, repair service, BlockMenuHandler, and SQL repair tests; hidden-fallback check; boundary check; build; OpenSpec strict validation; git diff whitespace check.
+
 ### 2026-07-08 - Review tab host ownership and CDF blocking rollback
 
 - Task: Fix the remaining Review tab host-overlay bug and stop CDF abnormal metadata from blocking tab Review.

@@ -43,6 +43,7 @@ import {
   formatMenuActionError,
   wrapSafeMenuItem,
 } from '@/utils/safeMenuAction';
+import { resolveCardSemantics } from '@/core/card/semantics';
 
 const logger = createLogger('BlockMenuHandler');
 const STALE_CARD_BLOCK_ATTR_KEYS = Object.freeze(Array.from(new Set([
@@ -197,6 +198,15 @@ export class BlockMenuHandler {
       return CSS.escape(value);
     }
     return value.replace(/"/g, '\\"');
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   private collectCardsFromDocumentDom(docId: string): FSRSCard[] {
@@ -390,6 +400,41 @@ export class BlockMenuHandler {
     });
   }
 
+  async runRepairSrsCardSemanticsAction(_blockElements: HTMLElement[]): Promise<void> {
+    const repairService = this.deps.applicationContext.getSrsCardSemanticsRepairService();
+    const preview = await repairService.preview();
+    if (preview.status === 'unavailable') {
+      await this.siyuanApi.pushErrMsg(
+        preview.diagnostics[0]?.message || '卡片类型诊断暂不可用',
+      );
+      return;
+    }
+
+    const shouldCommit = await this.showRepairSrsCardSemanticsDialog(preview);
+    if (!shouldCommit) {
+      return;
+    }
+
+    const result = await repairService.commit();
+    if (result.status === 'unavailable') {
+      await this.siyuanApi.pushErrMsg(
+        result.diagnostics[0]?.message || '卡片类型修复暂不可用',
+      );
+      return;
+    }
+
+    if (result.status === 'failed') {
+      await this.siyuanApi.pushErrMsg(
+        `卡片类型修复失败：已修复 ${result.appliedCount} 张，失败 ${result.failedCount} 张`,
+      );
+      return;
+    }
+
+    await this.siyuanApi.pushMsg(
+      `卡片类型修复完成：已修复 ${result.appliedCount} 张，跳过 ${result.skippedCount} 张`,
+    );
+  }
+
   async runRebindDescriptorConceptAction(blockElements: HTMLElement[]): Promise<void> {
     const elements = Array.isArray(blockElements) ? blockElements : [];
     if (elements.length === 0) {
@@ -553,6 +598,86 @@ export class BlockMenuHandler {
       element.querySelector('.b3-button--cancel')?.addEventListener('click', () => {
         dialog.destroy();
         resolve('cancel');
+      });
+    });
+  }
+
+  private showRepairSrsCardSemanticsDialog(preview: {
+    counts: {
+      total: number;
+      safeRepair: number;
+      ambiguous: number;
+      insufficient: number;
+      noop: number;
+      skipped: number;
+    };
+    rows: Array<{
+      cardId: string;
+      status: string;
+      beforeKind: unknown;
+      afterKind: unknown;
+      evidenceCount: number;
+    }>;
+  }): Promise<boolean> {
+    return new Promise((resolve) => {
+      const { Dialog } = require('siyuan');
+      const exampleRows = preview.rows
+        .filter((row) => row.status === 'safe-repair')
+        .slice(0, 5)
+        .map((row) => `
+          <tr>
+            <td>${this.escapeHtml(row.cardId)}</td>
+            <td>${this.escapeHtml(String(row.beforeKind ?? 'unknown'))}</td>
+            <td>${this.escapeHtml(String(row.afterKind ?? 'unknown'))}</td>
+            <td>${row.evidenceCount}</td>
+          </tr>
+        `)
+        .join('');
+      const dialog = new Dialog({
+        title: this.deps.i18n?.repairSrsCardSemantics || '诊断并修复卡片类型',
+        content: `
+          <div class="siyuanmemo-choice-dialog">
+            <p class="siyuanmemo-choice-dialog__message">
+              将按确定性证据修复卡片类型。先预览，不会自动改库。
+            </p>
+            <ul class="b3-list b3-list--background">
+              <li class="b3-list-item">总卡片：<strong>${preview.counts.total}</strong></li>
+              <li class="b3-list-item">可安全修复：<strong>${preview.counts.safeRepair}</strong></li>
+              <li class="b3-list-item">有冲突跳过：<strong>${preview.counts.ambiguous}</strong></li>
+              <li class="b3-list-item">证据不足跳过：<strong>${preview.counts.insufficient}</strong></li>
+              <li class="b3-list-item">无需修复：<strong>${preview.counts.noop}</strong></li>
+            </ul>
+            ${exampleRows ? `
+              <table class="b3-table">
+                <thead>
+                  <tr><th>卡片</th><th>当前</th><th>修复为</th><th>证据</th></tr>
+                </thead>
+                <tbody>${exampleRows}</tbody>
+              </table>
+            ` : '<p class="ft__secondary">没有可安全修复的卡片。</p>'}
+            <div class="siyuanmemo-choice-dialog__actions">
+              <button class="b3-button b3-button--cancel">取消</button>
+              <button class="b3-button b3-button--text" data-action="commit" ${preview.counts.safeRepair === 0 ? 'disabled' : ''}>提交修复</button>
+            </div>
+          </div>
+        `,
+        width: '640px',
+      });
+      applyDialogChrome(dialog, {
+        visualVariant: 'manager',
+        containerClass: 'siyuanmemo-srs-card-semantics-repair-dialog',
+        dialogWidth: '640px',
+        dialogHeight: 'auto',
+      });
+
+      const element = dialog.element;
+      element.querySelector('[data-action="commit"]')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve(true);
+      });
+      element.querySelector('.b3-button--cancel')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve(false);
       });
     });
   }
@@ -1098,6 +1223,13 @@ export class BlockMenuHandler {
           await this.runEditSrsDataAction(blockElements);
         },
       },
+      {
+        icon: 'iconRefresh',
+        label: this.deps.i18n?.repairSrsCardSemantics || '诊断并修复卡片类型',
+        click: async () => {
+          await this.runRepairSrsCardSemanticsAction(blockElements);
+        },
+      },
       this.separator(),
       {
         icon: 'iconAdd',
@@ -1415,7 +1547,8 @@ export class BlockMenuHandler {
         if (!cardID || seen.has(cardID)) {
           continue;
         }
-        if (card.type === CardType.Topic) {
+        const semanticKind = resolveCardSemantics({ card }).effectiveKind;
+        if (semanticKind === CardType.Topic) {
           continue;
         }
         seen.add(cardID);
@@ -1670,8 +1803,7 @@ export class BlockMenuHandler {
       if (!card) {
         return false;
       }
-      const metaMarker = (card.meta as { cardTypeMarker?: string } | undefined)?.cardTypeMarker;
-      return card.type === CardType.Concept || card.cardTypeMarker === 'concept' || metaMarker === 'concept';
+      return resolveCardSemantics({ card }).effectiveKind === CardType.Concept;
     } catch (error) {
       logger.error('[BlockMenuHandler] Failed to check if concept card:', error);
       return false;
@@ -1690,8 +1822,7 @@ export class BlockMenuHandler {
       if (!card) {
         return false;
       }
-      const metaMarker = (card.meta as { cardTypeMarker?: string } | undefined)?.cardTypeMarker;
-      return card.type === CardType.Descriptor || card.cardTypeMarker === 'descriptor' || metaMarker === 'descriptor';
+      return resolveCardSemantics({ card }).effectiveKind === CardType.Descriptor;
     } catch (error) {
       logger.error('[BlockMenuHandler] Failed to check if descriptor card:', error);
       return false;

@@ -23,6 +23,10 @@ import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardMapper } from '@/infrastructure/persistence/mappers/CardMapper';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
+import {
+  applyCardSemanticPatch,
+  type SrsCardSemanticRepairPlan,
+} from '@/core/card/semantics';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { resolveQueueTypeForBrowserQueueId } from '@/types/browser-queue-identity';
 import { QueueType } from '@/types/unified-data-source';
@@ -30,7 +34,7 @@ import type { IXiuyuan } from '@/core/xiuyuan/types';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import { parseQuery, resolveBrowserCardFullContent } from '@/types/browser';
-import { stringifyJson, parseJson } from './json';
+import { stringifyJson, parseJson, createStableId } from './json';
 import type { SqliteDatabaseService } from './SqliteDatabaseService';
 import {
   ACTIVE_ALGORITHM_IDS,
@@ -111,6 +115,25 @@ interface QueueProjectionGenerationSqlRow {
   rebuild_reason: string | null;
   updated_at: number;
   metadata_json: string | null;
+}
+
+interface SrsCardSemanticRepairPreviewLike {
+  counts?: {
+    total?: number;
+    safeRepair?: number;
+    ambiguous?: number;
+    insufficient?: number;
+    noop?: number;
+    skipped?: number;
+  };
+  rows?: unknown[];
+}
+
+interface SrsCardSemanticRepairApplyResult {
+  receiptId: string;
+  updatedCards: FSRSCard[];
+  repairedCount: number;
+  failedCardIds: string[];
 }
 
 interface CardPageRequest {
@@ -287,6 +310,33 @@ function normalizeStringArray(values: unknown[] | undefined): string[] {
 
 function normalizeString(value: unknown): string {
   return String(value || '').trim();
+}
+
+function chunkStrings(values: string[], chunkSize: number): string[][] {
+  const chunks: string[][] = [];
+  const safeChunkSize = Math.max(1, Math.floor(Number(chunkSize) || 1));
+  for (let index = 0; index < values.length; index += safeChunkSize) {
+    chunks.push(values.slice(index, index + safeChunkSize));
+  }
+  return chunks;
+}
+
+function summarizeSrsCardSemanticRepairPlan(plan: SrsCardSemanticRepairPlan): Record<string, unknown> {
+  return {
+    cardId: plan.cardId,
+    status: plan.status,
+    beforeKind: plan.beforeKind,
+    afterKind: plan.afterKind,
+    diagnosticCodes: plan.resolution.diagnostics.map((diagnostic) => diagnostic.code),
+    evidence: plan.resolution.evidence.map((evidence) => ({
+      source: evidence.source,
+      kind: evidence.kind,
+      path: evidence.path,
+      strength: evidence.strength,
+      valid: evidence.valid,
+      reason: evidence.reason,
+    })),
+  };
 }
 
 function normalizeSearchText(value: unknown): string | null {
@@ -715,6 +765,107 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
   getAllCards(): FSRSCard[] {
     return this.queryCards();
+  }
+
+  querySrsCardSemanticRepairCandidates(): FSRSCard[] {
+    const rows = this.database.getAll<{ payload_json: string; dto_json: string | null }>(
+      `SELECT payload_json, dto_json
+       FROM cards
+       WHERE ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}
+         AND ${ACTIVE_SOURCE_STATUS_SQL}
+       ORDER BY id ASC`,
+    );
+    return this.parseCardRows(rows);
+  }
+
+  async applySrsCardSemanticRepairPlans(input: {
+    safePlans: SrsCardSemanticRepairPlan[];
+    skippedPlans: SrsCardSemanticRepairPlan[];
+    preview?: SrsCardSemanticRepairPreviewLike;
+  }): Promise<SrsCardSemanticRepairApplyResult> {
+    const now = Date.now();
+    const safePlans = (input.safePlans || [])
+      .filter((plan) => plan.status === 'safe-repair' && plan.patch);
+    const skippedPlans = input.skippedPlans || [];
+
+    return this.database.write((db) => {
+      const updatedCards: FSRSCard[] = [];
+      const failedCardIds: string[] = [];
+
+      for (const plan of safePlans) {
+        if (!plan.patch) {
+          failedCardIds.push(plan.cardId);
+          continue;
+        }
+        const row = this.database.getOne<{ payload_json: string; dto_json: string | null }>(
+          `SELECT payload_json, dto_json
+           FROM cards
+           WHERE id = ?
+             AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}
+             AND ${ACTIVE_SOURCE_STATUS_SQL}
+           LIMIT 1`,
+          [plan.cardId],
+        );
+        const card = row ? this.parseCardRows([row])[0] : undefined;
+        if (!card) {
+          failedCardIds.push(plan.cardId);
+          continue;
+        }
+        const updatedCard = applyCardSemanticPatch(card, plan.patch);
+        this.writeCardRecord(
+          db,
+          updatedCard,
+          undefined,
+          this.loadSourceExistenceForCard(updatedCard.id),
+          now,
+        );
+        updatedCards.push(updatedCard);
+      }
+
+      const repairedCardIds = updatedCards.map((card) => card.id);
+      this.invalidateSrsCardSemanticQueueProjectionEvidence(db, repairedCardIds, now);
+
+      const receiptId = createStableId('srs-card-semantic-repair', [
+        now,
+        repairedCardIds.join('_'),
+        skippedPlans.length,
+        failedCardIds.length,
+      ]);
+      const payload = {
+        receiptId,
+        createdAt: now,
+        repairedCardIds,
+        skippedPlans: skippedPlans.map(summarizeSrsCardSemanticRepairPlan),
+        failedCardIds,
+        previewCounts: input.preview?.counts ?? null,
+        previewRows: input.preview?.rows ?? [],
+      };
+      const ambiguousCount = skippedPlans.filter((plan) => plan.status === 'ambiguous').length;
+      const insufficientCount = skippedPlans.filter((plan) => plan.status === 'insufficient').length;
+      db.run(
+        `INSERT OR REPLACE INTO srs_card_semantic_repair_receipts
+          (receipt_id, created_at, repaired_count, skipped_count, ambiguous_count,
+           insufficient_count, failed_count, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          receiptId,
+          now,
+          repairedCardIds.length,
+          skippedPlans.length,
+          ambiguousCount,
+          insufficientCount,
+          failedCardIds.length,
+          stringifyJson(payload),
+        ],
+      );
+
+      return {
+        receiptId,
+        updatedCards,
+        repairedCount: updatedCards.length,
+        failedCardIds,
+      };
+    }, { label: 'srs-card-semantics.repair' });
   }
 
   getCard(cardId: string): FSRSCard | undefined {
@@ -1588,6 +1739,88 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         now,
       ],
     );
+  }
+
+  private invalidateSrsCardSemanticQueueProjectionEvidence(
+    db: Pick<SqliteDatabaseService, 'run'>,
+    cardIds: string[],
+    now: number,
+  ): void {
+    const affectedCardIds = normalizeStringArray(cardIds);
+    if (affectedCardIds.length === 0) {
+      return;
+    }
+
+    const affectedBlockIds = this.queryCards({ customFilter: (card) => affectedCardIds.includes(card.id) })
+      .map((card) => normalizeString(card.blockId))
+      .filter(Boolean);
+    for (const chunk of chunkStrings(affectedCardIds, 400)) {
+      const placeholders = chunk.map(() => '?').join(', ');
+      db.run(
+        `DELETE FROM queue_projection_rows
+         WHERE card_id IN (${placeholders})`,
+        chunk,
+      );
+    }
+
+    const generations = this.database.getAll<QueueProjectionGenerationSqlRow>(
+      `SELECT queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json
+       FROM queue_projection_generations
+       ORDER BY queue_type ASC`,
+    );
+    for (const generation of generations) {
+      const metadata = {
+        reason: 'srs-card-semantic-repair',
+        affectedCardIds,
+        affectedBlockIds,
+        previousStatus: generation.status,
+        previousRebuildReason: generation.rebuild_reason,
+        lastReadyGeneration: generation.status === 'ready'
+          ? {
+            policyHash: generation.policy_hash,
+            generation: generation.generation,
+            updatedAt: generation.updated_at,
+            metadata: parseJson<Record<string, unknown>>(generation.metadata_json, {}),
+          }
+          : undefined,
+      };
+      const invalidationId = createStableId('srs-card-semantic-repair-invalidation', [
+        generation.queue_type,
+        generation.generation,
+        now,
+      ]);
+      db.run(
+        `INSERT OR REPLACE INTO queue_projection_invalidations
+          (id, queue_type, reason, affected_card_ids_json, affected_block_ids_json,
+           generation, created_at, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          invalidationId,
+          generation.queue_type,
+          'srs-card-semantic-repair',
+          stringifyJson(affectedCardIds),
+          stringifyJson(affectedBlockIds),
+          generation.generation,
+          now,
+          stringifyJson(metadata),
+        ],
+      );
+      db.run(
+        `UPDATE queue_projection_generations
+         SET status = ?,
+             rebuild_reason = ?,
+             updated_at = ?,
+             metadata_json = ?
+         WHERE queue_type = ?`,
+        [
+          'invalidated',
+          'srs-card-semantic-repair',
+          now,
+          stringifyJson(metadata),
+          generation.queue_type,
+        ],
+      );
+    }
   }
 
   private loadAlgorithmStateRowMap(cardIds: string[]): Map<string, AlgorithmCardStateRow> {

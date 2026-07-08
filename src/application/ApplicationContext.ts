@@ -136,6 +136,7 @@ import { PrivateApiAuditService } from '@/application/services/PrivateApiAuditSe
 import { PrivateApiService } from '@/application/services/PrivateApiService';
 import { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { AgentToolService } from '@/application/services/AgentToolService';
+import { SrsCardSemanticsRepairService } from '@/application/services/SrsCardSemanticsRepairService';
 import {
   buildAgentValidationErrorResult,
   isAgentToolName,
@@ -268,6 +269,7 @@ interface ApplicationServiceRegistry {
   dockManager: DockManager;
   practiceQueueManager: PracticeQueueManager;
   cardService: CardApplicationService;
+  srsCardSemanticsRepairService: SrsCardSemanticsRepairService;
   browserService: BrowserApplicationService;
   reviewService: ReviewApplicationService;
   neuralRoamEntryActionService: NeuralRoamEntryActionService;
@@ -571,6 +573,13 @@ export class ApplicationContext {
       return new ConfiguredCaptureStorageService(
         new ConfiguredCaptureStorageSiyuanAdapter(context.getPlugin().app),
       );
+    });
+
+    this.registerServiceFactory('srsCardSemanticsRepairService', (context) => {
+      return new SrsCardSemanticsRepairService({
+        repository: context.sqlPersistence?.unified ?? null,
+        cardMirror: context.getCardService(),
+      });
     });
 
     this.registerServiceFactory('kernelCompanion', () => {
@@ -2313,6 +2322,10 @@ export class ApplicationContext {
    */
   getCardService(): CardApplicationService {
     return this.getService('cardService');
+  }
+
+  getSrsCardSemanticsRepairService(): SrsCardSemanticsRepairService {
+    return this.getService('srsCardSemanticsRepairService');
   }
   
   /**

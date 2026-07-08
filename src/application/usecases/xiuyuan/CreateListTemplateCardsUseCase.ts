@@ -14,6 +14,11 @@ import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
 import type { CdfDirectPathSegment } from '@/core/card/common/application/cdfDirectScene';
 import { normalizeCdfDirectLabel } from '@/core/card/common/application/cdfDirectScene';
+import {
+  attachSrsCardCreationReceiptToMeta,
+  buildSrsCardCreationReceipt,
+} from '@/core/card/semantics';
+import { CardType } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import { finalizeXiuyuanCreation } from './shared/FinalizeXiuyuanCreation';
 
@@ -259,32 +264,46 @@ export class CreateListTemplateCardsUseCase {
         return err(this.toError(faceResult.error, 'Failed to create list-template face'));
       }
 
+      const xiuyuanMeta = attachSrsCardCreationReceiptToMeta({
+        schedulerType: 'fsrs-v6',
+        ...(command.cardType ? { cardType: command.cardType } : {}),
+        listTemplate: {
+          mode: 'split-v2',
+          groupId,
+          parentBlockId: command.parentBlockId,
+          parentParagraphId,
+          currentIndex: childData.index,
+          childrenData: childrenData.map((child) => ({
+            id: child.paragraphId,
+            cue: child.cue,
+            answer: child.answer,
+            index: child.index,
+            source: child.content,
+            ...(sharedDirectPath ? { directPath: sharedDirectPath } : {}),
+          })),
+          ...listMetaBase,
+        },
+      }, buildSrsCardCreationReceipt({
+        semanticKind: CardType.Item,
+        templateID: templateId.getValue(),
+        sourceBlockIds: [childData.paragraphId, parentParagraphId, command.parentBlockId],
+        creationFamily: 'list-template',
+        details: {
+          mode: 'split-v2',
+          groupId,
+          childListItemId: childData.listItemId,
+          currentIndex: childData.index,
+          listKind: command.listKind || 'default',
+        },
+      }));
+
       const xiuyuanResult = Xiuyuan.create({
         id: xiuyuanIdResult.value,
         blockIDs: blockIds,
         templateID: templateId,
         faces: [faceResult.value],
         priority,
-        meta: {
-          schedulerType: 'fsrs-v6',
-          ...(command.cardType ? { cardType: command.cardType } : {}),
-          listTemplate: {
-            mode: 'split-v2',
-            groupId,
-            parentBlockId: command.parentBlockId,
-            parentParagraphId,
-            currentIndex: childData.index,
-            childrenData: childrenData.map((child) => ({
-              id: child.paragraphId,
-              cue: child.cue,
-              answer: child.answer,
-              index: child.index,
-              source: child.content,
-              ...(sharedDirectPath ? { directPath: sharedDirectPath } : {}),
-            })),
-            ...listMetaBase,
-          },
-        },
+        meta: xiuyuanMeta,
       });
       if (isErr(xiuyuanResult)) {
         return err(this.toError(xiuyuanResult.error, 'Failed to create Xiuyuan aggregate'));
@@ -466,35 +485,47 @@ export class CreateListTemplateCardsUseCase {
       return err(this.toError(faceResult.error, 'Failed to create summary list-template face'));
     }
 
+    const xiuyuanMeta = attachSrsCardCreationReceiptToMeta({
+      schedulerType: 'fsrs-v6',
+      ...(command.cardType ? { cardType: command.cardType } : {}),
+      listTemplate: {
+        mode: 'summary-v1',
+        groupId: `lt_summary_${command.parentBlockId}`,
+        parentBlockId: command.parentBlockId,
+        parentParagraphId,
+        currentIndex: 0,
+        childrenData: [
+          {
+            id: summaryAnswerBlockId,
+            cue: summaryCue,
+            answer: summaryAnswer,
+            index: 0,
+            source: summaryAnswer,
+            ...(sharedDirectPath ? { directPath: sharedDirectPath } : {}),
+          },
+        ],
+        sourceChildIds: childrenData.map((child) => child.listItemId),
+        ...listMetaBase,
+      },
+    }, buildSrsCardCreationReceipt({
+      semanticKind: CardType.Item,
+      templateID: templateId.getValue(),
+      sourceBlockIds: [summaryAnswerBlockId, parentParagraphId, command.parentBlockId],
+      creationFamily: 'list-template',
+      details: {
+        mode: 'summary-v1',
+        sourceChildIds: childrenData.map((child) => child.listItemId),
+        listKind: command.listKind || 'default',
+      },
+    }));
+
     const xiuyuanResult = Xiuyuan.create({
       id: xiuyuanIdResult.value,
       blockIDs: blockIds,
       templateID: templateId,
       faces: [faceResult.value],
       priority,
-      meta: {
-        schedulerType: 'fsrs-v6',
-        ...(command.cardType ? { cardType: command.cardType } : {}),
-        listTemplate: {
-          mode: 'summary-v1',
-          groupId: `lt_summary_${command.parentBlockId}`,
-          parentBlockId: command.parentBlockId,
-          parentParagraphId,
-          currentIndex: 0,
-          childrenData: [
-            {
-              id: summaryAnswerBlockId,
-              cue: summaryCue,
-              answer: summaryAnswer,
-              index: 0,
-              source: summaryAnswer,
-              ...(sharedDirectPath ? { directPath: sharedDirectPath } : {}),
-            },
-          ],
-          sourceChildIds: childrenData.map((child) => child.listItemId),
-          ...listMetaBase,
-        },
-      },
+      meta: xiuyuanMeta,
     });
     if (isErr(xiuyuanResult)) {
       return err(this.toError(xiuyuanResult.error, 'Failed to create summary Xiuyuan aggregate'));

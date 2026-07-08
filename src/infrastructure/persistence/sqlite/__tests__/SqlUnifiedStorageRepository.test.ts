@@ -15,6 +15,7 @@ import { CardState, CardType } from '@/types/card';
 import type { FSRSCard } from '@/types/card';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { QueueType } from '@/types/unified-data-source';
+import { planCardSemanticRepair } from '@/core/card/semantics';
 import {
   applyDeckPresetFilter,
   applyDocFilter,
@@ -1479,6 +1480,124 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       dirty: 0,
       missingStateRows: 0,
       invalidStateRows: 0,
+    });
+  });
+
+  it('reads SQL semantic repair candidates from active card rows', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    repository.upsertCard({
+      ...createDTO({
+        id: 'semantic-candidate',
+        blockId: 'block-semantic-candidate',
+        type: CardType.Topic,
+        templateID: 'builtin-list-item',
+      }),
+      meta: { templateID: 'builtin-list-item' },
+    } as FSRSCard);
+
+    const candidates = repository.querySrsCardSemanticRepairCandidates();
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      id: 'semantic-candidate',
+      type: CardType.Topic,
+      meta: expect.objectContaining({ templateID: 'builtin-list-item' }),
+    });
+  });
+
+  it('applies deterministic semantic repairs, invalidates queue projections, and writes receipts', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const corrupted = {
+      ...createDTO({
+        id: 'repair-list-as-topic',
+        blockId: 'block-repair-list',
+        type: CardType.Topic,
+        templateID: 'builtin-list-item',
+      }),
+      meta: { templateID: 'builtin-list-item' },
+    } as FSRSCard;
+    repository.upsertCard(corrupted);
+    database.run(
+      `INSERT OR REPLACE INTO queue_projection_generations
+        (queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [QueueType.RetrievalPractice, 'policy-a', 7, 'ready', null, 1_700_000_000_000, '{}'],
+    );
+    database.run(
+      `INSERT OR REPLACE INTO queue_projection_rows
+        (queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
+         priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        QueueType.RetrievalPractice,
+        'row-1',
+        'repair-list-as-topic',
+        'block-repair-list',
+        null,
+        'due',
+        1,
+        'due',
+        50,
+        '0001',
+        0,
+        'policy-a',
+        7,
+        JSON.stringify({ cardType: CardType.Topic }),
+        1_700_000_000_000,
+      ],
+    );
+    const safePlan = planCardSemanticRepair({ card: corrupted });
+
+    const result = await repository.applySrsCardSemanticRepairPlans({
+      safePlans: [safePlan],
+      skippedPlans: [],
+      preview: {
+        status: 'ready',
+        counts: {
+          total: 1,
+          safeRepair: 1,
+          ambiguous: 0,
+          insufficient: 0,
+          noop: 0,
+          skipped: 0,
+        },
+        rows: [],
+        audits: [],
+      },
+    });
+
+    expect(result).toMatchObject({
+      repairedCount: 1,
+      failedCardIds: [],
+      updatedCards: [expect.objectContaining({ id: 'repair-list-as-topic', type: CardType.Item })],
+    });
+    expect(repository.getCard('repair-list-as-topic')).toMatchObject({
+      type: CardType.Item,
+      cardTypeMarker: undefined,
+    });
+    expect(database.getOne<{ status: string; rebuild_reason: string | null }>(
+      'SELECT status, rebuild_reason FROM queue_projection_generations WHERE queue_type = ?',
+      [QueueType.RetrievalPractice],
+    )).toMatchObject({
+      status: 'invalidated',
+      rebuild_reason: 'srs-card-semantic-repair',
+    });
+    expect(database.getAll<{ card_id: string }>(
+      'SELECT card_id FROM queue_projection_rows WHERE card_id = ?',
+      ['repair-list-as-topic'],
+    )).toHaveLength(0);
+    const receipt = database.getOne<{ payload_json: string }>(
+      'SELECT payload_json FROM srs_card_semantic_repair_receipts WHERE receipt_id = ?',
+      [result.receiptId],
+    );
+    expect(JSON.parse(receipt?.payload_json ?? '{}')).toMatchObject({
+      repairedCardIds: ['repair-list-as-topic'],
+      skippedPlans: [],
+      failedCardIds: [],
     });
   });
 });

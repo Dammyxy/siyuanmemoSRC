@@ -621,6 +621,7 @@
   "skipReason": "Skip reason",
   "skipReasonPlaceholder": "Optional: enter a reason or note",
   "editSrsData": "Edit SRS Data",
+  "repairSrsCardSemantics": "Diagnose and Repair Card Types",
   "cardMeta": "Flashcard Metadata",
   "question": "Question",
   "answer": "Answer",

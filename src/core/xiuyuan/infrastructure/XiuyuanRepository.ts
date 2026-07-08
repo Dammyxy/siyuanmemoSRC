@@ -55,6 +55,7 @@ import { ATTR_CARD_TYPE } from '../../siyuan/block';
 import { TemplateRegistry } from '../templates/TemplateRegistry';
 import type { CdfDirectPathSegment } from '@/core/card/common/application/cdfDirectScene';
 import { isCdfDirectPathSegmentArray } from '@/core/card/common/application/cdfDirectScene';
+import { completeSrsCardCreationReceiptForCard } from '@/core/card/semantics';
 import {
   buildLogicalCardKey,
   buildLogicalXiuyuanKey,
@@ -1243,8 +1244,41 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       logger.debug(`Extracted typeMarker for faceIndex ${faceIndex}: ${typeMarker}`);
     }
     
+    const cardId = card.getId().getValue();
+    const cardMeta = completeSrsCardCreationReceiptForCard({
+      ...imageOcclusionMeta,
+      xiuyuanID: card.getXiuyuanId().getValue(),
+      templateID: xiuyuan.getTemplateID().getValue(),
+      faceIndex: faceIndex,
+      ...(typeof meta.source === 'string' ? { source: meta.source } : {}),
+      ...(meta.isDocument === true ? { isDocument: true } : {}),
+      ...(meta.progressive && typeof meta.progressive === 'object' ? { progressive: meta.progressive } : {}),
+      ...(meta.symbolDetected === true ? { symbolDetected: true } : {}),
+      ...(typeof meta.cardSource === 'string' ? { cardSource: meta.cardSource } : {}),
+      ...(typeof meta.symbolType === 'string' ? { symbolType: meta.symbolType } : {}),
+      ...(typeof meta.clozeRenderMode === 'string' ? { clozeRenderMode: meta.clozeRenderMode } : {}),
+      ...(explicitRenderProfile ? { renderProfile: explicitRenderProfile } : {}),
+      ...(!explicitRenderProfile && fallbackQuickRenderProfile ? { renderProfile: fallbackQuickRenderProfile } : {}),
+      ...(typeof meta.forceQuickRender === 'boolean' ? { forceQuickRender: meta.forceQuickRender } : {}),
+      ...(typeof meta.quickDetectReason === 'string' ? { quickDetectReason: meta.quickDetectReason } : {}),
+      frontBlockIDs: xiuyuan.getFrontBlockIDs(faceIndex),
+      backBlockIDs: xiuyuan.getBackBlockIDs(faceIndex),
+      ...(normalizedFieldMapping ? { fieldMapping: normalizedFieldMapping } : {}),
+      faces: xiuyuan.getFaces().map(face => ({
+        question: face.question,
+        answer: face.answer,
+        questionBlockId: face.questionBlockId,
+        answerBlockId: face.answerBlockId,
+      })),
+      typeMarker,
+      ...listTemplateMeta,
+      ...(meta.srsCardCreationReceipt && typeof meta.srsCardCreationReceipt === 'object'
+        ? { srsCardCreationReceipt: meta.srsCardCreationReceipt }
+        : {}),
+    }, { id: cardId, blockId });
+
     return {
-      id: card.getId().getValue(),
+      id: cardId,
       xiuyuanID: card.getXiuyuanId().getValue(),
       blockId,
       
@@ -1278,38 +1312,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       skipped: false,
       
       // 鍏冩暟鎹?
-      meta: {
-        ...imageOcclusionMeta,
-        xiuyuanID: card.getXiuyuanId().getValue(),
-        templateID: xiuyuan.getTemplateID().getValue(),
-        faceIndex: faceIndex,
-        ...(typeof meta.source === 'string' ? { source: meta.source } : {}),
-        ...(meta.isDocument === true ? { isDocument: true } : {}),
-        ...(meta.progressive && typeof meta.progressive === 'object' ? { progressive: meta.progressive } : {}),
-        ...(meta.symbolDetected === true ? { symbolDetected: true } : {}),
-        ...(typeof meta.cardSource === 'string' ? { cardSource: meta.cardSource } : {}),
-        ...(typeof meta.symbolType === 'string' ? { symbolType: meta.symbolType } : {}),
-        ...(typeof meta.clozeRenderMode === 'string' ? { clozeRenderMode: meta.clozeRenderMode } : {}),
-        ...(explicitRenderProfile ? { renderProfile: explicitRenderProfile } : {}),
-        ...(!explicitRenderProfile && fallbackQuickRenderProfile ? { renderProfile: fallbackQuickRenderProfile } : {}),
-        ...(typeof meta.forceQuickRender === 'boolean' ? { forceQuickRender: meta.forceQuickRender } : {}),
-        ...(typeof meta.quickDetectReason === 'string' ? { quickDetectReason: meta.quickDetectReason } : {}),
-        // 鉁?浣跨敤 Xiuyuan 瀹炰綋鏂规硶鑾峰彇 blockIDs锛圖omain 灞傞€昏緫锛?
-        frontBlockIDs: xiuyuan.getFrontBlockIDs(faceIndex),
-        backBlockIDs: xiuyuan.getBackBlockIDs(faceIndex),
-        ...(normalizedFieldMapping ? { fieldMapping: normalizedFieldMapping } : {}),
-        // 馃啎 娣诲姞 faces 淇℃伅锛岀敤浜庡鎸栫┖鍗℃覆鏌?
-        faces: xiuyuan.getFaces().map(face => ({
-          question: face.question,
-          answer: face.answer,
-          questionBlockId: face.questionBlockId,
-          answerBlockId: face.answerBlockId,
-        })),
-        // 馃啎 娣诲姞 typeMarker锛岀敤浜庡弻鍚戝崱鐗囪瘑鍒鍙嶉潰
-        typeMarker,
-        // 馃啎 鍒楄〃妯＄増鍗′笓鐢ㄥ瓧娈?
-        ...listTemplateMeta,
-      },
+      meta: cardMeta,
       
       // 鏃堕棿鎴?
       createdAt: card.getCreatedAt().getTime(),

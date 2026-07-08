@@ -38,6 +38,12 @@ import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { CardCreationSiyuanPort } from '@/application/ports/CardCreationSiyuanPort';
+import {
+  attachSrsCardCreationReceiptToMeta,
+  buildSrsCardCreationReceipt,
+  type SrsCardSemanticKind,
+} from '@/core/card/semantics';
+import { CardType as FsrsCardType } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('CreateCardUseCase');
@@ -93,20 +99,19 @@ export class CreateCardUseCase {
     // 4. 自动选择调度器类型（基于 faces 和 cardType）
     const schedulerType = this.selectSchedulerType(command, faces);
 
+    const meta = this.buildCreationMeta(command, {
+      templateId,
+      schedulerType,
+      sourceBlockIds: blockIds.map((blockId) => blockId.getValue()),
+    });
+
     // 5. 创建 Xiuyuan 聚合根
     const xiuyuanResult = Xiuyuan.create({
       blockIDs: blockIds,
       templateID: templateIdObj,
       faces: faces,
       priority: priority,
-      meta: {
-        ...(command.meta || {}),
-        ...(command.metadata || {}),
-        schedulerType: schedulerType, // Store schedulerType in meta (Requirement 5.5)
-        cardType: command.cardType,   // 🆕 传递卡片类型到 meta
-        ...(command.extractedFrom ? { extractedFrom: command.extractedFrom } : {}),
-        ...(command.progressiveLineage ? { progressive: command.progressiveLineage } : {}),
-      }
+      meta,
     });
 
     if (isErr(xiuyuanResult)) {
@@ -149,6 +154,79 @@ export class CreateCardUseCase {
 
     // 9. 返回创建的卡片
     return ok(card);
+  }
+
+  private buildCreationMeta(
+    command: CreateCardCommand,
+    input: {
+      templateId: string;
+      schedulerType: string;
+      sourceBlockIds: string[];
+    },
+  ): Record<string, unknown> {
+    const semanticKind = this.resolveReceiptSemanticKind(command, input.templateId);
+    const baseMeta: Record<string, unknown> = {
+      ...(command.meta || {}),
+      ...(command.metadata || {}),
+      schedulerType: input.schedulerType,
+      cardType: command.cardType,
+      ...(command.extractedFrom ? { extractedFrom: command.extractedFrom } : {}),
+      ...(command.progressiveLineage ? { progressive: command.progressiveLineage } : {}),
+    };
+    return attachSrsCardCreationReceiptToMeta(baseMeta, buildSrsCardCreationReceipt({
+      semanticKind,
+      templateID: input.templateId,
+      sourceBlockIds: input.sourceBlockIds,
+      creationFamily: this.resolveCreationFamily(command, input.templateId),
+      details: {
+        schedulerType: input.schedulerType,
+        ...(command.progressiveLineage?.kind ? { progressiveKind: command.progressiveLineage.kind } : {}),
+      },
+    }));
+  }
+
+  private resolveReceiptSemanticKind(command: CreateCardCommand, templateId: string): SrsCardSemanticKind {
+    const progressiveKind = command.progressiveLineage?.kind;
+    if (progressiveKind === 'piece' || progressiveKind === 'excerpt') {
+      return FsrsCardType.Topic;
+    }
+    if (progressiveKind === 'derived-item') {
+      return FsrsCardType.Item;
+    }
+    if (
+      templateId === 'builtin-concept-definition'
+      || templateId === 'builtin-concept-definition-forward'
+      || templateId === 'builtin-concept-definition-reverse'
+      || templateId === 'builtin-concept-descriptor'
+      || templateId === 'builtin-concept-descriptor-forward'
+      || templateId === 'builtin-concept-descriptor-reverse'
+      || templateId === 'builtin-concept-descriptor-both'
+    ) {
+      return FsrsCardType.Descriptor;
+    }
+    if (templateId === 'builtin-concept-simple' || command.cardType === 'concept') {
+      return FsrsCardType.Concept;
+    }
+    if (command.cardType === 'topic') {
+      return FsrsCardType.Topic;
+    }
+    if (command.cardType === 'descriptor') {
+      return FsrsCardType.Descriptor;
+    }
+    return FsrsCardType.Item;
+  }
+
+  private resolveCreationFamily(command: CreateCardCommand, templateId: string): string {
+    if (command.progressiveLineage?.kind === 'piece' || command.progressiveLineage?.kind === 'excerpt') {
+      return 'progressive-topic';
+    }
+    if (command.progressiveLineage?.kind === 'derived-item') {
+      return 'topic-derived-item';
+    }
+    if (templateId.startsWith('builtin-concept-')) {
+      return 'cdf';
+    }
+    return 'quick-card';
   }
 
   private async findExistingLogicalCard(xiuyuan: Xiuyuan): Promise<Result<Card | null>> {
