@@ -231,7 +231,7 @@ export class MenuManager {
 
     switch (actionId) {
       case 'start-review':
-        await this.openReviewDialog();
+        await this.openReviewDialog('topbar-menu:start-review');
         return;
       case 'start-incremental-learning':
         await this.openIncrementalLearningDialog();
@@ -363,8 +363,8 @@ export class MenuManager {
    * 
    * 委托给 DialogManager 处理
    */
-  private openReviewDialog(): void | Promise<void> {
-    return this.dialogManager.openReviewDialog();
+  private openReviewDialog(entrySurface = 'menu-manager:start-review'): void | Promise<void> {
+    return this.dialogManager.openReviewDialog({ entrySurface });
   }
   
   /**

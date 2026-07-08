@@ -21,7 +21,8 @@ import type { QueueProjectionRow } from '@/application/ports/QueueProjectionPort
 import type {
   BackendNeuralRoamAdvanceRequest,
   BackendNeuralRoamAdvanceResult,
-  type BackendQueueProjectionFreshnessEvidence,
+  BackendQueueProjectionCacheState,
+  BackendQueueProjectionFreshnessEvidence,
   BackendQueueProjectionRowsByIdsResult,
   BackendQueueProjectionReplaceResult,
   BackendQueueProjectionSnapshotRequest,
@@ -75,6 +76,7 @@ interface QueueProjectionUnavailableDiagnostic {
   policyHash: string | null;
   generation: number | null;
   checkedAt: number;
+  cacheState: BackendQueueProjectionCacheState | string | null;
   freshness: BackendQueueProjectionFreshnessEvidence | null;
 }
 
@@ -142,6 +144,7 @@ const QUEUE_PROJECTION_PENDING_NEXT_STEPS: Partial<Record<QueueType, string>> = 
   [QueueType.Leech]: 'Projection parity is implemented; existing strategy reads are now only an explicit rollback/parity-checking override.',
   [QueueType.NeuralRoam]: 'Wire neural-roam.advance before NeuralRoam can enter review; projection is browser/count/diagnostic only.',
 };
+const QUEUE_PROJECTION_DIAGNOSTIC_ID_LIMIT = 8;
 
 export class QueueProjectionRuntime {
   private readonly materializedProjectionEchoes = new Map<QueueType, MaterializedQueueProjectionEcho>();
@@ -230,22 +233,32 @@ export class QueueProjectionRuntime {
 
     try {
       let result = await backend.queueProjectionSnapshot({ queueType });
+      const policyHashValid = this.isValidProjectionPolicyHash(result.policyHash);
+      const generationValid = this.isValidProjectionGeneration(result.generation);
       if (
         result.status !== 'ready'
-        || !this.isValidProjectionPolicyHash(result.policyHash)
-        || !this.isValidProjectionGeneration(result.generation)
+        || !policyHashValid
+        || !generationValid
       ) {
+        const unavailableReason = this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness, result.cacheState);
         this.deps.logger.trace?.('Queue projection snapshot is not ready', {
           queueType,
           status: result.status,
           generation: result.generation,
           forceRefresh: options.forceRefresh === true,
         });
+        this.logQueueProjectionSnapshotNotReady(queueType, result, {
+          forceRefresh: options.forceRefresh === true,
+          unavailableReason,
+          policyHashValid,
+          generationValid,
+        });
         this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
-          unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness, result.cacheState),
+          unavailableReason,
           backendStatus: typeof result.status === 'string' ? result.status : null,
-          policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
-          generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
+          policyHash: policyHashValid ? result.policyHash : null,
+          generation: generationValid ? Number(result.generation) : null,
+          cacheState: this.normalizeQueueProjectionCacheState(result.cacheState),
           freshness: result.freshness ?? null,
         });
         return null;
@@ -477,6 +490,7 @@ export class QueueProjectionRuntime {
         backendStatus: typeof result.status === 'string' ? result.status : null,
         policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
         generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
+        cacheState: this.normalizeQueueProjectionCacheState(result.cacheState),
         freshness: result.freshness ?? null,
       });
     }
@@ -737,6 +751,81 @@ export class QueueProjectionRuntime {
     }
     return Math.max(0, Number(freshness.staleRows) || 0) > 0
       || Math.max(0, Number(freshness.missingRows) || 0) > 0;
+  }
+
+  private logQueueProjectionSnapshotNotReady(
+    queueType: QueueType,
+    result: BackendQueueProjectionSnapshotResult,
+    context: {
+      forceRefresh: boolean;
+      unavailableReason: string;
+      policyHashValid: boolean;
+      generationValid: boolean;
+    },
+  ): void {
+    this.deps.logger.info('[SiYuanMemo][QueueProjectionRuntime] Queue projection snapshot not ready', {
+      queueType,
+      status: typeof result.status === 'string' ? result.status : String(result.status),
+      unavailableReason: context.unavailableReason,
+      forceRefresh: context.forceRefresh,
+      policyHash: context.policyHashValid ? result.policyHash : null,
+      policyHashValid: context.policyHashValid,
+      generation: context.generationValid ? Number(result.generation) : null,
+      generationValid: context.generationValid,
+      cacheState: this.normalizeQueueProjectionCacheState(result.cacheState),
+      rowCount: Array.isArray(result.rows) ? result.rows.length : 0,
+      counters: this.summarizeProjectionCounters(result.counters),
+      freshness: this.summarizeProjectionFreshness(result.freshness),
+    });
+  }
+
+  private summarizeProjectionCounters(counters: BackendQueueProjectionSnapshotResult['counters'] | null | undefined): Record<string, unknown> | null {
+    if (!counters || typeof counters !== 'object') {
+      return null;
+    }
+    const record = counters as Record<string, unknown>;
+    return {
+      remaining: this.normalizeDiagnosticNumber(record.remaining),
+      due: this.normalizeDiagnosticNumber(record.due),
+      total: this.normalizeDiagnosticNumber(record.total),
+      source: typeof record.source === 'string' ? record.source : null,
+    };
+  }
+
+  private summarizeProjectionFreshness(
+    freshness: BackendQueueProjectionFreshnessEvidence | null | undefined,
+  ): BackendQueueProjectionFreshnessEvidence | null {
+    if (!freshness) {
+      return null;
+    }
+    return {
+      checkedAt: freshness.checkedAt,
+      totalRows: freshness.totalRows,
+      freshRows: freshness.freshRows,
+      staleRows: freshness.staleRows,
+      missingRows: freshness.missingRows,
+      staleCardIds: this.takeDiagnosticIds(freshness.staleCardIds),
+      missingCardIds: this.takeDiagnosticIds(freshness.missingCardIds),
+    };
+  }
+
+  private normalizeQueueProjectionCacheState(value: unknown): BackendQueueProjectionCacheState | string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  }
+
+  private normalizeDiagnosticNumber(value: unknown): number | null {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
+  }
+
+  private takeDiagnosticIds(ids: unknown): string[] {
+    if (!Array.isArray(ids)) {
+      return [];
+    }
+    return ids
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+      .slice(0, QUEUE_PROJECTION_DIAGNOSTIC_ID_LIMIT);
   }
 
   private canSubmitQueueProjectionReplace(backend: QueueProjectionBackendClient | null | undefined): boolean {
@@ -1095,6 +1184,7 @@ export class QueueProjectionRuntime {
         policyHash: unavailable.policyHash,
         generation: unavailable.generation,
         checkedAt: unavailable.checkedAt,
+        cacheState: unavailable.cacheState,
         freshness: unavailable.freshness,
       };
     }
@@ -1188,6 +1278,7 @@ export class QueueProjectionRuntime {
       backendStatus: details.backendStatus ?? null,
       policyHash: details.policyHash ?? null,
       generation: details.generation ?? null,
+      cacheState: details.cacheState ?? null,
       freshness: details.freshness ?? null,
       checkedAt: Date.now(),
     });

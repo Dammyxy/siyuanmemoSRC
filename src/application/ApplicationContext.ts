@@ -112,6 +112,7 @@ import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
 import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
 import { ReviewQueuePreparationService } from '@/application/services/ReviewQueuePreparationService';
+import { ReviewAdmissionModule } from '@/application/services/ReviewAdmissionModule';
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
 import { BrowserAdvancedSqlQuerySourceSiyuanAdapter } from '@/infrastructure/siyuan/BrowserAdvancedSqlQuerySourceSiyuanAdapter';
@@ -234,6 +235,7 @@ interface ApplicationServiceRegistry {
   queuePersistenceService: QueuePersistenceService;
   settingsService: SettingsService;
   reviewQueuePreparationService: ReviewQueuePreparationService;
+  reviewAdmissionModule: ReviewAdmissionModule;
   reviewLogService: ReviewLogService;
   reviewCommitUseCase: ReviewCommitUseCase;
   reviewAttemptKernel: ReviewAttemptKernel;
@@ -707,6 +709,10 @@ export class ApplicationContext {
         context.getQueuePersistenceService(),
         context.getSettingsService()
       );
+    });
+
+    this.registerServiceFactory('reviewAdmissionModule', (context) => {
+      return new ReviewAdmissionModule(context.getUnifiedDataSourceManager());
     });
 
     this.registerServiceFactory('reviewLogService', (context) => {
@@ -2694,6 +2700,10 @@ export class ApplicationContext {
   getReviewQueuePreparationService(): ReviewQueuePreparationService {
     return this.getService('reviewQueuePreparationService');
   }
+
+  getReviewAdmissionModule(): ReviewAdmissionModule {
+    return this.getService('reviewAdmissionModule');
+  }
   
   getReviewLogService(): ReviewLogService {
     return this.getService('reviewLogService');
@@ -2817,6 +2827,7 @@ export class ApplicationContext {
     try {
       logger.info('[ApplicationContext] Starting disposal...');
 
+      this.logSrsBackendTransportDiagnostics('before-review-truth-flush');
       await this.flushReviewTruthBeforeUnloadIfWritable(errors);
 
       try {
@@ -2889,6 +2900,7 @@ export class ApplicationContext {
         }
       }
 
+      this.logSrsBackendTransportDiagnostics('before-srs-backend-runtime-dispose');
       this.disposeSrsBackendRuntime(errors);
 
       if (this.frontendInstanceRuntime) {
@@ -2996,6 +3008,7 @@ export class ApplicationContext {
 
     if (this.srsBackendTransport) {
       try {
+        this.logSrsBackendTransportDiagnostics('before-worker-transport-dispose');
         this.srsBackendTransport.dispose?.();
         logger.info('[ApplicationContext] ✅ SRS backend Worker transport disposed');
       } catch (error) {
@@ -3006,6 +3019,23 @@ export class ApplicationContext {
 
     this.srsBackendTransport = null;
     this.srsBackendClient = null;
+  }
+
+  private logSrsBackendTransportDiagnostics(phase: string): void {
+    if (!this.srsBackendTransport || typeof this.srsBackendTransport.getDiagnostics !== 'function') {
+      return;
+    }
+    try {
+      logger.info('[ApplicationContext] backend unload diagnostics', {
+        phase,
+        diagnostics: this.srsBackendTransport.getDiagnostics(),
+      });
+    } catch (error) {
+      logger.warn('[ApplicationContext] backend unload diagnostics unavailable', {
+        phase,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async runBoundedDisposalStep<TResult>(

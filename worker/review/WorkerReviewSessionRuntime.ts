@@ -10,6 +10,7 @@ import type {
   BackendReviewFeedbackResult,
   BackendReviewSessionRepairGateEvidence,
 } from '../../packages/contracts/src/backend-rpc';
+import { createLogger } from '@/utils/logger';
 import { recordBackendWorkerInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
 import type {
   ReviewTransactionUndoJournal,
@@ -20,6 +21,8 @@ import type {
 
 const REVIEW_SESSION_FEEDBACK_STEP_SLOW_MS = 120;
 const REVIEW_SESSION_FEEDBACK_GAP_SLOW_MS = 50;
+const REVIEW_ENTRY_DIAGNOSTIC_ID_LIMIT = 20;
+const logger = createLogger('WorkerReviewSessionRuntime');
 
 type WorkerReviewSessionQueueProjection = {
   readGeneration(queueType: QueueType): QueueProjectionGeneration | null | Promise<QueueProjectionGeneration | null>;
@@ -43,6 +46,9 @@ export interface WorkerReviewSessionStartRequest {
   sessionId?: string | null;
   queueType?: QueueType | string | null;
   limit?: number | null;
+  entrySurface?: string | null;
+  projectionPolicyHash?: string | null;
+  projectionGeneration?: number | null;
 }
 
 export interface WorkerReviewSessionFeedbackRequest {
@@ -152,9 +158,17 @@ export class WorkerReviewSessionRuntime {
   async startSession(request: WorkerReviewSessionStartRequest = {}): Promise<WorkerReviewSessionState> {
     const queueType = normalizeQueueType(request.queueType);
     const sessionId = normalizeString(request.sessionId) ?? `worker-review-session:${this.nextSessionId++}`;
-    const generation = this.deps.queueProjection
+    const entrySurface = normalizeString(request.entrySurface) ?? 'unknown';
+    const admittedGeneration = resolveAdmittedProjectionGeneration(queueType, request);
+    if (requiresReviewAdmissionTicket(queueType) && !admittedGeneration) {
+      throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${queueType} review session start requires an admission ticket`);
+    }
+    if (requiresReviewAdmissionTicket(queueType) && !this.deps.queueProjection) {
+      throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${queueType} review session start requires a readable queue projection`);
+    }
+    const generation = admittedGeneration ?? (this.deps.queueProjection
       ? await this.deps.queueProjection.readGeneration(queueType)
-      : null;
+      : null);
     if (!generation || generation.status !== 'ready') {
       const session: WorkerReviewSession = {
         sessionId,
@@ -169,7 +183,27 @@ export class WorkerReviewSessionRuntime {
         undoStack: [],
       };
       this.sessions.set(sessionId, session);
-      return this.toState(session, generation ? 'refresh-required' : 'not-used');
+      const state = this.toState(session, generation ? 'refresh-required' : 'not-used');
+      logReviewSessionStartDiagnostic({
+        entrySurface,
+        queueType,
+        sessionId,
+        projectionState: state.projectionState,
+        projectionStatus: generation?.status ?? null,
+        projectionPolicyHash: generation?.policyHash ?? null,
+        projectionGeneration: generation?.generation ?? null,
+        rowsRead: 0,
+        hydratedCards: 0,
+        missingCards: 0,
+        remaining: state.counters.remaining,
+        due: state.counters.due,
+        total: state.counters.total,
+        currentCardId: null,
+        currentBlockId: null,
+        rowCardIds: [],
+        hydratedCardIds: [],
+      });
+      return state;
     }
 
     const rows = await this.deps.queueProjection!.readRows({
@@ -196,7 +230,27 @@ export class WorkerReviewSessionRuntime {
     };
     session.current = this.selectNextCard(session);
     this.sessions.set(sessionId, session);
-    return this.toState(session, 'ready');
+    const state = this.toState(session, 'ready');
+    logReviewSessionStartDiagnostic({
+      entrySurface,
+      queueType,
+      sessionId,
+      projectionState: state.projectionState,
+      projectionStatus: generation.status,
+      projectionPolicyHash: generation.policyHash,
+      projectionGeneration: generation.generation,
+      rowsRead: rows.length,
+      hydratedCards: cards.length,
+      missingCards: rows.length - cards.length,
+      remaining: state.counters.remaining,
+      due: state.counters.due,
+      total: state.counters.total,
+      currentCardId: session.current?.id ?? null,
+      currentBlockId: session.current?.blockId ?? null,
+      rowCardIds: rows.map((row) => row.cardId),
+      hydratedCardIds: cards.map((card) => card.id),
+    });
+    return state;
   }
 
   getSessionState(sessionId: string): WorkerReviewSessionState {
@@ -841,6 +895,39 @@ function normalizeString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function normalizePositiveInteger(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && Math.floor(numeric) === numeric && numeric > 0
+    ? numeric
+    : null;
+}
+
+function resolveAdmittedProjectionGeneration(
+  queueType: QueueType,
+  request: WorkerReviewSessionStartRequest,
+): QueueProjectionGeneration | null {
+  const policyHash = normalizeString(request.projectionPolicyHash);
+  const generation = normalizePositiveInteger(request.projectionGeneration);
+  if (!policyHash || generation === null) {
+    return null;
+  }
+  return {
+    queueType,
+    policyHash,
+    generation,
+    status: 'ready',
+    rebuildReason: null,
+    updatedAt: Date.now(),
+    metadata: {
+      source: 'review-admission-ticket',
+    },
+  };
+}
+
+function requiresReviewAdmissionTicket(queueType: QueueType): boolean {
+  return queueType === QueueType.RetrievalPractice || queueType === QueueType.IncrementalLearning;
+}
+
 function normalizeCardId(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -867,4 +954,59 @@ function resolveProjectionState(
     return 'refresh-required';
   }
   return feedback.queueImpact ? 'ready' : 'not-used';
+}
+
+function logReviewSessionStartDiagnostic(input: {
+  entrySurface: string;
+  queueType: QueueType;
+  sessionId: string;
+  projectionState: WorkerReviewSessionState['projectionState'];
+  projectionStatus: string | null;
+  projectionPolicyHash: string | null;
+  projectionGeneration: number | null;
+  rowsRead: number;
+  hydratedCards: number;
+  missingCards: number;
+  remaining: number;
+  due: number;
+  total: number;
+  currentCardId: string | null;
+  currentBlockId: string | null;
+  rowCardIds: string[];
+  hydratedCardIds: string[];
+}): void {
+  logger.info(
+    '[SiYuanMemo][ReviewEntryDiagnostic] worker review.session.start'
+    + ` entrySurface=${formatDiagnosticValue(input.entrySurface)}`
+    + ` queueType=${formatDiagnosticValue(input.queueType)}`
+    + ` sessionId=${formatDiagnosticValue(input.sessionId)}`
+    + ` projectionState=${formatDiagnosticValue(input.projectionState)}`
+    + ` projectionStatus=${formatDiagnosticValue(input.projectionStatus)}`
+    + ` projectionGeneration=${formatDiagnosticValue(input.projectionGeneration)}`
+    + ` rowsRead=${formatDiagnosticValue(input.rowsRead)}`
+    + ` hydratedCards=${formatDiagnosticValue(input.hydratedCards)}`
+    + ` missingCards=${formatDiagnosticValue(input.missingCards)}`
+    + ` remaining=${formatDiagnosticValue(input.remaining)}`
+    + ` due=${formatDiagnosticValue(input.due)}`
+    + ` total=${formatDiagnosticValue(input.total)}`
+    + ` currentCardId=${formatDiagnosticValue(input.currentCardId)}`
+    + ` currentBlockId=${formatDiagnosticValue(input.currentBlockId)}`
+    + ` rowCardIds=${formatDiagnosticList(input.rowCardIds)}`
+    + ` hydratedCardIds=${formatDiagnosticList(input.hydratedCardIds)}`
+    + ` policyHash=${formatDiagnosticValue(input.projectionPolicyHash)}`,
+  );
+}
+
+function formatDiagnosticValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+  const json = JSON.stringify(value);
+  return json === undefined ? String(value) : json;
+}
+
+function formatDiagnosticList(values: string[]): string {
+  const visible = values.slice(0, REVIEW_ENTRY_DIAGNOSTIC_ID_LIMIT);
+  const suffix = values.length > visible.length ? `,+${values.length - visible.length}` : '';
+  return `[${visible.map(formatDiagnosticValue).join(',')}${suffix}]`;
 }

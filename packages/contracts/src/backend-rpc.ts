@@ -2870,6 +2870,9 @@ export interface BackendReviewSessionStartRequest {
   sessionId?: string | null;
   queueType?: string | null;
   limit?: number | null;
+  entrySurface?: string | null;
+  projectionPolicyHash?: string | null;
+  projectionGeneration?: number | null;
 }
 
 export interface BackendReviewSessionCurrentRequest {

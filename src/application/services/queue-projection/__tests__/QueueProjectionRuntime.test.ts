@@ -48,6 +48,12 @@ function createRuntime(options: {
   const queue = {
     getCards: options.queueGetCards ?? vi.fn(async () => queueCards),
   } as unknown as IReviewQueue;
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    trace: vi.fn(),
+  };
   const runtime = new QueueProjectionRuntime({
     getBackendClient: () => options.backend,
     getFollowerCommandClient: () => options.follower,
@@ -55,13 +61,9 @@ function createRuntime(options: {
     getQueue: () => queue,
     getQueueProjectionRolloutState: (queueType) => options.rolloutState?.(queueType) ?? null,
     publishQueueProjectionIdentityBroadcast: options.publishQueueProjectionIdentityBroadcast,
-    logger: {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-    },
+    logger,
   });
-  return { queue, runtime };
+  return { queue, runtime, logger };
 }
 
 describe('QueueProjectionRuntime', () => {
@@ -1048,6 +1050,8 @@ describe('QueueProjectionRuntime', () => {
   });
 
   it('records freshness evidence in rollout diagnostics when projection rows are stale', async () => {
+    const staleCardIds = Array.from({ length: 10 }, (_, index) => `card-stale-${index}`);
+    const missingCardIds = Array.from({ length: 10 }, (_, index) => `card-missing-${index}`);
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({
         queueType: QueueType.FilterGroup,
@@ -1055,19 +1059,25 @@ describe('QueueProjectionRuntime', () => {
         policyHash: 'policy-stale',
         generation: 12,
         rows: [],
-        counters: null,
+        counters: {
+          remaining: 4,
+          due: 2,
+          total: 5,
+          source: 'backend-snapshot',
+        },
+        cacheState: 'projection-stale',
         freshness: {
           checkedAt: 1_700_000_100_000,
           totalRows: 2,
           freshRows: 1,
           staleRows: 1,
-          missingRows: 0,
-          staleCardIds: ['card-stale'],
-          missingCardIds: [],
+          missingRows: 1,
+          staleCardIds,
+          missingCardIds,
         },
       })),
     };
-    const { runtime } = createRuntime({ backend });
+    const { runtime, logger } = createRuntime({ backend });
 
     await expect(runtime.readSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
 
@@ -1077,12 +1087,40 @@ describe('QueueProjectionRuntime', () => {
         state: 'projection-unavailable',
         policyHash: 'policy-stale',
         generation: 12,
+        cacheState: 'projection-stale',
         freshness: expect.objectContaining({
           staleRows: 1,
-          staleCardIds: ['card-stale'],
+          missingRows: 1,
+          staleCardIds,
+          missingCardIds,
         }),
       }),
     ]);
+    expect(logger.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][QueueProjectionRuntime] Queue projection snapshot not ready',
+      expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        status: 'unavailable',
+        unavailableReason: 'projection_stale',
+        policyHash: 'policy-stale',
+        policyHashValid: true,
+        generation: 12,
+        generationValid: true,
+        cacheState: 'projection-stale',
+        counters: expect.objectContaining({
+          remaining: 4,
+          due: 2,
+          total: 5,
+          source: 'backend-snapshot',
+        }),
+        freshness: expect.objectContaining({
+          staleRows: 1,
+          missingRows: 1,
+          staleCardIds: staleCardIds.slice(0, 8),
+          missingCardIds: missingCardIds.slice(0, 8),
+        }),
+      }),
+    );
   });
 
   it('builds rollout diagnostics from runtime-owned unavailable state and capability checks', async () => {

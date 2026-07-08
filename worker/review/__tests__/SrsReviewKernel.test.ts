@@ -6,6 +6,10 @@ import { WorkerReviewSessionRuntime } from '../WorkerReviewSessionRuntime';
 import { WorkerSrsReviewKernelAdapter } from '../SrsReviewKernel';
 
 const NOW = 1_779_300_000_000;
+const ADMITTED_PROJECTION = {
+  projectionPolicyHash: 'retrieval-policy',
+  projectionGeneration: 7,
+} as const;
 
 function createCard(id: string, dueOffset = 0): FSRSCard {
   return {
@@ -99,7 +103,7 @@ describe('SrsReviewKernel', () => {
     const second = createCard('card-2', 1_000);
     const { kernel, readRows, reviewFeedback } = createKernel([first, second]);
 
-    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
+    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice, ...ADMITTED_PROJECTION });
     expect(started.current?.id).toBe(first.id);
     expect(kernel.counters(started.sessionId)).toMatchObject({ remaining: 2, source: 'worker-session' });
     expect(kernel.lookahead(started.sessionId)).toEqual([expect.objectContaining({ id: second.id })]);
@@ -128,7 +132,7 @@ describe('SrsReviewKernel', () => {
     const second = createCard('card-2', 1_000);
     const { kernel, readRows, reviewFeedback } = createKernel([first, second]);
 
-    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
+    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice, ...ADMITTED_PROJECTION });
     const skipped = await kernel.skip({
       sessionId: started.sessionId,
       cardId: first.id,
@@ -165,7 +169,7 @@ describe('SrsReviewKernel', () => {
     const second = createCard('card-2', 1_000);
     const { kernel, readRows, reviewFeedback } = createKernel([first, second]);
 
-    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
+    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice, ...ADMITTED_PROJECTION });
     const answered = await kernel.answer({
       sessionId: started.sessionId,
       cardId: first.id,
@@ -200,7 +204,7 @@ describe('SrsReviewKernel', () => {
     const second = createCard('card-2', 1_000);
     const { kernel, readRows, reviewFeedback } = createKernel([first, second]);
 
-    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
+    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice, ...ADMITTED_PROJECTION });
     const skipped = await kernel.skip({
       sessionId: started.sessionId,
       cardId: first.id,
@@ -225,7 +229,7 @@ describe('SrsReviewKernel', () => {
     const first = createCard('card-1');
     const { kernel } = createKernel([first]);
 
-    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice });
+    const started = await kernel.startSession({ queueType: QueueType.RetrievalPractice, ...ADMITTED_PROJECTION });
 
     await expect(kernel.undo({ sessionId: started.sessionId })).rejects.toThrow(
       `WORKER_REVIEW_SESSION_UNDO_UNAVAILABLE: ${started.sessionId}`,

@@ -4,6 +4,26 @@ Last update: 2026-07-08 (Round 681)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-08 - Review Admission Module
+
+- Task: Add/deepen `ReviewAdmissionModule` as the only projection-backed Review entry seam so topbar and Browser toolbar Retrieval Practice cannot start from different projection identities.
+- Touched slice: Review entry admission, dialog/tab/new-window wiring, worker session start contract, focused Review admission/session/RPC tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: RetrievalPractice / IncrementalLearning entry now consumes one canonical Queue Projection Readiness request, materializes recoverable projection state before opening Review, and carries an explicit admission ticket through DialogManager, TabManager, `createUnifiedReviewDialog`, `UnifiedQueueStrategy`, `WorkerReviewSessionQueueRuntime`, backend RPC, and worker session start. Worker `review.session.start` no longer reads implicit latest projection generation for admitted queues; missing ticket or missing readable projection fails closed with `REVIEW_ADMISSION_UNAVAILABLE`.
+- Debt deferred: Static subset/filter/final-drill/neural-roam entry paths remain outside admission because they are not projection-backed Retrieval/Incremental session starts. Existing broad TypeScript debt in unrelated tests/modules remains outside this change.
+- Why deferred: The live bug is projection-backed Review entry divergence. Expanding admission to route-owned or static queues would mix unrelated queue semantics into the seam and risk changing working non-projection flows.
+- Next safe step: Rebuild/reload, open Retrieval Practice from topbar and from Browser toolbar, and confirm both logs show the same admitted `projectionPolicyHash` / `projectionGeneration` and the same remaining count.
+- Validation: Focused Review admission/session/kernel/RPC tests passed; targeted TypeScript check for touched files has no new touched-file errors beyond existing repository-wide TypeScript debt.
+
+### 2026-07-08 - Browser projection open hang diagnostics
+
+- Task: Add diagnostic-only evidence for SRS Browser open failures where projection-backed queue pages/counts are unavailable and SiYuan shutdown may hang.
+- Touched slice: Queue projection read runtime, Browser queue page/count diagnostics, backend worker transport pending-work diagnostics, ApplicationContext unload checkpoints, focused Browser/projection/transport tests, and OpenSpec artifacts.
+- Debt fixed now: Non-ready queue projection snapshots now log cache state, freshness, policy/generation validity, counters, and capped card ids. Browser unavailable queue pages and passive queue-count misses now log queue type, read owner, rollout diagnostics, and capped row ids. Worker transport unload now reports capped pending request/probe summaries before disposal, and ApplicationContext logs backend diagnostics before Review truth flush/runtime/transport disposal.
+- Debt deferred: This change intentionally does not repair missing projections, change Browser adapter lifecycle, add fallback materialization, or alter unload persistence semantics.
+- Why deferred: The live symptom needs proof whether the root cause is missing/stale projection cache, a destroyed Browser adapter as cause/result, pending backend RPC/probe work, or Review truth flush/host effect shutdown. Changing behavior before evidence risks hiding the real owner.
+- Next safe step: Rebuild/reload, open SRS Browser after startup, then capture the first `Queue projection snapshot not ready`, `Browser queue page unavailable`, `QUEUE_COUNT_UNAVAILABLE`, and `backend unload diagnostics` logs.
+- Validation: Focused projection, Browser queue-count, and worker transport tests; hidden-fallback check; boundary check; build; OpenSpec strict validation; diff whitespace check.
+
 ### 2026-07-08 - Review startup maintenance sync-scan decoupling
 
 - Task: Fix restart-time Review truth maintenance and passive Browser/Review preflights timing out on broad diagnostics or sync-conflict source scans after fast Review scoring.

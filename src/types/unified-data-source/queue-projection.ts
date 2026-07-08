@@ -47,6 +47,7 @@ export interface QueueProjectionRolloutDiagnostic {
   policyHash?: string | null;
   generation?: number | null;
   checkedAt?: number | null;
+  cacheState?: string | null;
   freshness?: {
     checkedAt: number;
     totalRows: number;

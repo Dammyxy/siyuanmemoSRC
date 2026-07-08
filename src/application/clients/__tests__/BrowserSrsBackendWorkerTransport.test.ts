@@ -162,6 +162,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transportLoggerMocks.warn.mockClear();
     transportLoggerMocks.error.mockClear();
     transportLoggerMocks.debug.mockClear();
+    transportLoggerMocks.trace.mockClear();
   });
 
   afterEach(() => {
@@ -1886,6 +1887,17 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       health: 'healthy',
       requestTimeouts: 0,
       pendingRequests: 1,
+      pendingProbes: 0,
+      pendingProbeSummaries: [],
+      pendingRequestSummaries: [
+        expect.objectContaining({
+          method: 'xiuyuan.sync.execute',
+          generation: 1,
+          posted: true,
+          queuedForMs: expect.any(Number),
+          postedForMs: expect.any(Number),
+        }),
+      ],
     }));
 
     const response: BackendRpcResponse = {
@@ -1900,6 +1912,43 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     });
     await expect(pending).resolves.toEqual(response);
     transport.dispose();
+  });
+
+  it('logs capped pending backend work diagnostics during dispose', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const request = createBrowserDeckPageRequest(69);
+    const pending = transport.request(request);
+    const assertion = expect(pending).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker transport closed');
+    await Promise.resolve();
+
+    transport.dispose();
+
+    await assertion;
+    expect(transportLoggerMocks.warn).toHaveBeenCalledWith(
+      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] disposing with pending backend work',
+      expect.objectContaining({
+        health: 'healthy',
+        pendingRequests: 1,
+        pendingProbes: 0,
+        pendingRequestSummaries: [
+          expect.objectContaining({
+            method: 'browser.deck.page',
+            generation: 1,
+            posted: true,
+            queuedForMs: expect.any(Number),
+            postedForMs: expect.any(Number),
+          }),
+        ],
+      }),
+    );
+    expect(worker.terminated).toHaveBeenCalledTimes(1);
   });
 
   it('keeps SQLite host effects alive while a long Xiuyuan sync command is pending', async () => {

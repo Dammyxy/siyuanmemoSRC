@@ -9,6 +9,7 @@ import type {
   FilterGroupQueueSessionSnapshot,
   IDataSourceObserver,
   IReviewQueue,
+  QueueProjectionRolloutDiagnostic,
   IUnifiedDataSourceManagerFacade,
 } from '@/types/unified-data-source';
 import {
@@ -117,6 +118,7 @@ const logger = createLogger('BrowserApplicationService');
 const SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS = 250;
 const SOURCE_EXISTENCE_STATUS_CACHE_MAX_SIZE = 4096;
 const BROWSER_LOCAL_DELETION_IDENTITY_MAX_SIZE = 4096;
+const BROWSER_QUEUE_DIAGNOSTIC_ID_LIMIT = 8;
 
 type BrowserApplicationBackendClient = Pick<
   BackendBrowserClientFacet,
@@ -737,23 +739,35 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }];
     const queueType = resolveQueueTypeForBrowserQueueId(query.queueId);
     const errorReadOwner = projectionError?.browserReadOwner;
+    const readOwner: BrowserReadModelSnapshotMetadata['readOwner'] = {
+      kind: 'queue-projection',
+      queueId: query.queueId,
+      queueType: queueType ?? undefined,
+      projectionBacked: true,
+      readPath: 'backend-projection',
+      ...errorReadOwner,
+      state: errorReadOwner?.state ?? (status === 'unavailable' ? 'projection-unavailable' : 'backend-projection'),
+      reason: errorReadOwner?.reason ?? (status === 'repair-required' ? 'refresh-required' : null),
+      unavailableReason: errorReadOwner?.unavailableReason ?? (status === 'unavailable' ? reason : null),
+    };
+
+    logger.warn('[SiYuanMemo][BrowserApplicationService] Browser queue page unavailable', {
+      queueId: query.queueId,
+      queueType: queueType ?? null,
+      status,
+      diagnosticKind,
+      reason,
+      rowIds: rowIds.slice(0, BROWSER_QUEUE_DIAGNOSTIC_ID_LIMIT),
+      readOwner,
+      diagnostics,
+    });
 
     return {
       status,
       rows: [],
       total: 0,
       reason,
-      readOwner: {
-        kind: 'queue-projection',
-        queueId: query.queueId,
-        queueType: queueType ?? undefined,
-        projectionBacked: true,
-        readPath: 'backend-projection',
-        ...errorReadOwner,
-        state: errorReadOwner?.state ?? (status === 'unavailable' ? 'projection-unavailable' : 'backend-projection'),
-        reason: errorReadOwner?.reason ?? (status === 'repair-required' ? 'refresh-required' : null),
-        unavailableReason: errorReadOwner?.unavailableReason ?? (status === 'unavailable' ? reason : null),
-      },
+      readOwner,
       queryFingerprint: this.buildReadModelFingerprint({
         source: 'queue',
         query,
@@ -1602,9 +1616,13 @@ export class BrowserApplicationService implements IBrowserApplicationService {
           ] as const;
         } catch (error) {
           if (this.isTransientQueueCountUnavailableError(error)) {
+            const queueType = resolveQueueTypeForBrowserQueueId(queueId);
             logger.info('QUEUE_COUNT_UNAVAILABLE: passive queue count unavailable; keeping empty count until projection is readable', {
               queueId,
+              queueType: queueType ?? null,
+              forceRefresh: Boolean(request.forceRefresh),
               error: error instanceof Error ? error.message : String(error),
+              rolloutDiagnostics: this.getQueueProjectionRolloutDiagnostics(queueType),
             });
             return [queueId, null] as const;
           }
@@ -1624,6 +1642,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     return counts;
+  }
+
+  private getQueueProjectionRolloutDiagnostics(
+    queueType: QueueType | null,
+  ): QueueProjectionRolloutDiagnostic[] {
+    if (!queueType || typeof this.unifiedDataSourceManager?.getQueueProjectionRolloutDiagnostics !== 'function') {
+      return [];
+    }
+    return this.unifiedDataSourceManager.getQueueProjectionRolloutDiagnostics(queueType);
   }
 
   async setFilterGroupFilter(filter: CardFilter): Promise<boolean> {

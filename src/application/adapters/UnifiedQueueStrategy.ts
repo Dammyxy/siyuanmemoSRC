@@ -54,6 +54,7 @@ import type {
     BackendNeuralRoamStartFromFocusRequest,
     BackendNeuralRoamViewState,
 } from '../../../packages/contracts/src/backend-rpc';
+import type { ReviewAdmissionTicket } from '@/application/services/ReviewAdmissionModule';
 
 const logger = createLogger('UnifiedQueueStrategy');
 
@@ -224,7 +225,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         manager: UnifiedDataSourceManager,
         _eventBus: EventBus,
         schedulerRouter: ISchedulerRouter | null = null,
-        private readonly cdfLiveRelationReviewOpenRefresher: CdfLiveRelationReviewOpenRefresher | null = null
+        private readonly cdfLiveRelationReviewOpenRefresher: CdfLiveRelationReviewOpenRefresher | null = null,
+        private readonly reviewEntrySurface: string | null = null,
+        private readonly reviewAdmissionTicket: ReviewAdmissionTicket | null = null
     ) {
         this.manager = manager;
         this.schedulerRouter = schedulerRouter;
@@ -1041,11 +1044,15 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return new WorkerReviewSessionQueueRuntime({
                 queueType: this.queueType,
                 backend: createUnavailableWorkerReviewSessionBackend(),
+                entrySurface: this.reviewEntrySurface,
+                reviewAdmissionTicket: this.reviewAdmissionTicket,
             });
         }
         return new WorkerReviewSessionQueueRuntime({
             queueType: this.queueType,
             backend,
+            entrySurface: this.reviewEntrySurface,
+            reviewAdmissionTicket: this.reviewAdmissionTicket,
         });
     }
 

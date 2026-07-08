@@ -919,6 +919,25 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       : snapshot
         ? `${overallDue} due · ${overallRemaining} remaining`
         : (stats.label || `${overallRemaining} due`);
+    logReviewHeaderCounterDiagnostic({
+      queueType,
+      headerVariant,
+      cacheKey,
+      statsSize: stats.size,
+      statsLabel: stats.label ?? null,
+      statsExtra: stats.extra ?? null,
+      snapshotSource: snapshot?.source ?? null,
+      snapshotRemaining: snapshot?.remaining ?? null,
+      snapshotDue: snapshot?.due ?? null,
+      snapshotTotal: snapshot?.total ?? null,
+      overallRemaining,
+      overallDue,
+      overallTotal,
+      sessionInitialTotal: safeContext.session?.initialTotal ?? null,
+      sessionAnsweredCount: safeContext.session?.answeredCount ?? null,
+      showAnswer: safeContext.showAnswer,
+      label,
+    });
 
     return this.cacheAndBuildAuxHeader(queueType, {
       cacheKey,
@@ -1179,4 +1198,53 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         return t(this.i18n, 'headerItem', 'Item');
     }
   }
+}
+
+function logReviewHeaderCounterDiagnostic(input: {
+  queueType: string;
+  headerVariant: string;
+  cacheKey: string;
+  statsSize: number;
+  statsLabel: string | null;
+  statsExtra: string | null;
+  snapshotSource: string | null;
+  snapshotRemaining: number | null;
+  snapshotDue: number | null;
+  snapshotTotal: number | null;
+  overallRemaining: number;
+  overallDue: number;
+  overallTotal: number;
+  sessionInitialTotal: number | null;
+  sessionAnsweredCount: number | null;
+  showAnswer: boolean;
+  label: string;
+}): void {
+  logger.info(
+    '[SiYuanMemo][ReviewEntryDiagnostic] review header counter resolved'
+    + ` queueType=${formatDiagnosticValue(input.queueType)}`
+    + ` headerVariant=${formatDiagnosticValue(input.headerVariant)}`
+    + ` cacheKey=${formatDiagnosticValue(input.cacheKey)}`
+    + ` statsSize=${formatDiagnosticValue(input.statsSize)}`
+    + ` statsLabel=${formatDiagnosticValue(input.statsLabel)}`
+    + ` statsExtra=${formatDiagnosticValue(input.statsExtra)}`
+    + ` snapshotSource=${formatDiagnosticValue(input.snapshotSource)}`
+    + ` snapshotRemaining=${formatDiagnosticValue(input.snapshotRemaining)}`
+    + ` snapshotDue=${formatDiagnosticValue(input.snapshotDue)}`
+    + ` snapshotTotal=${formatDiagnosticValue(input.snapshotTotal)}`
+    + ` overallRemaining=${formatDiagnosticValue(input.overallRemaining)}`
+    + ` overallDue=${formatDiagnosticValue(input.overallDue)}`
+    + ` overallTotal=${formatDiagnosticValue(input.overallTotal)}`
+    + ` sessionInitialTotal=${formatDiagnosticValue(input.sessionInitialTotal)}`
+    + ` sessionAnsweredCount=${formatDiagnosticValue(input.sessionAnsweredCount)}`
+    + ` showAnswer=${formatDiagnosticValue(input.showAnswer)}`
+    + ` label=${formatDiagnosticValue(input.label)}`,
+  );
+}
+
+function formatDiagnosticValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+  const json = JSON.stringify(value);
+  return json === undefined ? String(value) : json;
 }

@@ -3,6 +3,18 @@ import { BrowserApplicationService } from '../BrowserApplicationService';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 import { CardState, CardType } from '@/types/card';
 
+const browserLoggerMocks = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  trace: vi.fn(),
+}));
+
+vi.mock('@/utils/logger', () => ({
+  createLogger: () => browserLoggerMocks,
+}));
+
 type QueueMock = {
   getCounterSnapshot: ReturnType<typeof vi.fn>;
   getSnapshotRows: ReturnType<typeof vi.fn>;
@@ -131,6 +143,11 @@ describe('BrowserApplicationService queue counts', () => {
   let service: BrowserApplicationService;
 
   beforeEach(() => {
+    browserLoggerMocks.debug.mockClear();
+    browserLoggerMocks.info.mockClear();
+    browserLoggerMocks.warn.mockClear();
+    browserLoggerMocks.error.mockClear();
+    browserLoggerMocks.trace.mockClear();
     queueByType = new Map<QueueType, QueueMock>();
     projectionCountersByType = new Map<QueueType, ReturnType<typeof createProjectionCounters> | null>();
     manager = {
@@ -424,6 +441,22 @@ describe('BrowserApplicationService queue counts', () => {
     expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledWith(false);
     expect(retrievalQueue.getCards).not.toHaveBeenCalled();
+    expect(browserLoggerMocks.info).toHaveBeenCalledWith(
+      'QUEUE_COUNT_UNAVAILABLE: passive queue count unavailable; keeping empty count until projection is readable',
+      expect.objectContaining({
+        queueId: 'retrieval',
+        queueType: QueueType.RetrievalPractice,
+        forceRefresh: false,
+        error: expect.stringContaining('QUEUE_PROJECTION_UNAVAILABLE'),
+        rolloutDiagnostics: [
+          expect.objectContaining({
+            queueType: QueueType.RetrievalPractice,
+            projectionBacked: true,
+            readPath: 'backend-projection',
+          }),
+        ],
+      }),
+    );
 
     retrievalQueue.getSnapshotRows.mockResolvedValueOnce(createQueue(11).getSnapshotRows());
     const recoveredCounts = await service.getQueueCounts({

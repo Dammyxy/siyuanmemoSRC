@@ -35,6 +35,11 @@ import {
 import { createLogger } from '@/utils/logger';
 import type { BrowserOpenState } from '@/types/browser';
 import type { BackendNeuralRoamStartFromFocusRequest } from '../../../packages/contracts/src/backend-rpc';
+import {
+  isReviewAdmissionQueueType,
+  isValidReviewAdmissionTicket,
+  type ReviewAdmissionTicket,
+} from '@/application/services/ReviewAdmissionModule';
 import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
@@ -75,6 +80,7 @@ interface ReviewTabData {
   neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
   neuralRoamTemporaryEngineModeTouched?: boolean;
   initialSemanticPinnedSessionId?: string | null;
+  reviewAdmissionTicket?: ReviewAdmissionTicket | null;
 }
 
 interface BrowserTabData {
@@ -594,6 +600,7 @@ export interface ReviewTabOptions {
   suppressSnapshotRecovery?: boolean;
   neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
   initialSemanticPinnedSessionId?: string | null;
+  reviewAdmissionTicket?: ReviewAdmissionTicket | null;
 }
 
 interface ReviewTabOpenOptions {
@@ -696,15 +703,19 @@ export class TabManager {
 
   async initReviewTab(runtime: TabRuntimeContext): Promise<void> {
     const mountToken = this.beginTabMount(runtime);
-    const data = this.recoverReviewTabData(
+    let data = this.recoverReviewTabData(
       this.normalizeReviewTabData(runtime.data),
       this.resolveReviewTabRuntimeId(runtime),
     );
+    data = await this.admitReviewTabData(data, {
+      entrySurface: 'tab-manager:init-review-tab',
+    });
     logger.info('Restoring review tab', {
       providerId: data.providerId,
       queueType: data.queueType,
       headerVariant: data.headerVariant,
       title: data.title,
+      admissionGeneration: data.reviewAdmissionTicket?.projectionGeneration ?? null,
     });
 
     const queue = this.buildReviewQueueFromTabData(data);
@@ -1495,6 +1506,9 @@ export class TabManager {
           ? false
           : undefined,
       initialSemanticPinnedSessionId: normalizeOptionalId(options.initialSemanticPinnedSessionId),
+      reviewAdmissionTicket: isValidReviewAdmissionTicket(options.reviewAdmissionTicket, queueType)
+        ? options.reviewAdmissionTicket
+        : null,
     };
   }
 
@@ -1551,6 +1565,9 @@ export class TabManager {
       neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(data?.neuralRoamStartFromFocus),
       neuralRoamTemporaryEngineModeTouched: data?.neuralRoamTemporaryEngineModeTouched === true,
       initialSemanticPinnedSessionId: normalizeOptionalId(data?.initialSemanticPinnedSessionId),
+      reviewAdmissionTicket: isValidReviewAdmissionTicket(data?.reviewAdmissionTicket, queueType)
+        ? data.reviewAdmissionTicket
+        : null,
     };
   }
 
@@ -1597,6 +1614,8 @@ export class TabManager {
       this.context.getEventBus(),
       this.context.getSchedulerRouter() as unknown as ISchedulerRouter,
       this.createCdfLiveRelationReviewOpenRefresher(),
+      data.reviewAdmissionTicket?.entrySurface ?? 'tab-manager:review-tab',
+      transferredQueue ? null : data.reviewAdmissionTicket ?? null,
     );
     strategy.restoreSessionSnapshot?.(data.reviewState?.queueSnapshot);
     strategy.startNeuralRoamFromFocusOnNextAdvance?.(data.neuralRoamStartFromFocus);
@@ -1667,23 +1686,6 @@ export class TabManager {
     });
   }
 
-  private triggerQueuePreparationInBackground(queueType: QueueType): void {
-    const prepare = this.prepareQueueBeforeOpen(queueType);
-    if (!prepare) {
-      return;
-    }
-
-    logger.debug('Start review queue preparation in background before opening new window', {
-      queueType,
-    });
-
-    void prepare.then(() => {
-      logger.debug('Review queue preparation finished in background', {
-        queueType,
-      });
-    });
-  }
-
   private canOpenInNewWindow(): boolean {
     const ipcRenderer = resolveIpcRenderer();
     return typeof ipcRenderer?.send === 'function';
@@ -1694,7 +1696,7 @@ export class TabManager {
     tabOpenOptions: ReviewTabOpenOptions
   ): Promise<void> {
     try {
-      const tabData = this.resolveReviewTabData(options);
+      let tabData = this.resolveReviewTabData(options);
       if (tabData.queueType === QueueType.NeuralRoam && tabOpenOptions.removeCurrentTab !== true) {
         const reused = await this.reuseExistingNeuralReviewSurface({
           fallbackNodeId: tabData.neuralRoamStartFromFocus?.blockId ?? null,
@@ -1709,6 +1711,10 @@ export class TabManager {
       if (prepare) {
         await prepare;
       }
+      tabData = await this.admitReviewTabData(tabData, {
+        queue: options.queue,
+        entrySurface: 'tab-manager:open-review-tab',
+      });
 
       openTab({
         app: this.plugin.app,
@@ -1736,7 +1742,7 @@ export class TabManager {
       if (!ipcRenderer) {
         throw new Error('ipcRenderer is unavailable');
       }
-      const tabData = this.resolveReviewTabData(options);
+      let tabData = this.resolveReviewTabData(options);
       if (tabData.queueType === QueueType.NeuralRoam) {
         const reused = await this.reuseExistingNeuralReviewSurface({
           fallbackNodeId: tabData.neuralRoamStartFromFocus?.blockId ?? null,
@@ -1746,7 +1752,14 @@ export class TabManager {
         }
       }
       const reviewModelType = this.buildCustomModelType(this.REVIEW_TAB_TYPE);
-      this.triggerQueuePreparationInBackground(tabData.queueType);
+      const prepare = this.prepareQueueBeforeOpen(tabData.queueType);
+      if (prepare) {
+        await prepare;
+      }
+      tabData = await this.admitReviewTabData(tabData, {
+        queue: options.queue,
+        entrySurface: 'tab-manager:open-review-new-window',
+      });
 
       const json = [
         {
@@ -1768,10 +1781,48 @@ export class TabManager {
       logger.info('Opened review in new window', {
         queueType: tabData.queueType,
         providerId: tabData.providerId,
+        admissionGeneration: tabData.reviewAdmissionTicket?.projectionGeneration ?? null,
       });
     } catch (error) {
       logger.error('Failed to open review in new window', error);
       void this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || 'Failed to open new window');
     }
   }
+
+  private async admitReviewTabData(
+    data: ReviewTabData,
+    options: {
+      queue?: ReviewQueueRef | null;
+      entrySurface?: string | null;
+    } = {},
+  ): Promise<ReviewTabData> {
+    if (!isReviewAdmissionQueueType(data.queueType)) {
+      return data;
+    }
+    if (isValidReviewAdmissionTicket(data.reviewAdmissionTicket, data.queueType)) {
+      return data;
+    }
+
+    const admission = this.context.getReviewAdmissionModule?.();
+    if (!admission || typeof admission.admitReviewSession !== 'function') {
+      throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${data.queueType} review admission module is unavailable`);
+    }
+    const ticket = await admission.admitReviewSession({
+      queueType: data.queueType,
+      entrySurface: options.entrySurface,
+      queueInstance: isReviewQueueForAdmission(options.queue)
+        ? options.queue
+        : this.context.getUnifiedDataSourceManager().getQueue(data.queueType),
+    });
+    return {
+      ...data,
+      reviewAdmissionTicket: ticket,
+    };
+  }
+}
+
+function isReviewQueueForAdmission(
+  queue: ReviewQueueRef | null | undefined,
+): queue is ReviewQueueRef & Pick<IReviewQueue, 'getCards'> {
+  return typeof (queue as Partial<IReviewQueue> | null | undefined)?.getCards === 'function';
 }

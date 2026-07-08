@@ -9,6 +9,10 @@ import { BackendRpcDispatcher } from './BackendRpcDispatcher';
 import { createBackendRpcHandlerRegistry, BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS } from './BackendRpcRegistry';
 
 const NOW = 1_779_300_000_000;
+const ADMITTED_PROJECTION = {
+  projectionPolicyHash: 'retrieval-policy',
+  projectionGeneration: 7,
+} as const;
 
 function createCard(id: string, dueOffset = 0): FSRSCard {
   return {
@@ -196,6 +200,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
       params: {
         sessionId: 'session-a',
         queueType: QueueType.RetrievalPractice,
+        ...ADMITTED_PROJECTION,
       },
     }, { review });
 
@@ -206,6 +211,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
       counters: expect.objectContaining({ remaining: 2, source: 'worker-session' }),
     });
     expect(readRows).toHaveBeenCalledOnce();
+    expect(sessionRuntime['deps'].queueProjection?.readGeneration).not.toHaveBeenCalled();
 
     const feedback = await dispatcher.dispatch({
       jsonrpc: BACKEND_RPC_VERSION,
@@ -338,6 +344,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
       params: {
         sessionId: 'session-a',
         queueType: QueueType.RetrievalPractice,
+        ...ADMITTED_PROJECTION,
       },
     }, { review });
     const skipped = await dispatcher.dispatch({
@@ -440,6 +447,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
       params: {
         sessionId: 'session-a',
         queueType: QueueType.RetrievalPractice,
+        ...ADMITTED_PROJECTION,
       },
     }, { review });
     const feedback = await dispatcher.dispatch({

@@ -10,6 +10,10 @@ import { InMemoryReviewTransactionUndoJournal } from '../ReviewTransactionUndoJo
 import { WorkerReviewSessionRuntime } from '../WorkerReviewSessionRuntime';
 
 const NOW = 1_779_300_000_000;
+const ADMITTED_PROJECTION = {
+  projectionPolicyHash: 'retrieval-policy',
+  projectionGeneration: 7,
+} as const;
 
 function createCard(id: string, dueOffset = 0): FSRSCard {
   return {
@@ -97,11 +101,13 @@ describe('WorkerReviewSessionRuntime', () => {
     const started = await runtime.startSession({
       sessionId: 'session-a',
       queueType: QueueType.RetrievalPractice,
+      ...ADMITTED_PROJECTION,
     });
 
     expect(started.current?.id).toBe(first.id);
     expect(started.counters).toMatchObject({ remaining: 2, source: 'worker-session' });
     expect(readRows).toHaveBeenCalledOnce();
+    expect(runtime['deps'].queueProjection?.readGeneration).not.toHaveBeenCalled();
 
     const result = await runtime.feedback({
       sessionId: started.sessionId,
@@ -168,6 +174,31 @@ describe('WorkerReviewSessionRuntime', () => {
     expect(feedbackRuntime.reviewFeedback).not.toHaveBeenCalled();
   });
 
+  it('fails closed when projection-backed review starts without admission identity', async () => {
+    const readGeneration = vi.fn();
+    const readRows = vi.fn();
+    const runtime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: vi.fn(() => null),
+      },
+      queueProjection: {
+        readGeneration,
+        readRows,
+      },
+      feedbackRuntime: {
+        reviewFeedback: vi.fn(),
+      },
+    });
+
+    await expect(runtime.startSession({
+      sessionId: 'session-without-admission',
+      queueType: QueueType.RetrievalPractice,
+    })).rejects.toThrow('REVIEW_ADMISSION_UNAVAILABLE');
+
+    expect(readGeneration).not.toHaveBeenCalled();
+    expect(readRows).not.toHaveBeenCalled();
+  });
+
   it('skips the current card from worker session state without committing review feedback', async () => {
     const first = createCard('card-1');
     const second = createCard('card-2', 1_000);
@@ -201,6 +232,7 @@ describe('WorkerReviewSessionRuntime', () => {
     const started = await runtime.startSession({
       sessionId: 'session-a',
       queueType: QueueType.RetrievalPractice,
+      ...ADMITTED_PROJECTION,
     });
     const skipped = await runtime.skip({
       sessionId: started.sessionId,
@@ -248,6 +280,7 @@ describe('WorkerReviewSessionRuntime', () => {
     const started = await runtime.startSession({
       sessionId: 'session-gate',
       queueType: QueueType.RetrievalPractice,
+      ...ADMITTED_PROJECTION,
     });
 
     await expect(runtime.feedback({
@@ -331,6 +364,7 @@ describe('WorkerReviewSessionRuntime', () => {
     const started = await runtime.startSession({
       sessionId: 'session-restart',
       queueType: QueueType.RetrievalPractice,
+      ...ADMITTED_PROJECTION,
     });
     const answered = await runtime.feedback({
       sessionId: started.sessionId,
@@ -420,6 +454,7 @@ describe('WorkerReviewSessionRuntime', () => {
     const started = await runtime.startSession({
       sessionId: 'session-duplicate-undo',
       queueType: QueueType.RetrievalPractice,
+      ...ADMITTED_PROJECTION,
     });
     const answered = await runtime.feedback({
       sessionId: started.sessionId,
@@ -500,6 +535,7 @@ describe('WorkerReviewSessionRuntime', () => {
     const started = await runtime.startSession({
       sessionId: 'session-missing-evidence',
       queueType: QueueType.RetrievalPractice,
+      ...ADMITTED_PROJECTION,
     });
     await runtime.feedback({
       sessionId: started.sessionId,
@@ -569,6 +605,7 @@ describe('WorkerReviewSessionRuntime', () => {
       const started = await runtime.startSession({
         sessionId: 'session-slow-undo-journal',
         queueType: QueueType.RetrievalPractice,
+        ...ADMITTED_PROJECTION,
       });
 
       await runtime.feedback({
@@ -652,6 +689,7 @@ describe('WorkerReviewSessionRuntime', () => {
     const started = await runtime.startSession({
       sessionId: 'session-slow-gap',
       queueType: QueueType.RetrievalPractice,
+      ...ADMITTED_PROJECTION,
     });
     const dateNow = vi.spyOn(Date, 'now');
     const nowSequence = [
@@ -750,6 +788,7 @@ describe('WorkerReviewSessionRuntime', () => {
     const started = await runtime.startSession({
       sessionId: 'session-fast-feedback',
       queueType: QueueType.RetrievalPractice,
+      ...ADMITTED_PROJECTION,
     });
     const dateNow = vi.spyOn(Date, 'now');
     const nowSequence = [

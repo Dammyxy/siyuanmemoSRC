@@ -38,7 +38,7 @@ export interface IDialogManager {
   /**
    * 打开提取练习对话框
    */
-  openReviewDialog(): Promise<void>;
+  openReviewDialog(options?: { entrySurface?: string | null }): Promise<void>;
 
   /**
    * 打开带过滤条件的提取练习对话框

@@ -54,6 +54,10 @@ _Avoid_: current due
 A shared availability state for a queue projection that tells callers whether a projection is readable, preparing, or unavailable, including its projection identity when readable.
 _Avoid_: generic projection unavailable, Browser retry state, fallback readiness
 
+**Review Admission Module**:
+The single Review entry seam for projection-backed Retrieval Practice and Incremental Learning sessions. It consumes Queue Projection Readiness, materializes a recoverable projection when needed, and returns a Review Admission Ticket with the admitted projection policy/generation that every Review start path must pass to the worker.
+_Avoid_: per-entry projection readiness checks, Browser/topbar count drift, worker start reading implicit latest projection identity
+
 **Browser Queue View Lifecycle**:
 The Browser surface flow that prepares a selected queue, consumes **Queue Projection Readiness**, creates the queue datasource, and hands it to the grid for first-row rendering.
 _Avoid_: scattered queue load glue, UI projection repair

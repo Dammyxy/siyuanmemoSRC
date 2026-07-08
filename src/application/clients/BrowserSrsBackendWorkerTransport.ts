@@ -39,6 +39,7 @@ const LONG_BACKEND_COMMAND_METHODS = new Set<string>([
   'xiuyuan.sync.execute',
 ]);
 const REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT = 5;
+const PENDING_WORK_DIAGNOSTIC_LIMIT = 10;
 const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'browser.deck.page',
   'browser.stats',
@@ -120,6 +121,7 @@ interface PendingProbe {
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout> | null;
   generation: number;
+  queuedAt: number;
 }
 
 export type BrowserSrsBackendWorkerHealth =
@@ -135,6 +137,9 @@ export interface BrowserSrsBackendWorkerDiagnostics {
   generation: number;
   restartCount: number;
   pendingRequests: number;
+  pendingProbes: number;
+  pendingRequestSummaries: BrowserSrsBackendWorkerPendingRequestDiagnostic[];
+  pendingProbeSummaries: BrowserSrsBackendWorkerPendingProbeDiagnostic[];
   startupTimeouts: number;
   requestTimeouts: number;
   probeTimeouts: number;
@@ -142,6 +147,22 @@ export interface BrowserSrsBackendWorkerDiagnostics {
   lastStartedAt: number | null;
   lastReadyAt: number | null;
   lastTerminalError: string | null;
+}
+
+export interface BrowserSrsBackendWorkerPendingRequestDiagnostic {
+  requestId: string;
+  method: BackendRpcRequest['method'];
+  cardId: string | null;
+  generation: number;
+  queuedForMs: number;
+  postedForMs: number | null;
+  posted: boolean;
+}
+
+export interface BrowserSrsBackendWorkerPendingProbeDiagnostic {
+  probeId: string;
+  generation: number;
+  queuedForMs: number;
 }
 
 function createDefaultBackendWorker(): Worker {
@@ -298,7 +319,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         current.reject(error);
         this.markWorkerUnhealthy(error, generation, { terminate: true });
       }, this.probeTimeoutMs);
-      this.pendingProbes.set(probeId, { resolve, reject, timer, generation });
+      this.pendingProbes.set(probeId, { resolve, reject, timer, generation, queuedAt: Date.now() });
     });
     this.postToWorker({
       kind: 'probe',
@@ -310,6 +331,9 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   dispose(): void {
     if (this.closed) {
       return;
+    }
+    if (this.pendingRequests.size > 0 || this.pendingProbes.size > 0) {
+      logger.warn('[SiYuanMemo][BrowserSrsBackendWorkerTransport] disposing with pending backend work', this.getDiagnostics());
     }
     this.closed = true;
     this.health = 'closed';
@@ -333,6 +357,9 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       generation: this.generation,
       restartCount: this.restartCount,
       pendingRequests: this.pendingRequests.size,
+      pendingProbes: this.pendingProbes.size,
+      pendingRequestSummaries: this.getPendingRequestSummaries(),
+      pendingProbeSummaries: this.getPendingProbeSummaries(),
       startupTimeouts: this.startupTimeouts,
       requestTimeouts: this.requestTimeouts,
       probeTimeouts: this.probeTimeouts,
@@ -601,6 +628,32 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       throw unavailable('backend worker transport closed');
     }
     this.worker.postMessage(toStructuredCloneSafe(message));
+  }
+
+  private getPendingRequestSummaries(now = Date.now()): BrowserSrsBackendWorkerPendingRequestDiagnostic[] {
+    return Array.from(this.pendingRequests.entries())
+      .sort((left, right) => left[1].queuedAt - right[1].queuedAt)
+      .slice(0, PENDING_WORK_DIAGNOSTIC_LIMIT)
+      .map(([requestId, pending]) => ({
+        requestId,
+        method: pending.method,
+        cardId: pending.cardId,
+        generation: pending.generation,
+        queuedForMs: Math.max(0, now - pending.queuedAt),
+        postedForMs: pending.postedAt === null ? null : Math.max(0, now - pending.postedAt),
+        posted: pending.postedAt !== null,
+      }));
+  }
+
+  private getPendingProbeSummaries(now = Date.now()): BrowserSrsBackendWorkerPendingProbeDiagnostic[] {
+    return Array.from(this.pendingProbes.entries())
+      .sort((left, right) => left[1].queuedAt - right[1].queuedAt)
+      .slice(0, PENDING_WORK_DIAGNOSTIC_LIMIT)
+      .map(([probeId, pending]) => ({
+        probeId,
+        generation: pending.generation,
+        queuedForMs: Math.max(0, now - pending.queuedAt),
+      }));
   }
 
   private extractReviewFeedbackCardId(request: BackendRpcRequest): string | null {

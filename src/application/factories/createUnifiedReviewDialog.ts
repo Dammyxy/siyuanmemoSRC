@@ -25,6 +25,7 @@ import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { BackendNeuralRoamStartFromFocusRequest } from '../../../packages/contracts/src/backend-rpc';
 import { createLogger } from '@/utils/logger';
+import type { ReviewAdmissionTicket } from '@/application/services/ReviewAdmissionModule';
 
 const logger = createLogger('createUnifiedReviewDialog');
 
@@ -58,6 +59,8 @@ export interface CreateUnifiedReviewDialogOptions {
     
     /** 队列类型 */
     queueType: QueueType;
+    entrySurface?: string | null;
+    reviewAdmissionTicket?: ReviewAdmissionTicket | null;
 
     /** 可选：直接传入队列实例（用于临时/子集复习） */
     queueInstance?: IReviewQueue;
@@ -112,11 +115,16 @@ export interface CreateUnifiedReviewDialogOptions {
  * @returns 对话框实例
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
-    const { plugin, queueType, queueInstance, initialSessionState, transferState, neuralRoamStartFromFocus, initialSemanticPinnedSessionId, title, headerVariant, eventBus, startFullscreen, onClose } = options;
+    const { plugin, queueType, queueInstance, initialSessionState, transferState, neuralRoamStartFromFocus, initialSemanticPinnedSessionId, title, headerVariant, eventBus, startFullscreen, entrySurface, reviewAdmissionTicket, onClose } = options;
     const isMobile = plugin.isMobile === true;
     
     try {
-        logger.info(`Creating dialog for queue: ${queueType}`);
+        logger.info('[SiYuanMemo][ReviewEntryDiagnostic] creating review dialog', {
+            queueType,
+            headerVariant,
+            entrySurface: entrySurface ?? null,
+            hasQueueInstance: Boolean(queueInstance),
+        });
         
         // 获取依赖
         const manager = UnifiedDataSourceManager.getInstance();
@@ -132,7 +140,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
         const reviewService = context.getReviewService?.();
         const queue = new UnifiedQueueStrategy(queueInstance ?? queueType, manager, eventBus, schedulerRouter, reviewService
             ? { refreshCdfLiveRelationOnOpen: (card) => reviewService.refreshCdfLiveRelationOnOpen(card) }
-            : null);
+            : null, entrySurface ?? null, reviewAdmissionTicket ?? null);
         queue.startNeuralRoamFromFocusOnNextAdvance(neuralRoamStartFromFocus);
         
         // 创建统一复习适配器

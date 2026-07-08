@@ -57,6 +57,11 @@ import {
   type BlockAttrCleanupMode,
 } from '@/application/services';
 import { buildReviewDomainSyncSafetyDecision } from '@/application/services/ReviewDomainSyncSafetyService';
+import {
+  isReviewAdmissionQueueType,
+  isValidReviewAdmissionTicket,
+  type ReviewAdmissionTicket,
+} from '@/application/services/ReviewAdmissionModule';
 import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 import {
   ProgressiveSplitCancelledError,
@@ -298,6 +303,7 @@ export class DialogManager implements IDialogManager {
     suppressSnapshotRecovery?: boolean;
     neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
     initialSemanticPinnedSessionId?: string | null;
+    reviewAdmissionTicket?: ReviewAdmissionTicket | null;
   }): {
     queue: IReviewQueue;
     title: string;
@@ -306,6 +312,7 @@ export class DialogManager implements IDialogManager {
     suppressSnapshotRecovery?: boolean;
     neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
     initialSemanticPinnedSessionId?: string | null;
+    reviewAdmissionTicket?: ReviewAdmissionTicket | null;
   } {
     return {
       queue: options.queueInstance ?? this.context.getUnifiedDataSourceManager().getQueue(options.queueType),
@@ -315,6 +322,7 @@ export class DialogManager implements IDialogManager {
       suppressSnapshotRecovery: options.suppressSnapshotRecovery,
       neuralRoamStartFromFocus: options.neuralRoamStartFromFocus,
       initialSemanticPinnedSessionId: options.initialSemanticPinnedSessionId,
+      reviewAdmissionTicket: options.reviewAdmissionTicket ?? null,
     };
   }
 
@@ -390,6 +398,8 @@ export class DialogManager implements IDialogManager {
     neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
     initialSemanticPinnedSessionId?: string | null;
     skipDomainSyncGate?: boolean;
+    entrySurface?: string | null;
+    reviewAdmissionTicket?: ReviewAdmissionTicket | null;
   }): Promise<void> {
     if (options.skipDomainSyncGate !== true) {
       const safe = await this.ensureDomainSyncSafeForReviewEntry({
@@ -402,14 +412,29 @@ export class DialogManager implements IDialogManager {
       }
     }
 
+    const entrySurface = normalizeOptionalId(options.entrySurface) ?? 'dialog-manager:standard-review-entry';
+    const reviewAdmissionTicket = await this.admitReviewEntry({
+      queueType: options.queueType,
+      queueInstance: options.queueInstance,
+      entrySurface,
+      reviewAdmissionTicket: options.reviewAdmissionTicket,
+    });
+    const admittedOptions = {
+      ...options,
+      entrySurface,
+      reviewAdmissionTicket,
+    };
     const allowNewTab = options.allowNewTab !== false;
     if (allowNewTab && this.shouldOpenReviewInNewTabByDefault()) {
       const tabManager = this.context.getTabManager?.();
       if (tabManager?.openReviewTabInNewTab) {
-        tabManager.openReviewTabInNewTab(this.buildReviewTabOptions(options));
+        tabManager.openReviewTabInNewTab(this.buildReviewTabOptions(admittedOptions));
         logger.info('[DialogManager] Opened standard review entry in new tab', {
           queueType: options.queueType,
           headerVariant: options.headerVariant,
+          entrySurface,
+          admissionGeneration: reviewAdmissionTicket?.projectionGeneration ?? null,
+          admissionPolicyHash: reviewAdmissionTicket?.projectionPolicyHash ?? null,
         });
         return;
       }
@@ -419,19 +444,45 @@ export class DialogManager implements IDialogManager {
     this.registerCurrentReviewDialog(options.queueType, (onClose) =>
       createUnifiedReviewDialog({
         plugin: this.plugin,
-        queueType: options.queueType,
-        queueInstance: options.queueInstance,
-        initialSessionState: options.initialSessionState,
-        transferState: options.transferState,
-        neuralRoamStartFromFocus: options.neuralRoamStartFromFocus,
-        initialSemanticPinnedSessionId: options.initialSemanticPinnedSessionId,
-        title: options.title,
-        headerVariant: options.headerVariant,
+        queueType: admittedOptions.queueType,
+        queueInstance: admittedOptions.queueInstance,
+        initialSessionState: admittedOptions.initialSessionState,
+        transferState: admittedOptions.transferState,
+        neuralRoamStartFromFocus: admittedOptions.neuralRoamStartFromFocus,
+        initialSemanticPinnedSessionId: admittedOptions.initialSemanticPinnedSessionId,
+        title: admittedOptions.title,
+        headerVariant: admittedOptions.headerVariant,
         eventBus: this.context.getEventBus(),
         startFullscreen: this.shouldStartReviewFullscreenByDefault(),
+        entrySurface: admittedOptions.entrySurface,
+        reviewAdmissionTicket: admittedOptions.reviewAdmissionTicket,
         onClose,
       }),
     );
+  }
+
+  private async admitReviewEntry(options: {
+    queueType: QueueType;
+    queueInstance?: IReviewQueue | null;
+    entrySurface?: string | null;
+    reviewAdmissionTicket?: ReviewAdmissionTicket | null;
+  }): Promise<ReviewAdmissionTicket | null> {
+    if (!isReviewAdmissionQueueType(options.queueType)) {
+      return null;
+    }
+    if (isValidReviewAdmissionTicket(options.reviewAdmissionTicket, options.queueType)) {
+      return options.reviewAdmissionTicket;
+    }
+
+    const admission = this.context.getReviewAdmissionModule?.();
+    if (!admission || typeof admission.admitReviewSession !== 'function') {
+      throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${options.queueType} review admission module is unavailable`);
+    }
+    return admission.admitReviewSession({
+      queueType: options.queueType,
+      entrySurface: options.entrySurface,
+      queueInstance: options.queueInstance,
+    });
   }
 
   async openStandardReviewDialog(options: {
@@ -1082,16 +1133,31 @@ export class DialogManager implements IDialogManager {
   /**
    * 打开提取练习对话框
    */
-  async openReviewDialog(): Promise<void> {
+  async openReviewDialog(options: { entrySurface?: string | null } = {}): Promise<void> {
     if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.retrievalPractice || '提取练习';
+    const entrySurface = normalizeOptionalId(options.entrySurface) ?? 'dialog-manager:open-review-dialog';
+    logger.info('[SiYuanMemo][ReviewEntryDiagnostic] open review requested', {
+      entrySurface,
+      queueType: QueueType.RetrievalPractice,
+      title,
+      route: this.shouldOpenReviewInNewTabByDefault() ? 'tab' : 'dialog',
+    });
     if (!(await this.ensureDomainSyncSafeForReviewEntry({
       queueType: QueueType.RetrievalPractice,
       title,
       surface: 'open-review-dialog',
     }))) return;
     this.destroyCurrentReviewDialog();
+    logger.info('[SiYuanMemo][ReviewEntryDiagnostic] prepare queue before review start', {
+      entrySurface,
+      queueType: QueueType.RetrievalPractice,
+    });
     await this.prepareQueueBeforeReview(QueueType.RetrievalPractice);
+    logger.info('[SiYuanMemo][ReviewEntryDiagnostic] prepare queue before review done', {
+      entrySurface,
+      queueType: QueueType.RetrievalPractice,
+    });
 
     try {
       await this.openStandardReviewEntry({
@@ -1099,6 +1165,7 @@ export class DialogManager implements IDialogManager {
         title,
         headerVariant: 'retrieval-practice',
         skipDomainSyncGate: true,
+        entrySurface,
       });
 
       logger.info('[DialogManager] ✅ Retrieval practice opened');

@@ -777,6 +777,8 @@ describe('BackendReviewSyncRpcAdapter', () => {
       params: [{
         sessionId: 'session-hot-path',
         queueType: 'retrieval-practice',
+        projectionPolicyHash: 'policy-a',
+        projectionGeneration: 1,
       }],
     });
     expect(startResponse).toEqual(expect.objectContaining({

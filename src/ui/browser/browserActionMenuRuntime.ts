@@ -88,7 +88,7 @@ type BrowserNeuralQueuePort = {
 };
 
 type BrowserPracticeDialogManager = {
-  openReviewDialog?: () => Promise<void> | void;
+  openReviewDialog?: (options?: { entrySurface?: string | null }) => Promise<void> | void;
   openIncrementalLearningDialog?: () => Promise<void> | void;
   openFinalDrillDialog?: () => Promise<void> | void;
   openNeuralRoamDialog?: () => Promise<void> | void;
@@ -671,7 +671,7 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
       label: deps.t('practiceExtract', 'Retrieval Practice'),
       click: wrapBrowserMenuAction(
         deps.t('practiceExtract', 'Retrieval Practice'),
-        () => dialogManager.openReviewDialog?.(),
+        () => dialogManager.openReviewDialog?.({ entrySurface: 'browser-toolbar-practice-menu:retrieval' }),
       ),
     });
     menu.addItem({

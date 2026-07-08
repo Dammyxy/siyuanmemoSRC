@@ -6,6 +6,7 @@ import type {
   BackendReviewSessionState,
   BackendReviewSessionUndoResult,
 } from '../../../../packages/contracts/src/backend-rpc';
+import type { ReviewAdmissionTicket } from '@/application/services/ReviewAdmissionModule';
 import type { FSRSCard } from '@/types/card';
 import {
   QueueType,
@@ -28,6 +29,9 @@ export interface WorkerReviewSessionBackendClient {
     sessionId?: string | null;
     queueType?: string | null;
     limit?: number | null;
+    entrySurface?: string | null;
+    projectionPolicyHash?: string | null;
+    projectionGeneration?: number | null;
   }): Promise<BackendReviewSessionState>;
   reviewSessionCurrent(request: {
     sessionId: string;
@@ -55,6 +59,8 @@ export interface WorkerReviewSessionQueueRuntimeOptions {
   backend: WorkerReviewSessionBackendClient;
   sessionId?: string | null;
   limit?: number | null;
+  entrySurface?: string | null;
+  reviewAdmissionTicket?: ReviewAdmissionTicket | null;
   now?: () => number;
 }
 
@@ -63,6 +69,8 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
   private readonly backend: WorkerReviewSessionBackendClient;
   private readonly configuredSessionId: string | null;
   private readonly limit: number | null;
+  private readonly entrySurface: string | null;
+  private readonly reviewAdmissionTicket: ReviewAdmissionTicket | null;
   private readonly now: () => number;
   private sessionId: string | null = null;
   private currentCard: FSRSCard | null = null;
@@ -76,17 +84,18 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
     this.backend = options.backend;
     this.configuredSessionId = normalizeString(options.sessionId);
     this.limit = normalizeLimit(options.limit);
+    this.entrySurface = normalizeString(options.entrySurface);
+    this.reviewAdmissionTicket = options.reviewAdmissionTicket ?? null;
     this.now = options.now ?? (() => Date.now());
   }
 
   async next(): Promise<FSRSCard | null> {
     const state = this.sessionId
       ? await this.backend.reviewSessionCurrent({ sessionId: this.sessionId })
-      : await this.backend.reviewSessionStart({
-        sessionId: this.configuredSessionId,
-        queueType: this.queueType,
-        limit: this.limit,
-      });
+      : await this.backend.reviewSessionStart(this.buildStartRequest());
+    if (!this.sessionId) {
+      logReviewSessionStartReturned(this.entrySurface, this.queueType, state);
+    }
     this.applyState(state);
     if (this.currentCard && this.locallyDiscardedCurrentCardIds.has(this.currentCard.id)) {
       this.currentCard = null;
@@ -265,12 +274,27 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
     if (this.sessionId) {
       return;
     }
-    const state = await this.backend.reviewSessionStart({
+    const state = await this.backend.reviewSessionStart(this.buildStartRequest());
+    logReviewSessionStartReturned(this.entrySurface, this.queueType, state);
+    this.applyState(state);
+  }
+
+  private buildStartRequest(): {
+    sessionId?: string | null;
+    queueType?: string | null;
+    limit?: number | null;
+    entrySurface?: string | null;
+    projectionPolicyHash?: string | null;
+    projectionGeneration?: number | null;
+  } {
+    return {
       sessionId: this.configuredSessionId,
       queueType: this.queueType,
       limit: this.limit,
-    });
-    this.applyState(state);
+      entrySurface: this.entrySurface,
+      projectionPolicyHash: this.reviewAdmissionTicket?.projectionPolicyHash ?? null,
+      projectionGeneration: this.reviewAdmissionTicket?.projectionGeneration ?? null,
+    };
   }
 
   private applyState(state: BackendReviewSessionState): void {
@@ -392,6 +416,37 @@ function normalizeQueueType(value: unknown): QueueType | null {
 
 function normalizeCount(value: unknown): number {
   return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function logReviewSessionStartReturned(
+  entrySurface: string | null,
+  queueType: QueueType,
+  state: BackendReviewSessionState,
+): void {
+  const current = isFsrsCard(state.current) ? state.current : null;
+  logger.info(
+    '[SiYuanMemo][ReviewEntryDiagnostic] frontend review.session.start returned'
+    + ` entrySurface=${formatDiagnosticValue(entrySurface)}`
+    + ` queueType=${formatDiagnosticValue(queueType)}`
+    + ` sessionId=${formatDiagnosticValue(state.sessionId)}`
+    + ` projectionState=${formatDiagnosticValue(state.projectionState)}`
+    + ` projectionGeneration=${formatDiagnosticValue(state.projectionGeneration)}`
+    + ` remaining=${formatDiagnosticValue(state.counters?.remaining ?? null)}`
+    + ` due=${formatDiagnosticValue(state.counters?.due ?? null)}`
+    + ` total=${formatDiagnosticValue(state.counters?.total ?? null)}`
+    + ` counterSource=${formatDiagnosticValue(state.counters?.source ?? null)}`
+    + ` currentCardId=${formatDiagnosticValue(current?.id ?? null)}`
+    + ` currentBlockId=${formatDiagnosticValue(current?.blockId ?? null)}`
+    + ` policyHash=${formatDiagnosticValue(state.projectionPolicyHash)}`,
+  );
+}
+
+function formatDiagnosticValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+  const json = JSON.stringify(value);
+  return json === undefined ? String(value) : json;
 }
 
 function isFsrsCard(value: unknown): value is FSRSCard {
