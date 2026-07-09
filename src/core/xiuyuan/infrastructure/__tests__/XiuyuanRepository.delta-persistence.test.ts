@@ -166,7 +166,24 @@ describe('XiuyuanRepository delta persistence routing', () => {
     const fullSave = vi.fn(async (store: UnifiedCardStore) => {
       persistedStore = deepClone(store);
     });
-    const deltaSave = vi.fn(async (_delta: UnifiedStorageXiuyuanCardDelta) => undefined);
+    const deltaSave = vi.fn(async (delta: UnifiedStorageXiuyuanCardDelta) => {
+      persistedStore = {
+        ...persistedStore,
+        version: delta.version,
+        xiuyuans: {
+          ...persistedStore.xiuyuans,
+          ...deepClone(delta.xiuyuans),
+        },
+        cards: {
+          ...persistedStore.cards,
+          ...deepClone(delta.cards),
+        },
+        cardDTOs: {
+          ...persistedStore.cardDTOs,
+          ...deepClone(delta.cardDTOs),
+        },
+      };
+    });
     storage.setPersistenceCallbacks(fullSave, async () => deepClone(persistedStore), {
       saveXiuyuanCardDelta: deltaSave,
     });
@@ -208,6 +225,19 @@ describe('XiuyuanRepository delta persistence routing', () => {
     expect(delta?.xiuyuans[xiuyuan.getId().getValue()]?.meta?.nativeRiffImportReceipt).toEqual(receipt);
     expect(readNativeRiffImportReceipt({
       meta: delta?.cardDTOs[cardId]?.meta,
+    })).toEqual(receipt);
+
+    const reloadedStorage = new UnifiedStorageManager();
+    reloadedStorage.setPersistenceCallbacks(
+      async () => undefined,
+      async () => deepClone(persistedStore),
+    );
+    expect((await reloadedStorage.load()).ok).toBe(true);
+    expect(readNativeRiffImportReceipt({
+      meta: reloadedStorage.getXiuYuan(xiuyuan.getId().getValue())?.meta,
+    })).toEqual(receipt);
+    expect(readNativeRiffImportReceipt({
+      meta: reloadedStorage.getCardDTO(cardId)?.meta,
     })).toEqual(receipt);
   });
 
