@@ -123,6 +123,16 @@ export interface IDialogManager {
   openSrsCardSemanticsRepairDialog(): Promise<void>;
 
   /**
+   * 预览并显式导入 Native Riff 卡片
+   */
+  openNativeRiffImportDialog(): Promise<void>;
+
+  /**
+   * 预览并接管旧 Native Riff 卡片
+   */
+  openNativeRiffAdoptionDialog(): Promise<void>;
+
+  /**
    * 打开移动端队列启动面板
    */
   openMobileQueueLauncherDialog(): Promise<void>;

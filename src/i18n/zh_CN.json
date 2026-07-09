@@ -28,6 +28,8 @@
   "openBrowserTabFailed": "打开浏览器 TAB 失败",
   "browserMaintenance": "维护",
   "openBrowserMaintenanceMenuFailed": "打开维护菜单失败",
+  "nativeRiffImport": "从 Riff 导入",
+  "nativeRiffAdoption": "接管旧 Riff 卡片",
   "browserNavigator": "导航",
   "reviewTitle": "提取练习",
   "reviewSideAreaTabs": "复习侧栏",

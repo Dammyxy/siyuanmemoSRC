@@ -132,6 +132,8 @@ describe('DialogManager', () => {
   let mockRetrievalQueue: any;
   let mockReadDomainSyncDiagnostics: any;
   let mockTabManager: any;
+  let mockNativeRiffImportModule: any;
+  let mockNativeRiffAdoptionModule: any;
 
   beforeEach(() => {
     // 创建 mock 对象
@@ -163,6 +165,34 @@ describe('DialogManager', () => {
     mockReadDomainSyncDiagnostics = vi.fn(async () => buildDomainStatus('clean'));
     mockTabManager = {
       openReviewTabInNewTab: vi.fn(),
+    };
+    mockNativeRiffImportModule = {
+      preview: vi.fn(async () => ({
+        candidates: [],
+        counts: {
+          importable: 0,
+          alreadyOwned: 0,
+          existingNeedsRepair: 0,
+          tombstoned: 0,
+          legacyExcluded: 0,
+          semanticConflict: 0,
+        },
+      })),
+      applySelected: vi.fn(),
+    };
+    mockNativeRiffAdoptionModule = {
+      preview: vi.fn(async () => ({
+        candidates: [],
+        counts: {
+          adoptable: 0,
+          alreadyLocal: 0,
+          tombstoned: 0,
+          legacyExcluded: 0,
+          sourceMissing: 0,
+          semanticConflict: 0,
+        },
+      })),
+      applySelected: vi.fn(),
     };
 
     mockI18n = {
@@ -220,6 +250,8 @@ describe('DialogManager', () => {
         })),
         commit: vi.fn(),
       })),
+      getNativeRiffImportModule: vi.fn(() => mockNativeRiffImportModule),
+      getNativeRiffAdoptionModule: vi.fn(() => mockNativeRiffAdoptionModule),
       getConfiguredCaptureStorageService: vi.fn(() => ({
         listOpenNotebooks: vi.fn(async () => []),
       })),
@@ -508,6 +540,123 @@ describe('DialogManager', () => {
       expect(dialogInstances[0].destroy).toHaveBeenCalledTimes(1);
       expect(repairService.commit).toHaveBeenCalledTimes(1);
       expect(mockSiyuanApi.pushMsg).toHaveBeenCalledWith('卡片类型修复完成：已修复 1 张，跳过 2 张');
+    });
+  });
+
+  describe('Native Riff 显式导入与接管', () => {
+    it('previews import candidates before applying selected logical faces', async () => {
+      mockNativeRiffImportModule.preview.mockResolvedValueOnce({
+        candidates: [
+          {
+            classification: 'importable',
+            nativeCardId: 'riff-a',
+            deckId: 'deck-a',
+            blockId: 'block-a',
+            logicalKey: 'block-a::face-0',
+            faceIndex: 0,
+          },
+          {
+            classification: 'already-owned',
+            nativeCardId: 'riff-b',
+            deckId: 'deck-a',
+            blockId: 'block-b',
+            logicalKey: 'block-b::face-0',
+            faceIndex: 0,
+            existingCardId: 'card-b',
+          },
+        ],
+        counts: {
+          importable: 1,
+          alreadyOwned: 1,
+          existingNeedsRepair: 0,
+          tombstoned: 0,
+          legacyExcluded: 0,
+          semanticConflict: 0,
+        },
+      });
+      mockNativeRiffImportModule.applySelected.mockResolvedValueOnce({
+        createdCardIds: ['card-a'],
+        createdCount: 1,
+        skippedCount: 0,
+      });
+
+      const pending = dialogManager.openNativeRiffImportDialog();
+      await vi.waitFor(() => expect(dialogInstances).toHaveLength(1));
+      expect(dialogInstances[0].options.title).toBe('从 Riff 导入');
+      expect(dialogInstances[0].element.innerHTML).toContain('可导入');
+      expect(mockNativeRiffImportModule.applySelected).not.toHaveBeenCalled();
+
+      dialogInstances[0].element.querySelector<HTMLButtonElement>('[data-action="commit"]')?.click();
+      await pending;
+
+      expect(mockNativeRiffImportModule.applySelected).toHaveBeenCalledWith({
+        logicalKeys: ['block-a::face-0'],
+      });
+      expect(mockSiyuanApi.pushMsg).toHaveBeenCalledWith('Riff 导入完成：新建 1 张，跳过 0 张');
+    });
+
+    it('fails closed when import preview has no importable candidates', async () => {
+      await dialogManager.openNativeRiffImportDialog();
+
+      expect(mockNativeRiffImportModule.preview).toHaveBeenCalledTimes(1);
+      expect(mockNativeRiffImportModule.applySelected).not.toHaveBeenCalled();
+      expect(DialogMock).not.toHaveBeenCalled();
+      expect(mockSiyuanApi.pushMsg).toHaveBeenCalledWith('没有可导入的 Riff 卡片');
+    });
+
+    it('previews adoption candidates before applying selected existing cards', async () => {
+      mockNativeRiffAdoptionModule.preview.mockResolvedValueOnce({
+        candidates: [
+          {
+            cardId: 'card-a',
+            xiuyuanId: 'xiuyuan-a',
+            blockId: 'block-a',
+            classification: 'adoptable',
+          },
+          {
+            cardId: 'card-b',
+            xiuyuanId: 'xiuyuan-b',
+            blockId: 'block-b',
+            classification: 'source-missing',
+            reason: 'native-riff-adoption-source-missing',
+          },
+        ],
+        counts: {
+          adoptable: 1,
+          alreadyLocal: 0,
+          tombstoned: 0,
+          legacyExcluded: 0,
+          sourceMissing: 1,
+          semanticConflict: 0,
+        },
+      });
+      mockNativeRiffAdoptionModule.applySelected.mockResolvedValueOnce({
+        adopted: [{ cardId: 'card-a' }],
+        blocked: [],
+      });
+
+      const pending = dialogManager.openNativeRiffAdoptionDialog();
+      await vi.waitFor(() => expect(dialogInstances).toHaveLength(1));
+      expect(dialogInstances[0].options.title).toBe('接管旧 Riff 卡片');
+      expect(dialogInstances[0].element.innerHTML).toContain('可接管');
+      expect(mockNativeRiffAdoptionModule.applySelected).not.toHaveBeenCalled();
+
+      dialogInstances[0].element.querySelector<HTMLButtonElement>('[data-action="commit"]')?.click();
+      await pending;
+
+      expect(mockNativeRiffAdoptionModule.applySelected).toHaveBeenCalledWith({
+        cardIds: ['card-a'],
+      });
+      expect(mockSiyuanApi.pushMsg).toHaveBeenCalledWith('旧 Riff 卡片接管完成：已接管 1 张，阻止 0 张');
+    });
+
+    it('fails closed when adoption preview has no adoptable candidates', async () => {
+      await dialogManager.openNativeRiffAdoptionDialog();
+
+      expect(mockNativeRiffAdoptionModule.preview).toHaveBeenCalledTimes(1);
+      expect(mockNativeRiffAdoptionModule.applySelected).not.toHaveBeenCalled();
+      expect(DialogMock).not.toHaveBeenCalled();
+      expect(mockSiyuanApi.pushMsg).toHaveBeenCalledWith('没有可接管的旧 Riff 卡片');
     });
   });
 

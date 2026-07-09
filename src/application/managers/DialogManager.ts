@@ -81,6 +81,12 @@ import {
   loadTemplateSelectDialogComponent,
 } from './lazySurfaceComponents';
 import type { SrsCardSemanticsRepairPreviewReady } from '@/application/services/SrsCardSemanticsRepairService';
+import type {
+  NativeRiffImportPreview,
+} from '@/application/services/NativeRiffImportModule';
+import type {
+  NativeRiffAdoptionPreview,
+} from '@/application/services/NativeRiffAdoptionModule';
 
 const logger = createLogger('DialogManager');
 
@@ -889,6 +895,150 @@ export class DialogManager implements IDialogManager {
     }
   }
 
+  async openNativeRiffImportDialog(): Promise<void> {
+    if (!(await this.checkInitialized('browser'))) return;
+
+    try {
+      const importModule = this.context.getNativeRiffImportModule();
+      const preview = await importModule.preview();
+      const logicalKeys = preview.candidates
+        .flatMap((candidate) => (
+          candidate.classification === 'importable' ? [candidate.logicalKey] : []
+        ));
+
+      if (logicalKeys.length === 0) {
+        await this.siyuanApi.pushMsg('没有可导入的 Riff 卡片');
+        return;
+      }
+
+      const confirmed = await this.showNativeRiffImportDialog(preview);
+      if (!confirmed) {
+        return;
+      }
+
+      const result = await importModule.applySelected({
+        logicalKeys: [...new Set(logicalKeys)],
+      });
+      await this.siyuanApi.pushMsg(
+        `Riff 导入完成：新建 ${result.createdCount} 张，跳过 ${result.skippedCount} 张`,
+      );
+    } catch (error) {
+      logger.error('[DialogManager] Native Riff import failed:', error);
+      await this.siyuanApi.pushErrMsg(`Riff 导入失败：${this.formatError(error)}`);
+    }
+  }
+
+  async openNativeRiffAdoptionDialog(): Promise<void> {
+    if (!(await this.checkInitialized('browser'))) return;
+
+    try {
+      const adoptionModule = this.context.getNativeRiffAdoptionModule();
+      const preview = await adoptionModule.preview();
+      const cardIds = preview.candidates
+        .filter((candidate) => candidate.classification === 'adoptable')
+        .map((candidate) => candidate.cardId);
+
+      if (cardIds.length === 0) {
+        await this.siyuanApi.pushMsg('没有可接管的旧 Riff 卡片');
+        return;
+      }
+
+      const confirmed = await this.showNativeRiffAdoptionDialog(preview);
+      if (!confirmed) {
+        return;
+      }
+
+      const result = await adoptionModule.applySelected({
+        cardIds: [...new Set(cardIds)],
+      });
+      await this.siyuanApi.pushMsg(
+        `旧 Riff 卡片接管完成：已接管 ${result.adopted.length} 张，阻止 ${result.blocked.length} 张`,
+      );
+    } catch (error) {
+      logger.error('[DialogManager] Native Riff adoption failed:', error);
+      await this.siyuanApi.pushErrMsg(`旧 Riff 卡片接管失败：${this.formatError(error)}`);
+    }
+  }
+
+  private async showNativeRiffImportDialog(preview: NativeRiffImportPreview): Promise<boolean> {
+    return this.showNativeRiffPreviewDialog({
+      title: this.context.getI18n()?.nativeRiffImport || '从 Riff 导入',
+      containerClass: 'siyuanmemo-native-riff-import-dialog',
+      summary: '将从 Native Riff 只读导入缺失卡面。现有本地卡片不会被覆盖。',
+      confirmText: '导入可选卡片',
+      counts: [
+        ['可导入', preview.counts.importable],
+        ['已归本地所有', preview.counts.alreadyOwned],
+        ['需要单独语义修复', preview.counts.existingNeedsRepair],
+        ['删除墓碑阻止', preview.counts.tombstoned],
+        ['旧排除记录阻止', preview.counts.legacyExcluded],
+        ['语义冲突', preview.counts.semanticConflict],
+      ],
+    });
+  }
+
+  private async showNativeRiffAdoptionDialog(preview: NativeRiffAdoptionPreview): Promise<boolean> {
+    return this.showNativeRiffPreviewDialog({
+      title: this.context.getI18n()?.nativeRiffAdoption || '接管旧 Riff 卡片',
+      containerClass: 'siyuanmemo-native-riff-adoption-dialog',
+      summary: '接管会保留卡片身份、排程、复习历史、标签与优先级，并从当前块 Markdown 重建渲染语义。',
+      confirmText: '接管可选卡片',
+      counts: [
+        ['可接管', preview.counts.adoptable],
+        ['已经本地所有', preview.counts.alreadyLocal],
+        ['删除墓碑阻止', preview.counts.tombstoned],
+        ['旧排除记录阻止', preview.counts.legacyExcluded],
+        ['源块缺失', preview.counts.sourceMissing],
+        ['语义冲突', preview.counts.semanticConflict],
+      ],
+    });
+  }
+
+  private showNativeRiffPreviewDialog(options: {
+    title: string;
+    containerClass: string;
+    summary: string;
+    confirmText: string;
+    counts: ReadonlyArray<readonly [label: string, count: number]>;
+  }): Promise<boolean> {
+    return new Promise((resolve) => {
+      const countRows = options.counts
+        .map(([label, count]) => (
+          `<li class="b3-list-item">${this.escapeHtml(label)}：<strong>${count}</strong></li>`
+        ))
+        .join('');
+      const dialog = new Dialog({
+        title: options.title,
+        content: `
+          <div class="siyuanmemo-choice-dialog">
+            <p class="siyuanmemo-choice-dialog__message">${this.escapeHtml(options.summary)}</p>
+            <ul class="b3-list b3-list--background">${countRows}</ul>
+            <div class="siyuanmemo-choice-dialog__actions">
+              <button class="b3-button b3-button--cancel">取消</button>
+              <button class="b3-button b3-button--text" data-action="commit">${this.escapeHtml(options.confirmText)}</button>
+            </div>
+          </div>
+        `,
+        width: '600px',
+      });
+      applyDialogChrome(dialog, {
+        visualVariant: 'manager',
+        containerClass: options.containerClass,
+        dialogWidth: '600px',
+        dialogHeight: 'auto',
+      });
+
+      dialog.element.querySelector('[data-action="commit"]')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve(true);
+      });
+      dialog.element.querySelector('.b3-button--cancel')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve(false);
+      });
+    });
+  }
+
   async openSrsCardSemanticsRepairDialog(): Promise<void> {
     if (!(await this.checkInitialized('browser'))) return;
 
@@ -988,6 +1138,10 @@ export class DialogManager implements IDialogManager {
         resolve(false);
       });
     });
+  }
+
+  private formatError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 
   private closeProgressiveSplitDialog(): void {

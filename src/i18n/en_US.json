@@ -1,5 +1,7 @@
 {
   "reviewTitle": "FSRS Review",
+  "nativeRiffImport": "Import from Riff",
+  "nativeRiffAdoption": "Adopt Old Riff Cards",
   "reviewSideAreaTabs": "Review side area",
   "reviewStructuredContentTitle": "Content",
   "reviewStructuredContentNoFields": "No editable content fields for this card",

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 689)
+Last update: 2026-07-10 (Round 690)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Explicit Native Riff import and adoption entrypoints
+
+- Task: Apply `retire-native-riff-continuous-sync` tasks 4.1-4.2 before removing passive Native Riff runtime.
+- Touched slice: Browser / application composition / Native Riff read-only import in `browserActionMenuRuntime.ts`, `DialogManager`, `ApplicationContext`, `NativeRiffImportSourceAdapter`, `NativeRiffLocalStorageAdapter`, i18n, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Browser maintenance now exposes separate explicit import, old-card adoption, and semantic-repair actions. Import/adoption preview before apply, fail closed with no candidates, read live block Markdown, preserve existing adoption identity and learning state, and keep Native Riff source capability read-only.
+- Debt deferred: Startup sync submission, full-sync timers, Browser-open incremental sync, ReviewSyncManager Native Riff calls, transaction fanout, Native Riff writes, worker RPC/checkpoint code, and continuous-sync settings remain until tasks 4.3-5.6.
+- Why deferred: This commit establishes user-visible replacement entrypoints and production persistence adapters first, so passive runtime can be deleted in dependency order without leaving users no import/adoption path.
+- Next safe step: Remove startup, timer, Browser-open, and ReviewSyncManager Native Riff sync calls under task 4.3, then run focused lifecycle tests before deleting transaction and write paths.
+- Validation: 33 focused Vitest tests passed across import/adoption source/storage, Browser menu, and DialogManager; `pnpm run check:boundaries` passed; `git diff --check` passed; `pnpm build` passed with existing non-blocking i18n/Sass warnings.
 
 ### 2026-07-10 - Native Riff quick-symbol render repair
 

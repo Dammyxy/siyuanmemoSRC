@@ -49,4 +49,26 @@ describe('NativeRiffImportSourceAdapter', () => {
     expect(adapter).not.toHaveProperty('removeRiffCards');
     expect(adapter).not.toHaveProperty('reviewRiffCard');
   });
+
+  it('uses live block Markdown instead of the projected Riff content when configured', async () => {
+    const readSourceMarkdown = vi.fn(async () => '实时问题>>实时答案');
+    const adapter = new NativeRiffImportSourceAdapter({
+      readRiffCards: vi.fn(async () => [{
+        id: '20260610140511-bb340gl',
+        content: '旧投影内容',
+        riffCard: {
+          id: '20260610192850-rzrmc29',
+          deckID: 'deck-1',
+        },
+      }]),
+      readSourceMarkdown,
+    });
+
+    await expect(adapter.listImportCandidates()).resolves.toEqual([
+      expect.objectContaining({
+        sourceMarkdown: '实时问题>>实时答案',
+      }),
+    ]);
+    expect(readSourceMarkdown).toHaveBeenCalledWith('20260610140511-bb340gl');
+  });
 });

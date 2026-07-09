@@ -89,6 +89,8 @@ type BrowserPracticeDialogManager = {
   openFinalDrillDialog?: () => Promise<void> | void;
   openNeuralRoamDialog?: () => Promise<void> | void;
   openFilterGroupPracticeDialog?: () => Promise<void> | void;
+  openNativeRiffImportDialog?: () => Promise<void> | void;
+  openNativeRiffAdoptionDialog?: () => Promise<void> | void;
   openSrsCardSemanticsRepairDialog?: () => Promise<void> | void;
 };
 
@@ -704,8 +706,28 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
     const dialogManager = deps.getDialogManager();
     if (!dialogManager) return;
 
-    const label = deps.t('repairSrsCardSemantics', 'Diagnose and Repair Card Types');
     const menu = createMenu('fsrs-browser-maintenance-menu');
+    const importLabel = deps.t('nativeRiffImport', 'Import from Riff');
+    menu.addItem({
+      icon: 'iconDownload',
+      label: importLabel,
+      click: wrapBrowserMenuAction(
+        importLabel,
+        () => dialogManager.openNativeRiffImportDialog?.(),
+      ),
+    });
+
+    const adoptionLabel = deps.t('nativeRiffAdoption', 'Adopt Old Riff Cards');
+    menu.addItem({
+      icon: 'iconRefresh',
+      label: adoptionLabel,
+      click: wrapBrowserMenuAction(
+        adoptionLabel,
+        () => dialogManager.openNativeRiffAdoptionDialog?.(),
+      ),
+    });
+
+    const label = deps.t('repairSrsCardSemantics', 'Diagnose and Repair Card Types');
     menu.addItem({
       icon: 'iconRefresh',
       label,

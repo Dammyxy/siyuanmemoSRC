@@ -36,15 +36,18 @@ export type NativeRiffImportReadRiffCards = (
 export class NativeRiffImportSourceAdapter implements NativeRiffImportSourcePort {
   private readonly deckId: string;
   private readonly readRiffCards: NativeRiffImportReadRiffCards;
+  private readonly readSourceMarkdown?: (blockId: string) => Promise<string | null>;
 
   constructor(options: {
     deckId?: string;
     readRiffCards?: NativeRiffImportReadRiffCards;
+    readSourceMarkdown?: (blockId: string) => Promise<string | null>;
   } = {}) {
     this.deckId = options.deckId ?? BUILTIN_DECK_ID;
     this.readRiffCards = options.readRiffCards ?? (async (deckId, readOptions) => (
       getRiffCards(deckId, readOptions)
     ));
+    this.readSourceMarkdown = options.readSourceMarkdown;
   }
 
   async listImportCandidates(): Promise<readonly NativeRiffImportSourceCard[]> {
@@ -63,11 +66,14 @@ export class NativeRiffImportSourceAdapter implements NativeRiffImportSourcePort
       }
 
       const schedule = toScheduleSnapshot(card.riffCard);
+      const sourceMarkdown = this.readSourceMarkdown
+        ? await this.readSourceMarkdown(blockId)
+        : typeof card.content === 'string' ? card.content : '';
       candidates.push({
         nativeCardId,
         deckId: readString(card.riffCard?.deckID) || this.deckId,
         blockId,
-        sourceMarkdown: typeof card.content === 'string' ? card.content : '',
+        sourceMarkdown: sourceMarkdown ?? '',
         ...(schedule ? { schedule } : {}),
       });
     }

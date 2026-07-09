@@ -137,13 +137,20 @@ import { PrivateApiService } from '@/application/services/PrivateApiService';
 import { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { AgentToolService } from '@/application/services/AgentToolService';
 import { SrsCardSemanticsRepairService } from '@/application/services/SrsCardSemanticsRepairService';
+import { NativeRiffImportModule } from '@/application/services/NativeRiffImportModule';
+import { NativeRiffAdoptionModule } from '@/application/services/NativeRiffAdoptionModule';
 import {
   buildAgentValidationErrorResult,
   isAgentToolName,
   type AgentToolName,
 } from '@/application/agent/AgentToolContracts';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
-import { NativeRiffCompatibilityAdapter } from '@/infrastructure/siyuan/NativeRiffCompatibilityAdapter';
+import { NativeRiffImportSourceAdapter } from '@/infrastructure/siyuan/NativeRiffImportSourceAdapter';
+import {
+  NativeRiffLocalStorageAdapter,
+  resolveNativeRiffImportSemanticFaces,
+} from '@/infrastructure/persistence/NativeRiffLocalStorageAdapter';
+import { SqlNativeRiffImportExclusionRepository } from '@/infrastructure/persistence/sqlite/SqlNativeRiffImportExclusionRepository';
 import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { SiyuanNeuralRoamGraphQueryAdapter } from '@/infrastructure/siyuan/SiyuanNeuralRoamGraphQueryAdapter';
@@ -270,6 +277,8 @@ interface ApplicationServiceRegistry {
   practiceQueueManager: PracticeQueueManager;
   cardService: CardApplicationService;
   srsCardSemanticsRepairService: SrsCardSemanticsRepairService;
+  nativeRiffImportModule: NativeRiffImportModule;
+  nativeRiffAdoptionModule: NativeRiffAdoptionModule;
   browserService: BrowserApplicationService;
   reviewService: ReviewApplicationService;
   neuralRoamEntryActionService: NeuralRoamEntryActionService;
@@ -580,6 +589,47 @@ export class ApplicationContext {
       return new SrsCardSemanticsRepairService({
         repository: context.sqlPersistence?.unified ?? null,
         cardMirror: context.getCardService(),
+      });
+    });
+
+    this.registerServiceFactory('nativeRiffImportModule', (context) => {
+      const database = context.sqlPersistence?.database;
+      if (!database) {
+        throw new Error('NATIVE_RIFF_IMPORT_STORAGE_UNAVAILABLE');
+      }
+      const blockQuery = new HostBlockQuerySiyuanAdapter();
+      const localStorage = new NativeRiffLocalStorageAdapter(
+        context.getUnifiedStorage(),
+        new SqlNativeRiffImportExclusionRepository(database),
+        blockQuery,
+      );
+      return new NativeRiffImportModule({
+        source: new NativeRiffImportSourceAdapter({
+          readSourceMarkdown: async (blockId) => {
+            const block = await blockQuery.getBlock(blockId);
+            const markdown = String(block?.markdown ?? block?.content ?? '').trim();
+            return markdown || null;
+          },
+        }),
+        localRead: localStorage,
+        writePort: localStorage,
+        resolveSemanticFaces: resolveNativeRiffImportSemanticFaces,
+      });
+    });
+
+    this.registerServiceFactory('nativeRiffAdoptionModule', (context) => {
+      const database = context.sqlPersistence?.database;
+      if (!database) {
+        throw new Error('NATIVE_RIFF_ADOPTION_STORAGE_UNAVAILABLE');
+      }
+      const localStorage = new NativeRiffLocalStorageAdapter(
+        context.getUnifiedStorage(),
+        new SqlNativeRiffImportExclusionRepository(database),
+        new HostBlockQuerySiyuanAdapter(),
+      );
+      return new NativeRiffAdoptionModule({
+        readPort: localStorage,
+        writePort: localStorage,
       });
     });
 
@@ -2328,6 +2378,14 @@ export class ApplicationContext {
 
   getSrsCardSemanticsRepairService(): SrsCardSemanticsRepairService {
     return this.getService('srsCardSemanticsRepairService');
+  }
+
+  getNativeRiffImportModule(): NativeRiffImportModule {
+    return this.getService('nativeRiffImportModule');
+  }
+
+  getNativeRiffAdoptionModule(): NativeRiffAdoptionModule {
+    return this.getService('nativeRiffAdoptionModule');
   }
   
   /**

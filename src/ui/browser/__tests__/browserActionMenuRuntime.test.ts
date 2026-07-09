@@ -67,6 +67,8 @@ function createRuntimeDeps(overrides: Record<string, unknown> = {}) {
   } as unknown as ICardDataSource;
   const menuRecorder = createMenuRecorder();
   const openReviewDialog = vi.fn();
+  const openNativeRiffImportDialog = vi.fn();
+  const openNativeRiffAdoptionDialog = vi.fn();
   const openSrsCardSemanticsRepairDialog = vi.fn();
   const deps = {
     applyRandomSort: vi.fn(),
@@ -82,6 +84,8 @@ function createRuntimeDeps(overrides: Record<string, unknown> = {}) {
       openFinalDrillDialog: vi.fn(),
       openNeuralRoamDialog: vi.fn(),
       openFilterGroupPracticeDialog: vi.fn(),
+      openNativeRiffImportDialog,
+      openNativeRiffAdoptionDialog,
       openSrsCardSemanticsRepairDialog,
     })),
     getNeuralRoamQueue: vi.fn(() => null),
@@ -114,7 +118,15 @@ function createRuntimeDeps(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 
-  return { dataSource, deps, menuRecorder, openReviewDialog, openSrsCardSemanticsRepairDialog };
+  return {
+    dataSource,
+    deps,
+    menuRecorder,
+    openNativeRiffAdoptionDialog,
+    openNativeRiffImportDialog,
+    openReviewDialog,
+    openSrsCardSemanticsRepairDialog,
+  };
 }
 
 describe('browserActionMenuRuntime', () => {
@@ -263,9 +275,17 @@ describe('browserActionMenuRuntime', () => {
     expect(openReviewDialog).toHaveBeenCalledTimes(1);
   });
 
-  it('builds maintenance menu through dialog manager and routes semantic repair', () => {
-    const { deps, menuRecorder, openSrsCardSemanticsRepairDialog } = createRuntimeDeps({
+  it('separates Native Riff import, adoption, and semantic repair actions', () => {
+    const {
+      deps,
+      menuRecorder,
+      openNativeRiffAdoptionDialog,
+      openNativeRiffImportDialog,
+      openSrsCardSemanticsRepairDialog,
+    } = createRuntimeDeps({
       t: (key: string, fallback: string) => ({
+        nativeRiffImport: '从 Riff 导入',
+        nativeRiffAdoption: '接管旧 Riff 卡片',
         repairSrsCardSemantics: '诊断并修复卡片类型',
       } as Record<string, string>)[key] || fallback,
     });
@@ -288,9 +308,17 @@ describe('browserActionMenuRuntime', () => {
     expect(event.stopPropagation).toHaveBeenCalled();
     expect(menuRecorder.menus[0].id).toBe('fsrs-browser-maintenance-menu');
     expect(menuRecorder.menus[0].open).toHaveBeenCalledWith({ x: 11, y: 22, isLeft: true });
-    expect(menuRecorder.menus[0].items[0].label).toBe('诊断并修复卡片类型');
+    expect(menuRecorder.menus[0].items.map(item => item.label)).toEqual([
+      '从 Riff 导入',
+      '接管旧 Riff 卡片',
+      '诊断并修复卡片类型',
+    ]);
 
     menuRecorder.menus[0].items[0].click?.();
+    menuRecorder.menus[0].items[1].click?.();
+    menuRecorder.menus[0].items[2].click?.();
+    expect(openNativeRiffImportDialog).toHaveBeenCalledTimes(1);
+    expect(openNativeRiffAdoptionDialog).toHaveBeenCalledTimes(1);
     expect(openSrsCardSemanticsRepairDialog).toHaveBeenCalledTimes(1);
   });
 
