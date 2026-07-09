@@ -128,7 +128,7 @@ describe('KernelTransactionIngestHandler', () => {
     handler.dispose();
   });
 
-  it('skips auto-card-only marker batches when auto-card ingest actions are disabled', async () => {
+  it('ignores retired Native Riff action types instead of ingesting their transactions', async () => {
     const ingestKernelTransactions = vi.fn(async () => ({
       accepted: 1,
       queued: 1,
@@ -137,7 +137,7 @@ describe('KernelTransactionIngestHandler', () => {
       queueLength: 1,
       maxQueueLength: 256,
     }));
-    const transaction = createMarkerTransaction('block-marker-only');
+    const transaction = createNativeRiffAndMarkerTransaction('block-native-riff-only');
     const classification = classifyTransactionBatch([transaction]);
     const handler = new KernelTransactionIngestHandler(
       { ingestKernelTransactions },
@@ -159,7 +159,7 @@ describe('KernelTransactionIngestHandler', () => {
     handler.dispose();
   });
 
-  it('passes enabled kernel transaction action types to backend ingest', async () => {
+  it('passes only AutoCard action types to backend ingest', async () => {
     const ingestKernelTransactions = vi.fn(async () => ({
       accepted: 1,
       queued: 1,
@@ -174,7 +174,7 @@ describe('KernelTransactionIngestHandler', () => {
       null,
       {
         batchDebounceMs: 20,
-        enabledActionTypes: ['native-riff-remove', 'native-riff-upsert'],
+        enabledActionTypes: ['native-riff-remove', 'auto-card-candidates', 'native-riff-upsert'],
       },
     );
 
@@ -183,7 +183,7 @@ describe('KernelTransactionIngestHandler', () => {
     await Promise.resolve();
 
     expect(ingestKernelTransactions).toHaveBeenCalledWith(expect.objectContaining({
-      enabledActionTypes: ['native-riff-remove', 'native-riff-upsert'],
+      enabledActionTypes: ['auto-card-candidates'],
     }));
 
     handler.dispose();

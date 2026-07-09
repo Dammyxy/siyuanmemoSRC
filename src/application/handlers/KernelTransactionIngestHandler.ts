@@ -7,7 +7,6 @@ import {
   type TransactionClassification,
 } from '@/core/infrastructure/websocket/transaction-classifier';
 import {
-  shouldDispatchKernelTransactionIngestFromFanoutPlan,
   type TransactionFanoutPlan,
   type TransactionProvenanceSnapshot,
 } from '@/core/infrastructure/websocket/transaction-fanout-coordinator';
@@ -15,8 +14,6 @@ import { incrementRuntimePerformanceCounter } from '@/utils/runtimePerformanceDi
 
 const logger = createLogger('KernelTransactionIngestHandler');
 const ALL_KERNEL_TRANSACTION_ACTION_TYPES: readonly BackendKernelTransactionActionType[] = [
-  'native-riff-remove',
-  'native-riff-upsert',
   'auto-card-candidates',
 ];
 
@@ -82,8 +79,8 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   private readonly relayTimeoutMs: number;
   private readonly maxAttempts: number;
   private readonly writerRelayRequired: boolean;
-  private readonly enabledActionTypes: BackendKernelTransactionActionType[] | null;
-  private readonly enabledActionTypeSet: ReadonlySet<BackendKernelTransactionActionType> | null;
+  private readonly enabledActionTypes: BackendKernelTransactionActionType[];
+  private readonly enabledActionTypeSet: ReadonlySet<BackendKernelTransactionActionType>;
   private readonly onIngested: (() => void) | undefined;
   private readonly provenanceRegistry: KernelTransactionIngestHandlerOptions['provenanceRegistry'];
   private readonly pendingTransactions: Transaction[] = [];
@@ -112,29 +109,20 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   }
 
   shouldHandleTransactionBatch(classification: TransactionClassification, fanoutPlan?: TransactionFanoutPlan): boolean {
-    if (!this.enabledActionTypeSet) {
-      return fanoutPlan
-        ? shouldDispatchKernelTransactionIngestFromFanoutPlan(fanoutPlan)
-        : (
-          classification.autoCard.candidateOperations.length > 0
-          || classification.autoCard.cancelBlockIds.length > 0
-          || classification.nativeRiff.hasSignal
-          || classification.documentTree.hasHint
-        );
+    if (this.enabledActionTypeSet.size === 0) {
+      return false;
     }
 
     const autoCardEnabled = this.isActionTypeEnabled('auto-card-candidates');
-    const nativeRiffEnabled = this.isActionTypeEnabled('native-riff-remove')
-      || this.isActionTypeEnabled('native-riff-upsert');
     if (fanoutPlan) {
       return (autoCardEnabled && fanoutPlan.autoCard.shouldDispatch)
-        || (nativeRiffEnabled && fanoutPlan.nativeRiff.shouldDispatch);
+        || fanoutPlan.documentTree.shouldDispatch;
     }
     return (autoCardEnabled && (
       classification.autoCard.candidateOperations.length > 0
       || classification.autoCard.cancelBlockIds.length > 0
     ))
-      || (nativeRiffEnabled && classification.nativeRiff.hasSignal);
+      || classification.documentTree.hasHint;
   }
 
   handle(
@@ -229,7 +217,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
       transactions: batch.transactions,
       receivedAt: batch.receivedAt,
       idempotencyKey: batch.idempotencyKey,
-      ...(this.enabledActionTypes ? { enabledActionTypes: this.enabledActionTypes } : {}),
+      enabledActionTypes: this.enabledActionTypes,
       provenanceSnapshot: this.provenanceRegistry?.createSnapshot(batch.receivedAt),
     };
 
@@ -261,15 +249,15 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   }
 
   private isActionTypeEnabled(type: BackendKernelTransactionActionType): boolean {
-    return !this.enabledActionTypeSet || this.enabledActionTypeSet.has(type);
+    return this.enabledActionTypeSet.has(type);
   }
 }
 
 function normalizeEnabledActionTypes(
   values: readonly BackendKernelTransactionActionType[] | undefined,
-): BackendKernelTransactionActionType[] | null {
+): BackendKernelTransactionActionType[] {
   if (!Array.isArray(values)) {
-    return null;
+    return ['auto-card-candidates'];
   }
   const allowed = new Set<BackendKernelTransactionActionType>(ALL_KERNEL_TRANSACTION_ACTION_TYPES);
   const seen = new Set<BackendKernelTransactionActionType>();

@@ -28,7 +28,7 @@
 - [x] 4.1 Add Browser/manager entrypoints for explicit Native Riff import preview/apply and explicit old-card adoption preview/apply.
 - [x] 4.2 Replace the current broad repair/sync affordance with separate import, adoption, and semantic-repair outcomes.
 - [x] 4.3 Remove startup Xiuyuan Native Riff sync submission, full-sync timers, Browser-open incremental sync, and ReviewSyncManager Native Riff sync calls.
-- [ ] 4.4 Remove Native Riff transaction upsert/remove routing from transaction fanout and kernel action pump.
+- [x] 4.4 Remove Native Riff transaction upsert/remove routing from transaction fanout and kernel action pump.
 - [ ] 4.5 Remove continuous-sync settings and replace settings/UI state with explicit import/adoption actions.
 
 ## 5. Remove Native Riff Writes And Continuous-Sync Implementation

@@ -137,10 +137,9 @@ export function buildTransactionFanoutPlan(input: BuildTransactionFanoutPlanInpu
 
   const autoCardShouldDispatch = candidateOperations.length > 0
     || classification.autoCard.cancelBlockIds.length > 0;
-  const nativeRiffShouldDispatch = classification.nativeRiff.hasSignal;
+  const nativeRiffShouldDispatch = false;
   const documentTreeShouldDispatch = classification.documentTree.hasHint;
   const kernelIngestShouldDispatch = autoCardShouldDispatch
-    || nativeRiffShouldDispatch
     || documentTreeShouldDispatch;
 
   const autoCardReasons = [
@@ -148,14 +147,10 @@ export function buildTransactionFanoutPlan(input: BuildTransactionFanoutPlanInpu
     ...reasonsWhen(classification.autoCard.cancelBlockIds.length > 0, 'auto-card-cancel'),
     ...reasonsWhen(suppressedOperations.length > 0, 'auto-card-provenance-suppressed'),
   ];
-  const nativeRiffReasons = [
-    ...reasonsWhen(classification.nativeRiff.upsertBlockIds.length > 0, 'native-riff-upsert'),
-    ...reasonsWhen(classification.nativeRiff.removeBlockIds.length > 0, 'native-riff-remove'),
-  ];
+  const nativeRiffReasons: string[] = [];
   const documentTreeReasons = reasonsWhen(documentTreeShouldDispatch, 'document-tree-hint');
   const kernelIngestReasons = [
     ...reasonsWhen(autoCardShouldDispatch, 'auto-card'),
-    ...reasonsWhen(nativeRiffShouldDispatch, 'native-riff'),
     ...reasonsWhen(documentTreeShouldDispatch, 'document-tree'),
   ];
 

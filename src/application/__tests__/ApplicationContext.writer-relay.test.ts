@@ -23,107 +23,47 @@ describe('ApplicationContext writer relay command dispatch', () => {
       shouldEnableKernelTransactionIngestListener: (input: {
         kernelTransactionIngestAvailable: boolean;
         quickCardEnabled: boolean;
-        nativeRiffSyncEnabled: boolean;
       }) => boolean;
     }).shouldEnableKernelTransactionIngestListener({
       kernelTransactionIngestAvailable: true,
       quickCardEnabled: false,
-      nativeRiffSyncEnabled: false,
     })).toBe(false);
 
     expect((ApplicationContext as unknown as {
       shouldEnableKernelTransactionIngestListener: (input: {
         kernelTransactionIngestAvailable: boolean;
         quickCardEnabled: boolean;
-        nativeRiffSyncEnabled: boolean;
       }) => boolean;
     }).shouldEnableKernelTransactionIngestListener({
       kernelTransactionIngestAvailable: true,
       quickCardEnabled: true,
-      nativeRiffSyncEnabled: false,
     })).toBe(true);
   });
 
-  it('limits kernel transaction ingest actions to native Riff when quick-card listener is disabled', () => {
+  it('limits kernel transaction ingest actions to AutoCard only', () => {
     expect((ApplicationContext as unknown as {
       resolveKernelTransactionIngestActionTypes: (input: {
         quickCardEnabled: boolean;
-        nativeRiffSyncEnabled: boolean;
       }) => string[];
     }).resolveKernelTransactionIngestActionTypes({
       quickCardEnabled: false,
-      nativeRiffSyncEnabled: true,
-    })).toEqual(['native-riff-remove', 'native-riff-upsert']);
+    })).toEqual([]);
 
     expect((ApplicationContext as unknown as {
       resolveKernelTransactionIngestActionTypes: (input: {
         quickCardEnabled: boolean;
-        nativeRiffSyncEnabled: boolean;
       }) => string[];
     }).resolveKernelTransactionIngestActionTypes({
       quickCardEnabled: true,
-      nativeRiffSyncEnabled: true,
-    })).toEqual(['native-riff-remove', 'native-riff-upsert', 'auto-card-candidates']);
+    })).toEqual(['auto-card-candidates']);
   });
 
-  it('enables native Riff transaction sync only for explicit compatibility sync settings', () => {
-    const resolve = (ApplicationContext as unknown as {
-      shouldEnableNativeRiffCompatibilitySync: (input: {
-        riffIntegration?: RiffIntegrationConfig;
-        hybridSyncAvailable: boolean;
-      }) => boolean;
-    }).shouldEnableNativeRiffCompatibilitySync;
+  it('contains no Native Riff transaction action routing', () => {
+    const source = readApplicationContextSource();
 
-    expect(resolve({
-      riffIntegration: DEFAULT_SETTINGS.riffIntegration,
-      hybridSyncAvailable: true,
-    })).toBe(false);
-
-    expect(resolve({
-      riffIntegration: {
-        ...DEFAULT_SETTINGS.riffIntegration!,
-        incrementalSync: {
-          ...DEFAULT_SETTINGS.riffIntegration!.incrementalSync,
-          enabled: true,
-          triggers: ['plugin-start'],
-        },
-      },
-      hybridSyncAvailable: true,
-    })).toBe(true);
-
-    expect(resolve({
-      riffIntegration: {
-        ...DEFAULT_SETTINGS.riffIntegration!,
-        incrementalSync: {
-          ...DEFAULT_SETTINGS.riffIntegration!.incrementalSync,
-          enabled: true,
-          triggers: ['plugin-start'],
-        },
-      },
-      hybridSyncAvailable: false,
-    })).toBe(false);
-  });
-
-  it('selects one native Riff sync owner and fails closed without kernel ingest', () => {
-    const resolve = (ApplicationContext as unknown as {
-      resolveNativeRiffCompatibilitySyncOwner: (input: {
-        nativeRiffSyncEnabled: boolean;
-        kernelTransactionIngestEnabled: boolean;
-      }) => string;
-    }).resolveNativeRiffCompatibilitySyncOwner;
-
-    expect(resolve({
-      nativeRiffSyncEnabled: false,
-      kernelTransactionIngestEnabled: false,
-    })).toBe('disabled');
-    expect(resolve({
-      nativeRiffSyncEnabled: true,
-      kernelTransactionIngestEnabled: true,
-    })).toBe('kernel-transaction-action-pump');
-    expect(resolve({
-      nativeRiffSyncEnabled: true,
-      kernelTransactionIngestEnabled: false,
-    })).toBe('unavailable');
+    expect(source).not.toContain('shouldEnableNativeRiffCompatibilitySync');
+    expect(source).not.toContain('resolveNativeRiffCompatibilitySyncOwner');
+    expect(source).not.toContain("'native-riff-remove', 'native-riff-upsert'");
   });
 
   it('registers native Riff delete event sync only for explicit delete compatibility', () => {

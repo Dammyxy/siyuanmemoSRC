@@ -30,12 +30,6 @@ type FollowerCommandClientLike = {
   }, timeoutMs?: number) => Promise<TResult>;
 };
 
-type HybridSyncServiceLike = {
-  handleNativeRiffUpsert?: (blockIds: string[]) => Promise<unknown>;
-  incrementalSync?: (_onProgress?: unknown, _options?: { source?: string; persistIdleCheckpoint?: boolean; blockIds?: string[] }) => Promise<unknown>;
-  handleNativeRiffRemove?: (blockIds: string[]) => Promise<unknown>;
-};
-
 type AutoCardHandlerLike = {
   handle: (transactions: Array<{
     doOperations: Array<{
@@ -50,12 +44,10 @@ interface KernelTransactionActionPumpOptions {
   pollIntervalMs?: number;
   maxActionsPerPoll?: number;
   relayTimeoutMs?: number;
-  upsertCooldownMs?: number;
   autoCardCooldownMs?: number;
   emptyPollBackoffMaxMs?: number;
   writerRelayRequired?: boolean;
   onWriterUnavailable?: (detail: KernelTransactionWriterUnavailableDetail) => void;
-  deferNativeRiffUpsertWhile?: () => boolean;
   backgroundWorkRegistry?: KernelCompanionBackgroundWorkRegistryInterface | null;
 }
 
@@ -98,12 +90,10 @@ export class KernelTransactionActionPump {
   private readonly pollIntervalMs: number;
   private readonly maxActionsPerPoll: number;
   private readonly relayTimeoutMs: number;
-  private readonly upsertCooldownMs: number;
   private readonly autoCardCooldownMs: number;
   private readonly emptyPollBackoffMaxMs: number;
   private readonly writerRelayRequired: boolean;
   private readonly onWriterUnavailable?: (detail: KernelTransactionWriterUnavailableDetail) => void;
-  private readonly deferNativeRiffUpsertWhile?: () => boolean;
   private readonly backgroundWorkRegistry: KernelCompanionBackgroundWorkRegistryInterface;
   private nextPollTimer: ReturnType<typeof setTimeout> | null = null;
   private activePollingJobId: string | null = null;
@@ -116,10 +106,6 @@ export class KernelTransactionActionPump {
   private nextNoWriterUnavailablePollAllowedAt = 0;
   private backendHealthUnavailableStreak = 0;
   private nextBackendHealthUnavailablePollAllowedAt = 0;
-  private readonly pendingUpsertBlockIds = new Set<string>();
-  private upsertInFlight = false;
-  private upsertTimer: ReturnType<typeof setTimeout> | null = null;
-  private nextUpsertAt = 0;
   private readonly pendingAutoCardOpsByBlock = new Map<string, AutoCardActionType | null>();
   private nextAutoCardAt = 0;
   private disposed = false;
@@ -128,19 +114,16 @@ export class KernelTransactionActionPump {
     private readonly srsBackendClient: Pick<BackendIntegrationClientFacet, 'dequeueKernelTransactions' | 'requeueKernelTransactions'>,
     private readonly runtime: FrontendRuntimeLike | null,
     private readonly followerCommandClient: FollowerCommandClientLike | null,
-    private readonly getHybridSyncService: () => HybridSyncServiceLike | undefined,
     private readonly getAutoCardHandler: () => AutoCardHandlerLike | undefined,
     options: KernelTransactionActionPumpOptions = {},
   ) {
     this.pollIntervalMs = Math.max(200, Math.floor(options.pollIntervalMs ?? 1_000));
     this.maxActionsPerPoll = Math.max(1, Math.floor(options.maxActionsPerPoll ?? 8));
     this.relayTimeoutMs = Math.max(1_000, Math.floor(options.relayTimeoutMs ?? 15_000));
-    this.upsertCooldownMs = Math.max(250, Math.floor(options.upsertCooldownMs ?? 1_500));
     this.autoCardCooldownMs = Math.max(250, Math.floor(options.autoCardCooldownMs ?? 1_000));
     this.emptyPollBackoffMaxMs = Math.max(this.pollIntervalMs, Math.floor(options.emptyPollBackoffMaxMs ?? 2_000));
     this.writerRelayRequired = options.writerRelayRequired === true;
     this.onWriterUnavailable = options.onWriterUnavailable;
-    this.deferNativeRiffUpsertWhile = options.deferNativeRiffUpsertWhile;
     this.backgroundWorkRegistry = options.backgroundWorkRegistry ?? new KernelCompanionBackgroundWorkRegistry({
       schedule: (run) => run(),
     });
@@ -162,10 +145,6 @@ export class KernelTransactionActionPump {
     if (this.activePollingJobId) {
       this.backgroundWorkRegistry.cancel(this.activePollingJobId, 'action-pump-dispose');
       this.activePollingJobId = null;
-    }
-    if (this.upsertTimer) {
-      clearTimeout(this.upsertTimer);
-      this.upsertTimer = null;
     }
   }
 
@@ -322,33 +301,15 @@ export class KernelTransactionActionPump {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-actions-dequeued', actions.length);
       if (actions.length === 0) {
         if (!this.isPollingCanceled(context)) {
-          this.scheduleDeferredUpsert();
           this.maybeRunDeferredAutoCard();
         }
         pollStatus = 'empty';
         return;
       }
       this.resetEmptyPollBackoff();
-      const hybridSyncService = this.getHybridSyncService();
-      const removeBlockIds = new Set<string>();
-      const upsertBlockIds = new Set<string>();
       const autoCardOperations: Array<{ action: AutoCardActionType; blockId: string }> = [];
       for (const action of actions) {
-        if (action.type === 'native-riff-upsert') {
-          for (const blockId of action.blockIds || []) {
-            const normalized = String(blockId || '').trim();
-            if (normalized) {
-              upsertBlockIds.add(normalized);
-            }
-          }
-        } else if (action.type === 'native-riff-remove') {
-          for (const blockId of action.blockIds || []) {
-            const normalized = String(blockId || '').trim();
-            if (normalized) {
-              removeBlockIds.add(normalized);
-            }
-          }
-        } else if (action.type === 'auto-card-candidates') {
+        if (action.type === 'auto-card-candidates') {
           for (const operation of action.operations || []) {
             const actionType = String(operation.action || '').trim();
             const blockId = String(operation.blockId || '').trim();
@@ -368,25 +329,6 @@ export class KernelTransactionActionPump {
         if (this.isPollingCanceled(context)) {
           return;
         }
-        if (upsertBlockIds.size > 0) {
-          this.bufferNativeRiffUpsert(Array.from(upsertBlockIds));
-          incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-native-riff-upsert-scheduled');
-        }
-
-        if (removeBlockIds.size > 0) {
-          if (typeof hybridSyncService?.handleNativeRiffRemove !== 'function') {
-            logger.warn('Skip native-riff-remove action because hybrid sync service is unavailable', {
-              blockIds: Array.from(removeBlockIds),
-            });
-          } else {
-            await hybridSyncService.handleNativeRiffRemove(Array.from(removeBlockIds));
-          }
-        }
-
-        if (this.isPollingCanceled(context)) {
-          return;
-        }
-        this.scheduleDeferredUpsert();
 
         measureRuntimePerformance(
           'daily-editing',
@@ -436,8 +378,6 @@ export class KernelTransactionActionPump {
         actionCount,
         remainingActions,
         pendingAutoCardBlocks: this.pendingAutoCardOpsByBlock.size,
-        pendingUpsertBlockCount: this.pendingUpsertBlockIds.size,
-        upsertInFlight: this.upsertInFlight,
         emptyPollStreak: this.emptyPollStreak,
       });
       this.lastPollingDiagnostics = {
@@ -445,8 +385,6 @@ export class KernelTransactionActionPump {
         actionCount,
         ...(typeof remainingActions === 'number' ? { remainingActions } : {}),
         pendingAutoCardBlocks: this.pendingAutoCardOpsByBlock.size,
-        pendingUpsertBlockCount: this.pendingUpsertBlockIds.size,
-        upsertInFlight: this.upsertInFlight,
         emptyPollStreak: this.emptyPollStreak,
       };
     }
@@ -537,19 +475,7 @@ export class KernelTransactionActionPump {
   }
 
   private hasPendingFollowUpWork(): boolean {
-    return this.pendingUpsertBlockIds.size > 0
-      || this.upsertInFlight
-      || !!this.upsertTimer
-      || this.pendingAutoCardOpsByBlock.size > 0;
-  }
-
-  private bufferNativeRiffUpsert(blockIds: string[]): void {
-    for (const blockId of blockIds) {
-      const normalized = String(blockId || '').trim();
-      if (normalized) {
-        this.pendingUpsertBlockIds.add(normalized);
-      }
-    }
+    return this.pendingAutoCardOpsByBlock.size > 0;
   }
 
   private bufferAutoCardOperations(
@@ -761,85 +687,6 @@ export class KernelTransactionActionPump {
       ...(typeof record.commandId === 'string' && record.commandId.trim() ? { commandId: record.commandId.trim() } : {}),
       ...(typeof record.timeoutMs === 'number' && Number.isFinite(record.timeoutMs) ? { timeoutMs: record.timeoutMs } : {}),
     };
-  }
-
-  private scheduleDeferredUpsert(): void {
-    if (this.disposed || this.pendingUpsertBlockIds.size === 0 || this.upsertInFlight || this.upsertTimer) {
-      return;
-    }
-    const now = Date.now();
-    const delayMs = Math.max(0, this.nextUpsertAt - now);
-    this.upsertTimer = setTimeout(() => {
-      this.upsertTimer = null;
-      if (this.disposed) {
-        return;
-      }
-      void this.runDeferredUpsert();
-    }, delayMs);
-  }
-
-  private async runDeferredUpsert(): Promise<void> {
-    if (this.disposed || this.pendingUpsertBlockIds.size === 0 || this.upsertInFlight) {
-      return;
-    }
-    const now = Date.now();
-    if (now < this.nextUpsertAt) {
-      this.scheduleDeferredUpsert();
-      return;
-    }
-    if (this.deferNativeRiffUpsertWhile?.() === true) {
-      incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-native-riff-upsert-deferred');
-      this.nextUpsertAt = Date.now() + this.upsertCooldownMs;
-      this.scheduleDeferredUpsert();
-      return;
-    }
-    this.upsertInFlight = true;
-    let status = 'started';
-    const finishScheduleSpan = startRuntimePerformanceSpan('daily-editing', 'kernel-action-pump.native-riff-upsert-background');
-    const hybridSyncService = this.getHybridSyncService();
-    const blockIds = Array.from(this.pendingUpsertBlockIds);
-    this.pendingUpsertBlockIds.clear();
-    try {
-      if (typeof hybridSyncService?.handleNativeRiffUpsert === 'function') {
-        await measureRuntimePerformance(
-          'daily-editing',
-          'kernel-action-pump.native-riff-upsert',
-          () => hybridSyncService.handleNativeRiffUpsert!(blockIds),
-        );
-      } else if (typeof hybridSyncService?.incrementalSync === 'function') {
-        await measureRuntimePerformance('daily-editing', 'kernel-action-pump.native-riff-incremental-sync', () => hybridSyncService.incrementalSync!(undefined, {
-          blockIds,
-          source: 'native-riff-transaction',
-          persistIdleCheckpoint: false,
-        }));
-      } else {
-        logger.warn('Skip native-riff-upsert action because hybrid sync service is unavailable');
-        status = 'unavailable';
-        this.nextUpsertAt = Date.now() + this.upsertCooldownMs;
-        return;
-      }
-      this.nextUpsertAt = Date.now() + this.upsertCooldownMs;
-      status = 'completed';
-    } catch (error) {
-      status = 'error';
-      this.bufferNativeRiffUpsert(blockIds);
-      logger.warn('Native Riff upsert background sync failed; will retry after cooldown', {
-        message: error instanceof Error ? error.message : String(error || ''),
-      });
-      this.nextUpsertAt = Date.now() + this.upsertCooldownMs;
-    } finally {
-      this.upsertInFlight = false;
-      finishScheduleSpan({
-        pendingUpsertBlockCount: this.pendingUpsertBlockIds.size,
-        status,
-      }, {
-        ok: status === 'completed' || status === 'unavailable',
-        errorName: status === 'error' ? 'NativeRiffUpsertError' : undefined,
-      });
-      if (this.pendingUpsertBlockIds.size > 0) {
-        this.scheduleDeferredUpsert();
-      }
-    }
   }
 
   private async requeueActions(

@@ -28,13 +28,7 @@ describe('KernelTransactionActionPump', () => {
     vi.clearAllMocks();
   });
 
-  async function flushDeferredUpsertTimer(): Promise<void> {
-    await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(1);
-    await Promise.resolve();
-  }
-
-  it('dequeues actions from backend and routes native-riff-remove to hybrid sync service', async () => {
+  it('consumes native-riff actions without routing them to sync services', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [{
         type: 'native-riff-remove' as const,
@@ -51,7 +45,6 @@ describe('KernelTransactionActionPump', () => {
       { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
       null,
       null,
-      () => ({ handleNativeRiffRemove }),
       () => undefined,
       { pollIntervalMs: 250, maxActionsPerPoll: 4 },
     );
@@ -61,261 +54,7 @@ describe('KernelTransactionActionPump', () => {
     await Promise.resolve();
 
     expect(dequeueKernelTransactions).toHaveBeenCalledWith({ maxActions: 4 });
-    expect(handleNativeRiffRemove).toHaveBeenCalledWith(['block-1', 'block-2']);
-
-    await pump.dispose();
-  });
-
-  it('routes native-riff-upsert to hybrid sync upsert handler', async () => {
-    const dequeueKernelTransactions = vi.fn(async () => ({
-      actions: [{
-        type: 'native-riff-upsert' as const,
-        blockIds: ['block-3'],
-        source: 'ws-main' as const,
-        receivedAt: 2,
-        idempotencyKey: 'k2',
-      }],
-      remaining: 0,
-    }));
-    const handleNativeRiffUpsert = vi.fn(async () => ({ success: true }));
-    const incrementalSync = vi.fn(async () => ({ success: true }));
-
-    const pump = new KernelTransactionActionPump(
-      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
-      null,
-      null,
-      () => ({ handleNativeRiffUpsert, incrementalSync }),
-      () => undefined,
-      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
-    );
-    pump.start();
-
-    await vi.advanceTimersByTimeAsync(250);
-    await Promise.resolve();
-    await flushDeferredUpsertTimer();
-
-    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
-    expect(handleNativeRiffUpsert).toHaveBeenCalledWith(['block-3']);
-    expect(incrementalSync).not.toHaveBeenCalled();
-
-    await pump.dispose();
-  });
-
-  it('defers native-riff-upsert while AutoCard backend execution is active', async () => {
-    let autoCardBackendExecutionActive = true;
-    const dequeueKernelTransactions = vi.fn(async () => ({
-      actions: [{
-        type: 'native-riff-upsert' as const,
-        blockIds: ['block-autocard-created'],
-        source: 'ws-main' as const,
-        receivedAt: 2,
-        idempotencyKey: 'autocard-created-upsert',
-      }],
-      remaining: 0,
-    }));
-    const handleNativeRiffUpsert = vi.fn(async () => ({ success: true }));
-
-    const pump = new KernelTransactionActionPump(
-      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
-      null,
-      null,
-      () => ({ handleNativeRiffUpsert }),
-      () => undefined,
-      {
-        pollIntervalMs: 250,
-        maxActionsPerPoll: 4,
-        upsertCooldownMs: 300,
-        deferNativeRiffUpsertWhile: () => autoCardBackendExecutionActive,
-      },
-    );
-    pump.start();
-
-    await vi.advanceTimersByTimeAsync(250);
-    await Promise.resolve();
-    await flushDeferredUpsertTimer();
-
-    expect(handleNativeRiffUpsert).not.toHaveBeenCalled();
-
-    autoCardBackendExecutionActive = false;
-    await vi.advanceTimersByTimeAsync(300);
-    await Promise.resolve();
-
-    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
-    expect(handleNativeRiffUpsert).toHaveBeenCalledWith(['block-autocard-created']);
-
-    await pump.dispose();
-  });
-
-  it('does not keep pollOnce in flight while native-riff-upsert is still running', async () => {
-    let resolveUpsert: (() => void) | null = null;
-    const dequeueKernelTransactions = vi.fn()
-      .mockResolvedValueOnce({
-        actions: [{
-          type: 'native-riff-upsert' as const,
-          blockIds: ['block-slow'],
-          source: 'ws-main' as const,
-          receivedAt: 2,
-          idempotencyKey: 'slow-upsert',
-        }],
-        remaining: 0,
-      })
-      .mockResolvedValue({
-        actions: [],
-        remaining: 0,
-      });
-    const handleNativeRiffUpsert = vi.fn(() => new Promise<void>((resolve) => {
-      resolveUpsert = resolve;
-    }));
-
-    const pump = new KernelTransactionActionPump(
-      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
-      null,
-      null,
-      () => ({ handleNativeRiffUpsert }),
-      () => undefined,
-      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
-    );
-    pump.start();
-
-    await vi.advanceTimersByTimeAsync(250);
-    await Promise.resolve();
-    await flushDeferredUpsertTimer();
-    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(250);
-    await Promise.resolve();
-    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(2);
-
-    resolveUpsert?.();
-    await Promise.resolve();
-    await pump.dispose();
-  });
-
-  it('coalesces repeated upsert/remove actions in one poll', async () => {
-    const dequeueKernelTransactions = vi.fn(async () => ({
-      actions: [
-        {
-          type: 'native-riff-upsert' as const,
-          blockIds: ['block-a'],
-          source: 'ws-main' as const,
-          receivedAt: 10,
-          idempotencyKey: 'k10',
-        },
-        {
-          type: 'native-riff-upsert' as const,
-          blockIds: ['block-b'],
-          source: 'ws-main' as const,
-          receivedAt: 11,
-          idempotencyKey: 'k11',
-        },
-        {
-          type: 'native-riff-remove' as const,
-          blockIds: ['block-1', 'block-2'],
-          source: 'ws-main' as const,
-          receivedAt: 12,
-          idempotencyKey: 'k12',
-        },
-        {
-          type: 'native-riff-remove' as const,
-          blockIds: ['block-2', 'block-3'],
-          source: 'ws-main' as const,
-          receivedAt: 13,
-          idempotencyKey: 'k13',
-        },
-      ],
-      remaining: 0,
-    }));
-    const handleNativeRiffUpsert = vi.fn(async () => ({ success: true }));
-    const handleNativeRiffRemove = vi.fn(async () => ({ success: true }));
-
-    const pump = new KernelTransactionActionPump(
-      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
-      null,
-      null,
-      () => ({ handleNativeRiffUpsert, handleNativeRiffRemove }),
-      () => undefined,
-      { pollIntervalMs: 250, maxActionsPerPoll: 8 },
-    );
-    pump.start();
-
-    await vi.advanceTimersByTimeAsync(250);
-    await Promise.resolve();
-    await flushDeferredUpsertTimer();
-
-    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
-    expect(handleNativeRiffUpsert).toHaveBeenCalledWith(['block-a', 'block-b']);
-    expect(handleNativeRiffRemove).toHaveBeenCalledTimes(1);
-    expect(handleNativeRiffRemove).toHaveBeenCalledWith(['block-1', 'block-2', 'block-3']);
-
-    await pump.dispose();
-  });
-
-  it('falls back to scoped incremental sync when native-riff-upsert handler is unavailable', async () => {
-    const dequeueKernelTransactions = vi.fn(async () => ({
-      actions: [{
-        type: 'native-riff-upsert' as const,
-        blockIds: ['block-fallback-a', 'block-fallback-b'],
-        source: 'ws-main' as const,
-        receivedAt: 2,
-        idempotencyKey: 'upsert-fallback',
-      }],
-      remaining: 0,
-    }));
-    const incrementalSync = vi.fn(async () => ({ success: true }));
-
-    const pump = new KernelTransactionActionPump(
-      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
-      null,
-      null,
-      () => ({ incrementalSync }),
-      () => undefined,
-      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
-    );
-    pump.start();
-
-    await vi.advanceTimersByTimeAsync(250);
-    await Promise.resolve();
-    await flushDeferredUpsertTimer();
-
-    expect(incrementalSync).toHaveBeenCalledWith(undefined, {
-      blockIds: ['block-fallback-a', 'block-fallback-b'],
-      source: 'native-riff-transaction',
-      persistIdleCheckpoint: false,
-    });
-
-    await pump.dispose();
-  });
-
-  it('skips native-riff-upsert actions without block IDs instead of running a broad sync', async () => {
-    const dequeueKernelTransactions = vi.fn(async () => ({
-      actions: [{
-        type: 'native-riff-upsert' as const,
-        blockIds: [],
-        source: 'ws-main' as const,
-        receivedAt: 2,
-        idempotencyKey: 'upsert-empty',
-      }],
-      remaining: 0,
-    }));
-    const handleNativeRiffUpsert = vi.fn(async () => ({ success: true }));
-    const incrementalSync = vi.fn(async () => ({ success: true }));
-
-    const pump = new KernelTransactionActionPump(
-      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
-      null,
-      null,
-      () => ({ handleNativeRiffUpsert, incrementalSync }),
-      () => undefined,
-      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
-    );
-    pump.start();
-
-    await vi.advanceTimersByTimeAsync(250);
-    await Promise.resolve();
-    await flushDeferredUpsertTimer();
-
-    expect(handleNativeRiffUpsert).not.toHaveBeenCalled();
-    expect(incrementalSync).not.toHaveBeenCalled();
+    expect(handleNativeRiffRemove).not.toHaveBeenCalled();
 
     await pump.dispose();
   });
@@ -334,7 +73,6 @@ describe('KernelTransactionActionPump', () => {
         getInstanceId: () => 'runtime-1',
       },
       { submitAndWait },
-      () => undefined,
       () => undefined,
       { pollIntervalMs: 250 },
     );
@@ -379,7 +117,6 @@ describe('KernelTransactionActionPump', () => {
       },
       { submitAndWait },
       () => undefined,
-      () => undefined,
       {
         pollIntervalMs: 250,
         relayTimeoutMs: 1200,
@@ -421,7 +158,6 @@ describe('KernelTransactionActionPump', () => {
         getInstanceId: () => 'background-window-instance',
       },
       { submitAndWait },
-      () => undefined,
       () => undefined,
       {
         pollIntervalMs: 250,
@@ -473,7 +209,6 @@ describe('KernelTransactionActionPump', () => {
       },
       { submitAndWait },
       () => undefined,
-      () => undefined,
       { pollIntervalMs: 250 },
     );
     pump.start();
@@ -512,7 +247,6 @@ describe('KernelTransactionActionPump', () => {
         ensureWritable,
       },
       { submitAndWait },
-      () => undefined,
       () => undefined,
       {
         pollIntervalMs: 250,
@@ -558,7 +292,6 @@ describe('KernelTransactionActionPump', () => {
       },
       { submitAndWait },
       () => undefined,
-      () => undefined,
       {
         pollIntervalMs: 250,
         emptyPollBackoffMaxMs: 1_000,
@@ -594,7 +327,6 @@ describe('KernelTransactionActionPump', () => {
       { dequeueKernelTransactions, requeueKernelTransactions },
       null,
       null,
-      () => undefined,
       () => undefined,
       {
         pollIntervalMs: 250,
@@ -633,7 +365,6 @@ describe('KernelTransactionActionPump', () => {
       null,
       null,
       () => undefined,
-      () => undefined,
       {
         pollIntervalMs: 250,
         emptyPollBackoffMaxMs: 1_000,
@@ -668,7 +399,6 @@ describe('KernelTransactionActionPump', () => {
       null,
       null,
       () => undefined,
-      () => undefined,
       { pollIntervalMs: 250, emptyPollBackoffMaxMs: 1_000 },
     );
     pump.start();
@@ -691,7 +421,6 @@ describe('KernelTransactionActionPump', () => {
       { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
       null,
       null,
-      () => undefined,
       () => undefined,
       { pollIntervalMs: 250, emptyPollBackoffMaxMs: 1_000 },
     );
@@ -733,7 +462,6 @@ describe('KernelTransactionActionPump', () => {
       },
       { submitAndWait },
       () => undefined,
-      () => undefined,
       { pollIntervalMs: 250 },
     );
     pump.start();
@@ -773,7 +501,6 @@ describe('KernelTransactionActionPump', () => {
       { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
       null,
       null,
-      () => undefined,
       () => ({ handle }),
       { pollIntervalMs: 250, maxActionsPerPoll: 4 },
     );
@@ -820,7 +547,6 @@ describe('KernelTransactionActionPump', () => {
       { dequeueKernelTransactions, requeueKernelTransactions },
       null,
       null,
-      () => undefined,
       getAutoCardHandler,
       { pollIntervalMs: 250, maxActionsPerPoll: 4, autoCardCooldownMs: 1_000 },
     );
@@ -871,7 +597,6 @@ describe('KernelTransactionActionPump', () => {
       { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
       null,
       null,
-      () => undefined,
       () => ({ handle }),
       { pollIntervalMs: 250, maxActionsPerPoll: 8 },
     );
@@ -922,7 +647,6 @@ describe('KernelTransactionActionPump', () => {
       { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
       null,
       null,
-      () => undefined,
       () => ({ handle }),
       { pollIntervalMs: 250, maxActionsPerPoll: 8, autoCardCooldownMs: 1_000 },
     );
@@ -951,88 +675,6 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
-  it('keeps native-riff-upsert pending for cooldown retry when background processing fails', async () => {
-    const dequeueKernelTransactions = vi.fn(async () => ({
-      actions: [{
-        type: 'native-riff-upsert' as const,
-        blockIds: ['block-fail'],
-        source: 'ws-main' as const,
-        receivedAt: 4,
-        idempotencyKey: 'k4',
-      }],
-      remaining: 0,
-    }));
-    const requeueKernelTransactions = vi.fn(async () => ({
-      requeued: 1,
-      queueLength: 1,
-      maxQueueLength: 4096,
-    }));
-    const handleNativeRiffUpsert = vi.fn(async () => {
-      throw new Error('upsert failed');
-    });
-
-    const pump = new KernelTransactionActionPump(
-      { dequeueKernelTransactions, requeueKernelTransactions },
-      null,
-      null,
-      () => ({ handleNativeRiffUpsert }),
-      () => undefined,
-      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
-    );
-    pump.start();
-
-    await vi.advanceTimersByTimeAsync(250);
-    await Promise.resolve();
-    await flushDeferredUpsertTimer();
-
-    expect(requeueKernelTransactions).not.toHaveBeenCalled();
-    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(1_500);
-    await Promise.resolve();
-    await flushDeferredUpsertTimer();
-    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(2);
-
-    await pump.dispose();
-  });
-
-  it('does not re-arm native-riff-upsert retry after dispose', async () => {
-    const dequeueKernelTransactions = vi.fn(async () => ({
-      actions: [{
-        type: 'native-riff-upsert' as const,
-        blockIds: ['block-dispose'],
-        source: 'ws-main' as const,
-        receivedAt: 4,
-        idempotencyKey: 'dispose-upsert',
-      }],
-      remaining: 0,
-    }));
-    const handleNativeRiffUpsert = vi.fn(async () => {
-      throw new Error('upsert failed');
-    });
-
-    const pump = new KernelTransactionActionPump(
-      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
-      null,
-      null,
-      () => ({ handleNativeRiffUpsert }),
-      () => undefined,
-      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
-    );
-    pump.start();
-
-    await vi.advanceTimersByTimeAsync(250);
-    await Promise.resolve();
-    await flushDeferredUpsertTimer();
-    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
-
-    await pump.dispose();
-    await vi.advanceTimersByTimeAsync(5_000);
-    await Promise.resolve();
-
-    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
-  });
-
   it('records polling lifecycle in the shared background work registry', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [],
@@ -1046,7 +688,6 @@ describe('KernelTransactionActionPump', () => {
       { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
       null,
       null,
-      () => undefined,
       () => undefined,
       {
         pollIntervalMs: 250,
@@ -1090,7 +731,6 @@ describe('KernelTransactionActionPump', () => {
       { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
       null,
       null,
-      () => undefined,
       () => undefined,
       {
         pollIntervalMs: 250,
@@ -1144,10 +784,6 @@ describe('KernelTransactionActionPump', () => {
       queueLength: 1,
       maxQueueLength: 4096,
     }));
-    const handleNativeRiffUpsert = vi.fn(async () => {
-      throw new Error('upsert failed');
-    });
-
     const pump = new KernelTransactionActionPump(
       {
         dequeueKernelTransactions: vi.fn(async () => ({ actions: [], remaining: 0 })),
@@ -1158,7 +794,6 @@ describe('KernelTransactionActionPump', () => {
         getInstanceId: () => 'runtime-1',
       },
       { submitAndWait },
-      () => ({ handleNativeRiffUpsert }),
       () => undefined,
       { pollIntervalMs: 250, maxActionsPerPoll: 4 },
     );
@@ -1191,7 +826,6 @@ describe('KernelTransactionActionPump', () => {
       { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
       null,
       null,
-      () => undefined,
       () => undefined,
       { pollIntervalMs: 250, writerRelayRequired: true },
     );

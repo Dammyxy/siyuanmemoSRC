@@ -101,7 +101,7 @@ describe('transaction fan-out coordinator', () => {
     ]);
   });
 
-  it('preserves document-tree and Native Riff routing from the shared plan', () => {
+  it('preserves Native Riff evidence without routing Native Riff work', () => {
     const plan = buildTransactionFanoutPlan({
       now: 1_000,
       provenance: {
@@ -144,7 +144,11 @@ describe('transaction fan-out coordinator', () => {
     expect(plan.documentTree.touchedBlockIds).toEqual(['excerpt-doc', 'source-doc', 'topic-card', 'removed-card']);
     expect(plan.nativeRiff.upsertBlockIds).toEqual(['topic-card']);
     expect(plan.nativeRiff.removeBlockIds).toEqual(['removed-card']);
+    expect(plan.nativeRiff.shouldDispatch).toBe(false);
+    expect(plan.nativeRiff.reasons).toEqual([]);
     expect(shouldDispatchDocTreeFromFanoutPlan(plan)).toBe(true);
-    expect(shouldDispatchNativeRiffFromFanoutPlan(plan)).toBe(true);
+    expect(shouldDispatchNativeRiffFromFanoutPlan(plan)).toBe(false);
+    expect(plan.reasons).not.toContain('native-riff-upsert');
+    expect(plan.reasons).not.toContain('native-riff-remove');
   });
 });

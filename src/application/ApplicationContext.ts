@@ -1860,18 +1860,9 @@ export class ApplicationContext {
   private static shouldEnableKernelTransactionIngestListener(input: {
     kernelTransactionIngestAvailable: boolean;
     quickCardEnabled: boolean;
-    nativeRiffSyncEnabled: boolean;
   }): boolean {
     return input.kernelTransactionIngestAvailable
-      && (input.quickCardEnabled || input.nativeRiffSyncEnabled);
-  }
-
-  private static shouldEnableNativeRiffCompatibilitySync(input: {
-    riffIntegration?: RiffIntegrationConfig;
-    hybridSyncAvailable: boolean;
-  }): boolean {
-    return input.hybridSyncAvailable
-      && input.riffIntegration?.incrementalSync?.enabled === true;
+      && input.quickCardEnabled;
   }
 
   private static shouldEnableNativeRiffDeleteCompatibilitySync(input: {
@@ -1884,28 +1875,12 @@ export class ApplicationContext {
 
   private static resolveKernelTransactionIngestActionTypes(input: {
     quickCardEnabled: boolean;
-    nativeRiffSyncEnabled: boolean;
   }): BackendKernelTransactionActionType[] {
     const actionTypes: BackendKernelTransactionActionType[] = [];
-    if (input.nativeRiffSyncEnabled) {
-      actionTypes.push('native-riff-remove', 'native-riff-upsert');
-    }
     if (input.quickCardEnabled) {
       actionTypes.push('auto-card-candidates');
     }
     return actionTypes;
-  }
-
-  private static resolveNativeRiffCompatibilitySyncOwner(input: {
-    nativeRiffSyncEnabled: boolean;
-    kernelTransactionIngestEnabled: boolean;
-  }): 'disabled' | 'kernel-transaction-action-pump' | 'unavailable' {
-    if (!input.nativeRiffSyncEnabled) {
-      return 'disabled';
-    }
-    return input.kernelTransactionIngestEnabled
-      ? 'kernel-transaction-action-pump'
-      : 'unavailable';
   }
 
   private static readEnvValue(key: string, lowercase = true): string {
@@ -2079,10 +2054,6 @@ export class ApplicationContext {
     const finishUpdateSpan = startRuntimePerformanceSpan('startup', 'transaction-websocket-service.configure');
     const settings = this.getSettingsService().getSettings();
     const quickCardEnabled = settings.quickCard?.enabled === true;
-    const nativeRiffSyncEnabled = ApplicationContext.shouldEnableNativeRiffCompatibilitySync({
-      riffIntegration: settings.riffIntegration,
-      hybridSyncAvailable: Boolean(this.hybridSyncService),
-    });
     const reviewSourceBlockRefreshEnabled = settings.ui?.reviewSourceBlockRefreshEnabled === true;
     const runtimePolicy = this.getBackendMigrationRuntimePolicy();
     const kernelTransactionIngestAvailable = runtimePolicy.capabilities.kernelTransactionIngestEnabled
@@ -2091,18 +2062,11 @@ export class ApplicationContext {
     const kernelTransactionIngestEnabled = ApplicationContext.shouldEnableKernelTransactionIngestListener({
       kernelTransactionIngestAvailable,
       quickCardEnabled,
-      nativeRiffSyncEnabled,
     });
     const kernelTransactionIngestActionTypes = ApplicationContext.resolveKernelTransactionIngestActionTypes({
       quickCardEnabled,
-      nativeRiffSyncEnabled,
-    });
-    const nativeRiffSyncOwner = ApplicationContext.resolveNativeRiffCompatibilitySyncOwner({
-      nativeRiffSyncEnabled,
-      kernelTransactionIngestEnabled,
     });
     const shouldEnable = quickCardEnabled
-      || nativeRiffSyncOwner !== 'disabled'
       || reviewSourceBlockRefreshEnabled
       || kernelTransactionIngestEnabled;
     incrementRuntimePerformanceCounter('daily-editing', 'transaction-listener-configured', shouldEnable ? 1 : 0);
@@ -2121,7 +2085,6 @@ export class ApplicationContext {
       }
       finishUpdateSpan({
         kernelTransactionIngestEnabled,
-        nativeRiffSyncEnabled,
         quickCardEnabled,
         reviewSourceBlockRefreshEnabled,
         shouldEnable,
@@ -2141,7 +2104,6 @@ export class ApplicationContext {
 
     logger.info('[ApplicationContext] Initializing TransactionWebSocketService...', {
       quickCardEnabled,
-      nativeRiffSyncEnabled,
       reviewSourceBlockRefreshEnabled,
       kernelTransactionIngestEnabled,
     });
@@ -2151,7 +2113,7 @@ export class ApplicationContext {
       this.config.plugin as unknown as SiyuanMemoPlugin,
       { provenanceRegistry: this.transactionProvenanceRegistry },
     );
-    if (quickCardEnabled || nativeRiffSyncEnabled || kernelTransactionIngestEnabled) {
+    if (quickCardEnabled || kernelTransactionIngestEnabled) {
       await measureRuntimePerformance(
         'startup',
         'transaction-websocket-service.scope-hydrate',
@@ -2179,16 +2141,6 @@ export class ApplicationContext {
       }
     }
 
-    if (nativeRiffSyncOwner === 'unavailable') {
-      logger.error('[ApplicationContext] Native Riff compatibility sync unavailable: kernel transaction ingest action pump is required', {
-        backendWorker: runtimePolicy.flags.backendWorker,
-        writerLeaseGuard: runtimePolicy.flags.writerLeaseGuard,
-        kernelTransactionIngest: runtimePolicy.flags.kernelTransactionIngest,
-      });
-    } else if (nativeRiffSyncOwner === 'kernel-transaction-action-pump') {
-      logger.info('[ApplicationContext] Native Riff compatibility sync owned by kernel transaction action pump');
-    }
-
     if (kernelTransactionIngestEnabled && this.srsBackendClient) {
       const { KernelTransactionIngestHandler } = await import('@/application/handlers/KernelTransactionIngestHandler');
       const { KernelTransactionActionPump } = await import('@/application/handlers/KernelTransactionActionPump');
@@ -2212,12 +2164,10 @@ export class ApplicationContext {
           this.srsBackendClient,
           this.frontendInstanceRuntime,
           this.followerCommandClient,
-          () => this.hybridSyncService,
           () => this.autoCardHandler,
           {
             writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
             onWriterUnavailable: dispatchKernelTransactionWriterUnavailableEvent,
-            deferNativeRiffUpsertWhile: () => this.isAutoCardBackendExecutionInProgress(),
             backgroundWorkRegistry: this.srsBackendClient.getBackgroundWorkRegistry(),
           },
         ),
@@ -2230,7 +2180,6 @@ export class ApplicationContext {
 
     measureRuntimePerformance('startup', 'transaction-websocket-service.start', () => transactionWebSocketService.start(), {
       kernelTransactionIngestEnabled,
-      nativeRiffSyncEnabled,
       quickCardEnabled,
       reviewSourceBlockRefreshEnabled,
     });
@@ -2238,7 +2187,6 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] ✅ TransactionWebSocketService started');
     finishUpdateSpan({
       kernelTransactionIngestEnabled,
-      nativeRiffSyncEnabled,
       quickCardEnabled,
       reviewSourceBlockRefreshEnabled,
       shouldEnable,
