@@ -70,6 +70,7 @@ import {
 import { XiuyuanNativeRiffRemoveRuntime } from './XiuyuanNativeRiffRemoveRuntime';
 import { XiuyuanRiffBlacklistRuntime } from './XiuyuanRiffBlacklistRuntime';
 import { XiuyuanRiffInputRuntime } from './XiuyuanRiffInputRuntime';
+import { XiuyuanStartupSyncLifecycle } from './XiuyuanStartupSyncLifecycle';
 import { XiuyuanSyncApplyRuntime } from './XiuyuanSyncApplyRuntime';
 import { XiuyuanSyncChangeSetPlanner } from './XiuyuanSyncChangeSetPlanner';
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
@@ -224,6 +225,7 @@ export class XiuyuanSyncService {
     private readonly nativeRiffRemoveRuntime: XiuyuanNativeRiffRemoveRuntime<Xiuyuan>;
     private readonly syncApplyRuntime: XiuyuanSyncApplyRuntime;
     private readonly changeSetPlanner: XiuyuanSyncChangeSetPlanner;
+    private readonly startupSyncLifecycle: XiuyuanStartupSyncLifecycle;
     private readonly srsBackendClient?: XiuyuanSyncBackendClient;
     private readonly backgroundWorkRegistry: KernelCompanionBackgroundWorkRegistryInterface;
     private activeStartupSyncJobId: string | null = null;
@@ -282,6 +284,7 @@ export class XiuyuanSyncService {
             convertRiffCardToXiuyuan: (riffCard) => this.convertRiffCardToFSRSCard(riffCard),
             syncXiuyuanOwnershipMeta: (xiuyuan, ownership) => this.syncXiuyuanOwnershipMeta(xiuyuan, ownership),
         });
+        this.startupSyncLifecycle = new XiuyuanStartupSyncLifecycle();
         this.srsBackendClient = srsBackendClient;
         this.backgroundWorkRegistry = backgroundWorkRegistry ?? new KernelCompanionBackgroundWorkRegistry();
     }
@@ -620,36 +623,32 @@ export class XiuyuanSyncService {
         operation: () => Promise<SyncResult>,
     ): Promise<KernelCompanionBackgroundWorkHandlerResult<KernelCompanionXiuyuanStartupSyncDiagnostics>> {
         try {
-            if (context.isCanceled()) {
-                return {
-                    state: 'canceled',
-                    reason: 'startup-sync-canceled-before-run',
-                    diagnostics: {
-                        status: 'canceled',
+            let syncResult: SyncResult | null = null;
+            return await this.startupSyncLifecycle.run({
+                context,
+                syncType: type,
+                phases: {
+                    scan: () => ({
+                        diagnostics: {
+                            source: 'startup',
+                            ...(type === 'incremental' ? { persistIdleCheckpoint: false } : {}),
+                        },
+                    }),
+                    plan: () => undefined,
+                    apply: async () => {
+                        syncResult = await operation();
                     },
-                };
-            }
-            const result = await operation();
-            if (context.isCanceled()) {
-                return {
-                    state: 'canceled',
-                    reason: 'startup-sync-canceled-after-run',
-                    diagnostics: {
-                        status: 'canceled',
-                    },
-                };
-            }
-            return {
-                diagnostics: {
-                    status: 'completed',
-                    addedCount: result.addedCount,
-                    updatedCount: result.updatedCount,
-                    deletedCount: result.deletedCount,
-                    skippedCount: result.skippedCount,
-                    detectedCount: result.detectedCount,
-                    blacklistCleanedCount: result.blacklistCleanedCount,
+                    checkpoint: () => ({
+                        result: syncResult ?? {
+                            success: true,
+                            addedCount: 0,
+                            updatedCount: 0,
+                            deletedCount: 0,
+                            skippedCount: 0,
+                        },
+                    }),
                 },
-            };
+            });
         } catch (error) {
             logger.error(`Startup ${type} sync failed; service remains started without local fallback:`, error);
             return {
@@ -657,6 +656,7 @@ export class XiuyuanSyncService {
                 error: error instanceof Error ? error.message : String(error),
                 diagnostics: {
                     status: 'failed',
+                    latestCompletedPhase: 'apply',
                     unavailable: true,
                 },
             };

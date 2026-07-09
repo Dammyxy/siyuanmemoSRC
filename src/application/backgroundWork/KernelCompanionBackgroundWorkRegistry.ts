@@ -52,6 +52,7 @@ export interface KernelCompanionXiuyuanStartupSyncDiagnostics {
   source?: 'startup';
   persistIdleCheckpoint?: boolean;
   status?: 'submitted' | 'completed' | 'failed' | 'canceled';
+  latestCompletedPhase?: 'scan' | 'plan' | 'apply' | 'checkpoint';
   addedCount?: number;
   updatedCount?: number;
   deletedCount?: number;

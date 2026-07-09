@@ -82,6 +82,10 @@ _Avoid_: AutoCard Decision Relay, AutoCard Execute Relay, local planner rules, X
 The application/backend-client lifecycle Module for long SiYuanMemo maintenance jobs coordinated with the kernel companion. It owns submit/status/cancel/defer/shutdown vocabulary for work such as Review truth backfill, Xiuyuan startup sync, and kernel transaction action polling. Current P0 implementation routes Review truth backfill, Xiuyuan startup sync, and kernel transaction action polling through this registry; kernel companion code remains coordination/relay only, while scheduler, card DB, msgpack truth, Riff/card writes, and SQLite writes stay with their current owners.
 _Avoid_: frontend unload waiting for heavy maintenance, kernel JS owning card persistence, hidden shutdown retry loops
 
+**Xiuyuan Startup Sync Lifecycle**:
+The Xiuyuan sync Module for plugin-start full/incremental sync execution phases behind Kernel Companion Background Work. It owns scan/plan/apply/checkpoint phase diagnostics and cooperative cancellation checks between phases, while existing Xiuyuan/backend sync owners still own Riff/card writes, SQLite writes, native Riff compatibility, sync planning, and idempotent recovery.
+_Avoid_: registry-owned Xiuyuan planning, physical interruption claims for already-issued writes, manual sync behavior changes
+
 **SRS Browser Card Universe**:
 The set of SRS cards that SiYuanMemo can manage through its card identity and browser projection. Arbitrary SQL block results are candidates only after intersecting with this card universe.
 _Avoid_: treating all matching `blocks` rows as SRS Browser cards

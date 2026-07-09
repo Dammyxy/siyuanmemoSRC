@@ -4,6 +4,16 @@ Last update: 2026-07-09 (Round 686)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-09 - Xiuyuan startup sync staged lifecycle
+
+- Task: Implement OpenSpec change `deepen-xiuyuan-startup-sync-lifecycle` so Xiuyuan plugin-start sync has phase diagnostics and cooperative cancellation inside the Xiuyuan sync Module.
+- Touched slice: Xiuyuan startup sync lifecycle in `src/application/services/XiuyuanStartupSyncLifecycle.ts`, `src/application/services/XiuyuanSyncService.ts`, background-work diagnostics typing, focused Xiuyuan sync tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: Added a narrow `XiuyuanStartupSyncLifecycle` Module that owns scan/plan/apply/checkpoint diagnostics and checks `KernelCompanionBackgroundWorkRunContext.isCanceled()` before each phase; startup full/incremental registry jobs now report `latestCompletedPhase`; startup incremental still preserves `source: 'startup'` and `persistIdleCheckpoint: false`; manual full/incremental sync remains unchanged; and backend unavailable continues to fail closed without local apply fallback.
+- Debt deferred: Physical interruption of already-issued backend/SiYuan writes remains out of scope, and the phase names are currently lifecycle diagnostics around the existing coarse backend/local sync execution rather than a full backend-resumable Xiuyuan sync job.
+- Why deferred: Current backend/client contracts do not provide reliable cancellation of in-flight writes, and splitting backend Xiuyuan sync into a durable resumable job would cross Worker DB authority, native Riff read/audit, idempotency, and recovery policy.
+- Next safe step: If users need true interruption/resume after apply starts, propose a backend-owned Xiuyuan sync job with durable phase state and idempotent resume semantics.
+- Validation: Focused Vitest passed for `src/application/services/__tests__/XiuyuanStartupSyncLifecycle.test.ts`, `src/application/services/__tests__/XiuyuanSyncService.backend-facade.test.ts`, and `src/application/backgroundWork/__tests__/KernelCompanionBackgroundWorkRegistry.test.ts`; hidden-fallback check passed; boundary check passed; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only; build passed with existing non-blocking i18n/Sass warnings.
+
 ### 2026-07-09 - Xiuyuan startup sync registry lifecycle
 
 - Task: Implement OpenSpec change `route-xiuyuan-startup-sync-through-background-work-registry` so Xiuyuan plugin-start sync uses the Kernel Companion Background Work lifecycle registry.

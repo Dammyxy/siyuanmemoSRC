@@ -403,6 +403,7 @@ describe('XiuyuanSyncService backend command facade', () => {
       state: 'completed',
       diagnostics: {
         status: 'completed',
+        latestCompletedPhase: 'checkpoint',
         addedCount: 2,
       },
     }));
@@ -450,6 +451,13 @@ describe('XiuyuanSyncService backend command facade', () => {
       dryRun: false,
       persistIdleCheckpoint: false,
     })));
+    await vi.waitFor(() => expect(registry.status(startupJobId!)).toMatchObject({
+      state: 'completed',
+      diagnostics: {
+        status: 'completed',
+        latestCompletedPhase: 'checkpoint',
+      },
+    }));
   });
 
   it('registry shutdown defers accepted startup sync before backend work runs', async () => {
