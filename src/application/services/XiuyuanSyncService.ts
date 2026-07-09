@@ -62,6 +62,7 @@ import {
     QuickCardPostCreationPlanner,
     type PostCreationPlan,
 } from '@/core/card/post-creation/QuickCardPostCreationPlanner';
+import { resolveRiffSymbolRenderRepair } from '@/core/card/render-contract';
 import type { RiffSyncState } from '@/core/storage/UnifiedStorageManager';
 import {
     chooseCanonicalXiuyuan,
@@ -108,10 +109,13 @@ type ResolvedSyncCardType = {
     cardTypeMarker: SyncCardTypeMarker | undefined;
 };
 
-type QuickDetectReason = 'cloze-latex-numbered';
+type QuickDetectReason = 'cloze-latex-numbered' | 'symbol-rule';
 type QuickRenderHintMeta = {
     forceQuickRender?: boolean;
     quickDetectReason?: QuickDetectReason;
+    symbolDetected?: boolean;
+    cardSource?: 'quick-symbol';
+    symbolType?: string;
 };
 type PreparedRiffBlocks = {
     blocks: RiffBlock[];
@@ -1043,7 +1047,11 @@ export class XiuyuanSyncService {
     private buildQuickRenderHintMeta(
         content: string,
         cardType: SyncCardType | undefined,
-        plan: PostCreationPlan
+        plan: PostCreationPlan,
+        context?: {
+            templateID?: string;
+            meta?: Record<string, unknown>;
+        }
     ): QuickRenderHintMeta {
         const renderProfile = this.resolveRiffRenderProfile(plan);
         const canForceQuickRender = renderProfile === 'quick-default' || renderProfile === 'quick-inline-formula';
@@ -1052,6 +1060,23 @@ export class XiuyuanSyncService {
             return {
                 forceQuickRender: true,
                 quickDetectReason: 'cloze-latex-numbered',
+            };
+        }
+
+        const symbolRepair = resolveRiffSymbolRenderRepair({
+            cardType,
+            meta: {
+                ...(context?.meta || {}),
+                templateID: context?.templateID || plan.templateId,
+            },
+            sourceContent: content,
+        });
+        if (symbolRepair.status === 'repair-required') {
+            return {
+                symbolDetected: true,
+                cardSource: 'quick-symbol',
+                symbolType: symbolRepair.symbolType,
+                quickDetectReason: 'symbol-rule',
             };
         }
 
@@ -1070,13 +1095,26 @@ export class XiuyuanSyncService {
             : undefined;
         const hintMeta = progressiveKind === 'derived-item'
             ? {}
-            : this.buildQuickRenderHintMeta(riffBlock.content, cardType, plan);
+            : this.buildQuickRenderHintMeta(riffBlock.content, cardType, plan, {
+                templateID: xiuyuan.getTemplateID().getValue(),
+                meta: currentMeta,
+            });
         const shouldForceQuickRender = hintMeta.forceQuickRender === true;
         const expectedReason = hintMeta.quickDetectReason;
         const currentForceQuickRender = currentMeta.forceQuickRender === true;
         const currentQuickDetectReason = typeof currentMeta.quickDetectReason === 'string'
             ? currentMeta.quickDetectReason
             : undefined;
+        const expectsQuickSymbol = hintMeta.cardSource === 'quick-symbol';
+        const currentCardSource = typeof currentMeta.cardSource === 'string'
+            ? currentMeta.cardSource
+            : undefined;
+        const currentSymbolType = typeof currentMeta.symbolType === 'string'
+            ? currentMeta.symbolType
+            : undefined;
+        const ownsCurrentSymbolMeta = currentMeta.symbolDetected === true
+            || currentCardSource === 'quick-symbol'
+            || currentQuickDetectReason === 'symbol-rule';
 
         const metaPatch: Record<string, unknown> = {};
         let changed = false;
@@ -1091,14 +1129,51 @@ export class XiuyuanSyncService {
                 changed = true;
             }
         } else {
-            const hadForceQuickRender = Object.prototype.hasOwnProperty.call(currentMeta, 'forceQuickRender');
-            const hadQuickDetectReason = Object.prototype.hasOwnProperty.call(currentMeta, 'quickDetectReason');
-            if (hadForceQuickRender || currentForceQuickRender) {
+            if (currentMeta.forceQuickRender !== undefined) {
                 metaPatch.forceQuickRender = undefined;
                 changed = true;
             }
-            if (hadQuickDetectReason || currentQuickDetectReason !== undefined) {
+            if (
+                currentQuickDetectReason === 'cloze-latex-numbered'
+                || (currentQuickDetectReason === 'symbol-rule' && !expectsQuickSymbol)
+            ) {
                 metaPatch.quickDetectReason = undefined;
+                changed = true;
+            }
+        }
+
+        if (expectsQuickSymbol) {
+            if (currentMeta.symbolDetected !== true) {
+                metaPatch.symbolDetected = true;
+                changed = true;
+            }
+            if (currentCardSource !== hintMeta.cardSource) {
+                metaPatch.cardSource = hintMeta.cardSource;
+                changed = true;
+            }
+            if (currentSymbolType !== hintMeta.symbolType) {
+                metaPatch.symbolType = hintMeta.symbolType;
+                changed = true;
+            }
+            if (currentQuickDetectReason !== 'symbol-rule') {
+                metaPatch.quickDetectReason = 'symbol-rule';
+                changed = true;
+            }
+            if (currentMeta.forceProtyleRender !== undefined) {
+                metaPatch.forceProtyleRender = undefined;
+                changed = true;
+            }
+        } else if (ownsCurrentSymbolMeta) {
+            if (currentMeta.symbolDetected !== undefined) {
+                metaPatch.symbolDetected = undefined;
+                changed = true;
+            }
+            if (currentCardSource === 'quick-symbol') {
+                metaPatch.cardSource = undefined;
+                changed = true;
+            }
+            if (currentSymbolType !== undefined) {
+                metaPatch.symbolType = undefined;
                 changed = true;
             }
         }
@@ -1124,6 +1199,9 @@ export class XiuyuanSyncService {
             cardType,
             forceQuickRender: shouldForceQuickRender,
             quickDetectReason: expectedReason,
+            symbolDetected: hintMeta.symbolDetected,
+            cardSource: hintMeta.cardSource,
+            symbolType: hintMeta.symbolType,
         });
         return true;
     }

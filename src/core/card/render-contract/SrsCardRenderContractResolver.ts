@@ -5,6 +5,10 @@ import {
   isConceptDefinitionCard,
   isDescriptorSemanticCard,
 } from '@/core/xiuyuan/cardMeta';
+import {
+  resolveRiffSymbolRenderRepair,
+  type RiffSymbolRenderRepairPatch,
+} from './RiffSymbolRenderRepair';
 
 export type SrsCardRenderContractRendererKind =
   | 'image-occlusion'
@@ -52,7 +56,7 @@ export interface SrsCardRenderRequiredReceipt {
 }
 
 export interface SrsCardRenderEvidence {
-  source: 'meta';
+  source: 'meta' | 'live-source';
   path: string;
   value: unknown;
 }
@@ -81,6 +85,7 @@ export interface SrsCardRenderContractResolverInput {
   profile?: SupportedRenderProfile | string | null;
   contentBlockId?: string | null;
   answerBlockId?: string | null;
+  sourceContent?: string | null;
 }
 
 export function resolveSrsCardRenderContract(
@@ -89,8 +94,21 @@ export function resolveSrsCardRenderContract(
   const card = input.card;
   const meta = readMeta(card);
   const profile = input.profile ?? (readString(meta.renderProfile) || null);
-  const quickSymbolEvidence = collectQuickSymbolEvidence(meta);
+  const riffSymbolRepair = resolveRiffSymbolRenderRepair({
+    cardType: card?.type,
+    meta,
+    sourceContent: input.sourceContent,
+  });
+  const quickSymbolEvidence: SrsCardRenderEvidence[] = [
+    ...collectQuickSymbolEvidence(meta),
+    ...riffSymbolRepair.evidence,
+  ];
+  const quickSymbolType = readString(meta.symbolType) || riffSymbolRepair.symbolType;
   const diagnostics: string[] = [];
+  diagnostics.push(...riffSymbolRepair.diagnostics);
+  if (riffSymbolRepair.status === 'repair-required') {
+    diagnostics.push('render-contract-riff-symbol-repair-required');
+  }
 
   let rendererKind: SrsCardRenderContractRendererKind = 'protyle';
   let renderFamily: SrsCardRenderFamily = 'protyle';
@@ -132,7 +150,7 @@ export function resolveSrsCardRenderContract(
     diagnostics.push('render-contract-stale-force-protyle');
   }
 
-  if (renderFamily === 'quick-symbol' && !readString(meta.symbolType)) {
+  if (renderFamily === 'quick-symbol' && !quickSymbolType) {
     diagnostics.push('render-contract-symbol-type-missing');
   }
 
@@ -146,6 +164,7 @@ export function resolveSrsCardRenderContract(
     answerBlockId: input.answerBlockId,
     renderFamily,
     quickSymbolEvidence,
+    quickSymbolType,
   });
   diagnostics.push(...requiredReceipts
     .filter(receipt => receipt.diagnostic)
@@ -161,7 +180,10 @@ export function resolveSrsCardRenderContract(
     frontBackContract: buildFrontBackContract(renderFamily),
     requiredReceipts,
     quickSymbolEvidence,
-    repairPatch: buildQuickSymbolRepairPatch(meta, renderFamily),
+    repairPatch: mergeRepairPatches(
+      buildQuickSymbolRepairPatch(meta, renderFamily),
+      riffSymbolRepair.repairPatch,
+    ),
     diagnostics: Array.from(new Set(diagnostics)),
   };
 }
@@ -188,6 +210,7 @@ function buildRequiredReceipts(input: {
   answerBlockId?: string | null;
   renderFamily: SrsCardRenderFamily;
   quickSymbolEvidence: SrsCardRenderEvidence[];
+  quickSymbolType: string;
 }): SrsCardRenderRequiredReceipt[] {
   const blockId = readString(input.card?.blockId);
   const contentBlockId = readString(input.contentBlockId);
@@ -218,9 +241,9 @@ function buildRequiredReceipts(input: {
     {
       kind: 'quick-symbol-type',
       status: requiresQuick
-        ? readString(meta.symbolType) ? 'present' : 'missing'
+        ? input.quickSymbolType ? 'present' : 'missing'
         : 'not-required',
-      diagnostic: requiresQuick && !readString(meta.symbolType)
+      diagnostic: requiresQuick && !input.quickSymbolType
         ? 'render-contract-symbol-type-missing'
         : undefined,
     },
@@ -243,6 +266,29 @@ function buildRequiredReceipts(input: {
   ];
 
   return receipts;
+}
+
+function mergeRepairPatches(
+  base: SrsCardRenderRepairPatch | null,
+  incoming: RiffSymbolRenderRepairPatch | null,
+): SrsCardRenderRepairPatch | null {
+  if (!base && !incoming) {
+    return null;
+  }
+
+  const metaPatch = {
+    ...(base?.metaPatch ?? {}),
+    ...(incoming?.metaPatch ?? {}),
+  };
+  const metaDelete = Array.from(new Set([
+    ...(base?.metaDelete ?? []),
+    ...(incoming?.metaDelete ?? []),
+  ]));
+
+  return {
+    ...(Object.keys(metaPatch).length > 0 ? { metaPatch } : {}),
+    ...(metaDelete.length > 0 ? { metaDelete } : {}),
+  };
 }
 
 function buildQuickSymbolRepairPatch(

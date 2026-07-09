@@ -99,8 +99,52 @@ The default learning system where SiYuanMemo owns card identity, scheduling trut
 _Avoid_: Riff as source of truth, native deck as primary scheduler
 
 **Native Riff Compatibility**:
-Optional interoperability with SiYuan's native Riff deck for importing, registering, or rating native cards without making native Riff the scheduling authority.
-_Avoid_: mandatory Riff sync, shadow-card truth, default dual scheduling
+Legacy interoperability vocabulary retained for migration context. Active product behavior treats native Riff only as a read-only source for **Explicit Native Riff Import**; SiYuanMemo does not register, delete, rate, or continuously synchronize native Riff cards.
+_Avoid_: Riff writes, mandatory Riff sync, shadow-card truth, default dual scheduling
+
+**Native Riff Read-Only Import Source**:
+The external-source role assigned to native Riff. SiYuanMemo may read it only through **Explicit Native Riff Import** and must never call native add-card, remove-card, or rating operations. Native Riff remains independently usable through SiYuan itself.
+_Avoid_: outbound Riff writes, feedback bridge, plugin-owned native Riff lifecycle
+
+**Native Riff Import Tombstone**:
+Persistent evidence that a native Riff-backed card was intentionally removed from SiYuanMemo. Later explicit Native Riff import must skip the matching card by default; restoring it requires a separate explicit restore-and-import intent.
+_Avoid_: import as implicit restore, sync clearing tombstones, native Riff presence overriding local deletion intent
+
+**Native Riff Import Schedule Seed**:
+A one-time valid current-schedule snapshot used only when explicitly importing a native Riff card that does not already exist in SiYuanMemo. It may initialize current due and scheduling state, but it does not import the full native review history, cannot overwrite an existing SiYuanMemo-owned schedule, and grants no continuing scheduling authority to native Riff.
+_Avoid_: ongoing schedule mirroring, re-import overwriting local review state, native Riff as second scheduling truth
+
+**Native Riff Imported Card Adoption**:
+An in-place migration that converts an existing `riff-managed` SiYuanMemo card into `local-owned` state while preserving its SiYuanMemo card identity, Xiuyuan identity, scheduling state, review history, tags, and priority. Adoption does not recreate the card, reset learning state, or delete the native Riff card.
+_Avoid_: delete-and-recreate migration, new-card reset, identity replacement, native Riff hard-delete as adoption
+
+**Native Riff Import Receipt**:
+Immutable provenance recording the native Riff card identity, deck identity, and initial import time for idempotent import and diagnostics. It is historical evidence only: it is not sync ownership, a live link, or scheduling authority, and its presence must not classify a card as `riff-managed`.
+_Avoid_: `riffCardId` implying ownership, receipt-driven update propagation, receipt as sync checkpoint
+
+**Native Riff Adoption Semantic Rebuild**:
+The adoption phase that reads current SiYuan block Markdown and rebuilds semantic kind, card faces, template metadata, symbol evidence, and the SRS Card Render Contract while preserving card identity and learning state. Invalid or unavailable source grammar fails closed and enters an explicit repair report; it must not silently select Protyle.
+_Avoid_: rebuilding from stale Riff face text, preserving `builtin-riff-sync` as renderer identity, hidden Protyle fallback
+
+**Explicit Native Riff Import**:
+A user-initiated preview-and-apply flow and the only runtime path allowed to read native Riff for importing cards into SiYuanMemo. Plugin startup, Browser open, Review open, timers, and native Riff transactions must not trigger import scans; native Riff removal does not delete an already imported SiYuanMemo card.
+_Avoid_: passive import, startup sync, Browser-open sync, transaction-driven upsert/remove, scheduled full reconcile
+
+**Native Riff Import Face Completion**:
+The explicit-import rule that compares semantic card-face identity for a source block and creates only missing faces. Existing matching faces remain unchanged, including scheduling and review state; ambiguous grammar or face-identity changes are reported as conflicts rather than automatically deleting or replacing existing faces.
+_Avoid_: whole-block duplicate suppression, overwriting an existing face, import-driven face deletion
+
+**Native Riff Import-Repair Separation**:
+The ownership rule that ordinary explicit import does not mutate an existing `local-owned` face. Import may report that an existing face needs semantic or render repair, but a separate repair action owns that mutation. The only exception is one-time **Native Riff Imported Card Adoption**, whose migration contract includes **Native Riff Adoption Semantic Rebuild**.
+_Avoid_: import as general repair command, silent mutation of existing local cards, duplicated repair logic
+
+**Explicit Native Riff Adoption**:
+A user-initiated preview-and-apply migration for existing `riff-managed` SiYuanMemo cards. Startup may report the number of adoption candidates but must not mutate ownership, templates, faces, render contracts, scheduling state, or review history. Preview classifies adoptable, already-local, tombstoned, source-missing, and semantic-conflict cases before any write.
+_Avoid_: startup migration writes, silent bulk ownership rewrite, unreviewed semantic rebuild
+
+**Legacy Riff Import Exclusion**:
+A migration-only, read-only exclusion converted from the retired Riff blacklist. It conservatively blocks ordinary explicit import without claiming local deletion intent or ownership; preview exposes it as legacy-blacklisted, and only explicit restore-and-import removes the exclusion. The legacy blacklist Module and storage disappear after conversion.
+_Avoid_: discarding blacklist behavior, pretending blacklist equals tombstone, permanent hidden exclusion
 
 **Browser Read Model**:
 The authoritative Browser-facing read contract that resolves matched row identity, count, page hydration, row-by-ID hydration, action targets, and source-existence state for deck, query, block-ID, and queue views. It reads from the declared owner for each view and must not replace unavailable owner data with stale local queue or snapshot data.
@@ -121,6 +165,14 @@ _Avoid_: SessionQueueIndex, active Review frontier, Review answer authority, hid
 **SRS Review Kernel**:
 The worker-owned Review answer Module that owns active session start/current/answer/skip/undo/lookahead/counters/diagnostics for RetrievalPractice and IncrementalLearning after a session starts. It hides scheduler commit, Review Ledger, Card Schedule Store, SessionQueueIndex, inline Review Transaction Undo Journal evidence, next-card preparation, and diagnostics behind one small Interface; renderer cursor, BrowserProjectionIndex, and projection patching cannot become fallback answer authority after this kernel is selected.
 _Avoid_: renderer session cursor, Browser projection fallback, queue hot patch authority, UI-owned scheduler commit
+
+**Review Entry Target**:
+The read-only application contract that identifies how Review is launched: queue or managed-session identity, entry surface, exact-card or scope evidence, and whether a Review Admission Ticket is required. It does not describe current-item rendering, source content, scheduling commit, or mutable session state.
+_Avoid_: one broad Review target option bag, render metadata on session launch, treating a block id as queue identity
+
+**Review Content Target**:
+The read-only application contract for the item currently presented by Review. It identifies the canonical card, Topic-derived item, progressive excerpt, or source location together with source lineage, scheduling or processing classification, render intent, supported actions, and explicit unavailable evidence. SiYuan blocks and Xiuyuan aggregates remain content authority.
+_Avoid_: rediscovering target kind from scattered card metadata, copied question/answer ownership, using queue projection rows as content truth
 
 **Review Transaction Undo Journal**:
 The durable worker-owned undo evidence for accepted SRS Review answer/skip transactions. It records transaction id, undo token, original review identity, before/after card state, SessionQueueIndex frontier before/after, queue impact, projection generation, and idempotency status. Worker-backed answer evidence is persisted inside the same `review.feedback` transaction as Card Schedule Store and Review Ledger evidence; skip evidence remains a session skip transaction. Ordinary append/update mutations participate in SQLite delta durable replay so restart can restore undo-token evidence without treating this table as an unsupported full-checkpoint trigger. `SrsReviewKernel.undo` consumes this evidence to restore Card Schedule Store before-state, restore active Review frontier, and append explicit reversal evidence; missing or stale evidence fails closed.
@@ -214,9 +266,28 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - **AutoCard Listener Candidate Runtime** decides when transaction-derived AutoCard candidates are evaluated; **AutoCard Decision Relay** and **AutoCard Execute Relay** decide backend/writer command ownership after evaluation begins.
 - **SRS Browser Card Universe** scopes Browser filters, SQL searches, counts, and bulk operations to cards managed by SiYuanMemo.
 - **SiYuanMemo-owned SRS** owns ordinary card creation, scheduling, review history, and Browser membership.
-- **Native Riff Compatibility** may consume or update native Riff cards only as an explicit interoperability path.
+- **Native Riff Compatibility** may consume native Riff read evidence only through **Explicit Native Riff Import**.
 - **Native Riff Compatibility** must not create a second scheduling truth for cards already owned by **SiYuanMemo-owned SRS**.
+- Active **Native Riff Compatibility** is limited to the **Native Riff Read-Only Import Source** role; SiYuanMemo must not write native Riff state.
+- Explicit **Native Riff Compatibility** import must respect a matching **Native Riff Import Tombstone** unless the caller explicitly chooses restore-and-import.
+- A new explicit Native Riff import may consume one **Native Riff Import Schedule Seed**; after import, all future scheduling belongs to **SiYuanMemo-owned SRS**.
+- A **Native Riff Import Schedule Seed** must never overwrite scheduling or review state for an existing SiYuanMemo card.
+- **Native Riff Imported Card Adoption** moves an existing `riff-managed` card into **SiYuanMemo-owned SRS** without changing its local card or Xiuyuan identity.
+- **Native Riff Imported Card Adoption** may retain one **Native Riff Import Receipt**, but must remove continuing Riff sync ownership.
+- A **Native Riff Import Receipt** supports duplicate detection and diagnostics only; native Riff changes do not propagate through it.
+- **Native Riff Imported Card Adoption** performs **Native Riff Adoption Semantic Rebuild** from current SiYuan block Markdown without changing card identity, scheduling state, or review history.
+- **Native Riff Adoption Semantic Rebuild** must fail closed when source grammar is invalid or unavailable and must expose the card through an explicit repair report.
+- **Explicit Native Riff Import** is the only import read path; no plugin lifecycle or native transaction may initiate a Riff import scan.
+- After **Explicit Native Riff Import**, deletion or modification of the native Riff card does not mutate the adopted SiYuanMemo card.
+- **Explicit Native Riff Import** may read the **Native Riff Read-Only Import Source**, but no SiYuanMemo creation, deletion, Review, Progressive, Topic-derived item, or AutoCard path may write native Riff state.
+- **Explicit Native Riff Import** applies **Native Riff Import Face Completion** by semantic `block + face/rule` identity, leaving existing matching faces unchanged.
+- **Explicit Native Riff Import** follows **Native Riff Import-Repair Separation**: an existing `local-owned` face is reported as already owned or needing repair, but is not mutated by import.
+- **Explicit Native Riff Adoption** is the only path that may apply **Native Riff Imported Card Adoption** in bulk; startup is read-only and may expose candidate counts only.
+- **Explicit Native Riff Import** skips matching **Legacy Riff Import Exclusion** entries by default and exposes explicit restore-and-import as the only revival path.
 - A **Browser Read Model** consumes **SRS Browser Card Universe** and, for projection-backed queue views, consumes queue projection identity before hydrating Browser rows.
+- A **Review Entry Target** is resolved before Review Admission or session creation and determines only launch/session identity.
+- A **Review Content Target** is resolved for the current item before Review Renderable Context, SRS Card Render Contract, editing, or source navigation consumes it.
+- The **SRS Review Kernel** consumes a valid **Review Entry Target** plus required Review Admission evidence when starting a worker-backed session and returns the current **Review Content Target** as part of authoritative session state.
 - The **SRS Review Kernel** consumes **Review Ledger**, **Card Schedule Store**, and **SessionQueueIndex** internally, and exposes only active Review session operations to renderer-side adapters.
 - The **SRS Review Kernel** owns **Review Transaction Undo Journal** evidence for worker-backed `go-back`; **Review History** remains local-only for non-worker sessions and failed-feedback cleanup.
 - **Review Storage Audit** compares **Review Ledger** facts, **Card Schedule Store** rows, and derived projection evidence; repair remains explicit and evidence-complete, never a hidden Browser/queue projection fallback.
@@ -256,6 +327,17 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - AutoCard listener retry/settle state was ambiguous with decision and execute command ownership. Resolved: **AutoCard Listener Candidate Runtime** owns candidate lifecycle timing/diagnostics only; decision/execute routing and write side effects stay outside it.
 - SRS Browser filtering was ambiguous between arbitrary block SQL and plugin-managed cards. Resolved: **SRS Browser Card Universe** is the outer scope; SQL results are intersected with it.
 - "Riff" was used to mean native card registration, import, feedback, sync, and scheduling truth. Resolved: **SiYuanMemo-owned SRS** is the default truth; **Native Riff Compatibility** is optional interoperability.
+- Re-importing a locally deleted native Riff-backed card was ambiguous. Resolved: a **Native Riff Import Tombstone** blocks ordinary explicit import; only a separate restore-and-import intent may revive the card.
+- Importing an already-reviewed native Riff card was ambiguous. Resolved: a new card may inherit one valid **Native Riff Import Schedule Seed**, without importing full native review history; subsequent scheduling is exclusively SiYuanMemo-owned.
+- Migrating existing `riff-managed` cards was ambiguous. Resolved: use **Native Riff Imported Card Adoption** in place; preserve local identity and learning state, and do not recreate or delete the native card.
+- Retaining native Riff identity after adoption was ambiguous. Resolved: preserve a read-only **Native Riff Import Receipt** for idempotency and diagnostics, but remove live sync ownership; receipt presence alone never implies `riff-managed`.
+- Repairing old Riff-imported render metadata during adoption was ambiguous. Resolved: perform **Native Riff Adoption Semantic Rebuild** from live block Markdown; preserve learning state and report invalid grammar instead of silently falling back to Protyle.
+- Whether native Riff should still be scanned passively was ambiguous. Resolved: only **Explicit Native Riff Import** may read Riff for import; remove startup, Browser/Review-open, timer, checkpoint, full-reconcile, and transaction-driven import behavior.
+- Whether SiYuanMemo may still write native Riff was ambiguous. Resolved: native Riff is a **Native Riff Read-Only Import Source** only; remove add, delete, rating, and feedback write paths from SiYuanMemo.
+- Importing a source block that already has some local faces was ambiguous. Resolved: use **Native Riff Import Face Completion** to create only missing semantic faces; existing faces are never overwritten, and identity conflicts require explicit resolution.
+- Whether import should repair existing local cards was ambiguous. Resolved: enforce **Native Riff Import-Repair Separation**; ordinary import reports repair needs without mutating existing `local-owned` faces, while one-time adoption retains its semantic-rebuild exception.
+- Whether existing `riff-managed` cards should be adopted automatically was ambiguous. Resolved: only **Explicit Native Riff Adoption** may apply the migration; startup may report candidates but performs no adoption writes.
+- The retired Riff blacklist did not reliably prove deletion intent. Resolved: migrate entries into **Legacy Riff Import Exclusion**, preserve conservative import suppression, permit explicit restore, then delete blacklist runtime and storage.
 - Browser read ownership was ambiguous between grid datasource sessions, queue projections, SQL card-universe reads, and stale local queue cards. Resolved: **Browser Read Model** owns Browser-facing matched IDs/counts/hydration and must consume the declared owner for each view.
 - Temporary and deliberate practice were described as unable to render links. Resolved: the issue belongs to **Custom Review Surface** rendering, not to those practice modes as domain concepts.
 - Semantic read assembly was ambiguous with core projection building. Resolved: **Semantic Session Read Model** names the presentation-ready read model derived from Semantic session owner state, while core projection remains the lower-level tree/path/branch derivation.

@@ -58,6 +58,7 @@ export function buildReviewRenderableRenderPolicy(
   context: {
     contentBlockId?: string | null;
     answerBlockId?: string | null;
+    sourceContent?: string | null;
   } = {},
 ): ReviewRenderableRenderPolicy {
   const meta = readMeta(card);
@@ -67,6 +68,7 @@ export function buildReviewRenderableRenderPolicy(
     profile,
     contentBlockId: context.contentBlockId,
     answerBlockId: context.answerBlockId,
+    sourceContent: context.sourceContent,
   });
   const quickSymbolContract = isQuickSymbolRenderContract(renderContract);
   const forceProtyleRender = meta.forceProtyleRender === true && !quickSymbolContract;

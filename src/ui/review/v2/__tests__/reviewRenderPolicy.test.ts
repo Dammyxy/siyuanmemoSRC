@@ -324,6 +324,44 @@ describe('reviewRenderPolicy', () => {
     }));
   });
 
+  it('routes riff-managed symbol cards through the quick renderer when live source evidence is provided', () => {
+    const policy = buildReviewRenderableRenderPolicy(createCard({
+      id: '20260610140511-bb340gl',
+      blockId: '20260610140511-bb340gl',
+      meta: {
+        templateID: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+        faces: [{
+          question: '反思&gt;&gt;反思',
+          answer: '',
+        }],
+      },
+    }), {
+      contentBlockId: '20260610140511-bb340gl',
+      sourceContent: '反思>>反思',
+    });
+
+    expect(policy).toEqual(expect.objectContaining({
+      specialRendererKind: 'quick',
+      semanticKind: 'quick',
+      forceProtyleRender: false,
+      forceQuickRender: true,
+      renderContract: expect.objectContaining({
+        rendererKind: 'quick',
+        renderFamily: 'quick-symbol',
+        repairPatch: expect.objectContaining({
+          metaPatch: expect.objectContaining({
+            symbolType: '>>',
+          }),
+        }),
+      }),
+      diagnostics: expect.arrayContaining([
+        'render-contract-riff-symbol-repair-required',
+      ]),
+    }));
+  });
+
   it('routes image occlusion cards before custom prepared renderers', () => {
     const card = createCard({
       meta: {

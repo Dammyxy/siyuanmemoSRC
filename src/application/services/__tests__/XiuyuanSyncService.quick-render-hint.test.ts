@@ -154,6 +154,95 @@ describe('XiuyuanSyncService quick render hint', () => {
     expect(meta.quickDetectReason).toBeUndefined();
   });
 
+  it('repairs existing builtin-riff-sync item metadata from live quick-symbol source', async () => {
+    const { xiuyuanEntity: existingXiuyuan } = await (service as any).convertRiffCardToFSRSCard(
+      createRiffBlock({
+        id: '20260610140511-bb340gl',
+        content: '普通 Riff 卡',
+        ial: { 'custom-fsrs-card-type': 'item' },
+      })
+    );
+
+    expect(existingXiuyuan.getTemplateID().getValue()).toBe('builtin-riff-sync');
+    const originalCard = existingXiuyuan.getCards()[0];
+    vi.mocked(xiuyuanRepository.findById).mockResolvedValue({
+      ok: true,
+      value: existingXiuyuan,
+    });
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([
+      createRiffBlock({
+        id: '20260610140511-bb340gl',
+        content: '反思>>反思',
+        ial: { 'custom-fsrs-card-type': 'item' },
+      }),
+    ]);
+
+    await service.incrementalSync();
+
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.metadataUpdates).toHaveLength(1);
+    const plannedXiuyuan = changeSet?.metadataUpdates[0]?.xiuyuanEntity;
+    expect(plannedXiuyuan?.getTemplateID().getValue()).toBe('builtin-riff-sync');
+    expect(plannedXiuyuan?.getMeta()).toMatchObject({
+      ownership: 'riff-managed',
+      source: 'riff-sync',
+      symbolDetected: true,
+      cardSource: 'quick-symbol',
+      symbolType: '>>',
+      quickDetectReason: 'symbol-rule',
+    });
+    expect(existingXiuyuan.getMeta().symbolDetected).toBeUndefined();
+    expect(plannedXiuyuan?.getId().getValue()).toBe(existingXiuyuan.getId().getValue());
+    expect(plannedXiuyuan?.getBlockIDs().map(blockId => blockId.getValue())).toEqual([
+      '20260610140511-bb340gl',
+    ]);
+    expect(plannedXiuyuan?.getCards()[0]?.getId().getValue()).toBe(originalCard?.getId().getValue());
+    expect(plannedXiuyuan?.getCards()[0]?.getScheduleInfo().equals(
+      originalCard!.getScheduleInfo()
+    )).toBe(true);
+  });
+
+  it('clears persisted quick-symbol metadata when live source becomes plain content', async () => {
+    const { xiuyuanEntity: existingXiuyuan } = await (service as any).convertRiffCardToFSRSCard(
+      createRiffBlock({
+        id: '20260610140511-bb340gm',
+        content: '普通 Riff 卡',
+        ial: { 'custom-fsrs-card-type': 'item' },
+      })
+    );
+    existingXiuyuan.updateMeta({
+      symbolDetected: true,
+      cardSource: 'quick-symbol',
+      symbolType: '>>',
+      quickDetectReason: 'symbol-rule',
+    });
+
+    vi.mocked(xiuyuanRepository.findById).mockResolvedValue({
+      ok: true,
+      value: existingXiuyuan,
+    });
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([
+      createRiffBlock({
+        id: '20260610140511-bb340gm',
+        content: '已经改成普通内容',
+        ial: { 'custom-fsrs-card-type': 'item' },
+      }),
+    ]);
+
+    await service.incrementalSync();
+
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.metadataUpdates).toHaveLength(1);
+    expect(changeSet?.metadataUpdates[0]?.xiuyuanEntity.getMeta()).toMatchObject({
+      ownership: 'riff-managed',
+      source: 'riff-sync',
+      symbolDetected: undefined,
+      cardSource: undefined,
+      symbolType: undefined,
+      quickDetectReason: undefined,
+    });
+  });
+
   it('adds quick render hint when existing Xiuyuan is updated to numbered latex cloze item', async () => {
     const { xiuyuanEntity: existingXiuyuan } = await (service as any).convertRiffCardToFSRSCard(
       createRiffBlock({

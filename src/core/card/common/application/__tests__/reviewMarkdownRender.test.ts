@@ -31,6 +31,30 @@ describe('reviewMarkdownRender', () => {
     expect(blockFlow.html).not.toContain('{:');
   });
 
+  it('strips leading Siyuan attribute artifacts before ordered-list child text', () => {
+    vi.stubGlobal('window', {
+      Lute: {
+        New: () => ({
+          Md2BlockDOM: (markdown: string) => `<block>${markdown}</block>`,
+        }),
+      },
+    });
+
+    const rendered = renderReviewMarkdown(
+      [
+        '{: updated="20260303165837" id="20260303165824-hzt3oc9"}3->测试 1',
+        '{: id="20260303165825-e4x2b7p" updated="20260303165826"}4',
+      ].join('\n'),
+      {
+        forceRenderKind: 'block-flow',
+      },
+    );
+
+    expect(rendered.html).toBe('<block>3->测试 1\n4</block>');
+    expect(rendered.html).not.toContain('{:');
+    expect(rendered.html).not.toContain('updated=');
+  });
+
   it('falls back to cleaned escaped html when Lute is unavailable', () => {
     vi.stubGlobal('window', {});
 

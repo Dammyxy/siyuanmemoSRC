@@ -110,6 +110,37 @@ describe('XiuyuanListTemplateCard', () => {
     expect(wrapper.find('.xiuyuan-previous-answers strong').text()).toBe('答案一');
   });
 
+  it('removes line-leading Siyuan attrs from ordered-list child review text', async () => {
+    const siyuanApi = createSiyuanApiMock();
+    siyuanApi.__setBlockMarkdown({
+      child_1: '{: updated="20260303165837" id="20260303165824-hzt3oc9"}3->测试 1',
+      child_2: '{: id="20260303165825-e4x2b7p" updated="20260303165826"}4',
+    });
+
+    const wrapper = mount(XiuyuanListTemplateCard, {
+      props: {
+        meta: createMeta({
+          currentIndex: 1,
+          allChildren: [
+            { id: 'child_1', cue: '3', answer: '测试 1', index: 0 },
+            { id: 'child_2', cue: '', answer: '4', index: 1 },
+          ],
+        }),
+        showAnswer: false,
+        questionBlockId: 'q_1',
+        siyuanApi,
+        richContentRenderer,
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('测试 1');
+    expect(wrapper.text()).toContain('4');
+    expect(wrapper.text()).not.toContain('{:');
+    expect(wrapper.text()).not.toContain('updated=');
+    expect(wrapper.find('.xiuyuan-current-cue').exists()).toBe(false);
+  });
+
   it('uses shared breadcrumb normalization and keeps same-name ancestors with different ids', async () => {
     getBlockBreadcrumbMock.mockResolvedValue([
       { id: 'doc-1', name: 'Doc', type: 'NodeDocument' },

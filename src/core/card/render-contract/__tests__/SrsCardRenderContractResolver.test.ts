@@ -158,4 +158,79 @@ describe('SrsCardRenderContractResolver', () => {
       'render-contract-source-block-mismatch',
     ]));
   });
+
+  it('repairs riff-managed symbol cards from live source grammar', () => {
+    const contract = resolveSrsCardRenderContract({
+      card: buildCard({
+        id: '20260610140511-bb340gl',
+        blockId: '20260610140511-bb340gl',
+        meta: {
+          templateID: 'builtin-riff-sync',
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+          faces: [{
+            question: '反思&gt;&gt;反思',
+            answer: '',
+          }],
+        },
+      }),
+      contentBlockId: '20260610140511-bb340gl',
+      sourceContent: '反思>>反思',
+    });
+
+    expect(contract).toMatchObject({
+      rendererKind: 'quick',
+      renderFamily: 'quick-symbol',
+      frontBackContract: {
+        mode: 'quick-side',
+        beforeReveal: 'front',
+        afterReveal: 'back',
+      },
+      repairPatch: {
+        metaPatch: {
+          symbolDetected: true,
+          cardSource: 'quick-symbol',
+          symbolType: '>>',
+          quickDetectReason: 'symbol-rule',
+        },
+      },
+    });
+    expect(receiptStatus(contract, 'quick-symbol-evidence')).toBe('present');
+    expect(receiptStatus(contract, 'quick-symbol-type')).toBe('present');
+    expect(contract.quickSymbolEvidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'live-source',
+        path: 'sourceContent',
+        value: '>>',
+      }),
+    ]));
+    expect(contract.diagnostics).toContain('render-contract-riff-symbol-repair-required');
+  });
+
+  it('does not route stale riff face text to quick rendering without live source evidence', () => {
+    const contract = resolveSrsCardRenderContract({
+      card: buildCard({
+        id: '20260610140511-bb340gl',
+        blockId: '20260610140511-bb340gl',
+        meta: {
+          templateID: 'builtin-riff-sync',
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+          faces: [{
+            question: '反思&gt;&gt;反思',
+            answer: '',
+          }],
+        },
+      }),
+      contentBlockId: '20260610140511-bb340gl',
+    });
+
+    expect(contract).toMatchObject({
+      rendererKind: 'protyle',
+      renderFamily: 'protyle',
+      repairPatch: null,
+    });
+    expect(contract.quickSymbolEvidence).toEqual([]);
+    expect(contract.diagnostics).toContain('riff-symbol-live-source-missing');
+  });
 });

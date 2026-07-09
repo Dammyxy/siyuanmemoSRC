@@ -1,4 +1,5 @@
 const ZERO_WIDTH_RE = /[\u200B-\u200D\uFEFF\u2060]/g;
+const LEADING_BLOCK_ATTR_PATTERN = /^\s*\{:[^{}]*\}\s*/;
 const TRAILING_BLOCK_ATTR_PATTERN = /\s*\{:[^{}]*\}\s*$/s;
 const FW_SEMICOLON = '\uFF1B';
 const DESCRIPTOR_MULTILINE_TAIL_RE = new RegExp(`\\s*(;;;|${FW_SEMICOLON}{3})\\s*$`);
@@ -10,6 +11,7 @@ export type CueAnswerPair = {
 
 export function normalizeCueAnswerSource(source: string): string {
   return String(source || '')
+    .replace(LEADING_BLOCK_ATTR_PATTERN, '')
     .replace(TRAILING_BLOCK_ATTR_PATTERN, '')
     .replace(ZERO_WIDTH_RE, '')
     .trim();

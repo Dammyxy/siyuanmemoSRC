@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 687)
+Last update: 2026-07-10 (Round 689)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Native Riff quick-symbol render repair
+
+- Task: 修复历史 Native Riff Compatibility 卡片保留 `反思>>反思` live source、但丢失 quick-symbol 元信息后在 Review 显示整块内容的问题。
+- Touched slice: Review / Xiuyuan / SRS Card Render Contract in `src/core/card/render-contract/RiffSymbolRenderRepair.ts`, `SrsCardRenderContractResolver.ts`, `reviewRenderableRenderPolicy.ts`, `XiuyuanSyncService.ts`, and focused contract/policy/sync tests.
+- Debt fixed now: Added one fail-closed Riff Symbol Render Repair Module over riff-managed `builtin-riff-sync` item metadata plus live source; Review contract can recover quick renderer evidence without UI-side symbol guessing; incremental Native Riff sync persists `symbolDetected/cardSource/symbolType/quickDetectReason`, clears stale symbol evidence when source becomes plain, and preserves card/block identity plus scheduling truth.
+- Debt deferred: No repo-wide eager migration scans every historical Xiuyuan record outside normal Native Riff sync or Review live-source resolution.
+- Why deferred: Correct repair requires trusted live block content. Bulk metadata mutation without reading current source would recreate the stale-face guessing defect this change removes.
+- Next safe step: Rebuild/reload, run incremental/full Native Riff sync, then verify card/block `20260610140511-bb340gl` renders `反思` before reveal and `反思` after reveal through QuickCardRenderer.
+- Validation: 35 focused Vitest regressions passed across render contract, Review policy, and Xiuyuan sync; `pnpm run check:boundaries` passed; hidden-fallback check passed; `pnpm build` passed with existing non-blocking i18n/Sass warnings.
+
+### 2026-07-10 - Ordered-list review IAL cleanup
+
+- Task: 修复有序列表卡 Review 渲染时把思源 IAL 属性文本 `{: ...}` 直接显示出来的问题。
+- Touched slice: Review / Xiuyuan list-template rich-content cleanup in `src/core/card/common/utils/stripSiyuanBlockAttributeArtifacts.ts`, `src/core/xiuyuan/parseCueAndAnswer.ts`, shared review markdown tests, and `XiuyuanListTemplateCard` regression coverage.
+- Debt fixed now: Shared review kramdown cleanup now strips line-leading IAL artifacts, including numbered-list prefixes, before Lute/render fallback sees the content; Xiuyuan cue/answer parsing also removes leading block attrs so list-template child blocks do not leak `updated/id` metadata into cue or answer text.
+- Debt deferred: Existing list-template semantic/direct display split and older `renderListTemplate.ts` helper remain untouched.
+- Why deferred: The visible defect is metadata leakage during active Review rendering. Reworking list-template renderer ownership would widen the slice beyond the failing ordered-list card path.
+- Next safe step: If more list-template rendering drift appears, consolidate remaining legacy helpers behind `XiuyuanListTemplateCard` / shared rich-content renderer instead of adding another local sanitizer.
+- Validation: `pnpm exec vitest run src/core/card/common/application/__tests__/reviewMarkdownRender.test.ts src/ui/review/v2/components/__tests__/XiuyuanListTemplateCard.test.ts --reporter=dot`.
 
 ### 2026-07-10 - Kernel companion background work status read model
 
