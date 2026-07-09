@@ -79,8 +79,12 @@ The AutoCard listener lifecycle module that tracks transaction-derived candidate
 _Avoid_: AutoCard Decision Relay, AutoCard Execute Relay, local planner rules, Xiuyuan write owner, Topic-derived item creation, document scan semantics
 
 **Kernel Companion Background Work**:
-The application/backend-client lifecycle Module for long SiYuanMemo maintenance jobs coordinated with the kernel companion. It owns submit/status/cancel/defer/shutdown vocabulary for work such as Review truth backfill, Xiuyuan startup sync, and kernel transaction action polling. Current P0 implementation routes Review truth backfill, Xiuyuan startup sync, and kernel transaction action polling through this registry; kernel companion code remains coordination/relay only, while scheduler, card DB, msgpack truth, Riff/card writes, and SQLite writes stay with their current owners.
+The application/backend-client lifecycle Module for long SiYuanMemo maintenance jobs coordinated with the kernel companion. Its registry owns submit/status/cancel/defer/shutdown vocabulary for work such as Review truth backfill, Xiuyuan startup sync, and kernel transaction action polling. Current P0 implementation routes Review truth backfill, Xiuyuan startup sync, and kernel transaction action polling through this registry; kernel companion code remains coordination/relay only, while scheduler, card DB, msgpack truth, Riff/card writes, and SQLite writes stay with their current owners.
 _Avoid_: frontend unload waiting for heavy maintenance, kernel JS owning card persistence, hidden shutdown retry loops
+
+**Kernel Companion Background Work Status**:
+The read-only application status Module over Kernel Companion Background Work registry records. It owns normalized list/get status, kind filtering, stable newest-first ordering, terminal timestamp naming, and content-safe diagnostic redaction for Review truth backfill, Xiuyuan startup sync, and kernel transaction action polling. It may consume cloned registry records, but it must not submit, cancel, defer, retry, shutdown, or expose card/block content, SQL payloads, or host-effect request bodies.
+_Avoid_: raw registry records as UI contract, status reads that mutate lifecycle, diagnostic payload leaks
 
 **Xiuyuan Startup Sync Lifecycle**:
 The Xiuyuan sync Module for plugin-start full/incremental sync execution phases behind Kernel Companion Background Work. It owns scan/plan/apply/checkpoint phase diagnostics and cooperative cancellation checks between phases, while existing Xiuyuan/backend sync owners still own Riff/card writes, SQLite writes, native Riff compatibility, sync planning, and idempotent recovery.

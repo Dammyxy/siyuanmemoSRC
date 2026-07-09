@@ -135,11 +135,16 @@ import { assertCommittedReviewFeedbackDurability } from './reviewFeedbackDurabil
 import {
   KernelCompanionBackgroundWorkRegistry,
   type KernelCompanionBackgroundWorkHandlerResult,
-  type KernelCompanionBackgroundWorkRecord,
   type KernelCompanionBackgroundWorkRegistryInterface,
   type KernelCompanionBackgroundWorkRunContext,
   type KernelCompanionReviewTruthBackfillDiagnostics,
 } from '../backgroundWork/KernelCompanionBackgroundWorkRegistry';
+import {
+  KernelCompanionBackgroundWorkStatusReadModel,
+  type KernelCompanionBackgroundWorkStatusJob,
+  type KernelCompanionBackgroundWorkStatusReadModelInterface,
+  type KernelCompanionBackgroundWorkStatusReadOptions,
+} from '../backgroundWork/KernelCompanionBackgroundWorkStatusReadModel';
 
 const logger = createLogger('SrsBackendClient');
 const REVIEW_FEEDBACK_CLIENT_STEP_SLOW_MS = 500;
@@ -190,6 +195,7 @@ export class SrsBackendClient {
   private readonly reviewTruthDeviceDiagnostics: BackendReviewTruthDeviceDiagnostics | null;
   private readonly canWriteReviewTruth: () => boolean;
   private readonly backgroundWorkRegistry: KernelCompanionBackgroundWorkRegistryInterface;
+  private readonly backgroundWorkStatusReadModel: KernelCompanionBackgroundWorkStatusReadModelInterface;
   private reviewTruthFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private reviewTruthFlushInFlight = false;
   private reviewTruthFlushInFlightPromise: Promise<void> | null = null;
@@ -213,6 +219,7 @@ export class SrsBackendClient {
     this.reviewTruthDeviceDiagnostics = options.reviewTruthDevice ?? null;
     this.canWriteReviewTruth = options.canWriteReviewTruth ?? (() => true);
     this.backgroundWorkRegistry = options.backgroundWorkRegistry ?? new KernelCompanionBackgroundWorkRegistry();
+    this.backgroundWorkStatusReadModel = new KernelCompanionBackgroundWorkStatusReadModel(this.backgroundWorkRegistry);
   }
 
   async systemHealth(): Promise<BackendHealthResult> {
@@ -445,12 +452,14 @@ export class SrsBackendClient {
     return this.reviewClient.reviewTruthMaintenanceStatus();
   }
 
-  backgroundWorkStatus(): KernelCompanionBackgroundWorkRecord[];
-  backgroundWorkStatus(jobId: string): KernelCompanionBackgroundWorkRecord | null;
-  backgroundWorkStatus(jobId?: string): KernelCompanionBackgroundWorkRecord[] | KernelCompanionBackgroundWorkRecord | null {
-    return typeof jobId === 'string'
-      ? this.backgroundWorkRegistry.status(jobId)
-      : this.backgroundWorkRegistry.status();
+  backgroundWorkStatus(options?: KernelCompanionBackgroundWorkStatusReadOptions): KernelCompanionBackgroundWorkStatusJob[];
+  backgroundWorkStatus(jobId: string): KernelCompanionBackgroundWorkStatusJob | null;
+  backgroundWorkStatus(
+    optionsOrJobId: KernelCompanionBackgroundWorkStatusReadOptions | string = {},
+  ): KernelCompanionBackgroundWorkStatusJob[] | KernelCompanionBackgroundWorkStatusJob | null {
+    return typeof optionsOrJobId === 'string'
+      ? this.backgroundWorkStatusReadModel.get(optionsOrJobId)
+      : this.backgroundWorkStatusReadModel.list(optionsOrJobId);
   }
 
   getBackgroundWorkRegistry(): KernelCompanionBackgroundWorkRegistryInterface {

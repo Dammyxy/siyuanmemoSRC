@@ -863,7 +863,22 @@ describe('SrsBackendClient', () => {
         }),
       }),
     ]);
-    expect(client.backgroundWorkStatus()).toEqual(registry.status());
+    const [status] = client.backgroundWorkStatus();
+    expect(status).toMatchObject({
+      kind: 'review-truth-backfill',
+      state: 'accepted',
+      reason: 'startup',
+      terminalAt: null,
+      diagnostics: {
+        reason: 'startup',
+        pendingRows: 12,
+        batchLimit: 4,
+        plannedBatches: 3,
+        maxBatches: 3,
+      },
+    });
+    expect(client.backgroundWorkStatus({ kind: 'review-truth-backfill' })).toHaveLength(1);
+    expect(client.backgroundWorkStatus(status.jobId)).toEqual(status);
   });
 
   it('dispose clears queued Review truth maintenance and prevents timer re-arm', async () => {

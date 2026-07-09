@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-07-09
+最后更新：2026-07-10
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -1111,9 +1111,11 @@ SiYuanMemo 当前 AI-facing runtime 是 Agent/MCP-only。SiYuan core Agent owns 
 - Arena 已在组合根中作为应用层内核装配，但默认关闭：启用后 AI Arena 管理显式场景池和策略包评分，SRS Arena 当前只使用内置 `fsrs-v6` baseline/advisory；旧 SM-family contestants 不再发布，外部算法接入必须走本地 manifest/runtime 边界且保持 advisory-only。Arena 只提供透明度、权重建议、挑战者管理和 delayed attribution，默认不接管正式模型选择或调度写回
 - Settings 不再暴露 plugin-owned AI provider/prompt/tool/user-skill/chat defaults；legacy persisted `settings.ai` 会被 normalization 丢弃并标记 changed。
 
-## 15. 最近架构记录（2026-07-09）
+## 15. 最近架构记录（2026-07-10）
 
 - Kernel Companion Background Work lifecycle：P0 已在 application/backend-client 层加入 `KernelCompanionBackgroundWorkRegistry`，把长维护任务收口为 `submit/status/cancel/defer/shutdown` 生命周期 Module，而不是把 DB / scheduler / msgpack truth 写权迁进 `kernel.js`。`SrsBackendClient.schedulePendingReviewTruthFlush()` 对 pending SQL truth rows 提交 `review-truth-backfill` job；job 调用既有 backend Review truth owner 执行 `review.truth.backfill` 并记录 state、attempt、error、counter diagnostics。`SrsBackendClient.flushReviewTruthBeforeUnload()` 只做 bounded quick flush，并先 shutdown registry，使 queued/running backfill 显式 deferred/canceled，不会在 unload 路径启动 heavy work；`dispose()` 同样 shutdown registry、清 timer/queued flush，并阻止 in-flight pressure/error 结果重新 arm timer。`KernelTransactionActionPump` 消费同一个 application registry：polling 不再拥有裸 `setInterval` 生命周期，而是提交 `kernel-transaction-action-polling` job，保留 dequeue/requeue、writer relay、native Riff handoff、AutoCard handoff 的原业务 owner；`dispose()` cancel active polling job、清 upsert timer，并让 late dequeue/upsert 结果不再派生新后台 work。`XiuyuanSyncService.start()` 现在先完成 legacy card-type attr migration，再把 due full sync 或 configured plugin-start incremental sync 提交为 `xiuyuan-startup-sync` job；startup incremental 仍带 `source='startup'` 与 `persistIdleCheckpoint=false`。`XiuyuanStartupSyncLifecycle` 在 job handler 内记录 scan/plan/apply/checkpoint phase diagnostics，并在 phase 之间检查 cancellation；`fullSync()` / `incrementalSync()` 仍是同步规划和写入 owner。Registry shutdown 会 defer accepted startup sync、cancel running startup sync lifecycle state；已经发出的 backend/SiYuan writes 不宣称被物理中断。P0 仍不能接管 scheduler、Riff/card writes、msgpack truth 或 SQLite DB ownership。
+
+- Kernel Companion Background Work status read model：`src/application/backgroundWork/KernelCompanionBackgroundWorkStatusReadModel.ts` 位于 registry 旁边，只读取 registry clone records，并输出 normalized read model：`list/get`、按 kind filter、newest-first stable ordering、`terminalAt`、attempt/error/reason 和 safe scalar diagnostics。Review truth backfill、Xiuyuan startup sync、kernel transaction action polling 的内容承载字段、结构化 payload、SQL/request/body/card/block text 均被 redacted；`SrsBackendClient.backgroundWorkStatus()` 现在返回这个 normalized status，而不是 raw registry record。首版保持 application-local；未新增 backend RPC、kernel status surface、durable persistence 或 UI redesign。
 
 - Domain Sync status read path：`worker/db/SqliteDatabaseService.ts#getDomainSyncStatus()` 是 Browser / status diagnostics 的本地状态快照 Interface，不拥有 host sync-conflict database source scan。`sqlite.readSyncConflictDatabaseSources` 只属于显式 sync-conflict merge、cleanup-candidate listing、cleanup/repair 这类需要读取冲突源文件的路径；这些路径仍 fail closed，不把 host timeout 伪装成成功。Browser deck rows、hierarchy counts、global stats 或 backend status 不能为了读取 diagnostics 同步扫描 `sqlite.readSyncConflictDatabaseSources`，否则 host-effect 5s timeout 会把 Browser read model 标成 `BACKEND_UNAVAILABLE`。
 

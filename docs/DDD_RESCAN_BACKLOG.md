@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-09 (Round 686)
+Last update: 2026-07-10 (Round 687)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Kernel companion background work status read model
+
+- Task: Implement OpenSpec change `surface-kernel-companion-background-work-status` so background-work diagnostics have a narrow read-only status contract.
+- Touched slice: Application/background-work read model in `src/application/backgroundWork/KernelCompanionBackgroundWorkStatusReadModel.ts`, `SrsBackendClient.backgroundWorkStatus()`, focused background-work/SrsBackendClient tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: Added a read-only status Module beside the registry that normalizes accepted/running/completed/failed/deferred/canceled jobs for Review truth backfill, Xiuyuan startup sync, and kernel transaction action polling; supports kind filtering and stable newest-first ordering; maps terminal time to `terminalAt`; preserves reason/attempt/error evidence; and redacts content-bearing, SQL/body/request, card/block text, and structured diagnostics. `SrsBackendClient.backgroundWorkStatus()` now exposes the normalized read model instead of raw registry records, while registry mutation methods stay out of the status Interface.
+- Debt deferred: Durable status persistence, UI display, kernel companion RPC/status surface, and broader backend contract changes remain out of scope.
+- Why deferred: The first consumer seam is application-local and already enough for current diagnostics/tests. Crossing the backend/kernel seam would widen the contract before a real runtime UI or cross-reload status consumer exists.
+- Next safe step: If a UI or kernel companion surface needs visibility, add one narrow read-only background-work status facet that fails closed with explicit unavailable diagnostics and still keeps submit/cancel/defer/shutdown out of the read Interface.
+- Validation: Focused Vitest passed for `src/application/backgroundWork/__tests__/KernelCompanionBackgroundWorkRegistry.test.ts`, `src/application/backgroundWork/__tests__/KernelCompanionBackgroundWorkStatusReadModel.test.ts`, and `src/application/clients/__tests__/SrsBackendClient.test.ts`; hidden-fallback check passed; boundary check passed; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only; build passed with existing non-blocking i18n/Sass warnings.
 
 ### 2026-07-09 - Xiuyuan startup sync staged lifecycle
 
