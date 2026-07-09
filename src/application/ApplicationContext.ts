@@ -370,7 +370,6 @@ export class ApplicationContext {
   private autoCardBackendExecutionDepth = 0;
   private kernelTransactionIngestHandler?: KernelTransactionIngestHandler;
   private kernelTransactionActionPump?: KernelTransactionActionPump;
-  private fullSyncTimer?: NodeJS.Timeout;
   private progressiveExcerptCompletionRepairTimer?: ReturnType<typeof setTimeout>;
   private sqlPersistence?: SqlPersistenceBundle;
   private srsBackendClient: SrsBackendClient | null = null;
@@ -458,7 +457,6 @@ export class ApplicationContext {
       sqlPersistence?: SqlPersistenceBundle;
       hybridSyncService?: XiuyuanSyncService;
       transactionWebSocketService?: TransactionWebSocketService;
-      fullSyncTimer?: NodeJS.Timeout;
       srsBackendClient?: SrsBackendClient | null;
       srsBackendTransport?: DisposableSrsBackendTransport | null;
       frontendInstanceRuntime?: FrontendInstanceRuntime | null;
@@ -477,7 +475,6 @@ export class ApplicationContext {
     this.blockMenuHandler = services.blockMenuHandler;
     this.hybridSyncService = services.hybridSyncService;
     this.transactionWebSocketService = services.transactionWebSocketService;
-    this.fullSyncTimer = services.fullSyncTimer;
     this.sqlPersistence = services.sqlPersistence;
     this.srsBackendClient = services.srsBackendClient ?? null;
     this.srsBackendTransport = services.srsBackendTransport ?? null;
@@ -1682,7 +1679,6 @@ export class ApplicationContext {
     
     // 11. 初始化 HybridSyncService（如果配置启用）
     let hybridSyncService: XiuyuanSyncService | undefined;
-    let fullSyncTimer: NodeJS.Timeout | undefined;
     let riffConfig = settings.riffIntegration;
     // HybridSyncService 将在 context 创建后初始化（需要 CardApplicationService 和 EventBus）
     
@@ -1698,7 +1694,6 @@ export class ApplicationContext {
       sqlPersistence,
       hybridSyncService: undefined,  // 将在下面初始化
       transactionWebSocketService: undefined,  // 将在下面初始化
-      fullSyncTimer: undefined,  // 将在下面初始化
       srsBackendClient,
       srsBackendTransport,
       frontendInstanceRuntime,
@@ -1798,22 +1793,7 @@ export class ApplicationContext {
         logger.info('[ApplicationContext] RiffSyncEventHandler skipped because native Riff delete compatibility is disabled');
       }
       
-      // 启动同步服务
-      await measureRuntimePerformance('startup', 'hybrid-sync-service.start', () => hybridSyncService!.start(), {
-        fullSyncEnabled: riffConfig.fullSync.enabled,
-        incrementalSyncEnabled: riffConfig.incrementalSync.enabled,
-      });
-      
-      // 启动全量同步定时器
-      if (riffConfig.fullSync.enabled) {
-        fullSyncTimer = setInterval(
-          () => hybridSyncService!.fullSync(),
-          riffConfig.fullSync.interval
-        );
-        context.fullSyncTimer = fullSyncTimer;
-        logger.info(`[ApplicationContext] Full sync timer started (interval: ${riffConfig.fullSync.interval}ms)`);
-      }
-      
+      logger.info('[ApplicationContext] Native Riff passive startup sync is retired');
     }
 
     await measureRuntimePerformance(
@@ -2068,10 +2048,9 @@ export class ApplicationContext {
   }
   
   /**
-   * 更新混合同步服务配置并重启定时器
+   * 更新混合同步服务配置
    * 
    * 符合 DDD 架构原则:
-   * - 封装定时器管理逻辑
    * - 提供清晰的配置更新接口
    * - 避免外部直接访问内部状态
    * 
@@ -2083,28 +2062,7 @@ export class ApplicationContext {
       return;
     }
     
-    // 清理旧定时器
-    if (this.fullSyncTimer) {
-      clearInterval(this.fullSyncTimer);
-      this.fullSyncTimer = undefined;
-    }
-    
-    // 更新配置
     this.hybridSyncService.updateConfig(config);
-    
-    // 重启服务
-    this.hybridSyncService.stop();
-    await this.hybridSyncService.start();
-    
-    // 重启定时器
-    if (config.fullSync?.enabled) {
-      this.fullSyncTimer = setInterval(
-        () => this.hybridSyncService!.fullSync(),
-        config.fullSync.interval
-      );
-      logger.info(`[ApplicationContext] Full sync timer restarted (interval: ${config.fullSync.interval}ms)`);
-    }
-    
     logger.info('[ApplicationContext] ✅ HybridSyncService config updated');
   }
   
@@ -2950,19 +2908,7 @@ export class ApplicationContext {
         }
       }
       
-      // 2. 清理全量同步定时器
-      if (this.fullSyncTimer) {
-        try {
-          clearInterval(this.fullSyncTimer);
-          this.fullSyncTimer = undefined;
-          logger.info('[ApplicationContext] ✅ Full sync timer cleared');
-        } catch (error) {
-          logger.error('[ApplicationContext] Error clearing full sync timer:', error);
-          errors.push({ service: 'fullSyncTimer', error });
-        }
-      }
-      
-      // 3. 停止 HybridSyncService
+      // 2. 停止 HybridSyncService
       if (this.hybridSyncService) {
         try {
           this.hybridSyncService.stop();

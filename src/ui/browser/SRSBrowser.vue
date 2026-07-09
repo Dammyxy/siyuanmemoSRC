@@ -3341,53 +3341,6 @@ onMounted(() => {
     logger.info('[SiYuanMemo][SRSBrowser] Subscribed to HybridSyncService wsSync events');
   }
 
-  // 🆕 触发同步（如果启用）
-  if (hybridService) {
-    const storage = pluginStorage.value;
-    const riffConfig = storage?.getSettings?.()?.riffIntegration;
-
-
-    logger.info('[SiYuanMemo][SRSBrowser] Checking auto-sync configuration:', {
-      hasHybridSyncService: !!hybridService,
-      hasRiffConfig: !!riffConfig,
-      mode: riffConfig?.mode,
-      incrementalSyncEnabled: riffConfig?.incrementalSync?.enabled,
-      fullSyncEnabled: riffConfig?.fullSync?.enabled,
-      triggers: riffConfig?.incrementalSync?.triggers,
-      hasBrowserOpenTrigger: riffConfig?.incrementalSync?.triggers?.includes('browser-open')
-    });
-
-    const shouldSyncOnBrowserOpen = riffConfig?.incrementalSync?.enabled &&
-                                    riffConfig?.incrementalSync?.triggers?.includes('browser-open');
-
-    if (shouldSyncOnBrowserOpen) {
-      logger.info('[SiYuanMemo][SRSBrowser] Triggering incremental sync on browser open...');
-
-      void (async () => {
-        try {
-          await hybridService.incrementalSync(undefined, {
-            source: 'browser-open',
-            persistIdleCheckpoint: false,
-          });
-          logger.info('[SiYuanMemo][SRSBrowser] Incremental sync completed, reloading data...');
-          await applyInitialBrowserView(true);
-        } catch (err) {
-          logger.error('[SiYuanMemo][SRSBrowser] Incremental sync failed:', err);
-          await applyInitialBrowserView(false);
-        }
-      })();
-
-      return;
-    } else {
-      logger.info('[SiYuanMemo][SRSBrowser] Auto-sync not triggered, loading data without sync', {
-        shouldSyncOnBrowserOpen,
-        reason: !shouldSyncOnBrowserOpen ? 'browser-open trigger not configured' : 'browser-open trigger skipped'
-      });
-    }
-  } else {
-    logger.info('[SiYuanMemo][SRSBrowser] HybridSyncService not available');
-  }
-
   void applyInitialBrowserView(false);
 });
 

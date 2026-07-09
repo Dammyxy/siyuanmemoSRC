@@ -721,7 +721,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     wrapper.unmount();
   });
 
-  it('runs browser-open Riff incremental sync without persisting idle checkpoints', async () => {
+  it('opens Browser without triggering Native Riff incremental sync', async () => {
     const incrementalSync = vi.fn(async () => ({
       success: true,
       addedCount: 0,
@@ -764,10 +764,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     await flushPromises();
     await nextTick();
 
-    expect(incrementalSync).toHaveBeenCalledWith(undefined, {
-      source: 'browser-open',
-      persistIdleCheckpoint: false,
-    });
+    expect(incrementalSync).not.toHaveBeenCalled();
 
     wrapper.unmount();
   });

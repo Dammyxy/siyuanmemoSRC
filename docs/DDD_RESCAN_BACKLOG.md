@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 690)
+Last update: 2026-07-10 (Round 691)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Retire passive Native Riff sync lifecycle
+
+- Task: Apply `retire-native-riff-continuous-sync` task 4.3 after explicit import/adoption entrypoints shipped.
+- Touched slice: Application startup/disposal, Browser mount lifecycle, and Review completion refresh in `ApplicationContext.ts`, `SRSBrowser.vue`, `ReviewSyncManager.ts`, focused source/runtime tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Plugin startup no longer calls `XiuyuanSyncService.start()` or creates/restarts full-sync timers. Browser open no longer performs Native Riff incremental sync. Review completion, dialog close, and card-count changes no longer call Native Riff; ReviewSyncManager now only publishes completion and refreshes local observers.
+- Debt deferred: Native Riff transaction upsert/remove fanout, kernel action-pump routing, sync settings/indicator state, add/remove/rating bridges, Xiuyuan sync implementation, worker RPC, and checkpoint persistence remain in tasks 4.4-5.6.
+- Why deferred: This slice removes passive lifecycle callers while preserving explicit import/adoption and keeping transaction/write deletion in dependency order.
+- Next safe step: Remove Native Riff transaction upsert/remove routing from transaction fanout and kernel action pump under task 4.4.
+- Validation: 40 focused Vitest tests passed across ApplicationContext, Browser mount, and ReviewSyncManager; production grep found no startup/timer/browser-open/review incremental sync caller; `pnpm build` passed with existing non-blocking i18n/Sass warnings.
 
 ### 2026-07-10 - Explicit Native Riff import and adoption entrypoints
 

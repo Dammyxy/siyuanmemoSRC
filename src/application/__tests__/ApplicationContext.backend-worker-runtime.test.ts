@@ -122,6 +122,14 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(transactionMethodSource).not.toContain('repairBatch');
   });
 
+  it('does not start passive Native Riff sync or full-sync timers', () => {
+    const contextSource = readApplicationContextSource();
+
+    expect(contextSource).not.toContain("'hybrid-sync-service.start'");
+    expect(contextSource).not.toContain('hybridSyncService!.start()');
+    expect(contextSource).not.toContain('fullSyncTimer');
+  });
+
   it('does not write siyuanmemo.db during renderer sqlite startup fixture initialization', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
