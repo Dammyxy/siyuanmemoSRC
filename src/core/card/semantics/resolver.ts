@@ -63,6 +63,7 @@ const COMMIT_PROOF_SOURCES = new Set<SrsCardSemanticEvidence['source']>([
   'card-marker',
   'progressive',
   'block-attr',
+  'symbol-source',
 ]);
 
 export function resolveCardSemantics(input: SrsCardSemanticResolverInput): SrsCardSemanticResolution {
@@ -229,6 +230,7 @@ function collectEvidence(input: SrsCardSemanticResolverInput): SrsCardSemanticEv
   return [
     ...collectReceiptEvidence(card),
     ...collectTemplateEvidence(meta),
+    ...collectSymbolSourceEvidence(meta),
     ...collectProgressiveEvidence(meta),
     ...collectCardMarkerEvidence(card, meta),
     ...collectBlockAttrEvidence(input.blockAttrs),
@@ -282,6 +284,42 @@ function collectTemplateEvidence(meta: Record<string, unknown>): SrsCardSemantic
       valid: true,
     }]
     : [];
+}
+
+function collectSymbolSourceEvidence(meta: Record<string, unknown>): SrsCardSemanticEvidence[] {
+  const evidence: SrsCardSemanticEvidence[] = [];
+  const source = normalizeString(meta.source);
+  const cardSource = normalizeString(meta.cardSource);
+  const symbolType = normalizeString(meta.symbolType);
+  const quickDetectReason = normalizeString(meta.quickDetectReason);
+
+  if (source === 'symbol') {
+    evidence.push(buildSymbolSourceEvidence('meta.source', source));
+  }
+  if (meta.symbolDetected === true) {
+    evidence.push(buildSymbolSourceEvidence('meta.symbolDetected', true));
+  }
+  if (cardSource === 'quick-symbol') {
+    evidence.push(buildSymbolSourceEvidence('meta.cardSource', cardSource));
+  }
+  if (symbolType) {
+    evidence.push(buildSymbolSourceEvidence('meta.symbolType', symbolType));
+  }
+  if (quickDetectReason === 'symbol-rule') {
+    evidence.push(buildSymbolSourceEvidence('meta.quickDetectReason', quickDetectReason));
+  }
+  return evidence;
+}
+
+function buildSymbolSourceEvidence(path: string, value: unknown): SrsCardSemanticEvidence {
+  return {
+    source: 'symbol-source',
+    kind: CardType.Item,
+    path,
+    value,
+    strength: 'deterministic',
+    valid: true,
+  };
 }
 
 function collectProgressiveEvidence(meta: Record<string, unknown>): SrsCardSemanticEvidence[] {

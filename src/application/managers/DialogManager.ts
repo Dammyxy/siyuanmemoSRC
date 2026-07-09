@@ -9,7 +9,7 @@
  * @see .kiro/specs/ddd-refactoring/design.md - Section 2.5
  */
 
-import type { Plugin } from 'siyuan';
+import { Dialog, type Plugin } from 'siyuan';
 import { reactive } from 'vue';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { IDialogManager } from '../interfaces/IDialogManager';
@@ -927,12 +927,6 @@ export class DialogManager implements IDialogManager {
   }
 
   private async showSrsCardSemanticsRepairDialog(preview: SrsCardSemanticsRepairPreviewReady): Promise<boolean> {
-    const { Dialog } = await import('siyuan') as {
-      Dialog: new (options: { title: string; content: string; width?: string }) => {
-        element: HTMLElement;
-        destroy: () => void;
-      };
-    };
     return new Promise((resolve) => {
       const exampleRows = preview.rows
         .filter((row) => row.status === 'safe-repair')

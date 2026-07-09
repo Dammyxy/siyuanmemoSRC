@@ -4,6 +4,16 @@ Last update: 2026-07-09 (Round 683)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-09 - SRS card semantics repair action follow-up
+
+- Task: Fix the Browser toolbar `诊断并修复卡片类型` action failing at runtime and include legacy symbol-card metadata in deterministic semantic diagnosis.
+- Touched slice: SRS card semantics resolver, Browser/DialogManager semantic repair dialog, focused resolver/DialogManager tests, and this backlog.
+- Debt fixed now: The semantic repair dialog now uses the bundled static SiYuan `Dialog` import instead of a runtime `import('siyuan')` call that the plugin renderer cannot resolve. The semantic resolver now treats `meta.source = symbol`, `symbolDetected`, `cardSource = quick-symbol`, `symbolType`, and `quickDetectReason = symbol-rule` as deterministic Item evidence, so corrupted legacy symbol cards can be previewed and repaired.
+- Debt deferred: This does not broaden semantic repair beyond existing deterministic card-kind evidence, and does not change scheduler/card creation behavior.
+- Why deferred: The reported failure is a Browser action wiring bug plus a missing legacy symbol evidence path; wider semantic repair policy should remain a separate, preview-first change.
+- Next safe step: Rebuild/reload, click `诊断并修复卡片类型`, confirm the preview opens, and verify known corrupted symbol cards appear under safe repairs.
+- Validation: Focused semantic resolver/service tests passed; focused DialogManager semantic repair dialog tests passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n/Sass warnings; git diff whitespace check passed with CRLF working-copy warnings only.
+
 ### 2026-07-09 - Remove CDF batch relation maintenance
 
 - Task: Remove the explicit CDF abnormal maintenance mechanism while preserving normal CDF card creation, rendering, relation recognition, editor-save relation sync, and due-card insertion.

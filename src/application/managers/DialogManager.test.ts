@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { DialogManager } from './DialogManager';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { Plugin } from 'siyuan';
@@ -438,6 +439,12 @@ describe('DialogManager', () => {
   });
 
   describe('SRS 卡片语义修复对话框', () => {
+    it('uses the bundled static SiYuan Dialog import instead of runtime dynamic import', () => {
+      const source = readFileSync('src/application/managers/DialogManager.ts', 'utf8');
+
+      expect(source).not.toContain("import('siyuan')");
+    });
+
     it('fails closed when semantic repair preview is unavailable', async () => {
       const repairService = {
         preview: vi.fn(async () => ({

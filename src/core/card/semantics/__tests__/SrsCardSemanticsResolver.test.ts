@@ -82,6 +82,38 @@ describe('SRS card semantics resolver', () => {
     }
   });
 
+  it('resolves legacy symbol cards as item cards from quick-symbol metadata', () => {
+    for (const meta of [
+      { source: 'symbol' },
+      { symbolDetected: true },
+      { cardSource: 'quick-symbol' },
+      { symbolType: '>>' },
+      { quickDetectReason: 'symbol-rule' },
+    ]) {
+      const card = buildCard({
+        id: `symbol-${Object.keys(meta)[0]}`,
+        type: CardType.Topic,
+        meta,
+      });
+
+      const resolution = resolveCardSemantics({ card });
+
+      expect(resolution).toMatchObject({
+        effectiveKind: CardType.Item,
+        confidence: 'deterministic',
+        patch: { type: CardType.Item },
+      });
+      expect(resolution.evidence).toEqual(expect.arrayContaining([
+        expect.objectContaining({ source: 'symbol-source', kind: CardType.Item }),
+      ]));
+      expect(planCardSemanticRepair({ card })).toMatchObject({
+        status: 'safe-repair',
+        beforeKind: CardType.Topic,
+        afterKind: CardType.Item,
+      });
+    }
+  });
+
   it('resolves progressive roots and derived items from lineage evidence', () => {
     expect(resolveCardSemantics({
       card: buildCard({

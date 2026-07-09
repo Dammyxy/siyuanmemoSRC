@@ -13,6 +13,7 @@ export type SrsCardSemanticEvidenceSource =
   | 'creation-receipt'
   | 'template'
   | 'card-marker'
+  | 'symbol-source'
   | 'progressive'
   | 'raw-type'
   | 'block-attr'
