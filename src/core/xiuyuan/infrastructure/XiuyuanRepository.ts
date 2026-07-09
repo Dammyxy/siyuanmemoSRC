@@ -55,7 +55,10 @@ import { ATTR_CARD_TYPE } from '../../siyuan/block';
 import { TemplateRegistry } from '../templates/TemplateRegistry';
 import type { CdfDirectPathSegment } from '@/core/card/common/application/cdfDirectScene';
 import { isCdfDirectPathSegmentArray } from '@/core/card/common/application/cdfDirectScene';
-import { completeSrsCardCreationReceiptForCard } from '@/core/card/semantics';
+import {
+  completeSrsCardCreationReceiptForCard,
+  readNativeRiffImportReceipt,
+} from '@/core/card/semantics';
 import {
   buildLogicalCardKey,
   buildLogicalXiuyuanKey,
@@ -111,6 +114,7 @@ type XiuyuanMeta = Record<string, unknown> & {
   clozeRenderMode?: string;
   forceQuickRender?: boolean;
   quickDetectReason?: string;
+  nativeRiffImportReceipt?: unknown;
   fieldMapping?: Record<string, unknown>;
   listTemplate?: {
     mode?: 'split-v2' | 'summary-v1';
@@ -1245,6 +1249,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     }
     
     const cardId = card.getId().getValue();
+    const nativeRiffImportReceipt = readNativeRiffImportReceipt({ meta });
     const cardMeta = completeSrsCardCreationReceiptForCard({
       ...imageOcclusionMeta,
       xiuyuanID: card.getXiuyuanId().getValue(),
@@ -1275,6 +1280,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       ...(meta.srsCardCreationReceipt && typeof meta.srsCardCreationReceipt === 'object'
         ? { srsCardCreationReceipt: meta.srsCardCreationReceipt }
         : {}),
+      ...(nativeRiffImportReceipt ? { nativeRiffImportReceipt } : {}),
     }, { id: cardId, blockId });
 
     return {

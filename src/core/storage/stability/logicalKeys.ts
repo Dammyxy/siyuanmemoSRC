@@ -12,6 +12,10 @@ import {
 } from '@/core/scheduler/schedulingStateCleanliness';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
 import type { FSRSCard } from '@/types/card';
+import {
+  NATIVE_RIFF_IMPORT_RECEIPT_META_KEY,
+  readNativeRiffImportReceipt,
+} from '@/core/card/semantics';
 
 export type LogicalXiuyuanKey = string;
 export type LogicalCardKey = string;
@@ -83,6 +87,13 @@ function mergeMeta(
   };
   if (preferredMeta && Object.prototype.hasOwnProperty.call(preferredMeta, 'ownership')) {
     merged.ownership = preferredMeta.ownership;
+  }
+
+  const preferredImportReceipt = readNativeRiffImportReceipt({ meta: preferredMeta });
+  const incomingImportReceipt = readNativeRiffImportReceipt({ meta: incomingMeta });
+  const importReceipt = preferredImportReceipt ?? incomingImportReceipt;
+  if (importReceipt) {
+    merged[NATIVE_RIFF_IMPORT_RECEIPT_META_KEY] = importReceipt;
   }
 
   const preferredCardIds = Array.isArray(preferredMeta?.cardIds)

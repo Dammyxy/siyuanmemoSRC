@@ -10,6 +10,10 @@ import { TemplateId } from '../../domain/TemplateId';
 import { Xiuyuan } from '../../domain/Xiuyuan';
 import { XiuyuanId } from '../../domain/XiuyuanId';
 import { XiuyuanRepository } from '../XiuyuanRepository';
+import {
+  buildNativeRiffImportReceipt,
+  readNativeRiffImportReceipt,
+} from '@/core/card/semantics';
 
 const { getBlockAttrsMock, setBlockAttrsMock } = vi.hoisted(() => ({
   getBlockAttrsMock: vi.fn(),
@@ -153,6 +157,58 @@ describe('XiuyuanRepository delta persistence routing', () => {
         },
       },
     });
+  });
+
+  it('persists Native Riff import receipt on both Xiuyuan and card DTO metadata', async () => {
+    const storage = new UnifiedStorageManager();
+    const repository = new XiuyuanRepository(storage);
+    let persistedStore = createEmptyStore();
+    const fullSave = vi.fn(async (store: UnifiedCardStore) => {
+      persistedStore = deepClone(store);
+    });
+    const deltaSave = vi.fn(async (_delta: UnifiedStorageXiuyuanCardDelta) => undefined);
+    storage.setPersistenceCallbacks(fullSave, async () => deepClone(persistedStore), {
+      saveXiuyuanCardDelta: deltaSave,
+    });
+    expect((await storage.load()).ok).toBe(true);
+
+    const blockId = '20260610140511-bb340gl';
+    const cardId = 'card-20260610140511-bb340gl';
+    const receipt = buildNativeRiffImportReceipt({
+      nativeCardId: '20260610192850-rzrmc29',
+      deckId: 'deck-1',
+      importedAt: 1_788_537_600_000,
+    });
+    const xiuyuan = must(
+      Xiuyuan.create({
+        blockIDs: [must(BlockId.create(blockId))],
+        templateID: must(TemplateId.create('builtin-quick-card')),
+        faces: [
+          must(
+            CardFace.create({
+              question: '反思',
+              answer: '反思',
+              questionBlockId: blockId,
+              answerBlockId: blockId,
+            }),
+          ),
+        ],
+        meta: {
+          ownership: 'local-owned',
+          nativeRiffImportReceipt: receipt,
+        },
+      }),
+    );
+    must(xiuyuan.createCard(0, must(CardId.create(cardId))));
+
+    const result = await repository.save(xiuyuan);
+
+    expect(result.ok).toBe(true);
+    const delta = deltaSave.mock.calls[0]?.[0];
+    expect(delta?.xiuyuans[xiuyuan.getId().getValue()]?.meta?.nativeRiffImportReceipt).toEqual(receipt);
+    expect(readNativeRiffImportReceipt({
+      meta: delta?.cardDTOs[cardId]?.meta,
+    })).toEqual(receipt);
   });
 
   it('routes batch upsert-only Xiuyuan saves through one delta persistence call', async () => {

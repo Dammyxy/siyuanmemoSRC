@@ -121,6 +121,69 @@ describe('NativeRiffImportModule', () => {
     expect(localRead.findByLogicalKey).not.toHaveBeenCalled();
   });
 
+  it('uses receipt identity only for its matching face and still creates missing faces', async () => {
+    const source: NativeRiffImportSourcePort = {
+      listImportCandidates: vi.fn(async () => [{
+        nativeCardId: 'riff-multi-receipt',
+        deckId: 'deck-1',
+        blockId: 'multi-receipt-block',
+        sourceMarkdown: '一<>二',
+      }]),
+    };
+    const localRead: NativeRiffImportLocalReadPort = {
+      findByImportReceipt: vi.fn(async () => ({
+        cardId: 'local-face-0',
+        logicalKey: 'block:multi-receipt-block::face:0',
+        ownership: 'local-owned',
+      })),
+      findByLogicalKey: vi.fn(async () => null),
+      hasDeletionTombstone: vi.fn(async () => false),
+      hasLegacyImportExclusion: vi.fn(async () => false),
+    };
+    const writePort: NativeRiffImportWritePort = {
+      createImportedFaces: vi.fn(async plans => ({
+        createdCardIds: plans.map(plan => `created:${plan.logicalKey}`),
+      })),
+    };
+    const module = new NativeRiffImportModule({
+      source,
+      localRead,
+      writePort,
+      resolveSemanticFaces: async () => ({
+        status: 'resolved',
+        faces: [
+          {
+            logicalKey: 'block:multi-receipt-block::face:0',
+            faceIndex: 0,
+          },
+          {
+            logicalKey: 'block:multi-receipt-block::face:1',
+            faceIndex: 1,
+          },
+        ],
+      }),
+    });
+
+    const result = await module.applySelected({
+      logicalKeys: [
+        'block:multi-receipt-block::face:0',
+        'block:multi-receipt-block::face:1',
+      ],
+    });
+
+    expect(writePort.createImportedFaces).toHaveBeenCalledWith([
+      expect.objectContaining({
+        logicalKey: 'block:multi-receipt-block::face:1',
+        faceIndex: 1,
+      }),
+    ]);
+    expect(result).toEqual({
+      createdCardIds: ['created:block:multi-receipt-block::face:1'],
+      createdCount: 1,
+      skippedCount: 1,
+    });
+  });
+
   it('classifies a deletion tombstone before semantic or ownership reads', async () => {
     const sourceCard = {
       nativeCardId: 'riff-tombstoned',

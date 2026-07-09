@@ -135,6 +135,41 @@ describe('logicalKeys Xiuyuan ownership authority', () => {
     expect(merged.meta?.cardIds).toEqual(['local-card', 'riff-card']);
   });
 
+  it('keeps the preferred immutable Native Riff import receipt when merging metadata', () => {
+    const local = createXiuyuanSnapshot({
+      meta: {
+        ownership: 'local-owned',
+        nativeRiffImportReceipt: {
+          version: 1,
+          nativeCardId: 'riff-first',
+          deckId: 'deck-1',
+          importedAt: 100,
+        },
+      },
+    });
+    const incoming = createXiuyuanSnapshot({
+      id: 'xy-incoming',
+      meta: {
+        ownership: 'local-owned',
+        nativeRiffImportReceipt: {
+          version: 1,
+          nativeCardId: 'riff-replacement',
+          deckId: 'deck-2',
+          importedAt: 200,
+        },
+      },
+    });
+
+    const merged = mergeXiuyuanSnapshots(local, incoming).value;
+
+    expect(merged.meta?.nativeRiffImportReceipt).toEqual({
+      version: 1,
+      nativeCardId: 'riff-first',
+      deckId: 'deck-1',
+      importedAt: 100,
+    });
+  });
+
   it('uses live relation key as logical identity for CDF relation cards and Xiuyuans', () => {
     const firstXiuyuan = createXiuyuanSnapshot({
       id: 'xy-first',

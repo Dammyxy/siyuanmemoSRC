@@ -32,6 +32,13 @@ export interface SrsCardCreationReceipt {
   details?: Record<string, unknown>;
 }
 
+export interface NativeRiffImportReceipt {
+  version: 1;
+  nativeCardId: string;
+  deckId: string;
+  importedAt: number;
+}
+
 export interface SrsCardSemanticEvidence {
   source: SrsCardSemanticEvidenceSource;
   kind: SrsCardSemanticKind | null;

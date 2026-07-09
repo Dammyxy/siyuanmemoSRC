@@ -3,6 +3,10 @@ import type {
   NativeRiffImportSourceCard,
   NativeRiffImportSourcePort,
 } from '@/application/ports/NativeRiffImportSourcePort';
+import {
+  buildNativeRiffImportReceipt,
+  type NativeRiffImportReceipt,
+} from '@/core/card/semantics';
 
 export type NativeRiffImportClassification =
   | 'importable'
@@ -85,13 +89,6 @@ export type NativeRiffImportPreview = Readonly<{
     legacyExcluded: number;
     semanticConflict: number;
   }>;
-}>;
-
-export type NativeRiffImportReceipt = Readonly<{
-  version: 1;
-  nativeCardId: string;
-  deckId: string;
-  importedAt: number;
 }>;
 
 export type NativeRiffImportCreatePlan = Readonly<{
@@ -216,9 +213,13 @@ export class NativeRiffImportModule {
         nativeCardId: sourceCard.nativeCardId,
         deckId: sourceCard.deckId,
       });
+      const importedAt = this.deps.now?.() ?? Date.now();
 
       for (const face of resolution.faces) {
-        if (receiptMatch?.ownership === 'local-owned') {
+        if (
+          receiptMatch?.ownership === 'local-owned'
+          && receiptMatch.logicalKey === face.logicalKey
+        ) {
           const needsRepair = receiptMatch.needsSemanticRepair === true;
           candidates.push({
             classification: needsRepair ? 'existing-needs-repair' : 'already-owned',
@@ -281,11 +282,10 @@ export class NativeRiffImportModule {
           ...(isValidScheduleSeed(sourceCard.schedule)
             ? { scheduleSeed: sourceCard.schedule }
             : {}),
-          importReceipt: Object.freeze({
-            version: 1,
+          importReceipt: buildNativeRiffImportReceipt({
             nativeCardId: sourceCard.nativeCardId,
             deckId: sourceCard.deckId,
-            importedAt: this.deps.now?.() ?? Date.now(),
+            importedAt,
           }),
         });
         counts.importable++;

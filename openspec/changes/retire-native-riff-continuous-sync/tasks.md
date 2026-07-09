@@ -17,9 +17,9 @@
 
 ## 3. Persist Receipts And Legacy Exclusions
 
-- [ ] 3.1 Add explicit Native Riff import receipt metadata and update ownership inference so receipt or `riffCardId` alone never implies `riff-managed`.
-- [ ] 3.2 Add durable `native-riff-import-exclusion` storage/read/remove behavior using the existing tombstone ledger.
-- [ ] 3.3 Migrate legacy `riffBlacklist` entries into durable import exclusions and clear legacy blacklist only after durable success.
+- [x] 3.1 Add explicit Native Riff import receipt metadata and update ownership inference so receipt or `riffCardId` alone never implies `riff-managed`.
+- [x] 3.2 Add durable `native-riff-import-exclusion` storage/read/remove behavior using the existing tombstone ledger.
+- [x] 3.3 Migrate legacy `riffBlacklist` entries into durable import exclusions and clear legacy blacklist only after durable success.
 - [ ] 3.4 Add restore-and-import behavior that removes only selected tombstone/exclusion evidence.
 - [ ] 3.5 Add persistence migration and idempotency tests for receipts and legacy exclusions.
 
