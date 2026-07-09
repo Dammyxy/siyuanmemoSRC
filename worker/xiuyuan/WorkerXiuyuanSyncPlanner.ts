@@ -157,10 +157,8 @@ function isManagedRiffFact(
   if (hasLocalOwnershipEvidence(card) || hasLocalOwnershipEvidence(xiuyuan)) {
     return false;
   }
-  const riffCardId = normalizeString(card?.riffCardId);
   return hasManagedRiffEvidence(card)
-    || hasManagedRiffEvidence(xiuyuan)
-    || riffCardId.length > 0;
+    || hasManagedRiffEvidence(xiuyuan);
 }
 
 function buildLocalTombstoneIndexes(

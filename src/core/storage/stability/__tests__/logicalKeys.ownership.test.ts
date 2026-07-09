@@ -50,6 +50,21 @@ describe('logicalKeys Xiuyuan ownership authority', () => {
     }))).toBe('local-owned');
   });
 
+  it('does not infer Riff ownership from provenance fields alone', () => {
+    expect(inferXiuyuanOwnership(createXiuyuanSnapshot({
+      templateID: 'builtin-quick-card',
+      meta: {
+        riffCardId: 'riff-provenance-only',
+        nativeRiffImportReceipt: {
+          version: 1,
+          nativeCardId: 'riff-provenance-only',
+          deckId: 'deck-1',
+          importedAt: 1_788_537_600_000,
+        },
+      },
+    }))).toBe('local-owned');
+  });
+
   it('normalizes missing ownership into meta without changing the logical record', () => {
     const normalized = normalizeXiuyuanOwnership(createXiuyuanSnapshot({
       templateID: 'builtin-riff-sync',

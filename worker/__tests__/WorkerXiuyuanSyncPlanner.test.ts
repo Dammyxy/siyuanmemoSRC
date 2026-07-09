@@ -534,4 +534,64 @@ describe('WorkerXiuyuanSyncPlanner', () => {
       },
     });
   });
+
+  it('does not treat riffCardId provenance alone as managed Riff ownership', async () => {
+    const planner = new WorkerXiuyuanSyncPlanner({
+      loadLocalFacts: vi.fn(async () => ({
+        loadedAt: 1_700_000_000_000,
+        xiuyuans: [{
+          id: 'xy-imported-local',
+          blockIds: ['block-imported-local'],
+          representativeBlockId: 'block-imported-local',
+          templateId: null,
+          ownership: null,
+          source: null,
+          updatedAt: 1,
+        }],
+        cards: [{
+          id: 'card-imported-local',
+          xiuyuanId: 'xy-imported-local',
+          blockId: 'block-imported-local',
+          riffCardId: 'riff-provenance-only',
+          templateId: null,
+          ownership: null,
+          source: null,
+          schedulerType: 'fsrs-v6',
+          updatedAt: 1,
+        }],
+      })),
+      readNativeRiffFacts: vi.fn(async () => ({
+        ...nativeReady(),
+        blocks: [],
+        diagnostics: {
+          ...nativeReady().diagnostics,
+          blockCount: 0,
+          normalizedBlockCount: 0,
+          malformedBlockCount: 0,
+        },
+      })),
+    });
+
+    const result = await planner.execute({
+      requestId: 'sync-request-provenance-only',
+      commandId: 'sync-command-provenance-only',
+      idempotencyKey: 'sync-key-provenance-only',
+      mode: 'full',
+      dryRun: true,
+      deckId: 'deck-a',
+      requestedAt: 1_700_000_000_000,
+    });
+
+    expect(result.status).toBe('planned');
+    if (result.status !== 'planned') {
+      throw new Error('expected planned result');
+    }
+    expect(result.plan).toMatchObject({
+      localManagedRiffCount: 0,
+      deleteCount: 0,
+      candidateBlockIds: {
+        delete: [],
+      },
+    });
+  });
 });

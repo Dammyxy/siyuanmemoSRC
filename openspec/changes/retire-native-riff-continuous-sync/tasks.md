@@ -1,19 +1,19 @@
 ## 1. Characterize Read-Only Import Contracts
 
-- [ ] 1.1 Add public Module tests proving explicit import preview is read-only and classifies importable, already-owned, tombstoned, legacy-excluded, and semantic-conflict candidates.
-- [ ] 1.2 Add public Module tests proving face completion creates only missing semantic faces and never overwrites existing `local-owned` scheduling or review state.
-- [ ] 1.3 Add public Module tests proving new cards consume at most one valid Native Riff schedule seed and existing cards never consume it.
-- [ ] 1.4 Add public Module tests proving adoption preserves card/Xiuyuan identity, scheduling, review history, tags, and priority.
-- [ ] 1.5 Add public Module tests proving adoption rebuilds symbol/render semantics from live Markdown and fails closed when source evidence is unavailable.
+- [x] 1.1 Add public Module tests proving explicit import preview is read-only and classifies importable, already-owned, tombstoned, legacy-excluded, and semantic-conflict candidates.
+- [x] 1.2 Add public Module tests proving face completion creates only missing semantic faces and never overwrites existing `local-owned` scheduling or review state.
+- [x] 1.3 Add public Module tests proving new cards consume at most one valid Native Riff schedule seed and existing cards never consume it.
+- [x] 1.4 Add public Module tests proving adoption preserves card/Xiuyuan identity, scheduling, review history, tags, and priority.
+- [x] 1.5 Add public Module tests proving adoption rebuilds symbol/render semantics from live Markdown and fails closed when source evidence is unavailable.
 
 ## 2. Build Explicit Import And Adoption Modules
 
-- [ ] 2.1 Add a read-only `NativeRiffImportSourcePort` and SiYuan Adapter with no add, remove, or rating capability.
-- [ ] 2.2 Implement `NativeRiffImportModule` preview classifications, receipt identity matching, tombstone/exclusion checks, and face-level completion planning.
-- [ ] 2.3 Implement `NativeRiffImportModule` selected apply with new-card schedule seeding and immutable import receipts.
-- [ ] 2.4 Implement `NativeRiffAdoptionModule` preview and in-place `riff-managed` to `local-owned` planning.
-- [ ] 2.5 Implement adoption apply through existing live-Markdown semantic/render repair contracts without recreating cards.
-- [ ] 2.6 Ensure ordinary import reports existing-needs-repair without mutating existing `local-owned` cards.
+- [x] 2.1 Add a read-only `NativeRiffImportSourcePort` and SiYuan Adapter with no add, remove, or rating capability.
+- [x] 2.2 Implement `NativeRiffImportModule` preview classifications, receipt identity matching, tombstone/exclusion checks, and face-level completion planning.
+- [x] 2.3 Implement `NativeRiffImportModule` selected apply with new-card schedule seeding and immutable import receipts.
+- [x] 2.4 Implement `NativeRiffAdoptionModule` preview and in-place `riff-managed` to `local-owned` planning.
+- [x] 2.5 Implement adoption apply through existing live-Markdown semantic/render repair contracts without recreating cards.
+- [x] 2.6 Ensure ordinary import reports existing-needs-repair without mutating existing `local-owned` cards.
 
 ## 3. Persist Receipts And Legacy Exclusions
 
