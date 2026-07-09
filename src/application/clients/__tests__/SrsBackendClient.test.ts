@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SrsBackendClient, type SrsBackendTransport } from '../SrsBackendClient';
+import { KernelCompanionBackgroundWorkRegistry } from '../../backgroundWork/KernelCompanionBackgroundWorkRegistry';
 
 function createDurableReviewFeedbackResult(overrides: Record<string, unknown> = {}) {
   return {
@@ -699,6 +700,231 @@ describe('SrsBackendClient', () => {
     }
   });
 
+  it('skips startup Review truth backfill during before-unload quick flush', async () => {
+    vi.useFakeTimers();
+    try {
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          requests.push({ method: request.method, params: request.params });
+          if (request.method === 'review.truth.maintenanceStatus') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                family: 'review-events',
+                journal: {
+                  fileName: 'review-feedback-journal.v1',
+                  storage: 'non-siyuan',
+                  version: 1,
+                  pendingCount: 0,
+                  pendingBytes: 0,
+                  statusCounts: {},
+                  appliedInMemoryCount: 0,
+                  lastWrite: null,
+                  lastReplay: null,
+                  lastCheckpoint: null,
+                },
+                truthBackfill: {
+                  family: 'review-events',
+                  source: 'review_events',
+                  storage: 'truth-segments',
+                  pendingSqlRows: 64,
+                  pendingSqlRowsCheckedAt: 1_700_000_000_000,
+                  syncVisible: false,
+                  last: null,
+                  lastError: null,
+                },
+              },
+            };
+          }
+          if (request.method === 'review.truth.flush') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                at: 1_700_000_000_100,
+                journalQueued: 0,
+                recordsWritten: 0,
+                segmentWritten: false,
+                manifestUpdated: false,
+                projectionRefreshScheduled: false,
+                idempotencyDuplicateSkipped: 0,
+                flushedEntryIds: [],
+                segmentPaths: [],
+                error: null,
+              },
+            };
+          }
+          if (request.method === 'review.truth.backfill') {
+            throw new Error('before-unload quick flush must not run Review truth backfill');
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 4,
+          delayMs: 25,
+        },
+      });
+
+      await expect(client.schedulePendingReviewTruthFlush('startup')).resolves.toBe(true);
+      await expect(client.flushReviewTruthBeforeUnload()).resolves.toBe(true);
+
+      expect(requests.map((request) => request.method)).toEqual([
+        'review.truth.maintenanceStatus',
+        'review.truth.flush',
+      ]);
+
+      await vi.advanceTimersByTimeAsync(25);
+      await Promise.resolve();
+      expect(requests.map((request) => request.method)).toEqual([
+        'review.truth.maintenanceStatus',
+        'review.truth.flush',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('submits startup Review SQL truth backfill to the background work registry', async () => {
+    const scheduled: Array<() => void> = [];
+    const registry = new KernelCompanionBackgroundWorkRegistry({
+      schedule: (run) => scheduled.push(run),
+    });
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        requests.push({ method: request.method, params: request.params });
+        if (request.method === 'review.truth.maintenanceStatus') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              family: 'review-events',
+              journal: {
+                fileName: 'review-feedback-journal.v1',
+                storage: 'non-siyuan',
+                version: 1,
+                pendingCount: 0,
+                pendingBytes: 0,
+                statusCounts: {},
+                appliedInMemoryCount: 0,
+                lastWrite: null,
+                lastReplay: null,
+                lastCheckpoint: null,
+              },
+              truthBackfill: {
+                family: 'review-events',
+                source: 'review_events',
+                storage: 'truth-segments',
+                pendingSqlRows: 12,
+                pendingSqlRowsCheckedAt: 1_700_000_000_000,
+                syncVisible: false,
+                last: null,
+                lastError: null,
+              },
+            },
+          };
+        }
+        throw new Error(`Unexpected backend method ${request.method}`);
+      }),
+    };
+    const client = new SrsBackendClient(transport, {
+      backgroundWorkRegistry: registry,
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+        batchLimit: 4,
+        delayMs: 25,
+      },
+    });
+
+    await expect(client.schedulePendingReviewTruthFlush('startup')).resolves.toBe(true);
+
+    expect(requests.map((request) => request.method)).toEqual(['review.truth.maintenanceStatus']);
+    expect(scheduled).toHaveLength(1);
+    expect(registry.status()).toEqual([
+      expect.objectContaining({
+        kind: 'review-truth-backfill',
+        state: 'accepted',
+        diagnostics: expect.objectContaining({
+          reason: 'startup',
+          pendingRows: 12,
+          batchLimit: 4,
+          plannedBatches: 3,
+          maxBatches: 3,
+        }),
+      }),
+    ]);
+    expect(client.backgroundWorkStatus()).toEqual(registry.status());
+  });
+
+  it('dispose clears queued Review truth maintenance and prevents timer re-arm', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveFlush: ((value: unknown) => void) | null = null;
+      const requests: string[] = [];
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          requests.push(request.method);
+          if (request.method === 'review.truth.flush') {
+            return new Promise((resolve) => {
+              resolveFlush = resolve;
+            });
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          delayMs: 25,
+        },
+      });
+
+      expect(client.requestReviewTruthFlush('manual')).toBe(true);
+      await Promise.resolve();
+      expect(requests).toEqual(['review.truth.flush']);
+
+      client.dispose();
+      resolveFlush?.({
+        jsonrpc: '2.0',
+        id: 'flush-1',
+        result: {
+          ok: false,
+          at: 1_700_000_000_100,
+          journalQueued: 1,
+          recordsWritten: 0,
+          segmentWritten: false,
+          manifestUpdated: false,
+          projectionRefreshScheduled: false,
+          idempotencyDuplicateSkipped: 0,
+          flushedEntryIds: [],
+          segmentPaths: [],
+          error: 'BACKEND_PRESSURE: feedback writer busy',
+        },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await Promise.resolve();
+      expect(requests).toEqual(['review.truth.flush']);
+      expect(client.requestReviewTruthFlush('manual')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('schedules pending Review truth flush after startup diagnostics show unapplied truth', async () => {
     vi.useFakeTimers();
     try {
@@ -1033,13 +1259,12 @@ describe('SrsBackendClient', () => {
 
       await expect(client.schedulePendingReviewTruthFlush('startup')).resolves.toBe(true);
       await vi.advanceTimersByTimeAsync(25);
-      await vi.waitFor(() => expect(requests).toHaveLength(5));
+      await vi.waitFor(() => expect(requests).toHaveLength(4));
       expect(requests.map((request) => request.method)).toEqual([
         'review.truth.maintenanceStatus',
         'review.truth.backfill',
         'review.truth.backfill',
         'review.truth.backfill',
-        'review.truth.flush',
       ]);
       expect(requests[1]).toEqual({
         method: 'review.truth.backfill',

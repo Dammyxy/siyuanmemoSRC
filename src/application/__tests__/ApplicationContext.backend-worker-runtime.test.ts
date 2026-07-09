@@ -351,6 +351,83 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     }
   });
 
+  it('does not wait indefinitely when Review truth unload maintenance hangs', async () => {
+    vi.useFakeTimers();
+    try {
+      const srsBackendClient = {
+        dispose: vi.fn(),
+        flushReviewTruthBeforeUnload: vi.fn(() => new Promise<boolean>(() => {})),
+      };
+      const srsBackendTransport = {
+        dispose: vi.fn(),
+      };
+      const frontendInstanceRuntime = {
+        prepareForUnload: vi.fn(),
+        dispose: vi.fn(async () => undefined),
+        getMode: () => 'writer',
+        getInstanceId: () => 'instance-hanging-review-truth',
+      };
+      const runtimePolicy = {
+        flags: {
+          backendWorker: true,
+          writerLeaseGuard: true,
+          autoCardDecisionRelay: true,
+          kernelTransactionIngest: true,
+          privateApi: true,
+          aiBackendRuntime: true,
+        },
+        capabilities: {
+          backendWorkerAvailable: true,
+          writerRelayRuntimeEnabled: true,
+          writerRelayRequiredForBackendWrites: true,
+          reviewFeedbackWriteEnabled: true,
+          autoCardExecuteWriteEnabled: true,
+          autoCardDecisionBackendEnabled: true,
+          kernelTransactionIngestEnabled: true,
+          privateApiReadEnabled: true,
+          privateApiMutationEnabled: true,
+          aiBackendSessionEnabled: true,
+        },
+        behavior: {},
+      };
+      const TestableApplicationContext = ApplicationContext as unknown as new (
+        config: unknown,
+        services: unknown,
+      ) => ApplicationContext;
+      const context = new TestableApplicationContext({
+        plugin: { name: 'test-plugin', app: {} },
+        i18n: {},
+      }, {
+        storageManager: {},
+        unifiedStorageManager: { save: vi.fn() },
+        schedulerRouter: {},
+        rescheduleService: {},
+        unifiedDataSourceManager: {},
+        blockMenuHandler: {},
+        srsBackendClient,
+        srsBackendTransport,
+        frontendInstanceRuntime,
+        backendMigrationRuntimePolicy: runtimePolicy,
+      });
+
+      const disposeCompleted = vi.fn();
+      void context.dispose({ persistStorage: false }).then(disposeCompleted);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.resolve();
+
+      expect(disposeCompleted).toHaveBeenCalledTimes(1);
+      expect(srsBackendClient.flushReviewTruthBeforeUnload).toHaveBeenCalledTimes(1);
+      expect(frontendInstanceRuntime.prepareForUnload).toHaveBeenCalledTimes(1);
+      expect(frontendInstanceRuntime.dispose).toHaveBeenCalledTimes(1);
+      expect(srsBackendClient.dispose).toHaveBeenCalledTimes(1);
+      expect(srsBackendTransport.dispose).toHaveBeenCalledTimes(1);
+      expect(context.getSrsBackendClient()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('flushes Review truth before quiescing the frontend runtime on unload', async () => {
     const calls: string[] = [];
     const srsBackendClient = {

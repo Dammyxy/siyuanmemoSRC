@@ -12,6 +12,7 @@ vi.mock('@/utils/logger', () => ({
 }));
 
 import { KernelTransactionActionPump } from '@/application/handlers/KernelTransactionActionPump';
+import { KernelCompanionBackgroundWorkRegistry } from '@/application/backgroundWork/KernelCompanionBackgroundWorkRegistry';
 
 describe('KernelTransactionActionPump', () => {
   beforeEach(() => {
@@ -993,6 +994,135 @@ describe('KernelTransactionActionPump', () => {
     expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(2);
 
     await pump.dispose();
+  });
+
+  it('does not re-arm native-riff-upsert retry after dispose', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [{
+        type: 'native-riff-upsert' as const,
+        blockIds: ['block-dispose'],
+        source: 'ws-main' as const,
+        receivedAt: 4,
+        idempotencyKey: 'dispose-upsert',
+      }],
+      remaining: 0,
+    }));
+    const handleNativeRiffUpsert = vi.fn(async () => {
+      throw new Error('upsert failed');
+    });
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => ({ handleNativeRiffUpsert }),
+      () => undefined,
+      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    await flushDeferredUpsertTimer();
+    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
+
+    await pump.dispose();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await Promise.resolve();
+
+    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('records polling lifecycle in the shared background work registry', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [],
+      remaining: 0,
+    }));
+    const registry = new KernelCompanionBackgroundWorkRegistry({
+      schedule: (run) => run(),
+    });
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => undefined,
+      () => undefined,
+      {
+        pollIntervalMs: 250,
+        maxActionsPerPoll: 4,
+        backgroundWorkRegistry: registry,
+      },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+
+    expect(registry.status()).toEqual([
+      expect.objectContaining({
+        kind: 'kernel-transaction-action-polling',
+        state: 'completed',
+        attemptCount: 1,
+        diagnostics: expect.objectContaining({
+          reason: 'timer',
+          status: 'empty',
+          actionCount: 0,
+          remainingActions: 0,
+          maxActionsPerPoll: 4,
+        }),
+      }),
+    ]);
+
+    await pump.dispose();
+  });
+
+  it('cancels active polling job through the shared background work registry on dispose', async () => {
+    let finishDequeue: ((value: { actions: []; remaining: number }) => void) | null = null;
+    const dequeueKernelTransactions = vi.fn(() => new Promise<{ actions: []; remaining: number }>((resolve) => {
+      finishDequeue = resolve;
+    }));
+    const registry = new KernelCompanionBackgroundWorkRegistry({
+      schedule: (run) => run(),
+    });
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => undefined,
+      () => undefined,
+      {
+        pollIntervalMs: 250,
+        backgroundWorkRegistry: registry,
+      },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    const running = registry.status()[0];
+    expect(running).toMatchObject({
+      kind: 'kernel-transaction-action-polling',
+      state: 'running',
+    });
+
+    await pump.dispose();
+    expect(registry.status(running.jobId)).toMatchObject({
+      state: 'canceled',
+      reason: 'action-pump-dispose',
+    });
+
+    finishDequeue?.({ actions: [], remaining: 0 });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.resolve();
+
+    expect(registry.status()).toHaveLength(1);
+    expect(registry.status(running.jobId)).toMatchObject({
+      state: 'canceled',
+      reason: 'action-pump-dispose',
+    });
   });
 
   it('requeues locally when stale follower mode self-relay is rejected by kernel', async () => {

@@ -2209,6 +2209,7 @@ export class ApplicationContext {
             writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
             onWriterUnavailable: dispatchKernelTransactionWriterUnavailableEvent,
             deferNativeRiffUpsertWhile: () => this.isAutoCardBackendExecutionInProgress(),
+            backgroundWorkRegistry: this.srsBackendClient.getBackgroundWorkRegistry(),
           },
         ),
         { writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites },

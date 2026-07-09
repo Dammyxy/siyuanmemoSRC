@@ -78,6 +78,10 @@ _Avoid_: AutoCard decision selection, local planner execution, Xiuyuan applicati
 The AutoCard listener lifecycle module that tracks transaction-derived candidate contexts, settle timers, transient retries, already-processing follow-ups, lifecycle diagnostics, and listener cleanup. It decides when a candidate is re-evaluated, not how a decision is selected or how card-creation side effects execute.
 _Avoid_: AutoCard Decision Relay, AutoCard Execute Relay, local planner rules, Xiuyuan write owner, Topic-derived item creation, document scan semantics
 
+**Kernel Companion Background Work**:
+The application/backend-client lifecycle Module for long SiYuanMemo maintenance jobs coordinated with the kernel companion. It owns submit/status/cancel/defer/shutdown vocabulary for work such as Review truth backfill, Xiuyuan startup sync, and kernel transaction action polling. Current P0 implementation routes Review truth backfill and kernel transaction action polling through this registry; kernel companion code remains coordination/relay only, while scheduler, card DB, msgpack truth, Riff/card writes, and SQLite writes stay with their current owners.
+_Avoid_: frontend unload waiting for heavy maintenance, kernel JS owning card persistence, hidden shutdown retry loops
+
 **SRS Browser Card Universe**:
 The set of SRS cards that SiYuanMemo can manage through its card identity and browser projection. Arbitrary SQL block results are candidates only after intersecting with this card universe.
 _Avoid_: treating all matching `blocks` rows as SRS Browser cards

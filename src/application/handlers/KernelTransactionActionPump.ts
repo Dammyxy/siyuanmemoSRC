@@ -6,6 +6,13 @@ import {
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import type { KernelTransactionWriterUnavailableDetail } from '@/application/handlers/KernelTransactionWriterUnavailableEvent';
+import {
+  KernelCompanionBackgroundWorkRegistry,
+  type KernelCompanionBackgroundWorkHandlerResult,
+  type KernelCompanionBackgroundWorkRegistryInterface,
+  type KernelCompanionBackgroundWorkRunContext,
+  type KernelCompanionTransactionActionPollingDiagnostics,
+} from '@/application/backgroundWork/KernelCompanionBackgroundWorkRegistry';
 
 const logger = createLogger('KernelTransactionActionPump');
 
@@ -49,6 +56,7 @@ interface KernelTransactionActionPumpOptions {
   writerRelayRequired?: boolean;
   onWriterUnavailable?: (detail: KernelTransactionWriterUnavailableDetail) => void;
   deferNativeRiffUpsertWhile?: () => boolean;
+  backgroundWorkRegistry?: KernelCompanionBackgroundWorkRegistryInterface | null;
 }
 
 type AutoCardActionType = 'insert' | 'update' | 'delete';
@@ -96,8 +104,12 @@ export class KernelTransactionActionPump {
   private readonly writerRelayRequired: boolean;
   private readonly onWriterUnavailable?: (detail: KernelTransactionWriterUnavailableDetail) => void;
   private readonly deferNativeRiffUpsertWhile?: () => boolean;
-  private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly backgroundWorkRegistry: KernelCompanionBackgroundWorkRegistryInterface;
+  private nextPollTimer: ReturnType<typeof setTimeout> | null = null;
+  private activePollingJobId: string | null = null;
+  private pollingStarted = false;
   private pollingInFlight = false;
+  private lastPollingDiagnostics: KernelCompanionTransactionActionPollingDiagnostics = {};
   private emptyPollStreak = 0;
   private nextEmptyPollAllowedAt = 0;
   private noWriterUnavailableStreak = 0;
@@ -110,6 +122,7 @@ export class KernelTransactionActionPump {
   private nextUpsertAt = 0;
   private readonly pendingAutoCardOpsByBlock = new Map<string, AutoCardActionType | null>();
   private nextAutoCardAt = 0;
+  private disposed = false;
 
   constructor(
     private readonly srsBackendClient: Pick<BackendIntegrationClientFacet, 'dequeueKernelTransactions' | 'requeueKernelTransactions'>,
@@ -128,22 +141,27 @@ export class KernelTransactionActionPump {
     this.writerRelayRequired = options.writerRelayRequired === true;
     this.onWriterUnavailable = options.onWriterUnavailable;
     this.deferNativeRiffUpsertWhile = options.deferNativeRiffUpsertWhile;
+    this.backgroundWorkRegistry = options.backgroundWorkRegistry ?? new KernelCompanionBackgroundWorkRegistry({
+      schedule: (run) => run(),
+    });
   }
 
   start(): void {
-    if (this.pollingTimer) {
+    if (this.disposed || this.pollingStarted) {
       return;
     }
     incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-started');
-    this.pollingTimer = setInterval(() => {
-      void this.pollOnce();
-    }, this.pollIntervalMs);
+    this.pollingStarted = true;
+    this.scheduleNextPoll(this.pollIntervalMs);
   }
 
   async dispose(): Promise<void> {
-    if (this.pollingTimer) {
-      clearInterval(this.pollingTimer);
-      this.pollingTimer = null;
+    this.disposed = true;
+    this.pollingStarted = false;
+    this.clearNextPollTimer();
+    if (this.activePollingJobId) {
+      this.backgroundWorkRegistry.cancel(this.activePollingJobId, 'action-pump-dispose');
+      this.activePollingJobId = null;
     }
     if (this.upsertTimer) {
       clearTimeout(this.upsertTimer);
@@ -152,8 +170,11 @@ export class KernelTransactionActionPump {
   }
 
   notifyActivity(reason = 'external'): void {
+    if (this.disposed) {
+      return;
+    }
     incrementRuntimePerformanceCounter('daily-editing', `kernel-action-pump-wake-${reason}`);
-    if (!this.pollingTimer || this.pollingInFlight) {
+    if (!this.pollingStarted || this.activePollingJobId || this.pollingInFlight) {
       return;
     }
     if (this.shouldSkipForNoWriterUnavailableBackoff()) {
@@ -169,20 +190,108 @@ export class KernelTransactionActionPump {
       return;
     }
     this.resetEmptyPollBackoff();
-    void this.pollOnce();
+    this.clearNextPollTimer();
+    this.submitPollingJob(`wake-${reason}`);
   }
 
-  private async pollOnce(): Promise<void> {
+  private scheduleNextPoll(delayMs: number): void {
+    if (this.disposed || !this.pollingStarted || this.activePollingJobId || this.nextPollTimer) {
+      return;
+    }
+    this.nextPollTimer = setTimeout(() => {
+      this.nextPollTimer = null;
+      this.submitPollingJob('timer');
+    }, Math.max(0, Math.floor(delayMs)));
+  }
+
+  private clearNextPollTimer(): void {
+    if (!this.nextPollTimer) {
+      return;
+    }
+    clearTimeout(this.nextPollTimer);
+    this.nextPollTimer = null;
+  }
+
+  private submitPollingJob(reason: string): void {
+    if (this.disposed || !this.pollingStarted || this.activePollingJobId) {
+      return;
+    }
+    const result = this.backgroundWorkRegistry.submit<KernelCompanionTransactionActionPollingDiagnostics>({
+      kind: 'kernel-transaction-action-polling',
+      diagnostics: {
+        reason,
+        mode: this.runtime?.getMode?.() ?? 'none',
+        writerRelayRequired: this.writerRelayRequired,
+        maxActionsPerPoll: this.maxActionsPerPoll,
+      },
+      run: (context) => this.runPollingJob(context, reason),
+    });
+    if (!result.accepted) {
+      this.lastPollingDiagnostics = {
+        reason,
+        status: 'registry-unavailable',
+        unavailable: true,
+      };
+      return;
+    }
+    this.activePollingJobId = result.job.jobId;
+  }
+
+  private async runPollingJob(
+    context: KernelCompanionBackgroundWorkRunContext,
+    reason: string,
+  ): Promise<KernelCompanionBackgroundWorkHandlerResult<KernelCompanionTransactionActionPollingDiagnostics>> {
+    try {
+      await this.pollOnce(context);
+      if (this.isPollingCanceled(context)) {
+        return {
+          state: 'canceled',
+          reason: this.disposed ? 'action-pump-dispose' : 'action-pump-canceled',
+          diagnostics: {
+            ...this.lastPollingDiagnostics,
+            reason,
+            status: this.lastPollingDiagnostics.status ?? 'canceled',
+          },
+        };
+      }
+      return {
+        diagnostics: {
+          ...this.lastPollingDiagnostics,
+          reason,
+        },
+      };
+    } finally {
+      if (this.activePollingJobId === context.jobId) {
+        this.activePollingJobId = null;
+      }
+      if (!this.isPollingCanceled(context)) {
+        this.scheduleNextPoll(this.pollIntervalMs);
+      }
+    }
+  }
+
+  private isPollingCanceled(context?: KernelCompanionBackgroundWorkRunContext): boolean {
+    return this.disposed || context?.isCanceled() === true;
+  }
+
+  private async pollOnce(context?: KernelCompanionBackgroundWorkRunContext): Promise<void> {
+    if (this.isPollingCanceled(context)) {
+      this.lastPollingDiagnostics = { status: 'canceled' };
+      return;
+    }
     if (this.shouldSkipForNoWriterUnavailableBackoff()) {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-no-writer-backoff-skips');
+      this.lastPollingDiagnostics = { status: 'skipped-no-writer-backoff' };
       return;
     }
     if (this.shouldSkipForBackendHealthUnavailableBackoff()) {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-backend-health-backoff-skips');
+      this.lastPollingDiagnostics = { status: 'skipped-backend-health-backoff' };
       return;
     }
     if (this.shouldSkipForEmptyPollBackoff()) {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-empty-backoff-skips');
+      this.lastPollingDiagnostics = { status: 'skipped-empty-backoff' };
       return;
     }
     const finishPollSpan = startRuntimePerformanceSpan('daily-editing', 'kernel-action-pump.poll-once', {
@@ -190,23 +299,32 @@ export class KernelTransactionActionPump {
       writerRelayRequired: this.writerRelayRequired,
     });
     let actionCount = 0;
+    let remainingActions: number | undefined;
     let pollStatus = 'started';
     if (this.pollingInFlight) {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-skipped-inflight');
       finishPollSpan({ status: 'skipped-inflight' });
+      this.lastPollingDiagnostics = { status: 'skipped-inflight' };
       return;
     }
     this.pollingInFlight = true;
     try {
       const result = await this.dequeueActions();
+      remainingActions = result.remaining;
+      if (this.isPollingCanceled(context)) {
+        pollStatus = 'canceled';
+        return;
+      }
       this.resetNoWriterUnavailableBackoff();
       this.resetBackendHealthUnavailableBackoff();
       const actions = result.actions || [];
       actionCount = actions.length;
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-actions-dequeued', actions.length);
       if (actions.length === 0) {
-        this.scheduleDeferredUpsert();
-        this.maybeRunDeferredAutoCard();
+        if (!this.isPollingCanceled(context)) {
+          this.scheduleDeferredUpsert();
+          this.maybeRunDeferredAutoCard();
+        }
         pollStatus = 'empty';
         return;
       }
@@ -247,6 +365,9 @@ export class KernelTransactionActionPump {
         }
       }
       try {
+        if (this.isPollingCanceled(context)) {
+          return;
+        }
         if (upsertBlockIds.size > 0) {
           this.bufferNativeRiffUpsert(Array.from(upsertBlockIds));
           incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-native-riff-upsert-scheduled');
@@ -262,6 +383,9 @@ export class KernelTransactionActionPump {
           }
         }
 
+        if (this.isPollingCanceled(context)) {
+          return;
+        }
         this.scheduleDeferredUpsert();
 
         measureRuntimePerformance(
@@ -270,12 +394,21 @@ export class KernelTransactionActionPump {
           () => this.bufferAutoCardOperations(autoCardOperations),
           { operationCount: autoCardOperations.length },
         );
-        this.maybeRunDeferredAutoCard();
+        if (!this.isPollingCanceled(context)) {
+          this.maybeRunDeferredAutoCard();
+        }
       } catch (error) {
+        if (this.isPollingCanceled(context)) {
+          return;
+        }
         await this.requeueActions(actions, error);
         throw error;
       }
     } catch (error) {
+      if (this.isPollingCanceled(context)) {
+        pollStatus = 'canceled';
+        return;
+      }
       pollStatus = 'error';
       this.resetEmptyPollBackoff();
       if (this.recordFollowerWriterLeaseContentionBackoff(error)) {
@@ -299,12 +432,23 @@ export class KernelTransactionActionPump {
         this.recordEmptyPollBackoff();
       }
       finishPollSpan({
+        status: pollStatus,
         actionCount,
+        remainingActions,
         pendingAutoCardBlocks: this.pendingAutoCardOpsByBlock.size,
         pendingUpsertBlockCount: this.pendingUpsertBlockIds.size,
         upsertInFlight: this.upsertInFlight,
         emptyPollStreak: this.emptyPollStreak,
       });
+      this.lastPollingDiagnostics = {
+        status: pollStatus,
+        actionCount,
+        ...(typeof remainingActions === 'number' ? { remainingActions } : {}),
+        pendingAutoCardBlocks: this.pendingAutoCardOpsByBlock.size,
+        pendingUpsertBlockCount: this.pendingUpsertBlockIds.size,
+        upsertInFlight: this.upsertInFlight,
+        emptyPollStreak: this.emptyPollStreak,
+      };
     }
   }
 
@@ -620,19 +764,22 @@ export class KernelTransactionActionPump {
   }
 
   private scheduleDeferredUpsert(): void {
-    if (this.pendingUpsertBlockIds.size === 0 || this.upsertInFlight || this.upsertTimer) {
+    if (this.disposed || this.pendingUpsertBlockIds.size === 0 || this.upsertInFlight || this.upsertTimer) {
       return;
     }
     const now = Date.now();
     const delayMs = Math.max(0, this.nextUpsertAt - now);
     this.upsertTimer = setTimeout(() => {
       this.upsertTimer = null;
+      if (this.disposed) {
+        return;
+      }
       void this.runDeferredUpsert();
     }, delayMs);
   }
 
   private async runDeferredUpsert(): Promise<void> {
-    if (this.pendingUpsertBlockIds.size === 0 || this.upsertInFlight) {
+    if (this.disposed || this.pendingUpsertBlockIds.size === 0 || this.upsertInFlight) {
       return;
     }
     const now = Date.now();

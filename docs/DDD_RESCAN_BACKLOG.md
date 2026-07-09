@@ -4,6 +4,36 @@ Last update: 2026-07-09 (Round 685)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-09 - Kernel transaction action polling registry lifecycle
+
+- Task: Implement OpenSpec change `route-kernel-transaction-action-pump-through-background-work-registry` so `KernelTransactionActionPump` polling uses the Kernel Companion Background Work lifecycle registry.
+- Touched slice: Application/backend-client background work Module, `KernelTransactionActionPump` polling lifecycle, shared `SrsBackendClient` registry exposure, `ApplicationContext` wiring, focused registry/ActionPump tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: Extended background work kinds/diagnostics with `kernel-transaction-action-polling`; `KernelTransactionActionPump` now submits one polling job per interval/wake through the shared registry, records job status diagnostics, cancels active polling on dispose, clears deferred upsert timers, and suppresses late follow-up scheduling while keeping dequeue/requeue, writer relay, native Riff handling, and AutoCard handoff in their existing owners.
+- Debt deferred: Xiuyuan startup sync is still outside the registry; durable registry persistence and kernel RPC status exposure remain future work.
+- Why deferred: ActionPump polling is lifecycle-only and low blast radius. Xiuyuan startup sync has real write side effects and should migrate separately after this second registry consumer is stable; durable/kernel status would widen the kernel companion contract before UI/cross-reload need is proven.
+- Next safe step: Migrate Xiuyuan startup sync only if startup write lifecycle still blocks unload/reload or needs the same submit/status/cancel/defer diagnostics.
+- Validation: Focused Vitest passed for `src/application/handlers/__tests__/KernelTransactionActionPump.test.ts`, `src/application/backgroundWork/__tests__/KernelCompanionBackgroundWorkRegistry.test.ts`, `src/application/clients/__tests__/SrsBackendClient.test.ts`, and `src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts`.
+
+### 2026-07-09 - Kernel companion background work registry
+
+- Task: Implement OpenSpec change `introduce-kernel-companion-background-work-registry` so Review truth SQL backfill uses a lifecycle registry instead of SrsBackendClient-owned timer/backfill state.
+- Touched slice: Application/backend-client background work Module, `SrsBackendClient` Review truth startup/unload lifecycle, focused registry/SrsBackendClient/ApplicationContext tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: Added `KernelCompanionBackgroundWorkRegistry` with submit/status/cancel/defer/shutdown, typed `review-truth-backfill` diagnostics, in-memory job records, idempotent shutdown, fail-closed unavailable submissions after shutdown, and late-result suppression. `SrsBackendClient.backgroundWorkStatus()` exposes the registry diagnostics seam. `schedulePendingReviewTruthFlush()` now submits pending SQL truth rows as a registry job while keeping direct quick flush for journal/projection work; before-unload shuts the registry down before quick flush so heavy backfill is deferred/canceled instead of started during quit.
+- Debt deferred: At the time of this registry introduction, Xiuyuan startup sync and `KernelTransactionActionPump` polling were not yet registry jobs; durable registry persistence and kernel RPC status exposure stayed future work. ActionPump polling is now migrated in the follow-up task above, leaving Xiuyuan startup sync plus durable/kernel status as remaining debt.
+- Why deferred: Review truth backfill was the active shutdown hazard and had the cleanest backend owner seam. Moving Xiuyuan/ActionPump in the same slice would have widened scope beyond the validated P0 renderer/backend lifecycle fix, and durable/kernel RPC status would imply a larger kernel companion contract.
+- Next safe step: Evaluate Xiuyuan startup sync as the next registry consumer only if its startup write lifecycle needs cancel/defer/status diagnostics.
+- Validation: Focused registry/SrsBackendClient/ApplicationContext tests passed; hidden-fallback check passed; boundary check passed; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only; build passed with existing non-blocking i18n/Sass warnings.
+
+### 2026-07-09 - Kernel companion managed background work
+
+- Task: Implement OpenSpec change `kernel-companion-managed-background-work` so shutdown/unload no longer waits on heavy Review truth backfill or re-arms backend maintenance timers after disposal.
+- Touched slice: `SrsBackendClient` Review truth maintenance lifecycle, `ApplicationContext` unload regression coverage, `KernelTransactionActionPump` dispose/late-result guards, OpenSpec artifacts, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: Before-unload Review truth now performs only a bounded quick flush and explicitly drops queued startup SQL backfill for that unload path. `SrsBackendClient.dispose()` marks the client disposed, clears flush timers and queued backfill/flush state, prevents new schedule/flush entry, and prevents pressure/error results from re-arming timers. `KernelTransactionActionPump.dispose()` now marks the pump disposed, clears polling/upsert timers, ignores late dequeue/upsert outcomes, and does not schedule retry work after unload.
+- Debt deferred: The actual kernel companion job registry (`submit/status/cancel/defer/shutdown`) is still a follow-up migration. P0 keeps scheduler, Riff/card writes, msgpack truth, and SQLite DB ownership out of `kernel.js`.
+- Why deferred: SiYuan's current kernel plugin lifecycle can coordinate stop/unload, but moving persistence ownership into kernel JS would expand the write boundary before the renderer/backend seam is shutdown-safe.
+- Next safe step: Build/reload, trigger Review truth startup maintenance with pending backfill rows, then quit SiYuan and verify unload completes without new backfill requests or action-pump polling after disposal.
+- Validation: Focused SrsBackendClient/ApplicationContext/KernelTransactionActionPump tests passed.
+
 ### 2026-07-09 - Complete SRS card render contract
 
 - Task: Implement OpenSpec change `complete-srs-card-render-contract` so repaired cards keep semantic type, renderer family, side ownership, required receipts, and fail-closed diagnostics through Browser repair and Review.
