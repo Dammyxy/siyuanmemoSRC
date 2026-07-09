@@ -5,6 +5,7 @@ import type { ReviewEditorState } from '../reviewEditorState';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import type { ReviewUIState } from '../types';
 import { ReviewRichContentRenderer } from '@/core/card/common/application/ReviewRichContentRenderer';
+import { resolveSrsCardRenderContract } from '@/core/card/render-contract';
 
 const reviewContentMocks = vi.hoisted(() => {
   const instances: Array<{
@@ -228,6 +229,7 @@ function createSymbolQuickContent(symbolType = '>>') {
         symbolDetected: true,
         cardSource: 'quick-symbol',
         symbolType,
+        quickDetectReason: 'symbol-rule',
       },
     },
   };
@@ -537,6 +539,13 @@ function createRenderPolicyMeta(
   const updatedAt = String(card?.updatedAt ?? '');
   const ruleId = String(card?.faceKey?.ruleId ?? card?.faceKey?.cardRuleId ?? `${rendererKind ?? 'main'}-rule`);
   const faceIndex = Number.isFinite(card?.faceKey?.faceIndex) ? Number(card?.faceKey?.faceIndex) : 0;
+  const profile = rendererKind === 'descriptor' ? 'descriptor' : null;
+  const renderContract = resolveSrsCardRenderContract({
+    card: card ? { ...card, blockId } as never : null,
+    profile,
+    contentBlockId: content.id,
+    answerBlockId: '',
+  });
   return {
     transition: 'none',
     renderContext: {
@@ -556,10 +565,10 @@ function createRenderPolicyMeta(
         cardType: card?.type ?? null,
         meta: { ...(card?.meta ?? {}) },
       },
-      renderPolicy: {
-        version: 1,
-        profile: rendererKind === 'descriptor' ? 'descriptor' : null,
-        specialRendererKind: rendererKind,
+        renderPolicy: {
+          version: 1,
+          profile,
+          specialRendererKind: rendererKind,
         semanticKind: rendererKind,
         forceProtyleRender: false,
         forceQuickRender: rendererKind === 'quick',
@@ -572,16 +581,17 @@ function createRenderPolicyMeta(
           ruleId,
           updatedAt,
         },
-        legacyProjection: {
+          legacyProjection: {
           templateID: typeof card?.meta?.templateID === 'string' ? card.meta.templateID : '',
           typeMarker: typeof card?.meta?.typeMarker === 'string' ? card.meta.typeMarker : '',
           faceIndex: typeof card?.meta?.faceIndex === 'number' ? card.meta.faceIndex : 0,
           renderProfile: typeof card?.meta?.renderProfile === 'string' ? card.meta.renderProfile : '',
           clozeRenderMode: typeof card?.meta?.clozeRenderMode === 'string' ? card.meta.clozeRenderMode : '',
-          used: ['templateID', 'typeMarker', 'faceIndex', 'renderProfile', 'clozeRenderMode'],
+            used: ['templateID', 'typeMarker', 'faceIndex', 'renderProfile', 'clozeRenderMode'],
+          },
+          renderContract,
+          diagnostics: ['legacy-render-projection-read'],
         },
-        diagnostics: ['legacy-render-projection-read'],
-      },
       allowedActions: ['answer', 'edit'],
       diagnostics: [],
       unavailable: {
@@ -1583,18 +1593,22 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('falls back to standard Protyle once when policy-selected quick renderer rejects the card', async () => {
+  it('fails closed on quick renderer diagnostics without rebuilding Protyle', async () => {
     const QuickRendererRejectingStub = defineComponent({
       name: 'QuickCardRendererStub',
       emits: ['error'],
       setup(_props, { emit }) {
         onMounted(() => {
-          emit('error', new Error('not a quick card'));
+          const error = Object.assign(
+            new Error('Quick card symbol grammar is not parseable: block-symbol-quick'),
+            { diagnostics: ['quick-symbol-grammar-unparseable'] },
+          );
+          emit('error', error);
         });
         return () => h('div', { class: 'quick-card-renderer-stub' });
       },
     });
-    const content = createForcedQuickContent();
+    const content = createSymbolQuickContent();
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -1626,25 +1640,23 @@ describe('ReviewContent editor state', () => {
 
     await settleReviewContent();
 
-    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentMocks.instances).toHaveLength(0);
+    expect(wrapper.find('.fsrs-review-v2-content__render-error').text()).toContain('quick-symbol-grammar-unparseable');
     expect(findWarnCall(
-      '[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session',
+      '[SiYuanMemo][ReviewContent] Quick renderer failed',
     )).toEqual([
-      '[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session',
+      '[SiYuanMemo][ReviewContent] Quick renderer failed',
       expect.objectContaining({
-        blockId: 'block-force-quick',
-        cardId: 'card-force-quick',
+        blockId: 'block-symbol-quick',
+        cardId: 'card-symbol-quick',
+        diagnostics: ['quick-symbol-grammar-unparseable'],
       }),
     ]);
 
     await wrapper.setProps({ showAnswer: false });
     await settleReviewContent();
 
-    expect(
-      reviewContentLoggerMocks.warn.mock.calls.filter(
-        ([firstArg]) => firstArg === '[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session',
-      ),
-    ).toHaveLength(1);
+    expect(reviewContentMocks.instances).toHaveLength(0);
 
     wrapper.unmount();
   });

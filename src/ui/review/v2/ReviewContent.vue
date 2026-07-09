@@ -7,6 +7,10 @@
           <div class="fsrs-review-v2-content__empty-title">{{ t('noDueCard', 'No due cards') }}</div>
         </div>
 
+        <div v-if="renderError" class="fsrs-review-v2-content__render-error">
+          {{ renderError }}
+        </div>
+
         <ReviewRichHtmlContent
           v-if="content.type === 'html'"
           class="fsrs-review-v2-content__html"
@@ -127,10 +131,6 @@
             @loaded="handleQuickCardLoaded"
             @error="handleQuickCardError"
           />
-        </div>
-
-        <div v-else-if="renderError" class="fsrs-review-v2-content__render-error">
-          {{ renderError }}
         </div>
 
         <div v-else class="fsrs-review-v2-content__protyle">
@@ -406,8 +406,6 @@ let pendingMainProtyle: siyuan.Protyle | null = null;
 let pendingMainProtyleHost: HTMLElement | null = null;
 let mainProtyleFocusCleanup: (() => void) | null = null;
 let mainProtyleFocusTimer: ReturnType<typeof setTimeout> | null = null;
-const invalidForcedQuickRenderVersion = ref(0);
-const invalidForcedQuickRenderKeys = new Set<string>();
 const MAX_MAIN_RENDER_RETRIES = 6;
 
 function requireRenderServices(): ReviewRenderServices {
@@ -476,7 +474,11 @@ const contextRenderPolicy = computed<ReviewRenderableRenderPolicy | null>(() => 
 ));
 const forceProtyleRender = computed(() => {
   if (contextRenderPolicy.value) {
-    return contextRenderPolicy.value.forceProtyleRender || answerPaneTemplateForcesProtyle.value;
+    return contextRenderPolicy.value.forceProtyleRender
+      || (
+        answerPaneTemplateForcesProtyle.value
+        && contextRenderPolicy.value.renderContract?.rendererKind !== 'quick'
+      );
   }
 
   return props.content.card?.meta?.forceProtyleRender === true
@@ -494,11 +496,6 @@ const neuralIsFlashcard = computed(() => resolveNeuralIsFlashcard(props.content.
 const isNeuralRoamNonFlashcardCard = computed(() => isNeuralRoamNonFlashcard(props.content.card));
 const isProgressiveDerivedItem = computed(() => isProgressiveDerivedItemCard(props.content.card));
 const quickRenderCardId = computed(() => String(props.content.card?.id || props.content.id || ''));
-const forceQuickRenderSuppressionKey = computed(() => {
-  const cardId = String(props.content.card?.id || '').trim();
-  const blockId = String(props.content.id || '').trim();
-  return cardId || blockId || '';
-});
 const quickRenderFallbackReason = computed(() => {
   if (props.content.card?.id) return 'fsrs-card-id';
   if (props.content.id) return 'content-id-fallback';
@@ -534,14 +531,9 @@ const quickIndicatorSymbolType = computed(() => {
   return typeof symbolType === 'string' ? symbolType : '';
 });
 const forceQuickRender = computed(() => {
-  invalidForcedQuickRenderVersion.value;
   if (forceProtyleRender.value) return false;
   if (isTopicReadModeCard.value) return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
-  const suppressionKey = forceQuickRenderSuppressionKey.value;
-  if (suppressionKey && invalidForcedQuickRenderKeys.has(suppressionKey)) {
-    return false;
-  }
   if (isProgressiveDerivedItem.value) {
     return false;
   }
@@ -578,9 +570,6 @@ const specialRendererKind = computed(() => {
 
   const policy = contextRenderPolicy.value;
   if (!policy || forceProtyleRender.value) {
-    return null;
-  }
-  if (policy.specialRendererKind === 'quick' && !forceQuickRender.value) {
     return null;
   }
   return policy.specialRendererKind;
@@ -1423,50 +1412,17 @@ function handleQuickCardLoaded(result: unknown) {
   logger.debug('[SiYuanMemo][ReviewContent] Quick card loaded:', result);
 }
 
-function markInvalidForcedQuickRender(
-  reason: string,
-  details?: Record<string, unknown>,
-): void {
-  const suppressionKey = forceQuickRenderSuppressionKey.value;
-  if (!suppressionKey) {
-    return;
-  }
-
-  const isNew = !invalidForcedQuickRenderKeys.has(suppressionKey);
-  if (isNew) {
-    invalidForcedQuickRenderKeys.add(suppressionKey);
-    invalidForcedQuickRenderVersion.value += 1;
-  }
-
-  clearRendererError();
-
-  if (!isNew) {
-    return;
-  }
-
-  logger.warn('[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session', {
-    blockId: props.content.id,
-    cardId: quickRenderCardId.value,
-    cardType: props.content.card?.type,
-    quickDetectReason: quickDetectReason.value,
-    fallbackReason: quickRenderFallbackReason.value,
-    reason,
-    suppressionKey,
-    ...details,
-  });
+function readErrorDiagnostics(error: Error): string[] {
+  const diagnostics = (error as { diagnostics?: unknown }).diagnostics;
+  return Array.isArray(diagnostics)
+    ? diagnostics.map(item => String(item || '').trim()).filter(Boolean)
+    : [];
 }
 
 // 快速卡片加载失败，显示错误提示
 function handleQuickCardError(error: Error) {
   const message = String(error?.message || '');
-  const isQuickMiss = message.includes('not a quick card');
-  if (isQuickMiss) {
-    markInvalidForcedQuickRender('quick-renderer-not-quick-card', {
-      errorMessage: message,
-    });
-    void nextTick().then(() => renderProtyle(String(props.content.id || '')));
-    return;
-  }
+  const diagnostics = readErrorDiagnostics(error);
   logger.warn('[SiYuanMemo][ReviewContent] Quick renderer failed', {
     blockId: props.content.id,
     cardId: quickRenderCardId.value,
@@ -1475,9 +1431,12 @@ function handleQuickCardError(error: Error) {
     quickDetectReason: quickDetectReason.value,
     isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
     fallbackReason: quickRenderFallbackReason.value,
-    isQuickMiss,
+    errorMessage: message,
+    diagnostics,
   });
-  handleRendererError('Quick card', error);
+  renderError.value = diagnostics.length > 0
+    ? `${message || t('cardRenderFailed', 'Failed to render this card')} (${diagnostics.join(', ')})`
+    : message || t('cardRenderFailed', 'Failed to render this card');
 }
 
 // 计算答案块 ID（Xiuyuan 模板卡片）

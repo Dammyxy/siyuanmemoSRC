@@ -1,18 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-09 (Round 684)
+Last update: 2026-07-09 (Round 685)
 
 ## 0. Task Deltas (newest first)
 
-### 2026-07-09 - SRS card render contract stabilization
+### 2026-07-09 - Complete SRS card render contract
 
-- Task: Implement OpenSpec change `stabilize-srs-card-render-contract` so repaired symbol cards keep both their `Item` semantic kind and quick-symbol review rendering contract.
-- Touched slice: SRS card render contract, semantic repair patches, Review render policy/preparation, focused semantic/review adapter tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
-- Debt fixed now: Added `SrsCardRenderContractResolver` as the Review-side render contract Module for quick-symbol cards. Deterministic quick-symbol evidence now routes through quick rendering even when stale `forceProtyleRender` exists, emits diagnostics for stale Protyle routing or missing symbol type, and exposes repair patches that semantic repair can apply. The semantic repair patch path can now fill missing quick-symbol render receipt evidence and delete stale `forceProtyleRender` while preserving unrelated metadata. Review quick preparation is covered for front-before-reveal and back-after-reveal behavior.
-- Debt deferred: CDF, concept, descriptor, image-occlusion, and all custom renderer families are not fully migrated behind the new render contract Interface yet; native/protyle render diagnostics for malformed source blocks remain the next layer.
-- Why deferred: The reported production failure is legacy symbol cards repaired to Item but losing quick rendering. Moving every renderer family in one pass would cross too much Review surface and increase regression risk.
-- Next safe step: Rebuild/reload, run `诊断并修复卡片类型`, repair known legacy symbol cards, and verify Review shows symbol-card front before reveal and back after reveal.
-- Validation: Focused semantic resolver, Review render policy, Review presentation preparer, and UnifiedReviewAdapter tests passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n/Sass warnings; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only.
+- Task: Implement OpenSpec change `complete-srs-card-render-contract` so repaired cards keep semantic type, renderer family, side ownership, required receipts, and fail-closed diagnostics through Browser repair and Review.
+- Touched slice: SRS card render contract, semantic repair patches, Review render policy/preparation/content routing, quick-card render service/repository, focused semantic/review/quick adapter tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: `SrsCardRenderContractResolver` is now the Review-side render contract Module for Protyle, quick-symbol, native multi-cloze, image-occlusion, concept, concept-definition, and descriptor routing. The contract exposes renderer kind, render family, front/back ownership, required receipts, repair patch, and diagnostics; semantic repair composes the deterministic quick-symbol render patch; Review policy/preparation/content consume the contract instead of separate metadata guesses; quick-symbol cards keep quick rendering despite stale `forceProtyleRender`; quick renderer source-block/grammar/card-source/empty-face failures now fail closed with visible diagnostics instead of Protyle fallback.
+- Debt deferred: Renderer implementation internals remain in their existing adapters; this change centralizes routing/receipts/diagnostics without rewriting CDF, descriptor, concept, image-occlusion, or multi-cloze renderer view-model logic.
+- Why deferred: The user-facing defect is type/render drift and hidden fallback. Rewriting renderer internals would expand the blast radius without improving the render contract Interface.
+- Next safe step: Rebuild/reload, run `诊断并修复卡片类型`, repair known legacy symbol cards, and verify Review shows symbol-card front before reveal, back after reveal, or an explicit repairable diagnostic when source evidence is invalid.
+- Validation: Focused render-contract, semantic resolver, Review render policy/preparer/content, quick renderer, quick repository/service, and UnifiedReviewAdapter tests passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking warnings; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only.
 
 ### 2026-07-09 - SRS card semantics repair action follow-up
 

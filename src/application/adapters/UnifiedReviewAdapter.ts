@@ -768,14 +768,18 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const cardId = resolveCardId(item);
     const cardType = resolveEffectiveCardType(item, queueType);
     const isTopicDocument = isTopicDocumentCard(item, cardType);
-    const renderPolicy = buildReviewRenderableRenderPolicy(item);
+    const initialRenderPolicy = buildReviewRenderableRenderPolicy(item);
     const contentBlockId = isTopicDocument
       ? blockId
-      : resolveContentBlockId(item, blockId, renderPolicy);
+      : resolveContentBlockId(item, blockId, initialRenderPolicy);
     const isTopicLike = isTopicLikeCardType(cardType);
     const answerBlockID = isTopicDocument || isTopicLike
       ? ''
-      : resolveAnswerBlockId(item, blockId, renderPolicy);
+      : resolveAnswerBlockId(item, blockId, initialRenderPolicy);
+    const renderPolicy = buildReviewRenderableRenderPolicy(item, {
+      contentBlockId,
+      answerBlockId: answerBlockID,
+    });
     const hasInlineHiddenContent = isNativeInlineHiddenCard(item);
     const renderContext = buildReviewRenderableContext({
       card: item,

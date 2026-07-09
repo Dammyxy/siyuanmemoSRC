@@ -1,5 +1,10 @@
 import { CardType, type FSRSCard } from '@/types/card';
 import type { SupportedRenderProfile } from '@/core/card/render-profile/RenderProfileResolver';
+import {
+  isConceptCard,
+  isConceptDefinitionCard,
+  isDescriptorSemanticCard,
+} from '@/core/xiuyuan/cardMeta';
 
 export type SrsCardRenderContractRendererKind =
   | 'image-occlusion'
@@ -8,13 +13,43 @@ export type SrsCardRenderContractRendererKind =
   | 'concept'
   | 'descriptor'
   | 'quick'
-  | null;
+  | 'protyle';
 
 export type SrsCardRenderFamily =
   | 'quick-symbol'
   | 'native-multi-cloze'
   | 'image-occlusion'
-  | 'unknown';
+  | 'concept-definition'
+  | 'concept'
+  | 'descriptor'
+  | 'protyle';
+
+export type SrsCardRenderSide = 'front' | 'back';
+
+export type SrsCardFrontBackContract =
+  | {
+    mode: 'quick-side';
+    beforeReveal: SrsCardRenderSide;
+    afterReveal: SrsCardRenderSide;
+  }
+  | {
+    mode: 'renderer-owned' | 'not-required';
+  };
+
+export type SrsCardRenderReceiptStatus = 'present' | 'missing' | 'conflict' | 'not-required';
+
+export interface SrsCardRenderRequiredReceipt {
+  kind:
+    | 'source-block-id'
+    | 'card-id'
+    | 'quick-symbol-evidence'
+    | 'quick-symbol-type'
+    | 'quick-source-block-match'
+    | 'answer-block-route';
+  status: SrsCardRenderReceiptStatus;
+  diagnostic?: string;
+  evidence?: SrsCardRenderEvidence[];
+}
 
 export interface SrsCardRenderEvidence {
   source: 'meta';
@@ -34,6 +69,8 @@ export interface SrsCardRenderContract {
   semanticKind: string;
   rendererKind: SrsCardRenderContractRendererKind;
   renderFamily: SrsCardRenderFamily;
+  frontBackContract: SrsCardFrontBackContract;
+  requiredReceipts: SrsCardRenderRequiredReceipt[];
   quickSymbolEvidence: SrsCardRenderEvidence[];
   repairPatch: SrsCardRenderRepairPatch | null;
   diagnostics: string[];
@@ -42,6 +79,8 @@ export interface SrsCardRenderContract {
 export interface SrsCardRenderContractResolverInput {
   card: FSRSCard | null | undefined;
   profile?: SupportedRenderProfile | string | null;
+  contentBlockId?: string | null;
+  answerBlockId?: string | null;
 }
 
 export function resolveSrsCardRenderContract(
@@ -53,8 +92,8 @@ export function resolveSrsCardRenderContract(
   const quickSymbolEvidence = collectQuickSymbolEvidence(meta);
   const diagnostics: string[] = [];
 
-  let rendererKind: SrsCardRenderContractRendererKind = null;
-  let renderFamily: SrsCardRenderFamily = 'unknown';
+  let rendererKind: SrsCardRenderContractRendererKind = 'protyle';
+  let renderFamily: SrsCardRenderFamily = 'protyle';
 
   if (isImageOcclusion(meta)) {
     rendererKind = 'image-occlusion';
@@ -65,6 +104,28 @@ export function resolveSrsCardRenderContract(
   } else if (!isProgressiveDerivedItem(card) && quickSymbolEvidence.length > 0) {
     rendererKind = 'quick';
     renderFamily = 'quick-symbol';
+  } else if (
+    profile === 'descriptor'
+    || card?.type === CardType.Descriptor
+    || hasDescriptorFieldMapping(card)
+    || isDescriptorSemanticCard(card)
+  ) {
+    rendererKind = 'descriptor';
+    renderFamily = 'descriptor';
+  } else if (
+    profile === 'concept-definition'
+    || hasConceptDefinitionFieldMapping(card)
+    || isConceptDefinitionCard(card)
+  ) {
+    rendererKind = 'concept-definition';
+    renderFamily = 'concept-definition';
+  } else if (
+    profile === 'concept'
+    || card?.type === CardType.Concept
+    || isConceptCard(card)
+  ) {
+    rendererKind = 'concept';
+    renderFamily = 'concept';
   }
 
   if (renderFamily === 'quick-symbol' && meta.forceProtyleRender === true) {
@@ -75,6 +136,21 @@ export function resolveSrsCardRenderContract(
     diagnostics.push('render-contract-symbol-type-missing');
   }
 
+  if (renderFamily === 'quick-symbol' && readString(input.answerBlockId)) {
+    diagnostics.push('render-contract-answer-block-route-conflict');
+  }
+
+  const requiredReceipts = buildRequiredReceipts({
+    card,
+    contentBlockId: input.contentBlockId,
+    answerBlockId: input.answerBlockId,
+    renderFamily,
+    quickSymbolEvidence,
+  });
+  diagnostics.push(...requiredReceipts
+    .filter(receipt => receipt.diagnostic)
+    .map(receipt => receipt.diagnostic as string));
+
   return {
     version: 1,
     cardId: readString(card?.id),
@@ -82,10 +158,91 @@ export function resolveSrsCardRenderContract(
     semanticKind: readString(card?.type),
     rendererKind,
     renderFamily,
+    frontBackContract: buildFrontBackContract(renderFamily),
+    requiredReceipts,
     quickSymbolEvidence,
     repairPatch: buildQuickSymbolRepairPatch(meta, renderFamily),
-    diagnostics,
+    diagnostics: Array.from(new Set(diagnostics)),
   };
+}
+
+function buildFrontBackContract(renderFamily: SrsCardRenderFamily): SrsCardFrontBackContract {
+  if (renderFamily === 'quick-symbol') {
+    return {
+      mode: 'quick-side',
+      beforeReveal: 'front',
+      afterReveal: 'back',
+    };
+  }
+
+  if (renderFamily === 'image-occlusion' || renderFamily === 'native-multi-cloze') {
+    return { mode: 'renderer-owned' };
+  }
+
+  return { mode: 'not-required' };
+}
+
+function buildRequiredReceipts(input: {
+  card: FSRSCard | null | undefined;
+  contentBlockId?: string | null;
+  answerBlockId?: string | null;
+  renderFamily: SrsCardRenderFamily;
+  quickSymbolEvidence: SrsCardRenderEvidence[];
+}): SrsCardRenderRequiredReceipt[] {
+  const blockId = readString(input.card?.blockId);
+  const contentBlockId = readString(input.contentBlockId);
+  const cardId = readString(input.card?.id);
+  const requiresQuick = input.renderFamily === 'quick-symbol';
+  const meta = readMeta(input.card);
+  const receipts: SrsCardRenderRequiredReceipt[] = [
+    {
+      kind: 'source-block-id',
+      status: blockId ? 'present' : requiresQuick ? 'missing' : 'not-required',
+      diagnostic: requiresQuick && !blockId ? 'render-contract-source-block-missing' : undefined,
+    },
+    {
+      kind: 'card-id',
+      status: cardId ? 'present' : requiresQuick ? 'missing' : 'not-required',
+      diagnostic: requiresQuick && !cardId ? 'render-contract-card-id-missing' : undefined,
+    },
+    {
+      kind: 'quick-symbol-evidence',
+      status: requiresQuick
+        ? input.quickSymbolEvidence.length > 0 ? 'present' : 'missing'
+        : 'not-required',
+      evidence: input.quickSymbolEvidence,
+      diagnostic: requiresQuick && input.quickSymbolEvidence.length === 0
+        ? 'render-contract-quick-symbol-evidence-missing'
+        : undefined,
+    },
+    {
+      kind: 'quick-symbol-type',
+      status: requiresQuick
+        ? readString(meta.symbolType) ? 'present' : 'missing'
+        : 'not-required',
+      diagnostic: requiresQuick && !readString(meta.symbolType)
+        ? 'render-contract-symbol-type-missing'
+        : undefined,
+    },
+    {
+      kind: 'quick-source-block-match',
+      status: requiresQuick && contentBlockId && blockId && contentBlockId !== blockId
+        ? 'conflict'
+        : requiresQuick ? 'present' : 'not-required',
+      diagnostic: requiresQuick && contentBlockId && blockId && contentBlockId !== blockId
+        ? 'render-contract-source-block-mismatch'
+        : undefined,
+    },
+    {
+      kind: 'answer-block-route',
+      status: requiresQuick && readString(input.answerBlockId) ? 'conflict' : 'not-required',
+      diagnostic: requiresQuick && readString(input.answerBlockId)
+        ? 'render-contract-answer-block-route-conflict'
+        : undefined,
+    },
+  ];
+
+  return receipts;
 }
 
 function buildQuickSymbolRepairPatch(
@@ -162,13 +319,26 @@ function isProgressiveDerivedItem(card: FSRSCard | null | undefined): boolean {
 
 function isNativeMultiClozeCard(
   meta: Record<string, unknown>,
-  profile: SupportedRenderProfile | string | null | undefined,
+  _profile: SupportedRenderProfile | string | null | undefined,
 ): boolean {
   const templateId = readString(meta.templateID);
-  const clozeRenderMode = readString(meta.clozeRenderMode);
-  return templateId === 'builtin-multi-cloze'
-    && profile !== 'quick-inline-formula'
-    && clozeRenderMode !== 'inline-formula-cloze';
+  return templateId === 'builtin-multi-cloze';
+}
+
+function hasDescriptorFieldMapping(card: FSRSCard | null | undefined): boolean {
+  const fieldMapping = readMeta(card).fieldMapping;
+  return !!fieldMapping
+    && typeof fieldMapping === 'object'
+    && !Array.isArray(fieldMapping)
+    && readString((fieldMapping as Record<string, unknown>).descriptor).length > 0;
+}
+
+function hasConceptDefinitionFieldMapping(card: FSRSCard | null | undefined): boolean {
+  const fieldMapping = readMeta(card).fieldMapping;
+  return !!fieldMapping
+    && typeof fieldMapping === 'object'
+    && !Array.isArray(fieldMapping)
+    && readString((fieldMapping as Record<string, unknown>).definition).length > 0;
 }
 
 function readMeta(card: FSRSCard | null | undefined): Record<string, unknown> {

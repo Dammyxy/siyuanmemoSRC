@@ -127,8 +127,8 @@ A SiYuanMemo-owned review UI that renders card content outside SiYuan's native b
 _Avoid_: assuming temporary or deliberate practice cannot render links by nature
 
 **SRS Card Render Contract**:
-The Review-side render contract that resolves a card's renderer family, renderer kind, deterministic render evidence, render repair patch, and diagnostics after semantic kind is known. It keeps semantic type separate from presentation routing so repaired Item cards, especially quick-symbol cards, do not lose their front/back display contract.
-_Avoid_: overloading CardType.Item with renderer selection, scattered quick-symbol metadata checks, hidden Protyle fallback
+The Review-side render contract Module that resolves a card's renderer kind, renderer family, front/back contract, required receipts, deterministic render repair patch, and diagnostics after semantic kind is known. It covers Protyle, quick-symbol, native multi-cloze, image occlusion, concept, concept-definition, and descriptor routing; quick-symbol cards declare front before reveal and back after reveal and fail closed with diagnostics when required receipts or source grammar are invalid.
+_Avoid_: overloading CardType.Item with renderer selection, scattered renderer metadata checks, Review-side side guesses, hidden Protyle fallback
 
 **Semantic Session Read Model**:
 A presentation-ready read model derived from Semantic session owner state for Browser, Review sidebar, or session inspection surfaces. It does not write Semantic state, execute Semantic commands, or perform UI selection side effects.
@@ -210,7 +210,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - **Review Storage Audit** compares **Review Ledger** facts, **Card Schedule Store** rows, and derived projection evidence; repair remains explicit and evidence-complete, never a hidden Browser/queue projection fallback.
 - Once the **SRS Review Kernel** is selected, **BrowserProjectionIndex** and **Review Session Cursor** may provide diagnostics/display state, but must not choose post-answer current/next cards.
 - **Custom Review Surfaces** share review rendering requirements with native-like review surfaces, including supported link and reference behavior.
-- **SRS Card Render Contract** consumes card metadata and render profile evidence after semantic kind is known; semantic repair may apply its deterministic render repair patch, but the contract does not own scheduling, queue membership, or Review answer authority.
+- **SRS Card Render Contract** consumes card metadata, render profile evidence, and content/answer route evidence after semantic kind is known; semantic repair may apply its deterministic render repair patch, and Review render policy/preparation consume it for renderer selection and side ownership, but the contract does not own scheduling, queue membership, or Review answer authority.
 - A **Semantic Session Read Model** is derived from Semantic session owner state and may consume core Semantic session projection, but it remains a read-only presentation model for Browser, Review sidebar, or session inspection callers.
 - A **Review Session Cursor** sits inside a Review session and consumes queue rows/cards, but it is not the queue authority and does not decide scheduling outcomes.
 - A **Review Current Item Command** sits beside the **Review Session Cursor** and applies the visible current card after cursor restore, ordinary advancement, or compensation chooses that card.

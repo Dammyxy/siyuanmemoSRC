@@ -53,10 +53,21 @@ export interface ReviewRenderableRenderPolicy {
   diagnostics: string[];
 }
 
-export function buildReviewRenderableRenderPolicy(card: FSRSCard | null | undefined): ReviewRenderableRenderPolicy {
+export function buildReviewRenderableRenderPolicy(
+  card: FSRSCard | null | undefined,
+  context: {
+    contentBlockId?: string | null;
+    answerBlockId?: string | null;
+  } = {},
+): ReviewRenderableRenderPolicy {
   const meta = readMeta(card);
   const profile = resolveRenderProfile(card);
-  const renderContract = resolveSrsCardRenderContract({ card, profile });
+  const renderContract = resolveSrsCardRenderContract({
+    card,
+    profile,
+    contentBlockId: context.contentBlockId,
+    answerBlockId: context.answerBlockId,
+  });
   const quickSymbolContract = isQuickSymbolRenderContract(renderContract);
   const forceProtyleRender = meta.forceProtyleRender === true && !quickSymbolContract;
   const forceQuickRender = !forceProtyleRender && (
@@ -64,11 +75,10 @@ export function buildReviewRenderableRenderPolicy(card: FSRSCard | null | undefi
     || quickSymbolContract
     || shouldPreferStableQuickForcePath(card, profile)
   );
+  const contractRendererKind = renderContract.rendererKind === 'protyle' ? null : renderContract.rendererKind;
   const specialRendererKind = forceProtyleRender
     ? null
-    : renderContract.rendererKind === 'quick'
-      ? 'quick'
-      : resolveSpecialRendererKind(card, profile, forceQuickRender);
+    : contractRendererKind ?? resolveSpecialRendererKind(card, profile, forceQuickRender);
   const legacyProjection = buildLegacyProjection(meta);
   const diagnostics = [
     ...(legacyProjection.used.length > 0 ? ['legacy-render-projection-read'] : []),
@@ -269,8 +279,8 @@ export function resolveReviewSpecialRendererKind(input: {
     return 'multi-cloze';
   }
 
-  if (contract.rendererKind === 'quick') {
-    return 'quick';
+  if (contract.rendererKind !== 'protyle') {
+    return contract.rendererKind;
   }
 
   if (input.forceQuickRender === true) {

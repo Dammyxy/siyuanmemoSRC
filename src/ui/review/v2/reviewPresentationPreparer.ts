@@ -9,6 +9,12 @@ import type {
 type QuickSide = 'front' | 'back';
 
 function resolveQuickSide(state: ReviewUIState): QuickSide {
+  const frontBackContract = resolveRenderPolicy(state)?.renderContract?.frontBackContract;
+  if (frontBackContract?.mode === 'quick-side') {
+    return state.actions.showAnswer
+      ? frontBackContract.beforeReveal
+      : frontBackContract.afterReveal;
+  }
   return state.actions.showAnswer ? 'front' : 'back';
 }
 
@@ -53,6 +59,8 @@ export function buildPreparedReviewPresentationIdentity(
       policy.cacheTokens.updatedAt,
       policy.profile || '',
       policy.specialRendererKind || '',
+      policy.renderContract?.renderFamily || '',
+      policy.renderContract?.frontBackContract.mode || '',
       policy.forceProtyleRender ? 'fp1' : 'fp0',
       policy.forceQuickRender ? 'fq1' : 'fq0',
     ].join('|');
@@ -67,7 +75,10 @@ function resolvePreparedRendererKind(state: ReviewUIState): PreparedReviewRender
     return null;
   }
 
-  const policyRendererKind = state.meta.renderContext?.renderPolicy?.specialRendererKind ?? null;
+  const policy = state.meta.renderContext?.renderPolicy ?? null;
+  const policyRendererKind = policy?.renderContract?.rendererKind === 'protyle'
+    ? null
+    : policy?.renderContract?.rendererKind ?? policy?.specialRendererKind ?? null;
   if (policyRendererKind === 'image-occlusion') {
     return null;
   }
@@ -140,9 +151,12 @@ export async function prepareReviewPresentation(
     return state;
   }
 
+  const policy = resolveRenderPolicy(state);
   return attachPreparedPresentation(state, {
     rendererKind,
     identityKey,
     viewModel,
+    ...(policy?.renderContract ? { renderContract: policy.renderContract } : {}),
+    diagnostics: policy?.diagnostics ?? [],
   });
 }

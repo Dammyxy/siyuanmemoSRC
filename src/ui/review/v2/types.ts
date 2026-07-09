@@ -1,5 +1,6 @@
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import type { ReviewRenderableContext } from '@/application/adapters/reviewRenderableContext';
+import type { SrsCardRenderContract } from '@/core/card/render-contract';
 import type { FSRSCard } from '@/types/card';
 import type { QueueType, ReviewQueueProgressSnapshot } from '@/types/unified-data-source';
 import type { HeaderVisualTone } from '@/ui/shared/cardVisualTokens';
@@ -83,6 +84,8 @@ export interface PreparedReviewPresentation<TViewModel = unknown> {
   rendererKind: PreparedReviewRendererKind;
   identityKey: string;
   viewModel: TViewModel;
+  renderContract?: SrsCardRenderContract;
+  diagnostics?: string[];
 }
 
 export interface ReviewHeaderCounterSummaryPart {

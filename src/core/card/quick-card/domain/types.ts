@@ -103,6 +103,32 @@ export interface QuickCardMetadata {
   direction?: 'forward' | 'reverse';
 }
 
+export type QuickCardRenderDiagnosticCode =
+  | 'quick-source-block-missing'
+  | 'quick-source-block-empty'
+  | 'quick-symbol-grammar-unparseable'
+  | 'quick-native-cloze-owned-by-protyle'
+  | 'quick-card-source-mismatch'
+  | 'quick-face-empty';
+
+export class QuickCardRenderError extends Error {
+  readonly code: QuickCardRenderDiagnosticCode;
+  readonly diagnostics: QuickCardRenderDiagnosticCode[];
+  readonly context: Record<string, unknown>;
+
+  constructor(
+    code: QuickCardRenderDiagnosticCode,
+    message: string,
+    context: Record<string, unknown> = {},
+  ) {
+    super(message);
+    this.name = 'QuickCardRenderError';
+    this.code = code;
+    this.diagnostics = [code];
+    this.context = context;
+  }
+}
+
 /**
  * 卡片面数据
  * 

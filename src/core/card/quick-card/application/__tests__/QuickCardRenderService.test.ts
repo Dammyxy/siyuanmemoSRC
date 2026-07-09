@@ -3,6 +3,7 @@ import { QuickCardRenderService } from '../QuickCardRenderService';
 import type { QuickCardRepository } from '../../infrastructure/QuickCardRepository';
 import { QuickCard } from '../../domain/QuickCard';
 import { CardFace } from '../../domain/CardFace';
+import { QuickCardRenderError } from '../../domain/types';
 
 describe('QuickCardRenderService', () => {
   let service: QuickCardRenderService;
@@ -70,15 +71,61 @@ describe('QuickCardRenderService', () => {
       expect(result?.cardType).toBe('basic');
     });
 
-    it('should return null when card not found', async () => {
+    it('should fail closed with diagnostics when card not found', async () => {
       // Arrange
       vi.mocked(mockRepository.loadCard).mockResolvedValue(null);
 
-      // Act
-      const result = await service.prepareViewModel('nonexistent', 'front');
+      await expect(service.prepareViewModel('nonexistent', 'front'))
+        .rejects
+        .toMatchObject({
+          name: 'QuickCardRenderError',
+          code: 'quick-source-block-missing',
+          diagnostics: ['quick-source-block-missing'],
+          context: { blockId: 'nonexistent' },
+        });
+    });
 
-      // Assert
-      expect(result).toBeNull();
+    it('should fail closed with diagnostics when native cloze belongs to Protyle', async () => {
+      const mockCard = new QuickCard({
+        id: 'quick-card-123',
+        blockId: '123',
+        type: 'cloze',
+        frontContent: new CardFace({ html: 'Question', hiddenTypes: [] }),
+        backContent: new CardFace({ html: 'Answer', hiddenTypes: [] }),
+        metadata: { symbol: '==' },
+      });
+      vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
+
+      await expect(service.prepareViewModel('123', 'front', 'card-123'))
+        .rejects
+        .toBeInstanceOf(QuickCardRenderError);
+      await expect(service.prepareViewModel('123', 'front', 'card-123'))
+        .rejects
+        .toMatchObject({
+          code: 'quick-native-cloze-owned-by-protyle',
+          diagnostics: ['quick-native-cloze-owned-by-protyle'],
+          context: { blockId: '123', cardId: 'card-123', symbol: '==' },
+        });
+    });
+
+    it('should fail closed with diagnostics when requested face is empty', async () => {
+      const mockCard = new QuickCard({
+        id: 'quick-card-123',
+        blockId: '123',
+        type: 'basic',
+        frontContent: new CardFace({ html: '', hiddenTypes: [] }),
+        backContent: new CardFace({ html: 'Answer', hiddenTypes: [] }),
+        metadata: { symbol: '>>' },
+      });
+      vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
+
+      await expect(service.prepareViewModel('123', 'front'))
+        .rejects
+        .toMatchObject({
+          code: 'quick-face-empty',
+          diagnostics: ['quick-face-empty'],
+          context: { blockId: '123', side: 'front' },
+        });
     });
 
     it('should include CSS classes for concept card front', async () => {

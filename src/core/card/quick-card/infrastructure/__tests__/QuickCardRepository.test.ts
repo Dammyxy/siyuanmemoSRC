@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QuickCardRepository } from '../QuickCardRepository';
 import type { SiyuanBlockAdapter } from '../SiyuanBlockAdapter';
-import type { SiyuanBlock } from '../../domain/types';
+import { QuickCardRenderError, type SiyuanBlock } from '../../domain/types';
 import type { ICardStorage } from '@/application/interfaces/ICardStorage';
 
 type MockAdapter = {
@@ -141,14 +141,44 @@ describe('QuickCardRepository', () => {
     expect(mockAdapter.renderQuickFaceHtml).not.toHaveBeenCalled();
   });
 
-  it('does not treat superblock triple braces as quick cloze card', async () => {
+  it('fails closed when superblock triple braces are not parseable quick grammar', async () => {
     mockAdapter.getBlock.mockResolvedValue(
       createBlock('{{{row 超级块测试1\n3333}}}')
     );
 
-    const card = await repository.loadCard('20260301120000-quick01');
+    await expect(repository.loadCard('20260301120000-quick01'))
+      .rejects
+      .toBeInstanceOf(QuickCardRenderError);
+    await expect(repository.loadCard('20260301120000-quick01'))
+      .rejects
+      .toMatchObject({
+        code: 'quick-symbol-grammar-unparseable',
+        diagnostics: ['quick-symbol-grammar-unparseable'],
+        context: { blockId: '20260301120000-quick01' },
+      });
+  });
 
-    expect(card).toBeNull();
+  it('fails closed when card id points at a different source block', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('What is DDD? >> Domain-Driven Design')
+    );
+    vi.mocked(mockCardStorage.getCard).mockResolvedValue({
+      id: 'card-mismatch',
+      blockId: 'other-block',
+      meta: {},
+    } as Awaited<ReturnType<ICardStorage['getCard']>>);
+
+    await expect(repository.loadCard('20260301120000-quick01', 'card-mismatch'))
+      .rejects
+      .toMatchObject({
+        code: 'quick-card-source-mismatch',
+        diagnostics: ['quick-card-source-mismatch'],
+        context: {
+          blockId: '20260301120000-quick01',
+          cardId: 'card-mismatch',
+          cardBlockId: 'other-block',
+        },
+      });
   });
 
   it('renders bidirectional single-block quick cards in forward direction through the safe face renderer', async () => {

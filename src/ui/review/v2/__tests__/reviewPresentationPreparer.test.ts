@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import type { FSRSCard } from '@/types/card';
+import { resolveSrsCardRenderContract } from '@/core/card/render-contract';
 import { createEmptyReviewUIState, type ReviewUIState } from '../types';
 import {
   buildPreparedReviewPresentationIdentity,
@@ -50,6 +51,13 @@ function withRenderPolicy(
   state: ReviewUIState,
   rendererKind: NonNullable<ReviewUIState['meta']['renderContext']>['renderPolicy']['specialRendererKind'],
 ): ReviewUIState {
+  const profile = rendererKind === 'descriptor' ? 'descriptor' : null;
+  const renderContract = resolveSrsCardRenderContract({
+    card: state.content.card,
+    profile,
+    contentBlockId: state.content.id,
+    answerBlockId: '',
+  });
   return {
     ...state,
     meta: {
@@ -73,7 +81,7 @@ function withRenderPolicy(
         },
         renderPolicy: {
           version: 1,
-          profile: rendererKind === 'descriptor' ? 'descriptor' : null,
+          profile,
           specialRendererKind: rendererKind,
           semanticKind: rendererKind,
           forceProtyleRender: false,
@@ -95,6 +103,7 @@ function withRenderPolicy(
             clozeRenderMode: '',
             used: ['templateID', 'typeMarker', 'faceIndex'],
           },
+          renderContract,
           diagnostics: ['legacy-render-projection-read'],
         },
         allowedActions: ['answer', 'edit'],

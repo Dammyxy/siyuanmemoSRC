@@ -107,7 +107,10 @@ export function buildReviewRenderableContext(input: {
   if (sourceAvailability && sourceAvailability.status !== 'current') {
     diagnostics.push(`source-${sourceAvailability.status}`);
   }
-  const renderPolicy = input.renderPolicy ?? buildReviewRenderableRenderPolicy(card);
+  const renderPolicy = input.renderPolicy ?? buildReviewRenderableRenderPolicy(card, {
+    contentBlockId: input.contentBlockId,
+    answerBlockId: input.answerBlockId,
+  });
   diagnostics.push(...renderPolicy.diagnostics);
 
   return {

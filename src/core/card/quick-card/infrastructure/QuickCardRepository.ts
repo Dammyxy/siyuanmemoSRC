@@ -5,7 +5,12 @@
  * @layer Infrastructure Layer
  */
 
-import type { SiyuanBlock, QuickCardType, QuickCardMetadata } from '../domain/types';
+import {
+  QuickCardRenderError,
+  type SiyuanBlock,
+  type QuickCardType,
+  type QuickCardMetadata,
+} from '../domain/types';
 import { QuickCard } from '../domain/QuickCard';
 import { CardFace } from '../domain/CardFace';
 import { CardFaceStrategyFactory } from '../domain/strategies/CardFaceStrategyFactory';
@@ -114,13 +119,21 @@ export class QuickCardRepository {
       const block = await this.adapter.getBlock(blockId);
       if (!block) {
         logger.warn(`[SiYuanMemo][QuickCardRepository] Block not found: ${blockId}`);
-        return null;
+        throw new QuickCardRenderError(
+          'quick-source-block-missing',
+          `Quick card source block not found: ${blockId}`,
+          { blockId, cardId },
+        );
       }
 
       // 2. 验证块数据
       if (!block.content) {
         logger.warn(`[SiYuanMemo][QuickCardRepository] Block has no content: ${blockId}`);
-        return null;
+        throw new QuickCardRenderError(
+          'quick-source-block-empty',
+          `Quick card source block is empty: ${blockId}`,
+          { blockId, cardId },
+        );
       }
 
       logger.debug('[SiYuanMemo][QuickCardRepository] Block content:', block.content);
@@ -129,7 +142,11 @@ export class QuickCardRepository {
       const cardInfo = this.detectCardType(block.content);
       if (!cardInfo) {
         logger.debug(`[SiYuanMemo][QuickCardRepository] Not a quick card: ${blockId}`);
-        return null;
+        throw new QuickCardRenderError(
+          'quick-symbol-grammar-unparseable',
+          `Quick card symbol grammar is not parseable: ${blockId}`,
+          { blockId, cardId },
+        );
       }
 
       logger.debug('[SiYuanMemo][QuickCardRepository] Detected card type:', {
@@ -155,6 +172,14 @@ export class QuickCardRepository {
         const fsrsCard = await this.getFSRSCard(cardId);
         logger.debug('[SiYuanMemo][QuickCardRepository] FSRSCard:', fsrsCard);
         logger.debug('[SiYuanMemo][QuickCardRepository] FSRSCard meta:', fsrsCard?.meta);
+
+        if (fsrsCard?.blockId && fsrsCard.blockId !== blockId) {
+          throw new QuickCardRenderError(
+            'quick-card-source-mismatch',
+            `Quick card id does not belong to source block: ${cardId}`,
+            { blockId, cardId, cardBlockId: fsrsCard.blockId },
+          );
+        }
         
         if (isRecord(fsrsCard?.meta)) {
           const fsrsMeta = fsrsCard.meta;
@@ -257,6 +282,9 @@ export class QuickCardRepository {
         metadata,
       });
     } catch (error) {
+      if (error instanceof QuickCardRenderError) {
+        throw error;
+      }
       logger.error(`[SiYuanMemo][QuickCardRepository] Failed to load card ${blockId}:`, error);
       return null;
     }

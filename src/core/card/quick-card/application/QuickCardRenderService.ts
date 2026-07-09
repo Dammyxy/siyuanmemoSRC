@@ -3,7 +3,12 @@ import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { ReviewRichContentRenderer } from '@/core/card/common/application/ReviewRichContentRenderer';
 import type { RichContentResult } from '@/core/card/common/application/richContent';
 import type { QuickCardRepository } from '../infrastructure/QuickCardRepository';
-import type { QuickCardType, QuickCardMetadata } from '../domain/types';
+import {
+  QuickCardRenderError,
+  type QuickCardType,
+  type QuickCardMetadata,
+  type QuickCardRenderDiagnosticCode,
+} from '../domain/types';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('QuickCardRenderService');
@@ -20,6 +25,8 @@ export interface QuickCardViewModel extends BaseCardViewModel {
   cardType: QuickCardType;
   /** 卡片元数据 */
   metadata: QuickCardMetadata;
+  side: 'front' | 'back';
+  diagnostics: QuickCardRenderDiagnosticCode[];
 }
 
 /**
@@ -74,18 +81,33 @@ export class QuickCardRenderService extends BaseCardRenderService {
     try {
       const card = await this.repository.loadCard(blockId, cardId);
       if (!card) {
-        return null;
+        throw new QuickCardRenderError(
+          'quick-source-block-missing',
+          `Quick card source block not found: ${blockId}`,
+          { blockId, cardId },
+        );
       }
       if (this.shouldFallbackToNativeRender(card.metadata)) {
         logger.debug('[QuickCardRenderService] Use native renderer for == cloze card', {
           blockId,
           cardId,
         });
-        return null;
+        throw new QuickCardRenderError(
+          'quick-native-cloze-owned-by-protyle',
+          'Quick card uses native cloze rendering instead of the quick renderer',
+          { blockId, cardId, symbol: card.metadata.symbol },
+        );
       }
 
       // 获取指定面的内容
       const face = card.getFace(side);
+      if (!face.html.trim()) {
+        throw new QuickCardRenderError(
+          'quick-face-empty',
+          `Quick card ${side} side is empty: ${blockId}`,
+          { blockId, cardId, side },
+        );
+      }
       
       // 使用基类方法加载面包屑
       const breadcrumbs = await this.loadBreadcrumbs(blockId);
@@ -101,6 +123,8 @@ export class QuickCardRenderService extends BaseCardRenderService {
         cssClasses: face.getCssClasses(),
         cardType: card.type,
         metadata: card.metadata,
+        side,
+        diagnostics: [],
       };
       this.viewModelCache.set(cacheKey, {
         ...viewModel,

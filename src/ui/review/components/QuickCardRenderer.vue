@@ -141,7 +141,7 @@ async function loadViewModel() {
     logger.info('[SiYuanMemo][QuickCardRenderer] View model:', result);
 
     if (!result) {
-      throw new Error('Failed to load card: not a quick card');
+      throw new Error('Quick renderer returned no view model');
     }
 
     logger.debug('[SiYuanMemo][QuickCardRenderer] Quick render payload', {
@@ -166,9 +166,7 @@ async function loadViewModel() {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     error.value = errorMessage;
     emit('error', err instanceof Error ? err : new Error(errorMessage));
-    if (!errorMessage.includes('not a quick card')) {
-      logger.error('[SiYuanMemo][QuickCardRenderer] Failed to load view model:', err);
-    }
+    logger.error('[SiYuanMemo][QuickCardRenderer] Failed to load view model:', err);
   } finally {
     if (seq === loadSeq) {
       loading.value = false;
