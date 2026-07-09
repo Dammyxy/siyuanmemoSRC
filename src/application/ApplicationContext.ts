@@ -483,6 +483,7 @@ export class ApplicationContext {
       getUnifiedDataSourceManager: () => this.unifiedDataSourceManager,
       getSqlXiuyuanReadRepository: () => this.sqlPersistence?.xiuyuanRead ?? null,
       getSrsBackendClient: () => this.srsBackendClient,
+      getBackgroundWorkRegistry: () => this.srsBackendClient?.getBackgroundWorkRegistry() ?? null,
       getCardTypeDetectionService: () => this.getCardTypeDetectionService(),
       getEventBus: () => this.getEventBus(),
       getRiffBlacklistService: () => this.getRiffBlacklistService(),

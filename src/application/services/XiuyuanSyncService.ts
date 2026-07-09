@@ -73,9 +73,17 @@ import { XiuyuanRiffInputRuntime } from './XiuyuanRiffInputRuntime';
 import { XiuyuanSyncApplyRuntime } from './XiuyuanSyncApplyRuntime';
 import { XiuyuanSyncChangeSetPlanner } from './XiuyuanSyncChangeSetPlanner';
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
+import {
+    KernelCompanionBackgroundWorkRegistry,
+    type KernelCompanionBackgroundWorkHandlerResult,
+    type KernelCompanionBackgroundWorkRegistryInterface,
+    type KernelCompanionBackgroundWorkRunContext,
+    type KernelCompanionXiuyuanStartupSyncDiagnostics,
+} from '@/application/backgroundWork/KernelCompanionBackgroundWorkRegistry';
 
 export type XiuyuanSyncBackendClient = Pick<BackendIntegrationClientFacet, 'executeXiuyuanSync'>;
 export type NativeRiffHardDeleteOptions = CardDeleteIntentOptions;
+export type XiuyuanStartupSyncType = Extract<SyncType, 'full' | 'incremental'>;
 
 type NativeRiffDeletionTombstoneCandidate = {
     cardId?: string;
@@ -217,6 +225,8 @@ export class XiuyuanSyncService {
     private readonly syncApplyRuntime: XiuyuanSyncApplyRuntime;
     private readonly changeSetPlanner: XiuyuanSyncChangeSetPlanner;
     private readonly srsBackendClient?: XiuyuanSyncBackendClient;
+    private readonly backgroundWorkRegistry: KernelCompanionBackgroundWorkRegistryInterface;
+    private activeStartupSyncJobId: string | null = null;
     
     // 默认重试配置
     private readonly DEFAULT_RETRY_CONFIG = {
@@ -233,7 +243,8 @@ export class XiuyuanSyncService {
         cardTypeDetectionService: CardTypeDetectionService,
         deletionTracker: IDeletionTracker,
         siyuanApi: XiuyuanSyncSiyuanPort,
-        srsBackendClient?: XiuyuanSyncBackendClient
+        srsBackendClient?: XiuyuanSyncBackendClient,
+        backgroundWorkRegistry?: KernelCompanionBackgroundWorkRegistryInterface | null
     ) {
         this.config = {
             ...config,
@@ -272,6 +283,7 @@ export class XiuyuanSyncService {
             syncXiuyuanOwnershipMeta: (xiuyuan, ownership) => this.syncXiuyuanOwnershipMeta(xiuyuan, ownership),
         });
         this.srsBackendClient = srsBackendClient;
+        this.backgroundWorkRegistry = backgroundWorkRegistry ?? new KernelCompanionBackgroundWorkRegistry();
     }
 
     private resolveSyncStateStore(storage: unknown): RiffSyncStateStore | undefined {
@@ -568,9 +580,9 @@ export class XiuyuanSyncService {
         
         if (this.isFullSyncDue()) {
             logger.info('Full reconcile is due on plugin start; scheduling full sync instead of incremental');
-            this.startStartupSyncInBackground('full', () => this.fullSync());
+            this.submitStartupSyncJob('full', () => this.fullSync());
         } else if (this.config.incrementalSync.enabled && this.config.incrementalSync.triggers.includes('plugin-start')) {
-            this.startStartupSyncInBackground('incremental', () => this.incrementalSync(undefined, {
+            this.submitStartupSyncJob('incremental', () => this.incrementalSync(undefined, {
                 source: 'startup',
                 persistIdleCheckpoint: false,
             }));
@@ -579,10 +591,96 @@ export class XiuyuanSyncService {
         logger.info('Sync service started');
     }
 
-    private startStartupSyncInBackground(type: SyncType, operation: () => Promise<SyncResult>): void {
-        void operation().catch((error) => {
-            logger.error(`Startup ${type} sync failed; service remains started without local fallback:`, error);
+    private submitStartupSyncJob(type: XiuyuanStartupSyncType, operation: () => Promise<SyncResult>): void {
+        const result = this.backgroundWorkRegistry.submit<KernelCompanionXiuyuanStartupSyncDiagnostics>({
+            kind: 'xiuyuan-startup-sync',
+            diagnostics: {
+                reason: 'plugin-start',
+                syncType: type,
+                source: 'startup',
+                ...(type === 'incremental' ? { persistIdleCheckpoint: false } : {}),
+                status: 'submitted',
+            },
+            run: (context) => this.runStartupSyncJob(context, type, operation),
         });
+        if (!result.accepted) {
+            logger.warn(`Startup ${type} sync deferred because background work registry is unavailable`, {
+                state: result.job.state,
+                diagnostics: result.job.diagnostics,
+                lastError: result.job.lastError,
+            });
+            return;
+        }
+        this.activeStartupSyncJobId = result.job.jobId;
+    }
+
+    private async runStartupSyncJob(
+        context: KernelCompanionBackgroundWorkRunContext,
+        type: XiuyuanStartupSyncType,
+        operation: () => Promise<SyncResult>,
+    ): Promise<KernelCompanionBackgroundWorkHandlerResult<KernelCompanionXiuyuanStartupSyncDiagnostics>> {
+        try {
+            if (context.isCanceled()) {
+                return {
+                    state: 'canceled',
+                    reason: 'startup-sync-canceled-before-run',
+                    diagnostics: {
+                        status: 'canceled',
+                    },
+                };
+            }
+            const result = await operation();
+            if (context.isCanceled()) {
+                return {
+                    state: 'canceled',
+                    reason: 'startup-sync-canceled-after-run',
+                    diagnostics: {
+                        status: 'canceled',
+                    },
+                };
+            }
+            return {
+                diagnostics: {
+                    status: 'completed',
+                    addedCount: result.addedCount,
+                    updatedCount: result.updatedCount,
+                    deletedCount: result.deletedCount,
+                    skippedCount: result.skippedCount,
+                    detectedCount: result.detectedCount,
+                    blacklistCleanedCount: result.blacklistCleanedCount,
+                },
+            };
+        } catch (error) {
+            logger.error(`Startup ${type} sync failed; service remains started without local fallback:`, error);
+            return {
+                state: 'failed',
+                error: error instanceof Error ? error.message : String(error),
+                diagnostics: {
+                    status: 'failed',
+                    unavailable: true,
+                },
+            };
+        } finally {
+            if (this.activeStartupSyncJobId === context.jobId) {
+                this.activeStartupSyncJobId = null;
+            }
+        }
+    }
+
+    cancelStartupSync(reason = 'xiuyuan-sync-service-stop'): void {
+        if (!this.activeStartupSyncJobId) {
+            return;
+        }
+        this.backgroundWorkRegistry.cancel(this.activeStartupSyncJobId, reason);
+        this.activeStartupSyncJobId = null;
+    }
+
+    getStartupSyncJobId(): string | null {
+        return this.activeStartupSyncJobId;
+    }
+
+    getBackgroundWorkRegistry(): KernelCompanionBackgroundWorkRegistryInterface {
+        return this.backgroundWorkRegistry;
     }
 
     private extractXiuyuanBindingId(attrs: Record<string, string> | null | undefined): string {
@@ -665,6 +763,7 @@ export class XiuyuanSyncService {
      */
     stop(): void {
         logger.info('Stopping sync service...');
+        this.cancelStartupSync();
         logger.info('Sync service stopped');
     }
 

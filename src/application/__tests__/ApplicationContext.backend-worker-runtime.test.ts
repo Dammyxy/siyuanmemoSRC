@@ -274,6 +274,18 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(contextSource).toContain('this.autoCardBackendExecutionDepth > 0');
   });
 
+  it('wires Xiuyuan startup sync to the shared background work registry', () => {
+    const contextSource = readApplicationContextSource();
+    const factorySource = readFileSync(
+      resolve(process.cwd(), 'src/application/factories/createAutoCardKernelXiuyuanServiceBundle.ts'),
+      'utf8',
+    );
+
+    expect(contextSource).toContain('getBackgroundWorkRegistry: () => this.srsBackendClient?.getBackgroundWorkRegistry() ?? null');
+    expect(factorySource).toContain('getBackgroundWorkRegistry: () => KernelCompanionBackgroundWorkRegistryInterface | null');
+    expect(factorySource).toContain('deps.getBackgroundWorkRegistry()');
+  });
+
   it('does not leave backend Worker transport alive when frontend runtime dispose hangs during unload', async () => {
     vi.useFakeTimers();
     try {

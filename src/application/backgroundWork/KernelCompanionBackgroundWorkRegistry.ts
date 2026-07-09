@@ -1,6 +1,7 @@
 export type KernelCompanionBackgroundWorkKind =
   | 'review-truth-backfill'
-  | 'kernel-transaction-action-polling';
+  | 'kernel-transaction-action-polling'
+  | 'xiuyuan-startup-sync';
 
 export type KernelCompanionBackgroundWorkState =
   | 'accepted'
@@ -45,9 +46,26 @@ export interface KernelCompanionTransactionActionPollingDiagnostics {
   [key: string]: unknown;
 }
 
+export interface KernelCompanionXiuyuanStartupSyncDiagnostics {
+  reason?: string;
+  syncType?: 'full' | 'incremental';
+  source?: 'startup';
+  persistIdleCheckpoint?: boolean;
+  status?: 'submitted' | 'completed' | 'failed' | 'canceled';
+  addedCount?: number;
+  updatedCount?: number;
+  deletedCount?: number;
+  skippedCount?: number;
+  detectedCount?: number;
+  blacklistCleanedCount?: number;
+  unavailable?: boolean;
+  [key: string]: unknown;
+}
+
 export type KernelCompanionBackgroundWorkDiagnostics =
   | KernelCompanionReviewTruthBackfillDiagnostics
   | KernelCompanionTransactionActionPollingDiagnostics
+  | KernelCompanionXiuyuanStartupSyncDiagnostics
   | Record<string, unknown>;
 
 export interface KernelCompanionBackgroundWorkRecord<

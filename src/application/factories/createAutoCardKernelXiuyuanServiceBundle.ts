@@ -19,6 +19,7 @@ import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { SqlXiuyuanReadRepository } from '@/infrastructure/persistence/sqlite';
+import type { KernelCompanionBackgroundWorkRegistryInterface } from '@/application/backgroundWork/KernelCompanionBackgroundWorkRegistry';
 
 export interface CreateAutoCardKernelXiuyuanServiceBundleDeps {
   plugin: Plugin;
@@ -26,6 +27,7 @@ export interface CreateAutoCardKernelXiuyuanServiceBundleDeps {
   getUnifiedDataSourceManager: () => UnifiedDataSourceManager;
   getSqlXiuyuanReadRepository: () => SqlXiuyuanReadRepository | null;
   getSrsBackendClient: () => XiuyuanSyncBackendClient | null;
+  getBackgroundWorkRegistry: () => KernelCompanionBackgroundWorkRegistryInterface | null;
   getCardTypeDetectionService: () => CardTypeDetectionService;
   getEventBus: () => EventBus;
   getRiffBlacklistService: () => RiffBlacklistService;
@@ -80,6 +82,7 @@ export function createAutoCardKernelXiuyuanServiceBundle(
         deps.getDeletionTracker(),
         syncSiyuanApi,
         deps.getSrsBackendClient() || undefined,
+        deps.getBackgroundWorkRegistry(),
       );
     },
     createAutoCardHandler: async () => {

@@ -1,17 +1,27 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-09 (Round 685)
+Last update: 2026-07-09 (Round 686)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-09 - Xiuyuan startup sync registry lifecycle
+
+- Task: Implement OpenSpec change `route-xiuyuan-startup-sync-through-background-work-registry` so Xiuyuan plugin-start sync uses the Kernel Companion Background Work lifecycle registry.
+- Touched slice: Application/background-work lifecycle, `XiuyuanSyncService` startup sync scheduling, `createAutoCardKernelXiuyuanServiceBundle` registry injection, `ApplicationContext` wiring, focused registry/Xiuyuan/factory/ApplicationContext tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
+- Debt fixed now: Added `xiuyuan-startup-sync` kind/diagnostics; replaced the shallow startup Promise helper with registry submission; preserved legacy migration before job submission; preserved due full sync and plugin-start incremental sync request shape, including `source: 'startup'` and `persistIdleCheckpoint: false`; kept startup non-blocking; shared the `SrsBackendClient` registry through composition; and made accepted startup jobs defer on registry shutdown while service stop cancels running lifecycle state and suppresses late completion.
+- Debt deferred: Durable registry persistence and kernel RPC status exposure remain future work. Running Xiuyuan startup sync cancellation is lifecycle-cooperative only; already-issued backend/SiYuan writes are not physically interrupted by the registry.
+- Why deferred: Durable/cross-reload status would widen the kernel companion contract before a UI/status need is proven, and physical write interruption belongs to the backend/SiYuan sync owners rather than the lifecycle registry.
+- Next safe step: Add a status surface only if users need background job visibility across reloads; split backend Xiuyuan sync into a resumable/cancel-aware backend job only if write interruption becomes a product requirement.
+- Validation: Focused Vitest passed for `src/application/backgroundWork/__tests__/KernelCompanionBackgroundWorkRegistry.test.ts`, `src/application/services/__tests__/XiuyuanSyncService.backend-facade.test.ts`, `src/application/factories/__tests__/createAutoCardKernelXiuyuanServiceBundle.test.ts`, and `src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts`.
 
 ### 2026-07-09 - Kernel transaction action polling registry lifecycle
 
 - Task: Implement OpenSpec change `route-kernel-transaction-action-pump-through-background-work-registry` so `KernelTransactionActionPump` polling uses the Kernel Companion Background Work lifecycle registry.
 - Touched slice: Application/backend-client background work Module, `KernelTransactionActionPump` polling lifecycle, shared `SrsBackendClient` registry exposure, `ApplicationContext` wiring, focused registry/ActionPump tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
 - Debt fixed now: Extended background work kinds/diagnostics with `kernel-transaction-action-polling`; `KernelTransactionActionPump` now submits one polling job per interval/wake through the shared registry, records job status diagnostics, cancels active polling on dispose, clears deferred upsert timers, and suppresses late follow-up scheduling while keeping dequeue/requeue, writer relay, native Riff handling, and AutoCard handoff in their existing owners.
-- Debt deferred: Xiuyuan startup sync is still outside the registry; durable registry persistence and kernel RPC status exposure remain future work.
-- Why deferred: ActionPump polling is lifecycle-only and low blast radius. Xiuyuan startup sync has real write side effects and should migrate separately after this second registry consumer is stable; durable/kernel status would widen the kernel companion contract before UI/cross-reload need is proven.
-- Next safe step: Migrate Xiuyuan startup sync only if startup write lifecycle still blocks unload/reload or needs the same submit/status/cancel/defer diagnostics.
+- Debt deferred: At the time of this task, Xiuyuan startup sync was still outside the registry; it is now migrated in follow-up `route-xiuyuan-startup-sync-through-background-work-registry`. Durable registry persistence and kernel RPC status exposure remain future work.
+- Why deferred: ActionPump polling was lifecycle-only and low blast radius. Xiuyuan startup sync had real write side effects and needed a separate migration slice; durable/kernel status would widen the kernel companion contract before UI/cross-reload need is proven.
+- Next safe step: Consider durable registry persistence or kernel RPC status only after a product surface needs cross-reload background-work visibility.
 - Validation: Focused Vitest passed for `src/application/handlers/__tests__/KernelTransactionActionPump.test.ts`, `src/application/backgroundWork/__tests__/KernelCompanionBackgroundWorkRegistry.test.ts`, `src/application/clients/__tests__/SrsBackendClient.test.ts`, and `src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts`.
 
 ### 2026-07-09 - Kernel companion background work registry
@@ -19,9 +29,9 @@ Last update: 2026-07-09 (Round 685)
 - Task: Implement OpenSpec change `introduce-kernel-companion-background-work-registry` so Review truth SQL backfill uses a lifecycle registry instead of SrsBackendClient-owned timer/backfill state.
 - Touched slice: Application/backend-client background work Module, `SrsBackendClient` Review truth startup/unload lifecycle, focused registry/SrsBackendClient/ApplicationContext tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec artifacts.
 - Debt fixed now: Added `KernelCompanionBackgroundWorkRegistry` with submit/status/cancel/defer/shutdown, typed `review-truth-backfill` diagnostics, in-memory job records, idempotent shutdown, fail-closed unavailable submissions after shutdown, and late-result suppression. `SrsBackendClient.backgroundWorkStatus()` exposes the registry diagnostics seam. `schedulePendingReviewTruthFlush()` now submits pending SQL truth rows as a registry job while keeping direct quick flush for journal/projection work; before-unload shuts the registry down before quick flush so heavy backfill is deferred/canceled instead of started during quit.
-- Debt deferred: At the time of this registry introduction, Xiuyuan startup sync and `KernelTransactionActionPump` polling were not yet registry jobs; durable registry persistence and kernel RPC status exposure stayed future work. ActionPump polling is now migrated in the follow-up task above, leaving Xiuyuan startup sync plus durable/kernel status as remaining debt.
+- Debt deferred: At the time of this registry introduction, Xiuyuan startup sync and `KernelTransactionActionPump` polling were not yet registry jobs; durable registry persistence and kernel RPC status exposure stayed future work. ActionPump polling and Xiuyuan startup sync are now migrated in follow-up tasks above, leaving durable/kernel status as remaining debt.
 - Why deferred: Review truth backfill was the active shutdown hazard and had the cleanest backend owner seam. Moving Xiuyuan/ActionPump in the same slice would have widened scope beyond the validated P0 renderer/backend lifecycle fix, and durable/kernel RPC status would imply a larger kernel companion contract.
-- Next safe step: Evaluate Xiuyuan startup sync as the next registry consumer only if its startup write lifecycle needs cancel/defer/status diagnostics.
+- Next safe step: Consider durable registry persistence or kernel RPC status only after a product surface needs cross-reload background-work visibility.
 - Validation: Focused registry/SrsBackendClient/ApplicationContext tests passed; hidden-fallback check passed; boundary check passed; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only; build passed with existing non-blocking i18n/Sass warnings.
 
 ### 2026-07-09 - Kernel companion managed background work
