@@ -382,7 +382,7 @@ export function createReviewDataObserverRuntime(options: ReviewDataObserverRunti
       const eventCardIds = event.cardIds || [];
       const eventBlockIds = event.blockIds || [];
 
-      void appendDueCdfCardsByIds(eventCardIds, 'external-cdf-repair');
+      void appendDueCdfCardsByIds(eventCardIds, 'external-cdf-sync');
 
       const { cardId, blockId } = options.getCurrentReference();
       if (!cardId && !blockId) {

@@ -352,7 +352,7 @@ function createPluginContext(overrides?: {
     searchConceptReferenceBlocks?: ReturnType<typeof vi.fn>;
     resolveConceptReferenceTarget?: ReturnType<typeof vi.fn>;
     executeReviewSourceRefresh?: ReturnType<typeof vi.fn>;
-    reconcileCdfLiveRelationsInWriteRepairFlow?: ReturnType<typeof vi.fn>;
+    syncCdfLiveRelationsAfterEditorWrite?: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
       BUILTIN_DECK_ID: string;
     };
@@ -446,7 +446,7 @@ function mountReviewView(options?: {
     updateBlockMarkdown: ReturnType<typeof vi.fn>;
     resolveConceptReferenceTarget?: ReturnType<typeof vi.fn>;
     executeReviewSourceRefresh?: ReturnType<typeof vi.fn>;
-    reconcileCdfLiveRelationsInWriteRepairFlow?: ReturnType<typeof vi.fn>;
+    syncCdfLiveRelationsAfterEditorWrite?: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
       BUILTIN_DECK_ID: string;
     };
@@ -1643,7 +1643,7 @@ describe('ReviewView more menu', () => {
       getEditableBlockMarkdown: vi.fn(async () => originalSource),
       getBlockKramdown: vi.fn(async () => originalSource),
       updateBlockMarkdown: vi.fn(async () => undefined),
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => dryRun),
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async () => dryRun),
       getSiyuanApi: () => ({
         BUILTIN_DECK_ID: 'deck-1',
       }),
@@ -1676,8 +1676,8 @@ describe('ReviewView more menu', () => {
     await saveButton!.trigger('click');
     await flushPromises();
 
-    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenCalledTimes(1);
-    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenCalledWith(expect.objectContaining({
+    expect(reviewService.syncCdfLiveRelationsAfterEditorWrite).toHaveBeenCalledTimes(1);
+    expect(reviewService.syncCdfLiveRelationsAfterEditorWrite).toHaveBeenCalledWith(expect.objectContaining({
       sourceBlockId: 'definition-block',
       changedBlockId: 'definition-block',
       reconciliationScope: 'block-edit',
@@ -1761,7 +1761,7 @@ describe('ReviewView more menu', () => {
       getEditableBlockMarkdown: vi.fn(async () => originalSource),
       getBlockKramdown: vi.fn(async () => originalSource),
       updateBlockMarkdown: vi.fn(async () => undefined),
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async (options: { persist?: boolean }) => (
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async (options: { persist?: boolean }) => (
         options.persist === false ? dryRun : executed
       )),
       getSiyuanApi: () => ({
@@ -1808,21 +1808,21 @@ describe('ReviewView more menu', () => {
         currentImpact: '当前卡保存后保持在本轮复习中',
       }),
     }));
-    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenCalledTimes(2);
-    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenNthCalledWith(1, expect.objectContaining({
+    expect(reviewService.syncCdfLiveRelationsAfterEditorWrite).toHaveBeenCalledTimes(2);
+    expect(reviewService.syncCdfLiveRelationsAfterEditorWrite).toHaveBeenNthCalledWith(1, expect.objectContaining({
       persist: false,
       draftMarkdownByBlockId: {
         'definition-block': draftSource,
       },
     }));
     expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('definition-block', draftSource);
-    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    expect(reviewService.syncCdfLiveRelationsAfterEditorWrite).toHaveBeenNthCalledWith(2, expect.objectContaining({
       sourceBlockId: 'definition-block',
       changedBlockId: 'definition-block',
       reconciliationScope: 'block-edit',
       persist: true,
     }));
-    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow.mock.calls[1]?.[0])
+    expect(reviewService.syncCdfLiveRelationsAfterEditorWrite.mock.calls[1]?.[0])
       .not.toHaveProperty('draftMarkdownByBlockId');
     expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
 
@@ -1886,7 +1886,7 @@ describe('ReviewView more menu', () => {
       getEditableBlockMarkdown: vi.fn(async () => originalSource),
       getBlockKramdown: vi.fn(async () => originalSource),
       updateBlockMarkdown: vi.fn(async () => undefined),
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => activeResult),
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async () => activeResult),
       getSiyuanApi: () => ({
         BUILTIN_DECK_ID: 'deck-1',
       }),
@@ -1982,7 +1982,7 @@ describe('ReviewView more menu', () => {
       getEditableBlockMarkdown: vi.fn(async () => originalSource),
       getBlockKramdown: vi.fn(async () => originalSource),
       updateBlockMarkdown: vi.fn(async () => undefined),
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => incompleteResult),
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async () => incompleteResult),
       getSiyuanApi: () => ({
         BUILTIN_DECK_ID: 'deck-1',
       }),
@@ -3095,7 +3095,7 @@ describe('ReviewView more menu', () => {
       }),
       getBlockKramdown: vi.fn(async () => ''),
       updateBlockMarkdown: vi.fn(async () => undefined),
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => ({
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async () => ({
         changed: false,
         actions: [],
         diagnostics: [],
@@ -3163,7 +3163,7 @@ describe('ReviewView more menu', () => {
       getBlockKramdown: vi.fn(async () => ''),
       updateBlockMarkdown: vi.fn(async () => undefined),
       searchConceptReferenceBlocks,
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => ({
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async () => ({
         changed: false,
         actions: [],
         diagnostics: [],
@@ -3260,7 +3260,7 @@ describe('ReviewView more menu', () => {
       }),
       getBlockKramdown: vi.fn(async () => ''),
       updateBlockMarkdown: vi.fn(async () => undefined),
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => dryRun),
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async () => dryRun),
       getSiyuanApi: () => ({
         BUILTIN_DECK_ID: 'deck-1',
       }),
@@ -3371,7 +3371,7 @@ describe('ReviewView more menu', () => {
       }),
       getBlockKramdown: vi.fn(async () => ''),
       updateBlockMarkdown: vi.fn(async () => undefined),
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async (options: { persist?: boolean }) => (
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async (options: { persist?: boolean }) => (
         options.persist === false ? dryRun : executed
       )),
       getSiyuanApi: () => ({
@@ -3410,8 +3410,8 @@ describe('ReviewView more menu', () => {
       '20260703010101-abcdefg',
       '((20260703030303-cdefghi "Old concept")) :> old definition',
     );
-    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenCalledTimes(2);
-    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    expect(reviewService.syncCdfLiveRelationsAfterEditorWrite).toHaveBeenCalledTimes(2);
+    expect(reviewService.syncCdfLiveRelationsAfterEditorWrite).toHaveBeenNthCalledWith(2, expect.objectContaining({
       sourceBlockId: '20260703010101-abcdefg',
       changedBlockId: '20260703010101-abcdefg',
       reconciliationScope: 'block-edit',
@@ -3422,7 +3422,7 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
-  it('requires confirmation when concept-reference save repairs stale source evidence', async () => {
+  it('requires confirmation when concept-reference save updates stale source evidence', async () => {
     reviewContentEditableTargets = [
       buildEditableTarget('definition:definition:20260703010101-abcdefg', '20260703010101-abcdefg', 'Definition', 'definition'),
       {
@@ -3444,7 +3444,7 @@ describe('ReviewView more menu', () => {
       }),
       getBlockKramdown: vi.fn(async () => ''),
       updateBlockMarkdown: vi.fn(async () => undefined),
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => ({
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async () => ({
         changed: false,
         actions: [],
         diagnostics: [],
@@ -3505,7 +3505,7 @@ describe('ReviewView more menu', () => {
       }),
       getBlockKramdown: vi.fn(async () => ''),
       updateBlockMarkdown: vi.fn(async () => undefined),
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => ({
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async () => ({
         changed: false,
         actions: [],
         diagnostics: [],
@@ -3562,7 +3562,7 @@ describe('ReviewView more menu', () => {
       }),
       getBlockKramdown: vi.fn(async () => ''),
       updateBlockMarkdown: vi.fn(async () => undefined),
-      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => ({
+      syncCdfLiveRelationsAfterEditorWrite: vi.fn(async () => ({
         changed: false,
         actions: [],
         diagnostics: [],
@@ -3600,7 +3600,7 @@ describe('ReviewView more menu', () => {
       'error',
     );
     expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
-    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).not.toHaveBeenCalled();
+    expect(reviewService.syncCdfLiveRelationsAfterEditorWrite).not.toHaveBeenCalled();
 
     wrapper.unmount();
   });

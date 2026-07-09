@@ -243,302 +243,6 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
     );
   });
 
-  it('previews full CDF live relation repair through Browser scope without persisting changes', async () => {
-    const existingSourceId = '20260101000003-existing';
-    const conceptId = '20260101000004-concept';
-    const existingCard = buildCard({
-      id: 'existing-cdf-card',
-      blockId: existingSourceId,
-      type: CardType.Descriptor,
-      meta: {
-        relationAuthority: 'live-backlink',
-        liveRelationKey: `${existingSourceId}:${conceptId}:descriptor-forward`,
-        sourceBlockId: existingSourceId,
-        conceptBlockId: conceptId,
-        relationKind: 'descriptor-forward',
-        liveRelationStatus: 'active-live',
-        liveContentStatus: 'content-complete',
-        templateID: 'builtin-concept-descriptor',
-        typeMarker: 'concept-descriptor-forward',
-      },
-    });
-    const manager = {
-      getCards: vi.fn(async () => [existingCard]),
-      updateCard: vi.fn(async () => undefined),
-      onCardCreated: vi.fn(async () => undefined),
-    };
-    const sql = vi.fn(async () => []);
-    const creator = {
-      createCards: vi.fn(async () => undefined),
-    };
-    const service = createService({
-      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
-        checked: 0,
-        updated: 0,
-        changed: false,
-        changedToMissing: false,
-      })),
-      browserSourceExistenceByBlockIds: vi.fn(async () => new Map()),
-    }, { sql }, manager, null, creator);
-
-    const preview = await service.previewFullCdfLiveRelationRepair({
-      scope: { kind: 'document', docId: 'doc-cdf' },
-      limit: 7,
-    });
-
-    expect(preview).toMatchObject({
-      attempted: true,
-      reason: 'no-candidates',
-      scope: { kind: 'document', docId: 'doc-cdf' },
-      summary: {
-        candidateSourceCount: 0,
-        scannedRootCount: 0,
-        derivedRelationCount: 0,
-        actionCount: 0,
-        createCardCount: 0,
-        updatedCardCount: 0,
-        activeUpdateCount: 0,
-        orphanCount: 0,
-        duplicateCount: 0,
-        reactivatedCount: 0,
-        legacyMigratedCount: 0,
-        legacyUnavailableCount: 0,
-        contentIncompleteCount: 0,
-        deriveFailedNoCardCandidateCount: 0,
-        sourceMissingCount: 0,
-        sourceUnavailableCount: 0,
-        persistedMutationCount: 0,
-      },
-    });
-    const statement = String(sql.mock.calls[0]?.[0] || '');
-    expect(statement).toContain("(root_id = 'doc-cdf' OR id = 'doc-cdf')");
-    expect(statement).toContain(`id IN ('${existingSourceId}')`);
-    expect(statement).toContain('LIMIT 7');
-    expect(creator.createCards).not.toHaveBeenCalled();
-    expect(manager.updateCard).not.toHaveBeenCalled();
-    expect(manager.onCardCreated).not.toHaveBeenCalled();
-  });
-
-  it('executes full CDF live relation repair through Browser service for existing cards only by default', async () => {
-    const existingSourceId = '20260101000003-existing';
-    const conceptId = '20260101000004-concept';
-    const existingCard = buildCard({
-      id: 'existing-cdf-card',
-      blockId: existingSourceId,
-      type: CardType.Descriptor,
-      meta: {
-        relationAuthority: 'live-backlink',
-        liveRelationKey: `${existingSourceId}:${conceptId}:descriptor-forward`,
-        sourceBlockId: existingSourceId,
-        conceptBlockId: conceptId,
-        relationKind: 'descriptor-forward',
-        liveRelationStatus: 'active-live',
-        liveContentStatus: 'content-complete',
-        templateID: 'builtin-concept-descriptor',
-        typeMarker: 'concept-descriptor-forward',
-        fieldMapping: {
-          concept: conceptId,
-          descriptor: existingSourceId,
-        },
-      },
-    });
-    const manager = {
-      getCards: vi.fn(async (filter?: { blockIds?: string[] }) => {
-        if (!filter?.blockIds || filter.blockIds.length === 0) {
-          return [existingCard];
-        }
-        return filter.blockIds.includes(existingSourceId) ? [existingCard] : [];
-      }),
-      updateCard: vi.fn(async () => undefined),
-      onCardCreated: vi.fn(async () => undefined),
-    };
-    const sql = vi.fn(async (statement: string) => {
-      if (statement.includes('ORDER BY root_id ASC')) {
-        return [{
-          id: existingSourceId,
-          root_id: 'doc-cdf',
-          box: 'notebook-cdf',
-          type: 'p',
-          markdown: 'descriptor source after live relation removed',
-          content: '',
-        }];
-      }
-      if (statement.includes("WHERE id = 'doc-cdf'")) {
-        return [{
-          id: 'doc-cdf',
-          parent_id: '',
-          root_id: 'doc-cdf',
-          type: 'd',
-          markdown: 'Document',
-          sort: '0',
-        }];
-      }
-      if (statement.includes("WHERE root_id = 'doc-cdf'")) {
-        return [
-          {
-            id: 'doc-cdf',
-            parent_id: '',
-            root_id: 'doc-cdf',
-            type: 'd',
-            markdown: 'Document',
-            sort: '0',
-          },
-          {
-            id: existingSourceId,
-            parent_id: 'doc-cdf',
-            root_id: 'doc-cdf',
-            type: 'p',
-            markdown: 'descriptor source after live relation removed',
-            sort: '1',
-          },
-        ];
-      }
-      return [];
-    });
-    const creator = {
-      createCards: vi.fn(async () => undefined),
-    };
-    const service = createService({
-      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
-        checked: 0,
-        updated: 0,
-        changed: false,
-        changedToMissing: false,
-      })),
-      browserSourceExistenceByBlockIds: vi.fn(async () => new Map()),
-    }, { sql }, manager, null, creator);
-
-    const result = await service.executeFullCdfLiveRelationRepair({
-      scope: { kind: 'document', docId: 'doc-cdf' },
-    });
-
-    expect(result).toMatchObject({
-      attempted: true,
-      reason: 'executed',
-      createNewCandidates: false,
-      sourcePreviews: [
-        {
-          scanRootId: 'doc-cdf',
-          candidateSourceIds: [existingSourceId],
-          persisted: true,
-          previewOnly: false,
-        },
-      ],
-      summary: {
-        candidateSourceCount: 1,
-        scannedRootCount: 1,
-        derivedRelationCount: 0,
-        actionCount: 1,
-        createCardCount: 0,
-        updatedCardCount: 1,
-        activeUpdateCount: 0,
-        orphanCount: 1,
-        duplicateCount: 0,
-        reactivatedCount: 0,
-        legacyMigratedCount: 0,
-        legacyUnavailableCount: 0,
-        contentIncompleteCount: 0,
-        deriveFailedNoCardCandidateCount: 0,
-        sourceMissingCount: 0,
-        sourceUnavailableCount: 0,
-        persistedMutationCount: 1,
-      },
-    });
-    expect(manager.updateCard).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'existing-cdf-card',
-        meta: expect.objectContaining({
-          liveRelationStatus: 'orphaned-by-live-relation',
-        }),
-      }),
-      { suppressDueIndexSort: true },
-    );
-    expect(creator.createCards).not.toHaveBeenCalled();
-    expect(manager.onCardCreated).not.toHaveBeenCalled();
-  });
-
-  it('previews and executes single-source CDF repair through Browser service', async () => {
-    const sourceId = '20260101000005-source';
-    const conceptId = '20260101000006-concept';
-    const manager = {
-      getCards: vi.fn(async () => []),
-      updateCard: vi.fn(async () => undefined),
-      onCardCreated: vi.fn(async () => undefined),
-    };
-    const creator = {
-      createCards: vi.fn(async () => undefined),
-    };
-    const service = createService({
-      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
-        checked: 0,
-        updated: 0,
-        changed: false,
-        changedToMissing: false,
-      })),
-      browserSourceExistenceByBlockIds: vi.fn(async () => new Map()),
-    }, {}, manager, null, creator);
-    const sourceTree = {
-      id: sourceId,
-      type: 'p',
-      markdown: `((${conceptId} "Concept")) :> definition body`,
-    };
-
-    const preview = await service.previewSingleSourceCdfLiveRelationRepair({
-      sourceBlockId: sourceId,
-      sourceTree,
-    });
-
-    expect(preview).toMatchObject({
-      attempted: true,
-      sourceBlockId: sourceId,
-      persisted: false,
-      reason: 'reconciled',
-      summary: {
-        candidateSourceCount: 1,
-        scannedRootCount: 1,
-        derivedRelationCount: 1,
-        actionCount: 1,
-        createCardCount: 1,
-        updatedCardCount: 0,
-        activeUpdateCount: 0,
-        orphanCount: 0,
-        duplicateCount: 0,
-        reactivatedCount: 0,
-        legacyMigratedCount: 0,
-        legacyUnavailableCount: 0,
-        contentIncompleteCount: 0,
-        deriveFailedNoCardCandidateCount: 0,
-        sourceMissingCount: 0,
-        sourceUnavailableCount: 0,
-        persistedMutationCount: 0,
-      },
-    });
-    expect(preview.result.createdCards).toEqual([
-      expect.objectContaining({
-        blockId: sourceId,
-        meta: expect.objectContaining({
-          liveRelationKey: `${sourceId}:${conceptId}:definition-forward`,
-        }),
-      }),
-    ]);
-    expect(creator.createCards).not.toHaveBeenCalled();
-    expect(manager.updateCard).not.toHaveBeenCalled();
-
-    const execution = await service.executeSingleSourceCdfLiveRelationRepair({
-      sourceBlockId: sourceId,
-      sourceTree,
-    });
-
-    expect(execution.persisted).toBe(true);
-    expect(execution.summary).toEqual(expect.objectContaining({
-      createCardCount: 1,
-      persistedMutationCount: 1,
-    }));
-    expect(creator.createCards).toHaveBeenCalled();
-    expect(manager.onCardCreated).toHaveBeenCalled();
-    expect(manager.updateCard).not.toHaveBeenCalled();
-  });
-
   it('returns deck page rows with read model metadata', async () => {
     const card = buildCard();
     const backendClient = {
@@ -776,7 +480,24 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
     });
     const queue = {
       getProjectionReadMode: vi.fn(() => 'backend-projection'),
-      getSnapshotRows: vi.fn(async () => [{
+      getSnapshotRows: vi.fn(() => {
+        throw new Error('local queue.getSnapshotRows fallback must not run for projection-backed Browser reads');
+      }),
+      getCardsBySnapshotIds: vi.fn(() => {
+        throw new Error('local queue.getCardsBySnapshotIds fallback must not run for projection-backed Browser reads');
+      }),
+      getCards: vi.fn(() => {
+        throw new Error('local queue.getCards fallback must not run for projection-backed Browser reads');
+      }),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      readQueueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        policyHash: 'policy-ready',
+        generation: null,
+        status: 'ready',
+        rows: [{
         id: 'queue-row',
         fsrsCardId: 'queue-card',
         blockId: 'queue-block',
@@ -802,14 +523,12 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
         queueIndex: 1,
         tags: [],
         blockType: 'paragraph',
-      }]),
-      getCardsBySnapshotIds: vi.fn(async (ids: string[]) => ids.includes('queue-card') ? [card] : []),
-      getCards: vi.fn(() => {
-        throw new Error('local queue.getCards fallback must not run for projection-backed Browser reads');
-      }),
-    };
-    const manager = {
-      getQueue: vi.fn(() => queue),
+        }],
+        counters: null,
+      })),
+      getQueueProjectionCardsBySnapshotIds: vi.fn(async (_queueType: QueueType, ids: string[]) => (
+        ids.includes('queue-card') ? [card] : []
+      )),
       getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
         queueType: QueueType.RetrievalPractice,
         projectionBacked: true,
@@ -887,8 +606,14 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
     expect(page.queryFingerprint).toEqual(expect.any(String));
     expect(page.generation).toBeNull();
     expect(queue.getCards).not.toHaveBeenCalled();
-    expect(queue.getSnapshotRows).toHaveBeenCalled();
-    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(['queue-card'], false);
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, { forceRefresh: false });
+    expect(manager.getQueueProjectionCardsBySnapshotIds).toHaveBeenCalledWith(
+      QueueType.RetrievalPractice,
+      ['queue-card'],
+      { forceRefresh: false },
+    );
   });
 
   it('returns preparing when a projection-backed queue snapshot is cold without local queue fallback', async () => {

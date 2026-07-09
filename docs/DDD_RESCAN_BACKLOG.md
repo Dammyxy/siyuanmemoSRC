@@ -4,14 +4,24 @@ Last update: 2026-07-09 (Round 683)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-07-09 - Remove CDF batch relation maintenance
+
+- Task: Remove the explicit CDF abnormal maintenance mechanism while preserving normal CDF card creation, rendering, relation recognition, editor-save relation sync, and due-card insertion.
+- Touched slice: CDF editor-save relation sync path across `CdfLiveRelationWriteSyncService`, `ReviewApplicationService`, `BrowserApplicationService`, `IBrowserApplicationService`, Review editor save/runtime observer, i18n, focused Review/Browser/service tests, `ARCHITECTURE.md`, and OpenSpec change `remove-cdf-review-interruption`.
+- Debt fixed now: Browser no longer exposes full-scope or single-source CDF batch preview/execute APIs, the active application service no longer wires a candidate scanner, and Review/Browser callers now use `syncCdfLiveRelationsAfterEditorWrite()` into `CdfLiveRelationWriteSyncService`. Test and runtime vocabulary now uses `external-cdf-sync` and editor-save relation sync instead of the old abnormal maintenance flow.
+- Debt deferred: Historical backlog entries from earlier implementation slices still mention the removed mechanism as history, but current architecture/OpenSpec/source/i18n/test surfaces no longer advertise it as available.
+- Why deferred: Rewriting old ledger history would obscure why the deleted paths existed; the active source and current architecture docs now reflect the live runtime contract.
+- Next safe step: Rebuild/reload and save a CDF relation card from Review to confirm editor-save relation sync still creates/updates valid relation cards without Browser batch maintenance entrypoints.
+- Validation: Focused Review/Browser/CDF write-sync tests passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n/Sass warnings; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only; removed-vocabulary grep passed.
+
 ### 2026-07-09 - Remove CDF review interruption surface
 
-- Task: Remove CDF abnormal diagnostics/repair surfaces that interrupted Review and pulled Browser users into repair mode.
+- Task: Remove CDF abnormal diagnostic surfaces that interrupted Review and pulled Browser users out of normal review mode.
 - Touched slice: Review CDF interruption path, Browser CDF diagnostic presets/actions/dialogs, queue/browser CDF row visibility tests, i18n, `ARCHITECTURE.md`, and OpenSpec change `remove-cdf-review-interruption`.
-- Debt fixed now: Review no longer hides the normal card behind a CDF interruption panel, no longer advances CDF cards without scoring as `blocked-cdf`, and keeps CDF relation cards on the normal Review surface. Browser no longer exposes `cdf-abnormal` diagnostic presets, CDF repair row actions, diagnostic badges, or CDF repair result dialogs.
-- Debt deferred: The core CDF live-relation engine remains because CDF creation, rendering, preview, editor-save refresh, and due-card insertion still depend on it.
-- Why deferred: This change removes disruptive user-facing diagnosis/repair surfaces without deleting runtime CDF card behavior that still owns valid study and edit paths.
-- Next safe step: If CDF runtime relation metadata remains noisy, review the core CDF live-relation engine separately behind a new change rather than reintroducing Review/Browser repair gates.
+- Debt fixed now: Review no longer hides the normal card behind a CDF interruption panel, no longer advances CDF cards without scoring as `blocked-cdf`, and keeps CDF relation cards on the normal Review surface. Browser no longer exposes `cdf-abnormal` diagnostic presets, CDF diagnostic row actions, diagnostic badges, or diagnostic result dialogs.
+- Debt deferred: The core CDF live-relation engine remains because CDF creation, rendering, preview, editor-save sync, and due-card insertion still depend on it.
+- Why deferred: This change removes disruptive user-facing diagnostic surfaces without deleting runtime CDF card behavior that still owns valid study and edit paths.
+- Next safe step: If CDF runtime relation metadata remains noisy, review the core CDF live-relation engine separately behind a new change rather than reintroducing Review/Browser diagnostic gates.
 - Validation: Focused Review/Browser tests passed; hidden-fallback check passed; boundary check passed; build passed with existing non-blocking i18n/Sass warnings; OpenSpec strict validation passed; git diff whitespace check passed with CRLF working-copy warnings only.
 
 ### 2026-07-09 - Browser semantic repair surface
@@ -39,8 +49,8 @@ Last update: 2026-07-09 (Round 683)
 - Task: Fix the remaining Review tab host-overlay bug and stop CDF abnormal metadata from blocking tab Review.
 - Touched slice: Review header drag surface, Review CDF interruption policy, focused Review header/View tests, and `ARCHITECTURE.md`.
 - Debt fixed now: Review tab headers no longer render plugin `resize__move` / drag-region hit surfaces, so native tab close/menu/window gestures remain host-owned. Tab Review no longer shows the CDF interruption panel for CDF abnormal metadata.
-- Debt deferred: CDF abnormal repair infrastructure remains available in Browser/manual repair; full removal is deferred until we decide whether CDF repair should be Browser-only.
-- Why deferred: The repair path still provides useful diagnostics and explicit repair entrypoints, but it is too disruptive as an automatic Review gate.
+- Debt deferred: Superseded by the 2026-07-09 CDF batch relation maintenance removal; Browser/manual abnormal maintenance entrypoints are no longer active.
+- Why deferred: The earlier tab-host fix intentionally avoided crossing Browser and CDF write ownership; the later CDF batch maintenance removal closed that path.
 - Next safe step: Rebuild/reload, right-click the Review tab header and verify the native close item is clickable; open the reported CDF card in tab Review and confirm it reviews normally instead of showing the blocking panel.
 - Validation: Focused Review header/View/native-split tests passed; boundary check, hidden-fallback check, build, and diff whitespace check passed with CRLF working-copy warnings only.
 

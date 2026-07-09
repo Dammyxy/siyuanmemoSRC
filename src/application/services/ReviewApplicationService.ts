@@ -5,11 +5,11 @@ import {
   type CdfLiveRelationRefreshResult,
 } from '@/application/services/CdfLiveRelationRefreshService';
 import {
-  CdfLiveRelationWriteRepairService,
   type CdfLiveRelationCardCreatorPort,
-  type CdfLiveRelationWriteRepairOptions,
-  type CdfLiveRelationWriteRepairResult,
-} from '@/application/services/CdfLiveRelationWriteRepairService';
+  CdfLiveRelationWriteSyncService,
+  type CdfLiveRelationWriteSyncOptions,
+  type CdfLiveRelationWriteSyncResult,
+} from '@/application/services/CdfLiveRelationWriteSyncService';
 import type { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import type { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
@@ -97,7 +97,7 @@ function normalizeConceptReferenceSearchRows(
 
 export class ReviewApplicationService {
   private readonly cdfLiveRelationRefresh: CdfLiveRelationRefreshService;
-  private readonly cdfLiveRelationWriteRepair: CdfLiveRelationWriteRepairService | null;
+  private readonly cdfLiveRelationWriteSync: CdfLiveRelationWriteSyncService | null;
 
   constructor(
     private readonly manager: IUnifiedDataSourceManagerFacade,
@@ -112,8 +112,8 @@ export class ReviewApplicationService {
       manager,
       source: siyuanApi,
     });
-    this.cdfLiveRelationWriteRepair = cdfLiveRelationCardCreator
-      ? new CdfLiveRelationWriteRepairService({
+    this.cdfLiveRelationWriteSync = cdfLiveRelationCardCreator
+      ? new CdfLiveRelationWriteSyncService({
         manager,
         cardCreator: cdfLiveRelationCardCreator,
         sourceLoader: new CdfLiveRelationSqlSourceLoader(siyuanApi),
@@ -244,13 +244,13 @@ export class ReviewApplicationService {
     });
   }
 
-  async reconcileCdfLiveRelationsInWriteRepairFlow(
-    options: CdfLiveRelationWriteRepairOptions,
-  ): Promise<CdfLiveRelationWriteRepairResult> {
-    if (!this.cdfLiveRelationWriteRepair) {
-      throw new Error('CDF_LIVE_RELATION_CREATE_UNAVAILABLE: Review CDF write/repair creator is unavailable');
+  async syncCdfLiveRelationsAfterEditorWrite(
+    options: CdfLiveRelationWriteSyncOptions,
+  ): Promise<CdfLiveRelationWriteSyncResult> {
+    if (!this.cdfLiveRelationWriteSync) {
+      throw new Error('CDF_LIVE_RELATION_CREATE_UNAVAILABLE: Review CDF write sync creator is unavailable');
     }
-    return this.cdfLiveRelationWriteRepair.reconcileWriteOrRepair(options);
+    return this.cdfLiveRelationWriteSync.reconcileWriteSync(options);
   }
 
   async executeFinalDrillRiffFeedback(

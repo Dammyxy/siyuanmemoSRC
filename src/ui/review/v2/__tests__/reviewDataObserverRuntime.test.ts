@@ -344,14 +344,14 @@ describe('reviewDataObserverRuntime', () => {
       'restored-not-due',
       'restored-incomplete',
       'restored-due',
-    ], 'external-cdf-repair');
+    ], 'external-cdf-sync');
 
     expect(appendCardsToTail).toHaveBeenCalledWith([restored]);
     expect(session.initialTotal).toBe(3);
     expect(session.midSessionInsertedCount).toBe(1);
     expect(session.midSessionInsertedCards).toEqual([
       expect.objectContaining({
-        origin: 'external-cdf-repair',
+        origin: 'external-cdf-sync',
         cardId: 'restored-due',
         blockId: 'restored-source',
         sourceBlockId: 'restored-source',
@@ -360,7 +360,7 @@ describe('reviewDataObserverRuntime', () => {
     expect(session.reviewHistory).toEqual([]);
     expect(notifyMidSessionInserted).toHaveBeenCalledWith({
       count: 1,
-      origin: 'external-cdf-repair',
+      origin: 'external-cdf-sync',
       cards: [restored],
     });
     expect(refreshCurrentItem).toHaveBeenCalledWith(currentCard, {

@@ -466,9 +466,9 @@ import {
   replaceItemInCardSourceGrammar,
 } from '@/core/card/cdf-live-relation';
 import type {
-  CdfLiveRelationWriteRepairOptions,
-  CdfLiveRelationWriteRepairResult,
-} from '@/application/services/CdfLiveRelationWriteRepairService';
+  CdfLiveRelationWriteSyncOptions,
+  CdfLiveRelationWriteSyncResult,
+} from '@/application/services/CdfLiveRelationWriteSyncService';
 import { createReviewFilterRuntime, type ReviewFilterCommandClient, type ReviewFilterGroupQueueLike } from './reviewFilterCommands';
 import { createReviewDataObserverRuntime } from './reviewDataObserverRuntime';
 import { createReviewNativeSplitRuntime } from './reviewNativeSplitRuntime';
@@ -692,8 +692,8 @@ type CdfRelationPreviewDialogProps = {
 
 type CdfRelationPreviewRaw = {
   kind: 'cdf-live-relation-preview';
-  dryRun: CdfLiveRelationWriteRepairResult;
-  options: CdfLiveRelationWriteRepairOptions;
+  dryRun: CdfLiveRelationWriteSyncResult;
+  options: CdfLiveRelationWriteSyncOptions;
   dialogProps: CdfRelationPreviewDialogProps;
 };
 
@@ -3585,11 +3585,11 @@ function buildDraftMarkdownByBlockId(
   return draftMarkdownByBlockId;
 }
 
-function buildCurrentCdfWriteRepairOptions(
+function buildCurrentCdfWriteSyncOptions(
   pendingWrites: ReviewCurrentContentEditorPendingWrite[],
   updates?: ReviewCurrentContentEditorValidationResult['updates'],
   persist = false,
-): CdfLiveRelationWriteRepairOptions | null {
+): CdfLiveRelationWriteSyncOptions | null {
   if (!isCurrentReviewCdfLiveRelationCard()) {
     return null;
   }
@@ -3724,7 +3724,7 @@ function buildCdfRelationPreviewCountLines(summary: CdfRelationPreviewSummary): 
     .map(([label, count]) => formatReviewCountLabel(String(label), Number(count)));
 }
 
-function resolveCdfRelationPreviewCurrentImpact(dryRun: CdfLiveRelationWriteRepairResult): string {
+function resolveCdfRelationPreviewCurrentImpact(dryRun: CdfLiveRelationWriteSyncResult): string {
   const currentCardId = resolveCurrentReviewCardId();
   const currentAction = dryRun.actions.find(action => (
     action.kind === 'update-card-meta'
@@ -3774,7 +3774,7 @@ function buildCdfRelationPreviewDetailItems(actions: CdfReconciliationAction[]):
   });
 }
 
-function buildCdfRelationPreviewDialogProps(dryRun: CdfLiveRelationWriteRepairResult): CdfRelationPreviewDialogProps {
+function buildCdfRelationPreviewDialogProps(dryRun: CdfLiveRelationWriteSyncResult): CdfRelationPreviewDialogProps {
   const summary = summarizeCdfRelationPreviewActions(dryRun.actions);
   return {
     summary: buildCdfRelationPreviewSummaryItems(summary),
@@ -3790,7 +3790,7 @@ function buildCdfRelationPreviewDialogProps(dryRun: CdfLiveRelationWriteRepairRe
   };
 }
 
-function buildCdfRelationPreviewMessage(dryRun: CdfLiveRelationWriteRepairResult): string {
+function buildCdfRelationPreviewMessage(dryRun: CdfLiveRelationWriteSyncResult): string {
   const summary = summarizeCdfRelationPreviewActions(dryRun.actions);
   const countParts = buildCdfRelationPreviewCountLines(summary);
 
@@ -3813,8 +3813,8 @@ function findCdfRelationUpdateActionForCard(
   )) || null;
 }
 
-function resolveCdfWriteRepairCardMetaForCurrent(
-  result: CdfLiveRelationWriteRepairResult,
+function resolveCdfWriteSyncCardMetaForCurrent(
+  result: CdfLiveRelationWriteSyncResult,
   cardId: string,
   currentCard: FSRSCard | null | undefined,
 ): Record<string, unknown> | null {
@@ -3836,7 +3836,7 @@ function resolveCdfWriteRepairCardMetaForCurrent(
 }
 
 async function appendDueCdfCardsFromCurrentEditorSave(
-  result: CdfLiveRelationWriteRepairResult,
+  result: CdfLiveRelationWriteSyncResult,
 ): Promise<void> {
   const cardsToConsider = [
     ...result.createdCards,
@@ -4005,8 +4005,8 @@ async function handleResetSameSourceProgress(): Promise<void> {
   );
 }
 
-async function applyCurrentReviewSessionImpactFromCdfWriteRepair(
-  result: CdfLiveRelationWriteRepairResult,
+async function applyCurrentReviewSessionImpactFromCdfWriteSync(
+  result: CdfLiveRelationWriteSyncResult,
 ): Promise<void> {
   await appendDueCdfCardsFromCurrentEditorSave(result);
 
@@ -4017,7 +4017,7 @@ async function applyCurrentReviewSessionImpactFromCdfWriteRepair(
   }
 
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
-  const currentMeta = resolveCdfWriteRepairCardMetaForCurrent(result, currentCardId, currentCard);
+  const currentMeta = resolveCdfWriteSyncCardMetaForCurrent(result, currentCardId, currentCard);
   if (currentMeta) {
     await refreshCurrentReviewCard();
     return;
@@ -4029,16 +4029,16 @@ async function buildCurrentContentEditorRelationPreview(
   validation: ReviewCurrentContentEditorValidationResult,
 ): Promise<ReviewCurrentContentEditorRelationPreview | null> {
   const reviewService = getReviewService();
-  if (!reviewService?.reconcileCdfLiveRelationsInWriteRepairFlow) {
+  if (!reviewService?.syncCdfLiveRelationsAfterEditorWrite) {
     return null;
   }
 
-  const options = buildCurrentCdfWriteRepairOptions(pendingWrites, validation.updates, false);
+  const options = buildCurrentCdfWriteSyncOptions(pendingWrites, validation.updates, false);
   if (!options) {
     return null;
   }
 
-  const dryRun = await reviewService.reconcileCdfLiveRelationsInWriteRepairFlow(options);
+  const dryRun = await reviewService.syncCdfLiveRelationsAfterEditorWrite(options);
   if (!hasPreviewableCdfRelationChange(dryRun.actions)) {
     return null;
   }
@@ -4142,19 +4142,19 @@ async function reconcileCurrentContentEditorRelationWrites(
   validation: ReviewCurrentContentEditorValidationResult,
 ): Promise<ReviewCurrentContentEditorAfterSuccessfulWritesResult | void> {
   const reviewService = getReviewService();
-  if (!reviewService?.reconcileCdfLiveRelationsInWriteRepairFlow) {
+  if (!reviewService?.syncCdfLiveRelationsAfterEditorWrite) {
     const impact = await applyOrdinarySourceEditSessionImpact(pendingWrites);
     return { refreshVisibleContent: impact.currentStillReviewable };
   }
 
-  const options = buildCurrentCdfWriteRepairOptions(pendingWrites, validation.updates, true);
+  const options = buildCurrentCdfWriteSyncOptions(pendingWrites, validation.updates, true);
   if (!options) {
     const impact = await applyOrdinarySourceEditSessionImpact(pendingWrites);
     return { refreshVisibleContent: impact.currentStillReviewable };
   }
 
-  const result = await reviewService.reconcileCdfLiveRelationsInWriteRepairFlow(options);
-  await applyCurrentReviewSessionImpactFromCdfWriteRepair(result);
+  const result = await reviewService.syncCdfLiveRelationsAfterEditorWrite(options);
+  await applyCurrentReviewSessionImpactFromCdfWriteSync(result);
 }
 
 function resolveStructuredGrammarFieldForTarget(targetId: string): {

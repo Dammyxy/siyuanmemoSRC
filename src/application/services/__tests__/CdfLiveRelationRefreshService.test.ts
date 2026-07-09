@@ -128,7 +128,7 @@ describe('CdfLiveRelationRefreshService', () => {
     );
   });
 
-  it('returns CDF repair evidence without persisting when persistence is disabled for Review hot path', async () => {
+  it('returns CDF relation refresh evidence without persisting when persistence is disabled for Review hot path', async () => {
     const card = buildCard();
     const manager = createManager();
     const service = new CdfLiveRelationRefreshService({

@@ -306,7 +306,7 @@ export interface ReviewAdvanceWithoutFeedbackOptions {
 
 export type ReviewMidSessionInsertedOrigin =
   | 'review-editor-save'
-  | 'external-cdf-repair'
+  | 'external-cdf-sync'
   | 'doc-scope-card-created';
 
 export interface ReviewMidSessionInsertedDiagnostic {

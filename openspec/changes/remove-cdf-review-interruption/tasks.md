@@ -7,8 +7,8 @@
 ## 2. Browser Diagnostic Surface Removal
 
 - [x] 2.1 Remove `cdf-abnormal` Browser preset/action entrypoints.
-- [x] 2.2 Remove Browser CDF repair result presentation/dialog surface and menu wiring.
-- [x] 2.3 Remove now-unused CDF abnormal/repair i18n keys.
+- [x] 2.2 Remove Browser CDF diagnostic result presentation/dialog surface and menu wiring.
+- [x] 2.3 Remove now-unused CDF abnormal diagnostic i18n keys.
 
 ## 3. Docs And Validation
 

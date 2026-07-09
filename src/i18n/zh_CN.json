@@ -486,7 +486,7 @@
   "reviewConceptReferenceRelatedConfirmContent": "这次更换概念会影响同一来源下 {count} 张其他关系卡。确认继续保存？",
   "reviewConceptReferenceRelatedConfirmText": "继续保存",
   "reviewCdfEditorInsertedDueCardsToast": "已将 {count} 张编辑产生的到期 CDF 卡加入本轮尾部",
-  "reviewCdfExternalInsertedDueCardsToast": "已将 {count} 张修复后的到期 CDF 卡加入本轮尾部",
+  "reviewCdfExternalInsertedDueCardsToast": "已将 {count} 张到期 CDF 关系卡加入本轮尾部",
   "loadCurrentContentFailed": "读取当前内容失败：{message}",
   "saveCurrentContentFailed": "保存当前内容失败：{message}",
   "advanceDialogInfo": "将为 {n} 张卡片执行提前操作",

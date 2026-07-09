@@ -426,7 +426,7 @@
   "reviewConceptReferenceRelatedConfirmContent": "Changing this concept will affect {count} other relation cards under the same source. Continue saving?",
   "reviewConceptReferenceRelatedConfirmText": "Continue saving",
   "reviewCdfEditorInsertedDueCardsToast": "Added {count} due CDF cards from this edit to the session tail",
-  "reviewCdfExternalInsertedDueCardsToast": "Added {count} repaired due CDF cards to the session tail",
+  "reviewCdfExternalInsertedDueCardsToast": "Added {count} due CDF relation cards to the session tail",
   "loadCurrentContentFailed": "Failed to load current content: {message}",
   "saveCurrentContentFailed": "Failed to save current content: {message}",
   "advanceDialogInfo": "Will advance {n} cards",

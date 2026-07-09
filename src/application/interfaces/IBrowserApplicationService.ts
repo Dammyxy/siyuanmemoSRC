@@ -48,15 +48,9 @@ import type { BrowserSiyuanPort } from '../ports/BrowserSiyuanPort';
 import type { FSRSCard } from '@/types/card';
 import type { CdfLiveRelationRefreshResult } from '../services/CdfLiveRelationRefreshService';
 import type {
-  CdfLiveRelationFullRepairExecuteOptions,
-  CdfLiveRelationFullRepairExecuteResult,
-  CdfLiveRelationFullRepairDryRunOptions,
-  CdfLiveRelationFullRepairDryRunResult,
-  CdfLiveRelationSingleSourceRepairOptions,
-  CdfLiveRelationSingleSourceRepairResult,
-  CdfLiveRelationWriteRepairOptions,
-  CdfLiveRelationWriteRepairResult,
-} from '../services/CdfLiveRelationWriteRepairService';
+  CdfLiveRelationWriteSyncOptions,
+  CdfLiveRelationWriteSyncResult,
+} from '../services/CdfLiveRelationWriteSyncService';
 import type { QueueProjectionReadiness, QueueProjectionReadinessRequest } from '../../../packages/contracts/src/backend-rpc';
 
 export interface BrowserQueueCountsRequest {
@@ -119,11 +113,7 @@ export interface IBrowserApplicationService {
   getBrowserReadModel(): BrowserReadModel;
 
   refreshCdfLiveRelationOnOpen?(card: FSRSCard | string): Promise<CdfLiveRelationRefreshResult>;
-  reconcileCdfLiveRelationsInWriteRepairFlow?(options: CdfLiveRelationWriteRepairOptions): Promise<CdfLiveRelationWriteRepairResult>;
-  previewFullCdfLiveRelationRepair?(options?: CdfLiveRelationFullRepairDryRunOptions): Promise<CdfLiveRelationFullRepairDryRunResult>;
-  executeFullCdfLiveRelationRepair?(options?: CdfLiveRelationFullRepairExecuteOptions): Promise<CdfLiveRelationFullRepairExecuteResult>;
-  previewSingleSourceCdfLiveRelationRepair?(options: CdfLiveRelationSingleSourceRepairOptions): Promise<CdfLiveRelationSingleSourceRepairResult>;
-  executeSingleSourceCdfLiveRelationRepair?(options: CdfLiveRelationSingleSourceRepairOptions): Promise<CdfLiveRelationSingleSourceRepairResult>;
+  syncCdfLiveRelationsAfterEditorWrite?(options: CdfLiveRelationWriteSyncOptions): Promise<CdfLiveRelationWriteSyncResult>;
 
   /**
    * 获取浏览器卡片列表
