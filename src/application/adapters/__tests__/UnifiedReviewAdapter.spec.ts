@@ -1523,10 +1523,11 @@ describe('UnifiedReviewAdapter', () => {
       quickDetectReason: 'symbol-rule',
     }));
     expect(forcedUi.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
-      specialRendererKind: null,
-      semanticKind: null,
-      forceProtyleRender: true,
-      forceQuickRender: false,
+      specialRendererKind: 'quick',
+      semanticKind: 'quick',
+      forceProtyleRender: false,
+      forceQuickRender: true,
+      diagnostics: expect.arrayContaining(['render-contract-stale-force-protyle']),
     }));
   });
 

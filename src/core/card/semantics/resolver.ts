@@ -1,4 +1,5 @@
 import { CardType, type FSRSCard } from '@/types/card';
+import { buildSrsCardQuickSymbolRenderRepairPatch } from '@/core/card/render-contract';
 import {
   readSrsCardCreationReceipt,
   SRS_CARD_CREATION_RECEIPT_META_KEY,
@@ -205,9 +206,13 @@ export function planCardSemanticRepair(
 }
 
 export function applyCardSemanticPatch(card: FSRSCard, patch: SrsCardSemanticPatch): FSRSCard {
-  const nextMeta = patch.metaPatch
-    ? { ...(card.meta || {}), ...patch.metaPatch }
+  const shouldPatchMeta = !!patch.metaPatch || !!patch.metaDelete?.length;
+  const nextMeta = shouldPatchMeta
+    ? { ...(card.meta || {}), ...(patch.metaPatch || {}) }
     : card.meta;
+  for (const key of patch.metaDelete ?? []) {
+    delete nextMeta?.[key];
+  }
   const next: FSRSCard = {
     ...card,
     ...(patch.type ? { type: patch.type } : {}),
@@ -469,7 +474,29 @@ function buildRepairPatch(card: FSRSCard, kind: SrsCardSemanticKind): SrsCardSem
   if ((kind === CardType.Item || kind === CardType.Topic) && card.cardTypeMarker) {
     patch.cardTypeMarker = null;
   }
-  return Object.keys(patch).length > 0 ? patch : null;
+  if (kind === CardType.Item) {
+    const renderPatch = buildSrsCardQuickSymbolRenderRepairPatch(card);
+    if (renderPatch?.metaPatch) {
+      patch.metaPatch = {
+        ...(patch.metaPatch || {}),
+        ...renderPatch.metaPatch,
+      };
+    }
+    if (renderPatch?.metaDelete?.length) {
+      patch.metaDelete = Array.from(new Set([
+        ...(patch.metaDelete || []),
+        ...renderPatch.metaDelete,
+      ]));
+    }
+  }
+  return hasPatchChanges(patch) ? patch : null;
+}
+
+function hasPatchChanges(patch: SrsCardSemanticPatch): boolean {
+  return !!patch.type
+    || Object.prototype.hasOwnProperty.call(patch, 'cardTypeMarker')
+    || !!Object.keys(patch.metaPatch || {}).length
+    || !!patch.metaDelete?.length;
 }
 
 function normalizeString(value: unknown): string | null {

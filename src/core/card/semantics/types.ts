@@ -57,6 +57,7 @@ export interface SrsCardSemanticPatch {
   type?: SrsCardSemanticKind;
   cardTypeMarker?: FSRSCard['cardTypeMarker'] | null;
   metaPatch?: Record<string, unknown>;
+  metaDelete?: string[];
 }
 
 export interface SrsCardSemanticResolution {

@@ -3,6 +3,7 @@ import type {
   ReviewRenderableSpecialRendererKind,
 } from '@/application/adapters/reviewRenderableRenderPolicy';
 export {
+  buildReviewRenderableRenderPolicy,
   isImageOcclusionReviewCard,
   isInlineFormulaMultiClozeCard,
   isNeuralRoamNonFlashcard,

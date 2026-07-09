@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FSRSCard } from '@/types/card';
 import {
+  buildReviewRenderableRenderPolicy,
   buildReviewRenderCacheKey,
   buildReviewRenderCacheKeyFromPolicy,
   buildReviewRenderWatchKey,
@@ -290,6 +291,37 @@ describe('reviewRenderPolicy', () => {
       contentType: 'protyle',
       renderProfile: null,
     })).toBe('multi-cloze');
+  });
+
+  it('resolves deterministic quick-symbol metadata through the render contract even with stale Protyle routing', () => {
+    const policy = buildReviewRenderableRenderPolicy(createCard({
+      meta: {
+        forceProtyleRender: true,
+        source: 'symbol',
+        symbolDetected: true,
+        cardSource: 'quick-symbol',
+        symbolType: '>>',
+        quickDetectReason: 'symbol-rule',
+      },
+    }));
+
+    expect(policy).toEqual(expect.objectContaining({
+      specialRendererKind: 'quick',
+      semanticKind: 'quick',
+      forceProtyleRender: false,
+      forceQuickRender: true,
+      renderContract: expect.objectContaining({
+        renderFamily: 'quick-symbol',
+        rendererKind: 'quick',
+        quickSymbolEvidence: expect.arrayContaining([
+          expect.objectContaining({ path: 'meta.cardSource', value: 'quick-symbol' }),
+        ]),
+        repairPatch: expect.objectContaining({
+          metaDelete: ['forceProtyleRender'],
+        }),
+      }),
+      diagnostics: expect.arrayContaining(['render-contract-stale-force-protyle']),
+    }));
   });
 
   it('routes image occlusion cards before custom prepared renderers', () => {

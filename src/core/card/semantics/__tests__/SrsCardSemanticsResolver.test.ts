@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import {
+  applyCardSemanticPatch,
   planCardSemanticRepair,
   resolveCardSemantics,
 } from '../resolver';
@@ -112,6 +113,44 @@ describe('SRS card semantics resolver', () => {
         afterKind: CardType.Item,
       });
     }
+  });
+
+  it('adds deterministic quick-symbol render repair evidence to legacy symbol topic patches', () => {
+    const card = buildCard({
+      id: 'symbol-stale-protyle',
+      type: CardType.Topic,
+      meta: {
+        source: 'symbol',
+        forceProtyleRender: true,
+      },
+    });
+
+    const repairPlan = planCardSemanticRepair({ card });
+
+    expect(repairPlan).toMatchObject({
+      status: 'safe-repair',
+      beforeKind: CardType.Topic,
+      afterKind: CardType.Item,
+      patch: {
+        type: CardType.Item,
+        metaPatch: {
+          symbolDetected: true,
+          cardSource: 'quick-symbol',
+          quickDetectReason: 'symbol-rule',
+        },
+        metaDelete: ['forceProtyleRender'],
+      },
+    });
+    expect(applyCardSemanticPatch(card, repairPlan.patch!)).toMatchObject({
+      type: CardType.Item,
+      meta: expect.objectContaining({
+        source: 'symbol',
+        symbolDetected: true,
+        cardSource: 'quick-symbol',
+        quickDetectReason: 'symbol-rule',
+      }),
+    });
+    expect(applyCardSemanticPatch(card, repairPlan.patch!).meta).not.toHaveProperty('forceProtyleRender');
   });
 
   it('resolves progressive roots and derived items from lineage evidence', () => {

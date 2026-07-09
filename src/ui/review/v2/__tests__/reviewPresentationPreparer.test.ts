@@ -177,6 +177,48 @@ describe('reviewPresentationPreparer', () => {
     expect(services.multiClozeCardRenderService.prepareViewModel).not.toHaveBeenCalled();
   });
 
+  it('prepares quick cards as front before reveal and back after reveal', async () => {
+    const services = createServices();
+    services.quickCardRenderService.prepareViewModel = vi.fn(async (_blockId, side) => ({ kind: 'quick', side }));
+    const card = createCard({
+      source: 'symbol',
+      symbolDetected: true,
+      cardSource: 'quick-symbol',
+      symbolType: '>>',
+    });
+    const baseState = withRenderPolicy(createState(card), 'quick');
+
+    const hidden = await prepareReviewPresentation({
+      ...baseState,
+      actions: {
+        ...baseState.actions,
+        showAnswer: true,
+      },
+    }, services);
+    const revealed = await prepareReviewPresentation({
+      ...baseState,
+      actions: {
+        ...baseState.actions,
+        showAnswer: false,
+      },
+      content: {
+        ...baseState.content,
+        prepared: undefined,
+      },
+    }, services);
+
+    expect(services.quickCardRenderService.prepareViewModel).toHaveBeenNthCalledWith(1, 'block-1', 'front', 'card-1');
+    expect(services.quickCardRenderService.prepareViewModel).toHaveBeenNthCalledWith(2, 'block-1', 'back', 'card-1');
+    expect(hidden.content.prepared).toMatchObject({
+      rendererKind: 'quick',
+      viewModel: { kind: 'quick', side: 'front' },
+    });
+    expect(revealed.content.prepared).toMatchObject({
+      rendererKind: 'quick',
+      viewModel: { kind: 'quick', side: 'back' },
+    });
+  });
+
   it('uses render context policy before stale legacy semantic metadata when preparing renderer view models', async () => {
     const services = createServices();
     services.descriptorCardRenderService.prepareViewModel = vi.fn(async () => ({ kind: 'descriptor' }));

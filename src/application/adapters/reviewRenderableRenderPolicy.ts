@@ -1,4 +1,9 @@
 import { resolveCardFaceToken, resolveCardRuleId } from '@/core/card/cardSemanticLocator';
+import {
+  isQuickSymbolRenderContract,
+  resolveSrsCardRenderContract,
+  type SrsCardRenderContract,
+} from '@/core/card/render-contract';
 import { resolveRenderProfile, type SupportedRenderProfile } from '@/core/card/render-profile/RenderProfileResolver';
 import {
   isConceptCard,
@@ -44,17 +49,31 @@ export interface ReviewRenderableRenderPolicy {
     updatedAt: string;
   };
   legacyProjection: ReviewRenderableLegacyProjection;
+  renderContract?: SrsCardRenderContract;
   diagnostics: string[];
 }
 
 export function buildReviewRenderableRenderPolicy(card: FSRSCard | null | undefined): ReviewRenderableRenderPolicy {
   const meta = readMeta(card);
   const profile = resolveRenderProfile(card);
-  const forceProtyleRender = meta.forceProtyleRender === true;
-  const forceQuickRender = meta.forceQuickRender === true || shouldPreferStableQuickForcePath(card, profile);
-  const specialRendererKind = forceProtyleRender ? null : resolveSpecialRendererKind(card, profile, forceQuickRender);
+  const renderContract = resolveSrsCardRenderContract({ card, profile });
+  const quickSymbolContract = isQuickSymbolRenderContract(renderContract);
+  const forceProtyleRender = meta.forceProtyleRender === true && !quickSymbolContract;
+  const forceQuickRender = !forceProtyleRender && (
+    meta.forceQuickRender === true
+    || quickSymbolContract
+    || shouldPreferStableQuickForcePath(card, profile)
+  );
+  const specialRendererKind = forceProtyleRender
+    ? null
+    : renderContract.rendererKind === 'quick'
+      ? 'quick'
+      : resolveSpecialRendererKind(card, profile, forceQuickRender);
   const legacyProjection = buildLegacyProjection(meta);
-  const diagnostics = legacyProjection.used.length > 0 ? ['legacy-render-projection-read'] : [];
+  const diagnostics = [
+    ...(legacyProjection.used.length > 0 ? ['legacy-render-projection-read'] : []),
+    ...renderContract.diagnostics,
+  ];
 
   return {
     version: 1,
@@ -73,6 +92,7 @@ export function buildReviewRenderableRenderPolicy(card: FSRSCard | null | undefi
       updatedAt: String(card?.updatedAt ?? ''),
     },
     legacyProjection,
+    renderContract,
     diagnostics,
   };
 }
@@ -86,7 +106,8 @@ export function shouldPreferStableQuickForcePath(
   }
 
   const meta = readMeta(card);
-  if (meta.forceProtyleRender === true) {
+  const renderContract = resolveSrsCardRenderContract({ card, profile });
+  if (meta.forceProtyleRender === true && !isQuickSymbolRenderContract(renderContract)) {
     return false;
   }
 
@@ -231,17 +252,25 @@ export function resolveReviewSpecialRendererKind(input: {
     return 'image-occlusion';
   }
 
-  if (input.forceProtyleRender === true) {
+  const profile = input.renderProfile;
+  const contract = resolveSrsCardRenderContract({
+    card,
+    profile,
+  });
+  if (input.forceProtyleRender === true && contract.rendererKind !== 'quick') {
     return null;
   }
 
-  const profile = input.renderProfile;
   if (isInlineFormulaMultiClozeCard(card, profile)) {
     return 'multi-cloze';
   }
 
   if (isOrdinaryMultiClozeReviewCard(card, profile)) {
     return 'multi-cloze';
+  }
+
+  if (contract.rendererKind === 'quick') {
+    return 'quick';
   }
 
   if (input.forceQuickRender === true) {
