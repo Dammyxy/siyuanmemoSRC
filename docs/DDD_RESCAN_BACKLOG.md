@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 696)
+Last update: 2026-07-10 (Round 697)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Remove Xiuyuan continuous-sync application runtime
+
+- Task: Apply `retire-native-riff-continuous-sync` task 5.4 after Native Riff write bridges were removed.
+- Touched slice: ApplicationContext composition/disposal, Xiuyuan/AutoCard factory, Browser sync status UI, simple-mode config migration, background-work kinds/status, backend migration ownership, continuous-sync services/helpers/types, focused tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: Deleted `XiuyuanSyncService`, sync input/planner/apply/startup/blacklist/remove helper runtimes, application `RiffBlacklistService`, duplicate sync types, sync status components, and obsolete application tests. ApplicationContext no longer creates, exposes, configures, locks through, or disposes a hybrid sync service. Browser no longer observes `wsSync` or renders manual/full sync controls. Legacy simple-mode migration disables incremental/full/delete sync and never triggers data synchronization.
+- Debt deferred: The orphaned `xiuyuan.sync.execute` contracts/client/catalog/host-effect/worker planner/runtime/checkpoint family remains task 5.5. Legacy checkpoint, blacklist, and delete-sync persistence fields remain task 5.6; the read/remove blacklist migration Module stays until those compatibility reads are removed.
+- Why deferred: Worker RPC/checkpoint ownership and persistence compatibility migration are separate deletion boundaries with independent contracts and restart behavior.
+- Next safe step: Remove `xiuyuan.sync.execute` client/RPC catalogs, worker planner/runtime, SQLite checkpoint behavior, and obsolete worker tests under task 5.5.
+- Validation: 10 focused Vitest files passed with 85 tests; production build, boundary/hidden-fallback gates, strict OpenSpec validation, and `git diff --check` passed. `pnpm diagnostics` is blocked by the repository's Node 23 ts-node loader crash; full `tsc --noEmit` remains red with broad existing debt, but produced no deleted-module import errors for this slice.
 
 ### 2026-07-10 - Remove Native Riff feedback bridge
 

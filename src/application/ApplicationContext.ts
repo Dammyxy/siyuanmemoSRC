@@ -30,7 +30,6 @@ import { PracticeQueueManager } from '@/application/managers/PracticeQueueManage
 import { TabApplicationService } from '@/application/services/TabApplicationService';
 import { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
-import { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import { TransactionProvenanceRegistry } from '@/core/infrastructure/websocket/transaction-provenance-registry';
 import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
@@ -110,7 +109,6 @@ import {
 import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
-import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
 import { ReviewQueuePreparationService } from '@/application/services/ReviewQueuePreparationService';
 import { ReviewAdmissionModule } from '@/application/services/ReviewAdmissionModule';
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
@@ -166,8 +164,7 @@ import {
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
-import { DEFAULT_SETTINGS, type RiffIntegrationConfig } from '@/types/settings';
-import type { HybridSyncConfig } from '@/application/services/XiuyuanSyncService.types';
+import { DEFAULT_SETTINGS } from '@/types/settings';
 import { isErr } from '@/types/result';
 import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
 import { SrsBackendClient } from '@/application/clients/SrsBackendClient';
@@ -247,7 +244,6 @@ interface ApplicationServiceRegistry {
   reviewLogService: ReviewLogService;
   reviewCommitUseCase: ReviewCommitUseCase;
   reviewAttemptKernel: ReviewAttemptKernel;
-  riffBlacklistService: RiffBlacklistService;
   cardTypeDetectionService: CardTypeDetectionService;
   docTreeReviewScopeService: DocTreeReviewScopeService;
   configuredCaptureStorageService: ConfiguredCaptureStorageService;
@@ -362,7 +358,6 @@ export class ApplicationContext {
   private blockMenuHandler: BlockMenuHandler;
   
   // 基础设施服务
-  private hybridSyncService?: XiuyuanSyncService;
   private transactionWebSocketService?: TransactionWebSocketService;
   private readonly transactionProvenanceRegistry = new TransactionProvenanceRegistry();
   private autoCardHandler?: AutoCardHandler;
@@ -455,7 +450,6 @@ export class ApplicationContext {
       blockMenuHandler: BlockMenuHandler;
       sharedEventBus?: EventBus;  // ✅ 新增：共享的 EventBus 实例
       sqlPersistence?: SqlPersistenceBundle;
-      hybridSyncService?: XiuyuanSyncService;
       transactionWebSocketService?: TransactionWebSocketService;
       srsBackendClient?: SrsBackendClient | null;
       srsBackendTransport?: DisposableSrsBackendTransport | null;
@@ -473,7 +467,6 @@ export class ApplicationContext {
     this.rescheduleService = services.rescheduleService;
     this.unifiedDataSourceManager = services.unifiedDataSourceManager;
     this.blockMenuHandler = services.blockMenuHandler;
-    this.hybridSyncService = services.hybridSyncService;
     this.transactionWebSocketService = services.transactionWebSocketService;
     this.sqlPersistence = services.sqlPersistence;
     this.srsBackendClient = services.srsBackendClient ?? null;
@@ -486,19 +479,9 @@ export class ApplicationContext {
     this.autoCardKernelXiuyuanServiceBundle = createAutoCardKernelXiuyuanServiceBundle({
       plugin: this.config.plugin,
       getUnifiedStorage: () => this.unifiedStorageManager,
-      getUnifiedDataSourceManager: () => this.unifiedDataSourceManager,
       getSqlXiuyuanReadRepository: () => this.sqlPersistence?.xiuyuanRead ?? null,
-      getSrsBackendClient: () => this.srsBackendClient,
-      getBackgroundWorkRegistry: () => this.srsBackendClient?.getBackgroundWorkRegistry() ?? null,
       getCardTypeDetectionService: () => this.getCardTypeDetectionService(),
       getEventBus: () => this.getEventBus(),
-      getRiffBlacklistService: () => this.getRiffBlacklistService(),
-      getDeletionTracker: () => {
-        if (!this.deletionTracker) {
-          throw new Error('[ApplicationContext] deletionTracker should have been created during initialization');
-        }
-        return this.deletionTracker;
-      },
     });
     
     // ✅ 保存 sharedEventBus 引用（如果提供）
@@ -803,13 +786,6 @@ export class ApplicationContext {
       return new ReviewAttemptKernel({
         reviewCommitter: context.getReviewCommitUseCase(),
       });
-    });
-    
-    this.registerServiceFactory('riffBlacklistService', (context) => {
-      return new RiffBlacklistService(
-        context.getUnifiedStorage(),
-        { enabled: true }
-      );
     });
     
     // ✅ 卡片内容查询服务
@@ -1644,11 +1620,6 @@ export class ApplicationContext {
     
     logger.info('[ApplicationContext] ✅ BlockMenuHandler initialized');
     
-    // 11. 初始化 HybridSyncService（如果配置启用）
-    let hybridSyncService: XiuyuanSyncService | undefined;
-    let riffConfig = settings.riffIntegration;
-    // HybridSyncService 将在 context 创建后初始化（需要 CardApplicationService 和 EventBus）
-    
     // 12. 创建应用上下文（不需要队列实例，队列通过 UnifiedDataSourceManager 延迟获取）
     const context = new ApplicationContext(config, {
       storageManager,
@@ -1659,7 +1630,6 @@ export class ApplicationContext {
       blockMenuHandler,
       sharedEventBus,  // ✅ 传入 sharedEventBus
       sqlPersistence,
-      hybridSyncService: undefined,  // 将在下面初始化
       transactionWebSocketService: undefined,  // 将在下面初始化
       srsBackendClient,
       srsBackendTransport,
@@ -1693,7 +1663,6 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] ✅ SettingsService initialized');
 
     const initializedRiffConfig = settingsService.getSettings().riffIntegration;
-    riffConfig = initializedRiffConfig;
     const startupConflictStrategy = initializedRiffConfig?.storageConflictResolution || 'merge';
     unifiedStorageManager.setConflictResolutionStrategy(startupConflictStrategy);
     logger.info('[ApplicationContext] UnifiedStorage conflict strategy set:', startupConflictStrategy);
@@ -1733,20 +1702,6 @@ export class ApplicationContext {
     }
     logger.info('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode and QueuePersistence');
     
-    // 14. 初始化 HybridSyncService（需要 CardApplicationService、EventBus 和 XiuyuanRepository）
-    logger.info('[ApplicationContext] Checking riffConfig:', { hasRiffConfig: !!riffConfig });
-    if (riffConfig) {
-      logger.info('[ApplicationContext] Initializing HybridSyncService...');
-      hybridSyncService = context.autoCardKernelXiuyuanServiceBundle.createXiuyuanSyncService(riffConfig);
-      
-      // 将 HybridSyncService 设置到 context（使用类型断言）
-      context.hybridSyncService = hybridSyncService;
-      
-      logger.info('[ApplicationContext] ✅ HybridSyncService initialized with XiuyuanRepository');
-      
-      logger.info('[ApplicationContext] Native Riff passive startup sync is retired');
-    }
-
     await measureRuntimePerformance(
       'startup',
       'transaction-websocket-service.update',
@@ -1954,34 +1909,6 @@ export class ApplicationContext {
    */
   getBlockMenuHandler(): BlockMenuHandler {
     return this.blockMenuHandler;
-  }
-  
-  /**
-   * 获取混合同步服务
-   * 
-   * @returns HybridSyncService | undefined - 混合同步服务实例
-   */
-  getHybridSyncService(): XiuyuanSyncService | undefined {
-    return this.hybridSyncService;
-  }
-  
-  /**
-   * 更新混合同步服务配置
-   * 
-   * 符合 DDD 架构原则:
-   * - 提供清晰的配置更新接口
-   * - 避免外部直接访问内部状态
-   * 
-   * @param config - 新的同步配置
-   */
-  async updateHybridSyncConfig(config: Partial<HybridSyncConfig>): Promise<void> {
-    if (!this.hybridSyncService) {
-      logger.warn('[ApplicationContext] HybridSyncService not initialized');
-      return;
-    }
-    
-    this.hybridSyncService.updateConfig(config);
-    logger.info('[ApplicationContext] ✅ HybridSyncService config updated');
   }
   
   /**
@@ -2640,15 +2567,6 @@ export class ApplicationContext {
   }
   
   /**
-   * 获取 Riff 黑名单服务
-   * 
-   * @returns RiffBlacklistService - Riff 黑名单服务实例
-   */
-  getRiffBlacklistService(): RiffBlacklistService {
-    return this.getService('riffBlacklistService');
-  }
-  
-  /**
    * 获取卡片内容查询服务
    * 
    * @returns CardContentQueryService - 卡片内容查询服务实例
@@ -2799,17 +2717,6 @@ export class ApplicationContext {
         }
       }
       
-      // 2. 停止 HybridSyncService
-      if (this.hybridSyncService) {
-        try {
-          this.hybridSyncService.stop();
-          logger.info('[ApplicationContext] ✅ HybridSyncService stopped');
-        } catch (error) {
-          logger.error('[ApplicationContext] Error stopping HybridSyncService:', error);
-          errors.push({ service: 'hybridSyncService', error });
-        }
-      }
-
       this.logSrsBackendTransportDiagnostics('before-srs-backend-runtime-dispose');
       this.disposeSrsBackendRuntime(errors);
 

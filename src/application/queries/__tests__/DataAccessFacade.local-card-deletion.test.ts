@@ -21,9 +21,7 @@ describe('DataAccessFacade local card deletion', () => {
         },
       })),
     };
-    const applicationContext = {
-      getHybridSyncService: vi.fn(() => ({})),
-    };
+    const applicationContext = {};
     const plugin = {
       getContext: vi.fn(() => applicationContext),
     };

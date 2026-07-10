@@ -226,7 +226,6 @@ function createContext(plugin: any) {
         data: request,
       })),
     })),
-    getHybridSyncService: vi.fn(() => undefined),
     dispose: vi.fn(async () => undefined),
   };
   const tabManager = new TabManager(context, plugin, {

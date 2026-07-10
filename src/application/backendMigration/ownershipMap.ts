@@ -97,7 +97,7 @@ export const BACKEND_MIGRATION_OWNERSHIP_MAP: MigratedStateFamily[] = [
   },
   {
     familyId: 'topic-derived',
-    currentOwner: 'application-command',
+    currentOwner: 'backend-worker',
     targetOwner: 'application-command',
     ownerRuntime: 'application-command',
     contract: 'topic-derived.command.execute',
@@ -183,12 +183,12 @@ export const BACKEND_MIGRATION_OWNERSHIP_MAP: MigratedStateFamily[] = [
     kernelProxyDependency: 'riff-read-audit',
     idempotencyKey: 'commandId/syncScope/syncGeneration',
     storage: 'siyuanmemo.db',
-    allowedReaders: ['application.services.XiuyuanSyncService', 'worker.bootstrap.BackendKernel'],
+    allowedReaders: ['worker.bootstrap.BackendKernel'],
     allowedWriters: ['backend-worker'],
     compatibilityReads: ['native Riff fact reads via approved kernel/Siyuan proxy only'],
     featureGate: BACKEND_MIGRATION_FEATURE_GATES.autocardExecuteRelay,
     rolloutFlag: BACKEND_MIGRATION_FEATURE_GATES.autocardExecuteRelay,
-    fallbackRemovalCondition: 'XiuyuanSyncService full/incremental entrypoints use backend sync command and classify all retained local sync branches',
+    fallbackRemovalCondition: 'Remove the orphaned xiuyuan.sync worker/client/RPC family under retire-native-riff-continuous-sync task 5.5',
     retainedEffects: [
       {
         id: 'xiuyuan-native-riff-read-proxy',

@@ -1466,7 +1466,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     
     if (finalConfig && SimpleModeRemovalMigrator.needsMigration(finalConfig)) {
       try {
-        const result = await SimpleModeRemovalMigrator.performMigration(finalConfig, context.getHybridSyncService());
+        const result = await SimpleModeRemovalMigrator.performMigration(finalConfig);
         const migratedConfig: RiffIntegrationConfig = {
           mode: 'advanced',
           ...result.migratedConfig,

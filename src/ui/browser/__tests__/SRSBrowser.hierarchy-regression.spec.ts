@@ -557,7 +557,6 @@ function mountBrowser(propOverrides: Record<string, unknown> = {}) {
           },
         }),
         BrowserPreview: { template: '<div class="preview-stub"></div>' },
-        SyncStatusIndicator: { template: '<div class="sync-stub"></div>' },
         NeuralSubviewTabs: { template: '<div class="neural-tabs-stub"></div>' },
         NeuralNavigationBar: defineComponent({
           name: 'NeuralNavigationBar',
@@ -722,49 +721,17 @@ describe('SRSBrowser hierarchy regressions', () => {
   });
 
   it('opens Browser without triggering Native Riff incremental sync', async () => {
-    const incrementalSync = vi.fn(async () => ({
-      success: true,
-      addedCount: 0,
-      updatedCount: 0,
-      deletedCount: 0,
-      skippedCount: 0,
-      detectedCount: 0,
-    }));
     createDeckDataSourceMock.mockReturnValue(createQueryableDataSource([
       buildBrowserCard('browser-open-sync-card', 'doc-1'),
     ]));
 
-    const wrapper = mountBrowser({
-      plugin: {
-        getContext: () => ({
-          getHybridSyncService: () => ({
-            incrementalSync,
-            on: vi.fn(),
-            off: vi.fn(),
-          }),
-          getStorage: () => ({
-            getSettings: () => ({
-              riffIntegration: {
-                mode: 'hybrid',
-                incrementalSync: {
-                  enabled: true,
-                  triggers: ['browser-open'],
-                },
-                fullSync: {
-                  enabled: true,
-                },
-              },
-            }),
-          }),
-        }),
-      } as never,
-    });
+    const wrapper = mountBrowser();
 
     await advance(0);
     await flushPromises();
     await nextTick();
 
-    expect(incrementalSync).not.toHaveBeenCalled();
+    expect(wrapper.text()).not.toContain('sync-stub');
 
     wrapper.unmount();
   });

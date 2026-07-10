@@ -530,7 +530,6 @@ type ReviewPluginContextLike = {
         closeReviewTab?: (reviewSessionId: string) => void | Promise<void>;
       })
     | undefined;
-  getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
   getSrsBackendClient?: () => {
     requestReviewTruthFlush?: (reason: 'review-exit' | 'queue-complete' | 'manual') => boolean;
   } | null | undefined;

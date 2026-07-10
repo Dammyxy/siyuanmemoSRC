@@ -176,7 +176,6 @@ describe('createUnifiedReviewDialog', () => {
           }),
         }),
         getSrsBackendClient: () => ({ flushReviewTruthNow }),
-        getHybridSyncService: () => ({ incrementalSync }),
       }),
     };
 

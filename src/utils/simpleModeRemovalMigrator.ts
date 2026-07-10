@@ -10,16 +10,6 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SimpleModeRemovalMigrator');
 
-interface MigrationSyncResult {
-    success: boolean;
-    syncedCount?: number;
-    error?: unknown;
-}
-
-interface MigrationSyncService {
-    incrementalSync: () => Promise<MigrationSyncResult>;
-}
-
 /**
  * 简单模式移除迁移器
  */
@@ -45,7 +35,7 @@ export class SimpleModeRemovalMigrator {
      * 迁移规则：
      * - 移除 mode 字段（系统将默认使用高级模式）
      * - 保留其他配置项
-     * - 启用增量同步以确保数据完整性
+     * - 关闭已退役的连续同步设置
      * 
      * @param oldConfig - 旧版配置
      * @returns 新版配置（移除 mode 字段）
@@ -57,15 +47,19 @@ export class SimpleModeRemovalMigrator {
         // 创建新配置，移除 mode 字段
         const { mode, ...newConfig } = oldConfig;
         
-        // 确保启用增量同步，以便迁移数据
-        if (!newConfig.incrementalSync.enabled) {
-            logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] Enabling incremental sync for migration');
-            newConfig.incrementalSync = {
-                ...newConfig.incrementalSync,
-                enabled: true,
-                triggers: ['plugin-start']
-            };
-        }
+        newConfig.incrementalSync = {
+            ...newConfig.incrementalSync,
+            enabled: false,
+            triggers: []
+        };
+        newConfig.fullSync = {
+            ...newConfig.fullSync,
+            enabled: false
+        };
+        newConfig.deleteSync = {
+            ...newConfig.deleteSync,
+            enabled: false
+        };
         
         // 确保使用本地调度器
         newConfig.useLocalScheduler = true;
@@ -86,39 +80,12 @@ export class SimpleModeRemovalMigrator {
 您的配置已从简单模式升级到高级模式：
 - ✅ 更快的性能和离线访问
 - ✅ 更多的队列类型和功能
-- ✅ 数据将自动同步，无需手动操作
+- ✅ Native Riff 卡片改为显式只读导入
 
 详情请查看设置面板。`;
             
             await pushMsg(message, 10000);
             logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] Migration notification displayed');
-        }
-    }
-    
-    /**
-     * 触发增量同步以迁移数据
-     * 
-     * 注意：此方法需要在 HybridSyncService 初始化后调用
-     * 
-     * @param syncService - HybridSyncService 实例
-     * @returns 同步是否成功
-     */
-    static async triggerMigrationSync(syncService: MigrationSyncService): Promise<boolean> {
-        try {
-            logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] Triggering incremental sync for migration');
-            const result = await syncService.incrementalSync();
-            
-            if (result.success) {
-                logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] ✅ Migration sync completed successfully');
-                logger.info(`[SiYuanMemo][SimpleModeRemovalMigrator] Synced ${result.syncedCount} cards`);
-                return true;
-            } else {
-                logger.error('[SiYuanMemo][SimpleModeRemovalMigrator] ❌ Migration sync failed:', result.error);
-                return false;
-            }
-        } catch (error) {
-            logger.error('[SiYuanMemo][SimpleModeRemovalMigrator] ❌ Migration sync error:', error);
-            return false;
         }
     }
     
@@ -129,7 +96,7 @@ export class SimpleModeRemovalMigrator {
      * @param context - 错误上下文
      */
     static async handleMigrationError(error: Error, context: string): Promise<void> {
-        const errorMessage = `数据迁移失败（${context}），但系统将继续使用高级模式。您可以手动触发全量同步。`;
+        const errorMessage = `数据迁移失败（${context}），但系统将继续使用高级模式。`;
         
         logger.error(`[SiYuanMemo][SimpleModeRemovalMigrator] ❌ Migration error in ${context}:`, error);
         logger.error('[SiYuanMemo][SimpleModeRemovalMigrator] Stack trace:', error.stack);
@@ -141,13 +108,9 @@ export class SimpleModeRemovalMigrator {
      * 执行完整的迁移流程
      * 
      * @param config - 当前配置
-     * @param syncService - HybridSyncService 实例（可选，如果提供则触发同步）
      * @returns 迁移后的配置和是否成功
      */
-    static async performMigration(
-        config: RiffIntegrationConfig,
-        syncService?: MigrationSyncService
-    ): Promise<{
+    static async performMigration(config: RiffIntegrationConfig): Promise<{
         migratedConfig: Omit<RiffIntegrationConfig, 'mode'>;
         success: boolean;
         syncTriggered: boolean;
@@ -169,29 +132,13 @@ export class SimpleModeRemovalMigrator {
             // 步骤 1: 迁移配置
             const migratedConfig = this.migrate(config);
             
-            // 步骤 2: 触发同步（如果提供了 syncService）
-            let syncSuccess = true;
-            let syncTriggered = false;
-            
-            if (syncService) {
-                syncTriggered = true;
-                syncSuccess = await this.triggerMigrationSync(syncService);
-                
-                if (!syncSuccess) {
-                    await this.handleMigrationError(
-                        new Error('Sync failed'),
-                        'incremental sync'
-                    );
-                }
-            }
-            
-            // 步骤 3: 显示通知
+            // 步骤 2: 显示通知
             await this.showMigrationNotification(wasSimpleMode);
             
             return {
                 migratedConfig,
-                success: syncSuccess,
-                syncTriggered
+                success: true,
+                syncTriggered: false
             };
         } catch (error) {
             await this.handleMigrationError(error as Error, 'migration process');

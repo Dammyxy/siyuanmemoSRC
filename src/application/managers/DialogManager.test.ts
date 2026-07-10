@@ -212,7 +212,6 @@ describe('DialogManager', () => {
       getBrowserService: vi.fn(() => ({})),
       getTabApplicationService: vi.fn(() => ({})),
       getEventBus: vi.fn(() => ({})),
-      getHybridSyncService: vi.fn(() => undefined),
       getReviewQueuePreparationService: vi.fn(() => null),
       getReviewAdmissionModule: vi.fn(() => ({
         admitReviewSession: vi.fn(async ({ queueType, entrySurface }) => ({

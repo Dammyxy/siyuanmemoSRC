@@ -76,14 +76,6 @@
         @clearSelection="handleClearSelection"
       />
 
-      <!-- Sync status indicator (advanced mode only) -->
-      <SyncStatusIndicator
-        v-if="showSyncIndicator"
-        :hybridSyncService="hybridSyncService"
-        :i18n="props.i18n"
-        @sync="handleSyncComplete"
-      />
-
       <NeuralSubviewTabs
         v-if="isNeuralRoamQueueActive && !isBrowserSemanticWorkspaceActive"
         v-model="neuralSubview"
@@ -537,7 +529,6 @@ import NeuralSubviewTabs from './neural/NeuralSubviewTabs.vue';
 import { createBrowserNeuralWorkspaceRuntime } from './neural/browserNeuralWorkspaceRuntime';
 import { useNeuralBrowserController } from './neural/useNeuralBrowserController';
 import FilterDialog from './dialogs/FilterDialog.vue';
-import SyncStatusIndicator from '../components/SyncStatusIndicator.vue';  // 🆕 导入同步状指示器
 import { useCardTypeDetection } from './composables/useCardTypeDetection';
 import type { RescheduleStoragePort } from '@/core/scheduler/ports';
 import { createColumnDefs, getBrowserRowClass } from './config';
@@ -631,7 +622,6 @@ import type {
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
 import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
-import type { WsSyncEvent } from '@/application/services/XiuyuanSyncService.types';
 import type { SemanticActivationCommandClient } from '@/application/clients/SemanticActivationCommandClient';
 import type { SemanticActivationBrowserReadClient } from '@/application/clients/SemanticActivationBrowserReadClient';
 import type { BackendSemanticLens, BackendSemanticStationType } from '../../../packages/contracts/src/backend-rpc';
@@ -651,7 +641,6 @@ type BrowserPluginContext = {
   getStorage?: () => BrowserStoragePort | null;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null;
   getTabApplicationService?: () => BrowserTabApplicationServicePort | null;
-  getHybridSyncService?: () => unknown;
   getDialogManager?: () => BrowserDialogManagerPort | null;
   getTabManager?: () => BrowserTabManagerPort | null;
   getDocTreeReviewScopeService?: () => BrowserDocTreeReviewScopeService | null;
@@ -666,14 +655,6 @@ type BrowserDocTreeReviewScope = {
 type BrowserDocTreeReviewScopeService = {
   collectDocReviewScope?: (docId: string) => BrowserDocTreeReviewScope | null;
   hydrate?: () => Promise<void> | void;
-};
-
-type BrowserHybridSyncService = {
-  incrementalSync: (
-    onProgress?: unknown,
-    options?: { source?: 'browser-open'; persistIdleCheckpoint?: boolean }
-  ) => Promise<unknown>;
-  on?: (eventName: string, handler: (data: unknown) => void) => void;
 };
 
 type BrowserPluginPort = IPluginFacade & {
@@ -774,16 +755,6 @@ const {
   rebuildFilterGroupQueue: rebuildFilterGroupQueueBridge,
 } = useQueueBridge({
   browserService: browserAppServiceRef,
-});
-
-// 🆕 同步状指示器相关
-const hybridSyncService = computed(() => pluginContext.value?.getHybridSyncService?.() as BrowserHybridSyncService | undefined);
-const showSyncIndicator = computed(() => {
-  const storage = pluginStorage.value;
-  if (!storage) return false;
-
-  const riffConfig = storage.getSettings?.()?.riffIntegration;
-  return !!riffConfig && !!hybridSyncService.value;
 });
 
 const emit = defineEmits<{
@@ -3195,12 +3166,6 @@ async function forceRefreshData() {
   }
 }
 
-// 🆕 处理同步完成事件
-function handleSyncComplete(type: 'incremental' | 'full') {
-  logger.info('[SiYuanMemo][SRSBrowser] Sync completed:', type);
-  void forceRefreshData();
-}
-
 // Show performance report
 function showPerformanceReport() {
   PerformanceMonitor.printReport();
@@ -3321,25 +3286,6 @@ onMounted(() => {
       }
     }
   });
-
-  const hybridService = hybridSyncService.value;
-  if (hybridService) {
-    // Listen for wsSync events (WebSocket sync completion)
-    hybridService.on('wsSync', (event: WsSyncEvent) => {
-      logger.info('[SiYuanMemo][SRSBrowser] Received wsSync event:', event);
-
-      if (event.success) {
-        logger.info('[SiYuanMemo][SRSBrowser] Reloading data due to WebSocket sync...');
-        void loadData(true); // Force refresh cache
-      } else {
-        logger.error('[SiYuanMemo][SRSBrowser] WebSocket sync failed:', event.error);
-        // 同步失败，也尝试刷新数据（使用缓存）
-        void loadData();
-      }
-    });
-
-    logger.info('[SiYuanMemo][SRSBrowser] Subscribed to HybridSyncService wsSync events');
-  }
 
   void applyInitialBrowserView(false);
 });

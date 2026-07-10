@@ -271,12 +271,10 @@ export class DialogManager implements IDialogManager {
   }
 
   private createBlockAttrCleanupService(): BlockAttrCleanupService {
-    const syncLock = this.context.getHybridSyncService();
     return new BlockAttrCleanupService(
       this.siyuanApi,
       this.hostBlockQuery,
-      this.context.getUnifiedStorage(),
-      syncLock ? { runWithGlobalSyncLock: (operation) => syncLock.runWithGlobalSyncLock(operation) } : undefined
+      this.context.getUnifiedStorage()
     );
   }
 

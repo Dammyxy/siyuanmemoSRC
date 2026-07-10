@@ -15,7 +15,7 @@
  * 
  * **使用场景**：
  * 1. DeleteCardsUseCase：删除卡片后标记块为已删除
- * 2. XiuyuanSyncService：同步前检查块是否最近被删除
+ * 2. Explicit Native Riff import/adoption：导入前检查块是否最近被删除
  */
 export interface IDeletionTracker {
   /**

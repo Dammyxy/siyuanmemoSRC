@@ -59,7 +59,6 @@ interface CardContentQueryServiceLike {
 interface DataAccessContextLike {
     getCardContentQueryService?: () => CardContentQueryServiceLike;
     getI18n?: () => Record<string, string>;
-    getHybridSyncService?: () => unknown;
 }
 
 type DataAccessPlugin = Plugin & {

@@ -18,7 +18,6 @@ describe('DialogManager settings dialog dependencies', () => {
         getSettings: () => ({}),
       }),
       getScheduler: () => ({}),
-      getHybridSyncService: () => ({}),
       getConfiguredCaptureStorageService: () => ({
         listOpenNotebooks,
       }),
@@ -46,6 +45,6 @@ describe('DialogManager settings dialog dependencies', () => {
     expect(dialogManagerSource).toContain('triggers: []');
     expect(dialogManagerSource).toContain('fullSync: {');
     expect(dialogManagerSource).not.toContain('riffIntegrationSettings: currentSettings.riffIntegration');
-    expect(dialogManagerSource).not.toContain('await this.context.updateHybridSyncConfig');
+    expect(dialogManagerSource).not.toContain('updateHybridSyncConfig');
   });
 });

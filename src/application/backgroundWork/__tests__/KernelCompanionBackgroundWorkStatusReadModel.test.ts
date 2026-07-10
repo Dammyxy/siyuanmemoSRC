@@ -46,46 +46,12 @@ describe('KernelCompanionBackgroundWorkStatusReadModel', () => {
         },
       }),
     });
-    registry.submit({
-      kind: 'xiuyuan-startup-sync',
-      diagnostics: {
-        reason: 'plugin-start',
-        syncType: 'incremental',
-        source: 'startup',
-        persistIdleCheckpoint: false,
-        status: 'submitted',
-      },
-      run: async () => ({
-        diagnostics: {
-          status: 'completed',
-          latestCompletedPhase: 'checkpoint',
-          addedCount: 1,
-          updatedCount: 2,
-          skippedCount: 3,
-        },
-      }),
-    });
-
     for (const run of scheduled) {
       run();
     }
     await settleBackgroundWork();
 
     expect(status.list()).toEqual([
-      expect.objectContaining({
-        kind: 'xiuyuan-startup-sync',
-        state: 'completed',
-        reason: 'plugin-start',
-        attemptCount: 1,
-        terminalAt: expect.any(Number),
-        diagnostics: expect.objectContaining({
-          status: 'completed',
-          latestCompletedPhase: 'checkpoint',
-          addedCount: 1,
-          updatedCount: 2,
-          skippedCount: 3,
-        }),
-      }),
       expect.objectContaining({
         kind: 'kernel-transaction-action-polling',
         state: 'completed',
@@ -216,10 +182,10 @@ describe('KernelCompanionBackgroundWorkStatusReadModel', () => {
     });
     const status = new KernelCompanionBackgroundWorkStatusReadModel(registry);
     const job = registry.submit({
-      kind: 'xiuyuan-startup-sync',
+      kind: 'review-truth-backfill',
       diagnostics: {
-        reason: 'plugin-start',
-        detectedCount: 7,
+        reason: 'startup',
+        recordsWritten: 7,
         safeScalarEvidence: 'kept',
         cardContent: 'private card content',
         blockText: 'private block text',
@@ -233,8 +199,8 @@ describe('KernelCompanionBackgroundWorkStatusReadModel', () => {
 
     expect(status.get(job.job.jobId)).toMatchObject({
       diagnostics: {
-        reason: 'plugin-start',
-        detectedCount: 7,
+        reason: 'startup',
+        recordsWritten: 7,
         safeScalarEvidence: 'kept',
         cardContent: '[redacted]',
         blockText: '[redacted]',

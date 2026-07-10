@@ -61,21 +61,6 @@ const WORK_KIND_SAFE_DIAGNOSTICS: Record<KernelCompanionBackgroundWorkKind, Read
     'emptyPollStreak',
     'unavailable',
   ]),
-  'xiuyuan-startup-sync': new Set([
-    'reason',
-    'syncType',
-    'source',
-    'persistIdleCheckpoint',
-    'status',
-    'latestCompletedPhase',
-    'addedCount',
-    'updatedCount',
-    'deletedCount',
-    'skippedCount',
-    'detectedCount',
-    'blacklistCleanedCount',
-    'unavailable',
-  ]),
 };
 
 const CONTENT_BEARING_DIAGNOSTIC_KEY_PATTERN = /(?:content|body|payload|sql|query|card|block|hosteffect|request|response|html|markdown|text)/i;
