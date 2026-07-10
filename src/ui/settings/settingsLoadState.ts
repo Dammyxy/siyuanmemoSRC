@@ -18,10 +18,8 @@ import {
   normalizeSrsV2LearnAheadMaxCards,
   normalizeSrsV2LearnAheadWindowMinutes,
   normalizeSrsV2StepList,
+  type SettingsConflictResolutionStrategy,
   type SettingsFormState,
-  type SettingsRiffIntegrationState,
-  type SettingsRiffTrigger,
-  type SettingsRiffTriggerSelection,
   type SettingsSchedulerConfigWithSrsV2,
 } from './settingsSavePayload';
 import {
@@ -40,7 +38,7 @@ export interface SettingsPanelLoadInput {
   reviewsPerDay?: number;
   priorityRandomness?: number;
   schedulerSettings?: SchedulerConfig;
-  riffIntegrationSettings?: Record<string, unknown>;
+  storageConflictResolution?: unknown;
   quickCardSettings?: Partial<QuickCardSettings>;
   progressiveReadingSettings?: Partial<ProgressiveReadingSettings>;
   arenaSettings?: Partial<ArenaSettings>;
@@ -48,15 +46,13 @@ export interface SettingsPanelLoadInput {
   currentSettings: SettingsFormState;
   currentQueueSettings: QueueSettings;
   currentSchedulerConfig: SettingsSchedulerConfigWithSrsV2;
-  currentRiffIntegrationConfig: SettingsRiffIntegrationState;
 }
 
 export interface SettingsPanelLoadedState {
   settings: SettingsFormState;
   queueSettings: QueueSettings;
   schedulerConfig: SettingsSchedulerConfigWithSrsV2;
-  riffIntegrationConfig: SettingsRiffIntegrationState;
-  triggers: SettingsRiffTriggerSelection;
+  storageConflictResolution: SettingsConflictResolutionStrategy;
   arenaSettings: ArenaSettings;
   uiSettings: UISettings;
 }
@@ -77,50 +73,8 @@ export function createDefaultSettingsSchedulerConfig(): SettingsSchedulerConfigW
   };
 }
 
-export function createDefaultSettingsRiffIntegrationState(): SettingsRiffIntegrationState {
-  const riffDefaults = DEFAULT_SETTINGS.riffIntegration!;
-  return {
-    mode: riffDefaults.mode,
-    useLocalScheduler: riffDefaults.useLocalScheduler,
-    incrementalSync: {
-      enabled: riffDefaults.incrementalSync.enabled,
-      triggers: [...riffDefaults.incrementalSync.triggers],
-      useBlacklist: riffDefaults.incrementalSync.useBlacklist,
-    },
-    fullSync: {
-      ...riffDefaults.fullSync,
-    },
-    deleteSync: {
-      ...riffDefaults.deleteSync,
-    },
-    storageConflictResolution: riffDefaults.storageConflictResolution || 'merge',
-  };
-}
-
 function normalizeLoadedDefaultScheduler(value: unknown): 'fsrs-v6' | 'a-factor-v2' {
   return value === 'a-factor-v2' ? 'a-factor-v2' : 'fsrs-v6';
-}
-
-function normalizeRiffTriggerList(
-  value: unknown,
-  fallback: SettingsRiffTrigger[],
-): SettingsRiffTrigger[] {
-  const source = Array.isArray(value)
-    ? value.filter(
-      (trigger): trigger is SettingsRiffTrigger =>
-        trigger === 'plugin-start' || trigger === 'browser-open',
-    )
-    : fallback;
-  return source;
-}
-
-export function resolveSettingsRiffTriggerSelection(
-  riffIntegrationConfig: SettingsRiffIntegrationState,
-): SettingsRiffTriggerSelection {
-  return {
-    pluginStart: riffIntegrationConfig.incrementalSync.triggers.includes('plugin-start'),
-    browserOpen: riffIntegrationConfig.incrementalSync.triggers.includes('browser-open'),
-  };
 }
 
 export function resolveSettingsSchedulerConfig(
@@ -156,64 +110,6 @@ export function resolveSettingsSchedulerConfig(
         ),
       },
     },
-  };
-}
-
-export function resolveSettingsRiffIntegrationState(input: {
-  riffIntegrationSettings?: Record<string, unknown>;
-  currentRiffIntegrationConfig: SettingsRiffIntegrationState;
-}): SettingsRiffIntegrationState {
-  const riffSettings = input.riffIntegrationSettings || {};
-  const incomingIncremental = (
-    typeof riffSettings.incrementalSync === 'object' &&
-    riffSettings.incrementalSync !== null
-  ) ? riffSettings.incrementalSync as Record<string, unknown> : {};
-  const incomingFullSync = (
-    typeof riffSettings.fullSync === 'object' &&
-    riffSettings.fullSync !== null
-  ) ? riffSettings.fullSync as Record<string, unknown> : {};
-  const incomingDeleteSync = (
-    typeof riffSettings.deleteSync === 'object' &&
-    riffSettings.deleteSync !== null
-  ) ? riffSettings.deleteSync as Record<string, unknown> : {};
-
-  return {
-    mode: riffSettings.mode === 'simple' ? 'simple' : 'advanced',
-    useLocalScheduler: typeof riffSettings.useLocalScheduler === 'boolean'
-      ? riffSettings.useLocalScheduler
-      : DEFAULT_SETTINGS.riffIntegration!.useLocalScheduler,
-    incrementalSync: {
-      enabled: typeof incomingIncremental.enabled === 'boolean'
-        ? incomingIncremental.enabled
-        : DEFAULT_SETTINGS.riffIntegration!.incrementalSync.enabled,
-      triggers: normalizeRiffTriggerList(
-        incomingIncremental.triggers,
-        input.currentRiffIntegrationConfig.incrementalSync.triggers,
-      ),
-      useBlacklist: typeof incomingIncremental.useBlacklist === 'boolean'
-        ? incomingIncremental.useBlacklist
-        : DEFAULT_SETTINGS.riffIntegration!.incrementalSync.useBlacklist,
-    },
-    fullSync: {
-      enabled: typeof incomingFullSync.enabled === 'boolean'
-        ? incomingFullSync.enabled
-        : DEFAULT_SETTINGS.riffIntegration!.fullSync.enabled,
-      interval: typeof incomingFullSync.interval === 'number'
-        ? incomingFullSync.interval
-        : DEFAULT_SETTINGS.riffIntegration!.fullSync.interval,
-      cleanupBlacklist: typeof incomingFullSync.cleanupBlacklist === 'boolean'
-        ? incomingFullSync.cleanupBlacklist
-        : DEFAULT_SETTINGS.riffIntegration!.fullSync.cleanupBlacklist,
-    },
-    deleteSync: {
-      enabled: typeof incomingDeleteSync.enabled === 'boolean'
-        ? incomingDeleteSync.enabled
-        : DEFAULT_SETTINGS.riffIntegration!.deleteSync.enabled,
-      useBlacklistFallback: typeof incomingDeleteSync.useBlacklistFallback === 'boolean'
-        ? incomingDeleteSync.useBlacklistFallback
-        : DEFAULT_SETTINGS.riffIntegration!.deleteSync.useBlacklistFallback,
-    },
-    storageConflictResolution: normalizeConflictResolutionStrategy(riffSettings.storageConflictResolution),
   };
 }
 
@@ -283,17 +179,12 @@ export function resolveSettingsPanelLoadState(input: SettingsPanelLoadInput): Se
     input.schedulerSettings,
     input.currentSchedulerConfig,
   );
-  const riffIntegrationConfig = resolveSettingsRiffIntegrationState({
-    riffIntegrationSettings: input.riffIntegrationSettings,
-    currentRiffIntegrationConfig: input.currentRiffIntegrationConfig,
-  });
 
   return {
     settings,
     queueSettings,
     schedulerConfig,
-    riffIntegrationConfig,
-    triggers: resolveSettingsRiffTriggerSelection(riffIntegrationConfig),
+    storageConflictResolution: normalizeConflictResolutionStrategy(input.storageConflictResolution),
     arenaSettings: mergeArenaSettings(input.arenaSettings),
     uiSettings: mergeUISettings(input.uiSettings),
   };

@@ -12,7 +12,6 @@ import {
   normalizeSrsV2StepList,
   parseSrsV2StepList,
   type SettingsFormState,
-  type SettingsRiffIntegrationState,
   type SettingsSchedulerConfigWithSrsV2,
 } from '../settingsSavePayload';
 
@@ -38,29 +37,6 @@ function createSettings(overrides: Partial<SettingsFormState> = {}): SettingsFor
     progressiveAltXExcerptEnabled: false,
     progressiveSourceMarkingEnabled: true,
     progressiveStorage: clone(DEFAULT_SETTINGS.progressiveReading.storage),
-    ...overrides,
-  };
-}
-
-function createRiffState(overrides: Partial<SettingsRiffIntegrationState> = {}): SettingsRiffIntegrationState {
-  return {
-    mode: 'advanced',
-    useLocalScheduler: true,
-    incrementalSync: {
-      enabled: true,
-      triggers: ['plugin-start'],
-      useBlacklist: true,
-    },
-    fullSync: {
-      enabled: true,
-      interval: 86400000,
-      cleanupBlacklist: true,
-    },
-    deleteSync: {
-      enabled: true,
-      useBlacklistFallback: true,
-    },
-    storageConflictResolution: 'merge',
     ...overrides,
   };
 }
@@ -119,11 +95,7 @@ describe('settingsSavePayload', () => {
       }),
       queueSettings,
       schedulerConfig,
-      riffIntegrationConfig: createRiffState({ storageConflictResolution: 'prefer-local' }),
-      triggers: {
-        pluginStart: false,
-        browserOpen: true,
-      },
+      storageConflictResolution: 'prefer-local',
       arenaSettings: clone(DEFAULT_SETTINGS.arena),
       uiSettings: clone(DEFAULT_SETTINGS.ui),
     });
@@ -140,8 +112,8 @@ describe('settingsSavePayload', () => {
     expect(payload.scheduler.srsV2?.learningStepsMinutes).toEqual([1, 43200]);
     expect(payload.scheduler.srsV2?.relearningStepsMinutes).toEqual([30]);
     expect(payload.scheduler.srsV2?.filteredReviewDefault).toBe('reschedule');
-    expect(payload.riffIntegration.incrementalSync.triggers).toEqual(['browser-open']);
-    expect(payload.riffIntegration.storageConflictResolution).toBe('prefer-local');
+    expect(payload.storageConflictResolution).toBe('prefer-local');
+    expect(payload).not.toHaveProperty('riffIntegration');
     expect(payload.progressiveReading).toEqual({
       altXExcerptEnabled: true,
       sourceMarkingEnabled: false,

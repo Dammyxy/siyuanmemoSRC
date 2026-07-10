@@ -13,7 +13,6 @@ import {
   type UISettings,
 } from '@/types';
 
-export type SettingsRiffTrigger = 'plugin-start' | 'browser-open';
 export type SettingsConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
 export type SettingsSchedulerConfigWithSrsV2 = SchedulerConfig & {
   srsV2: NonNullable<SchedulerConfig['srsV2']>;
@@ -38,31 +37,6 @@ export interface SettingsFormState {
   progressiveStorage: ConfiguredCaptureStorageSettings;
 }
 
-export interface SettingsRiffIntegrationState {
-  mode: 'advanced' | 'simple';
-  useLocalScheduler: boolean;
-  incrementalSync: {
-    enabled: boolean;
-    triggers: SettingsRiffTrigger[];
-    useBlacklist: boolean;
-  };
-  fullSync: {
-    enabled: boolean;
-    interval: number;
-    cleanupBlacklist: boolean;
-  };
-  deleteSync: {
-    enabled: boolean;
-    useBlacklistFallback: boolean;
-  };
-  storageConflictResolution: SettingsConflictResolutionStrategy;
-}
-
-export interface SettingsRiffTriggerSelection {
-  pluginStart: boolean;
-  browserOpen: boolean;
-}
-
 export interface SettingsPanelSavePayload {
   requestRetention: number;
   maximumInterval: number;
@@ -76,7 +50,7 @@ export interface SettingsPanelSavePayload {
   progressiveStorage: ConfiguredCaptureStorageSettings;
   queues: QueueSettings;
   scheduler: SchedulerConfig;
-  riffIntegration: NonNullable<PluginSettings['riffIntegration']>;
+  storageConflictResolution: SettingsConflictResolutionStrategy;
   progressiveReading: NonNullable<PluginSettings['progressiveReading']>;
   arena: ArenaSettings;
   ui: UISettings;
@@ -159,23 +133,11 @@ export function normalizeAutoPostponeSkipTopN(value: unknown): number {
   return Math.max(0, Math.min(2000, Math.floor(numeric)));
 }
 
-export function buildSettingsRiffTriggers(selection: SettingsRiffTriggerSelection): SettingsRiffTrigger[] {
-  const triggers: SettingsRiffTrigger[] = [];
-  if (selection.pluginStart) {
-    triggers.push('plugin-start');
-  }
-  if (selection.browserOpen) {
-    triggers.push('browser-open');
-  }
-  return triggers;
-}
-
 export function buildSettingsSavePayload(input: {
   settings: SettingsFormState;
   queueSettings: QueueSettings;
   schedulerConfig: SettingsSchedulerConfigWithSrsV2;
-  riffIntegrationConfig: SettingsRiffIntegrationState;
-  triggers: SettingsRiffTriggerSelection;
+  storageConflictResolution: SettingsConflictResolutionStrategy;
   arenaSettings: ArenaSettings;
   uiSettings: UISettings;
 }): SettingsPanelSavePayload {
@@ -242,17 +204,7 @@ export function buildSettingsSavePayload(input: {
         },
       },
     },
-    riffIntegration: {
-      mode: input.riffIntegrationConfig.mode,
-      useLocalScheduler: input.riffIntegrationConfig.useLocalScheduler,
-      incrementalSync: {
-        ...input.riffIntegrationConfig.incrementalSync,
-        triggers: buildSettingsRiffTriggers(input.triggers),
-      },
-      fullSync: input.riffIntegrationConfig.fullSync,
-      deleteSync: input.riffIntegrationConfig.deleteSync,
-      storageConflictResolution: input.riffIntegrationConfig.storageConflictResolution,
-    },
+    storageConflictResolution: normalizeConflictResolutionStrategy(input.storageConflictResolution),
     progressiveReading: {
       altXExcerptEnabled: input.settings.progressiveAltXExcerptEnabled,
       sourceMarkingEnabled: input.settings.progressiveSourceMarkingEnabled,

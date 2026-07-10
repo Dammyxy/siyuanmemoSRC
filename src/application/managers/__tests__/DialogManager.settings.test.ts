@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { DialogManager } from '../DialogManager';
+
+const dialogManagerSource = readFileSync(
+  resolve(process.cwd(), 'src/application/managers/DialogManager.ts'),
+  'utf8',
+);
 
 describe('DialogManager settings dialog dependencies', () => {
   it('fails closed when configured capture notebooks cannot be loaded', async () => {
@@ -31,5 +38,14 @@ describe('DialogManager settings dialog dependencies', () => {
 
     await expect(dialogManager.openSettingsDialog())
       .rejects.toThrow('CAPTURE_NOTEBOOKS_UNAVAILABLE: failed to load configured capture notebooks: notebook API down');
+  });
+
+  it('keeps continuous Native Riff sync out of settings save wiring', () => {
+    expect(dialogManagerSource).toContain('storageConflictResolution: currentSettings.riffIntegration?.storageConflictResolution');
+    expect(dialogManagerSource).toContain('incrementalSync: {');
+    expect(dialogManagerSource).toContain('triggers: []');
+    expect(dialogManagerSource).toContain('fullSync: {');
+    expect(dialogManagerSource).not.toContain('riffIntegrationSettings: currentSettings.riffIntegration');
+    expect(dialogManagerSource).not.toContain('await this.context.updateHybridSyncConfig');
   });
 });

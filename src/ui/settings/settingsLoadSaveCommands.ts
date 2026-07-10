@@ -13,10 +13,9 @@ import {
 } from './settingsLoadState';
 import {
   buildSettingsSavePayload,
+  type SettingsConflictResolutionStrategy,
   type SettingsFormState,
   type SettingsPanelSavePayload,
-  type SettingsRiffIntegrationState,
-  type SettingsRiffTriggerSelection,
   type SettingsSchedulerConfigWithSrsV2,
 } from './settingsSavePayload';
 
@@ -31,7 +30,7 @@ export interface SettingsLoadSaveSource {
   reviewsPerDay?: number;
   priorityRandomness?: number;
   schedulerSettings?: SchedulerConfig;
-  riffIntegrationSettings?: Record<string, unknown>;
+  storageConflictResolution?: unknown;
   quickCardSettings?: Partial<QuickCardSettings>;
   progressiveReadingSettings?: Partial<ProgressiveReadingSettings>;
   arenaSettings?: Partial<ArenaSettings>;
@@ -43,8 +42,7 @@ export interface SettingsLoadSaveCommandsInput {
   settings: Ref<SettingsFormState>;
   queueSettings: Ref<QueueSettings>;
   schedulerConfig: Ref<SettingsSchedulerConfigWithSrsV2>;
-  riffIntegrationConfig: Ref<SettingsRiffIntegrationState>;
-  triggers: Ref<SettingsRiffTriggerSelection>;
+  storageConflictResolution: Ref<SettingsConflictResolutionStrategy>;
   arenaSettings: Ref<ArenaSettings>;
   uiSettings: Ref<UISettings>;
   save: (settings: SettingsPanelSavePayload) => void;
@@ -63,14 +61,12 @@ export function useSettingsLoadSaveCommands(input: SettingsLoadSaveCommandsInput
       currentSettings: input.settings.value,
       currentQueueSettings: input.queueSettings.value,
       currentSchedulerConfig: input.schedulerConfig.value,
-      currentRiffIntegrationConfig: input.riffIntegrationConfig.value,
     });
 
     input.settings.value = loadedState.settings;
     input.queueSettings.value = loadedState.queueSettings;
     input.schedulerConfig.value = loadedState.schedulerConfig;
-    input.riffIntegrationConfig.value = loadedState.riffIntegrationConfig;
-    input.triggers.value = loadedState.triggers;
+    input.storageConflictResolution.value = loadedState.storageConflictResolution;
     input.arenaSettings.value = loadedState.arenaSettings;
     input.uiSettings.value = loadedState.uiSettings;
 
@@ -84,8 +80,7 @@ export function useSettingsLoadSaveCommands(input: SettingsLoadSaveCommandsInput
       settings: input.settings.value,
       queueSettings: input.queueSettings.value,
       schedulerConfig: input.schedulerConfig.value,
-      riffIntegrationConfig: input.riffIntegrationConfig.value,
-      triggers: input.triggers.value,
+      storageConflictResolution: input.storageConflictResolution.value,
       arenaSettings: input.arenaSettings.value,
       uiSettings: input.uiSettings.value,
     });

@@ -597,7 +597,7 @@
         <div class="form-item">
           <label>{{ t('storageConflictStrategy', '冲突策略') }}</label>
           <div class="form-control">
-            <select v-model="riffIntegrationConfig.storageConflictResolution" class="scheduler-select">
+            <select v-model="storageConflictResolution" class="scheduler-select">
               <option value="merge">{{ t('storageConflictMerge', '自动合并（推荐）') }}</option>
               <option value="prefer-remote">{{ t('storageConflictPreferRemote', '云端覆盖本地') }}</option>
               <option value="prefer-local">{{ t('storageConflictPreferLocal', '本地覆盖云端') }}</option>
@@ -961,7 +961,6 @@ import {
   createDefaultUISettings,
 } from './settingsStateDefaults';
 import {
-  createDefaultSettingsRiffIntegrationState,
   createDefaultSettingsSchedulerConfig,
 } from './settingsLoadState';
 import {
@@ -992,7 +991,7 @@ const props = defineProps<{
   reviewsPerDay?: number;
   priorityRandomness?: number;
   schedulerSettings?: SchedulerConfig;  // 🆕 新增
-  riffIntegrationSettings?: Record<string, unknown>;  // 🆕 Riff 集成配置
+  storageConflictResolution?: unknown;
   incrementalSettings?: { autoCardEnabled: boolean };
   quickCardSettings?: Partial<QuickCardSettings>;  // 🆕 快速制卡配置
   progressiveReadingSettings?: Partial<typeof DEFAULT_SETTINGS.progressiveReading>;
@@ -1152,14 +1151,7 @@ const schedulerDescriptions: Record<string, string> = {
   'a-factor-v2': '改进的 A-Factor，动态调整难度',
 };
 
-// 🆕 Riff 集成配置
-const riffIntegrationConfig = ref(createDefaultSettingsRiffIntegrationState());
-
-// 🆕 触发器复选框状态（用于 UI 绑定）
-const triggers = ref({
-  pluginStart: true,
-  browserOpen: false,
-});
+const storageConflictResolution = ref<'merge' | 'prefer-local' | 'prefer-remote'>('merge');
 
 const {
   resetSettings,
@@ -1223,7 +1215,7 @@ const {
     reviewsPerDay: props.reviewsPerDay,
     priorityRandomness: props.priorityRandomness,
     schedulerSettings: props.schedulerSettings,
-    riffIntegrationSettings: props.riffIntegrationSettings,
+    storageConflictResolution: props.storageConflictResolution,
     quickCardSettings: props.quickCardSettings,
     progressiveReadingSettings: props.progressiveReadingSettings,
     arenaSettings: props.arenaSettings,
@@ -1232,8 +1224,7 @@ const {
   settings,
   queueSettings,
   schedulerConfig,
-  riffIntegrationConfig,
-  triggers,
+  storageConflictResolution,
   arenaSettings,
   uiSettings,
   save: (settingsToSave) => emit('save', settingsToSave),

@@ -40,7 +40,7 @@ import type { LeechActionEffectsPort } from '@/core/queue/domain/ports';
 import { createLogger } from '@/utils/logger';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 import { isErr } from '@/types/result';
-import { DEFAULT_SETTINGS, type PluginSettings, type RiffIntegrationConfig } from '@/types/settings';
+import { DEFAULT_SETTINGS, type PluginSettings, type StorageConflictResolutionStrategy } from '@/types/settings';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
@@ -112,7 +112,7 @@ type SettingsPanelSavePayload = {
   priorityRandomness?: number;
   queues?: PluginSettings['queues'];
   scheduler?: PluginSettings['scheduler'];
-  riffIntegration?: RiffIntegrationConfig;
+  storageConflictResolution?: StorageConflictResolutionStrategy;
   incremental?: PluginSettings['incremental'];
   quickCard?: PluginSettings['quickCard'];
   progressiveReading?: PluginSettings['progressiveReading'];
@@ -588,7 +588,6 @@ export class DialogManager implements IDialogManager {
     const settingsService = this.context.getSettingsService();
     const currentSettings = settingsService.getSettings();
     const schedulerRouter = this.context.getScheduler();
-    const hybridSyncService = this.context.getHybridSyncService();
     const configuredCaptureStorageService = this.context.getConfiguredCaptureStorageService();
     const practiceQueueManager = this.context.getPracticeQueueManager();
     const retrievalQueue = this.context.getRetrievalQueue() as QueueBufferSnapshot;
@@ -633,7 +632,7 @@ export class DialogManager implements IDialogManager {
         reviewsPerDay: currentSettings.reviewsPerDay,
         priorityRandomness: currentSettings.priorityRandomness,
         schedulerSettings: currentSettings.scheduler,
-        riffIntegrationSettings: currentSettings.riffIntegration,
+        storageConflictResolution: currentSettings.riffIntegration?.storageConflictResolution,
         incrementalSettings: currentSettings.incremental,
         quickCardSettings: currentSettings.quickCard,
         progressiveReadingSettings: currentSettings.progressiveReading,
@@ -678,7 +677,21 @@ export class DialogManager implements IDialogManager {
             reviewsPerDay: settings.reviewsPerDay ?? currentSettings.reviewsPerDay,
             priorityRandomness: settings.priorityRandomness ?? currentSettings.priorityRandomness,
             scheduler: settings.scheduler || currentSettings.scheduler,
-            riffIntegration: settings.riffIntegration || currentSettings.riffIntegration,
+            riffIntegration: {
+              ...(currentSettings.riffIntegration || DEFAULT_SETTINGS.riffIntegration!),
+              incrementalSync: {
+                ...DEFAULT_SETTINGS.riffIntegration!.incrementalSync,
+                enabled: false,
+                triggers: [],
+              },
+              fullSync: {
+                ...DEFAULT_SETTINGS.riffIntegration!.fullSync,
+                enabled: false,
+              },
+              storageConflictResolution: settings.storageConflictResolution
+                || currentSettings.riffIntegration?.storageConflictResolution
+                || 'merge',
+            },
             incremental: settings.incremental || currentSettings.incremental,
             quickCard: settings.quickCard || currentSettings.quickCard,
             progressiveReading: settings.progressiveReading || currentSettings.progressiveReading,
@@ -699,19 +712,6 @@ export class DialogManager implements IDialogManager {
           const conflictStrategy = updatedSettings.riffIntegration?.storageConflictResolution || 'merge';
           this.context.getUnifiedStorage().setConflictResolutionStrategy(conflictStrategy);
           logger.info('[DialogManager] ✅ UnifiedStorage conflict strategy updated:', conflictStrategy);
-
-          // 更新 HybridSyncService 配置 (符合 DDD 架构)
-          if (settings.riffIntegration && hybridSyncService) {
-            // 通过 ApplicationContext 更新配置 (符合 DDD 封装原则)
-            await this.context.updateHybridSyncConfig({
-              incrementalSync: {
-                ...settings.riffIntegration.incrementalSync,
-                autoDetectCardType: true
-              },
-              fullSync: settings.riffIntegration.fullSync,
-              deleteSync: settings.riffIntegration.deleteSync
-            });
-          }
 
           await this.context.updateTransactionWebSocketService();
         },

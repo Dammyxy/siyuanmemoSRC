@@ -469,7 +469,8 @@ describe('SettingsPanel', () => {
       enabled: true,
       storageMode: 'source-child',
     });
-    expect(payload.riffIntegration.storageConflictResolution).toBe('prefer-local');
+    expect(payload.storageConflictResolution).toBe('prefer-local');
+    expect(payload).not.toHaveProperty('riffIntegration');
   });
 
   it('keeps source-document excerpt storage without forcing notebook or target block fields', async () => {

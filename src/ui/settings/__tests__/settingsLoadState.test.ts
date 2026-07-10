@@ -5,11 +5,8 @@ import {
   createDefaultQueueSettings,
 } from '../settingsStateDefaults';
 import {
-  createDefaultSettingsRiffIntegrationState,
   createDefaultSettingsSchedulerConfig,
   resolveSettingsPanelLoadState,
-  resolveSettingsRiffIntegrationState,
-  resolveSettingsRiffTriggerSelection,
   resolveSettingsSchedulerConfig,
 } from '../settingsLoadState';
 
@@ -18,20 +15,7 @@ function clone<T>(value: T): T {
 }
 
 describe('settingsLoadState', () => {
-  it('defaults native Riff compatibility sync controls to passive sync off', () => {
-    const riff = createDefaultSettingsRiffIntegrationState();
-
-    expect(riff.incrementalSync.enabled).toBe(false);
-    expect(riff.incrementalSync.triggers).toEqual([]);
-    expect(riff.fullSync.enabled).toBe(false);
-    expect(riff.deleteSync.enabled).toBe(false);
-    expect(resolveSettingsRiffTriggerSelection(riff)).toEqual({
-      pluginStart: false,
-      browserOpen: false,
-    });
-  });
-
-  it('hydrates form, queue, scheduler, riff, arena, and ui settings from props', () => {
+  it('hydrates form, queue, scheduler, conflict, arena, and ui settings from props', () => {
     const loaded = resolveSettingsPanelLoadState({
       fsrsSettings: {
         ...DEFAULT_SETTINGS.fsrs,
@@ -62,25 +46,7 @@ describe('settingsLoadState', () => {
           filteredReviewDefault: 'reschedule',
         },
       },
-      riffIntegrationSettings: {
-        mode: 'simple',
-        useLocalScheduler: false,
-        incrementalSync: {
-          enabled: false,
-          triggers: ['browser-open', 'bad'],
-          useBlacklist: false,
-        },
-        fullSync: {
-          enabled: false,
-          interval: 123,
-          cleanupBlacklist: false,
-        },
-        deleteSync: {
-          enabled: false,
-          useBlacklistFallback: false,
-        },
-        storageConflictResolution: 'prefer-remote',
-      },
+      storageConflictResolution: 'prefer-remote',
       quickCardSettings: {
         ...DEFAULT_SETTINGS.quickCard,
         topicDerivation: {
@@ -109,7 +75,6 @@ describe('settingsLoadState', () => {
       currentSettings: createDefaultSettingsFormState(),
       currentQueueSettings: createDefaultQueueSettings(),
       currentSchedulerConfig: createDefaultSettingsSchedulerConfig(),
-      currentRiffIntegrationConfig: createDefaultSettingsRiffIntegrationState(),
     });
 
     expect(loaded.settings.requestRetention).toBe(0.93);
@@ -136,14 +101,8 @@ describe('settingsLoadState', () => {
     expect(loaded.schedulerConfig.srsV2.relearningStepsMinutes).toEqual([20]);
     expect(loaded.schedulerConfig.srsV2.filteredReviewDefault).toBe('reschedule');
     expect(loaded.schedulerConfig.itemScheduler).toBe('fsrs-v6');
-    expect(loaded.riffIntegrationConfig.mode).toBe('simple');
-    expect(loaded.riffIntegrationConfig.incrementalSync.triggers).toEqual(['browser-open']);
-    expect(loaded.riffIntegrationConfig.storageConflictResolution).toBe('prefer-remote');
-    expect(loaded.triggers).toEqual({
-      pluginStart: false,
-      browserOpen: true,
-    });
-    expect(loaded.arenaSettings.enabled).toBe(true);
+    expect(loaded.storageConflictResolution).toBe('prefer-remote');
+    expect(loaded.arenaSettings.enabled).toBe(false);
     expect(loaded.uiSettings.enableDebugLogs).toBe(true);
   });
 
@@ -153,48 +112,20 @@ describe('settingsLoadState', () => {
     currentSettings.quickCard.enabled = true;
     const currentSchedulerConfig = createDefaultSettingsSchedulerConfig();
     currentSchedulerConfig.srsV2.filteredReviewDefault = 'reschedule';
-    const currentRiffIntegrationConfig = createDefaultSettingsRiffIntegrationState();
-    currentRiffIntegrationConfig.incrementalSync.triggers = ['browser-open'];
-
     const loaded = resolveSettingsPanelLoadState({
       currentSettings,
       currentQueueSettings: createDefaultQueueSettings(),
       currentSchedulerConfig,
-      currentRiffIntegrationConfig,
     });
 
     expect(loaded.settings.requestRetention).toBe(0.88);
     expect(loaded.settings.quickCard.enabled).toBe(DEFAULT_SETTINGS.quickCard.enabled);
     expect(loaded.schedulerConfig.srsV2.filteredReviewDefault).toBe('reschedule');
-    expect(loaded.riffIntegrationConfig.incrementalSync.triggers).toEqual(['browser-open']);
-    expect(loaded.triggers).toEqual({
-      pluginStart: false,
-      browserOpen: true,
-    });
+    expect(loaded.storageConflictResolution).toBe('merge');
   });
 
-  it('normalizes scheduler and riff sub-state helpers', () => {
+  it('normalizes scheduler sub-state helpers', () => {
     const currentSchedulerConfig = createDefaultSettingsSchedulerConfig();
     expect(resolveSettingsSchedulerConfig(undefined, currentSchedulerConfig)).toBe(currentSchedulerConfig);
-
-    const currentRiffIntegrationConfig = createDefaultSettingsRiffIntegrationState();
-    currentRiffIntegrationConfig.incrementalSync.triggers = ['browser-open'];
-    const riff = resolveSettingsRiffIntegrationState({
-      riffIntegrationSettings: {
-        incrementalSync: {
-          triggers: ['bad'],
-        },
-        storageConflictResolution: 'bad',
-      },
-      currentRiffIntegrationConfig,
-    });
-
-    expect(riff.incrementalSync.enabled).toBe(false);
-    expect(riff.incrementalSync.triggers).toEqual([]);
-    expect(riff.storageConflictResolution).toBe('merge');
-    expect(resolveSettingsRiffTriggerSelection(riff)).toEqual({
-      pluginStart: false,
-      browserOpen: false,
-    });
   });
 });
