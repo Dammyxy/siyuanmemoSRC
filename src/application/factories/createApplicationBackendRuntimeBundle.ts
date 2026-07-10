@@ -77,7 +77,6 @@ export interface CreateApplicationBackendRuntimeBundleOptions {
   executeAutoCardBatch?: BrowserSrsBackendWorkerHostEffects['executeAutoCardBatch'];
   executeProgressiveCommand?: BrowserSrsBackendWorkerHostEffects['executeProgressiveCommand'];
   executeTopicDerivedCommand?: BrowserSrsBackendWorkerHostEffects['executeTopicDerivedCommand'];
-  executeReviewRiffFeedback?: BrowserSrsBackendWorkerHostEffects['executeReviewRiffFeedback'];
   executeWriterRelayCommand: (
     backendClient: SrsBackendClient,
     command: ApplicationBackendWriterRelayCommand,
@@ -189,7 +188,6 @@ export async function createApplicationBackendRuntimeBundle(
             executeAutoCardBatch: options.executeAutoCardBatch,
             executeProgressiveCommand: options.executeProgressiveCommand,
             executeTopicDerivedCommand: options.executeTopicDerivedCommand,
-            executeReviewRiffFeedback: options.executeReviewRiffFeedback,
           },
         });
         const truthDeviceIdentity = await resolveTruthDeviceIdentity({ localStore: options.fileService });

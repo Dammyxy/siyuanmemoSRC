@@ -203,7 +203,7 @@ describe('backend RPC method-family contract catalog', () => {
     );
   });
 
-  it('exports Review feedback/truth/riff/source-refresh contracts from the Review family module', () => {
+  it('exports Review feedback/truth/source-refresh contracts from the Review family module', () => {
     expect(BACKEND_REVIEW_RPC_METHODS).toEqual([
       'review.feedback',
       'review.session.start',
@@ -214,7 +214,6 @@ describe('backend RPC method-family contract catalog', () => {
       'review.truth.flush',
       'review.truth.backfill',
       'review.truth.maintenanceStatus',
-      'review.riffFeedback.execute',
       'review.sourceRefresh.execute',
     ] satisfies BackendReviewRpcMethod[]);
     expect(BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.feedback']).toMatchObject({

@@ -12,8 +12,6 @@ import type {
   BackendReviewSessionUndoResult,
   BackendReviewFeedbackTruthFlushRequest,
   BackendReviewFeedbackTruthFlushResult,
-  BackendReviewRiffFeedbackExecuteRequest,
-  BackendReviewRiffFeedbackExecuteResult,
   BackendReviewSourceRefreshExecuteRequest,
   BackendReviewSourceRefreshExecuteResult,
   BackendReviewTruthBackfillRequest,
@@ -32,9 +30,6 @@ export interface BackendReviewClientFacet {
   reviewTruthFlush(request: BackendReviewFeedbackTruthFlushRequest): Promise<BackendReviewFeedbackTruthFlushResult>;
   reviewTruthBackfill(request: BackendReviewTruthBackfillRequest): Promise<BackendReviewTruthBackfillResult>;
   reviewTruthMaintenanceStatus(): Promise<BackendReviewTruthMaintenanceStatusResult>;
-  executeReviewRiffFeedback(
-    request: BackendReviewRiffFeedbackExecuteRequest,
-  ): Promise<BackendReviewRiffFeedbackExecuteResult>;
   executeReviewSourceRefresh(
     request: BackendReviewSourceRefreshExecuteRequest,
   ): Promise<BackendReviewSourceRefreshExecuteResult>;
@@ -77,12 +72,6 @@ export class BackendReviewRpcClient implements BackendReviewClientFacet {
 
   reviewTruthMaintenanceStatus(): Promise<BackendReviewTruthMaintenanceStatusResult> {
     return this.rpcCaller.call<BackendReviewTruthMaintenanceStatusResult>('review.truth.maintenanceStatus');
-  }
-
-  executeReviewRiffFeedback(
-    request: BackendReviewRiffFeedbackExecuteRequest,
-  ): Promise<BackendReviewRiffFeedbackExecuteResult> {
-    return this.rpcCaller.call<BackendReviewRiffFeedbackExecuteResult>('review.riffFeedback.execute', request);
   }
 
   executeReviewSourceRefresh(

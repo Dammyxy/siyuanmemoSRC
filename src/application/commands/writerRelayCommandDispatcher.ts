@@ -308,12 +308,6 @@ export async function executeWriterRelayCommand(
     }
     return srsBackendClient.executeTopicDerivedCommand(command.params as Parameters<SrsBackendClient['executeTopicDerivedCommand']>[0]);
   }
-  if (command.method === 'review.riffFeedback.execute') {
-    if (!command.params || typeof command.params !== 'object') {
-      throw new Error('INVALID_REQUEST: review.riffFeedback.execute relay requires params object');
-    }
-    return srsBackendClient.executeReviewRiffFeedback(command.params as Parameters<SrsBackendClient['executeReviewRiffFeedback']>[0]);
-  }
   if (command.method === 'review.sourceRefresh.execute') {
     if (!command.params || typeof command.params !== 'object') {
       throw new Error('INVALID_REQUEST: review.sourceRefresh.execute relay requires params object');

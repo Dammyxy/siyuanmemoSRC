@@ -1,7 +1,6 @@
 import type {
   BackendAutoCardExecuteRequest,
   BackendAutoCardExecuteBatchRequest,
-  BackendReviewRiffFeedbackExecuteRequest,
   BackendProgressiveCommandExecuteRequest,
   BackendTopicDerivedCommandExecuteRequest,
   BackendNeuralGraphQueryRequest,
@@ -35,8 +34,7 @@ export type BackendWorkerHostEffect =
   | { kind: 'autocard.execute'; request: BackendAutoCardExecuteRequest }
   | { kind: 'autocard.executeBatch'; request: BackendAutoCardExecuteBatchRequest }
   | { kind: 'progressive.command.execute'; request: BackendProgressiveCommandExecuteRequest }
-  | { kind: 'topic-derived.command.execute'; request: BackendTopicDerivedCommandExecuteRequest }
-  | { kind: 'review.riffFeedback.execute'; request: BackendReviewRiffFeedbackExecuteRequest };
+  | { kind: 'topic-derived.command.execute'; request: BackendTopicDerivedCommandExecuteRequest };
 
 export type BackendWorkerRequestMessage = {
   kind: 'request';

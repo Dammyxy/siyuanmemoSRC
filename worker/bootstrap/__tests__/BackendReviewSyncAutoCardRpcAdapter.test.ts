@@ -57,9 +57,14 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
       owner: entry.owner,
     }))).toEqual([
       { method: 'review.feedback', family: 'review', owner: 'BackendReviewRpcAdapter' },
+      { method: 'review.session.start', family: 'review', owner: 'BackendReviewRpcAdapter' },
+      { method: 'review.session.current', family: 'review', owner: 'BackendReviewRpcAdapter' },
+      { method: 'review.session.feedback', family: 'review', owner: 'BackendReviewRpcAdapter' },
+      { method: 'review.session.skip', family: 'review', owner: 'BackendReviewRpcAdapter' },
+      { method: 'review.session.undo', family: 'review', owner: 'BackendReviewRpcAdapter' },
       { method: 'review.truth.flush', family: 'review', owner: 'BackendReviewRpcAdapter' },
       { method: 'review.truth.backfill', family: 'review', owner: 'BackendReviewRpcAdapter' },
-      { method: 'review.riffFeedback.execute', family: 'review', owner: 'BackendReviewRpcAdapter' },
+      { method: 'review.truth.maintenanceStatus', family: 'review', owner: 'BackendReviewRpcAdapter' },
       { method: 'review.sourceRefresh.execute', family: 'review', owner: 'BackendReviewRpcAdapter' },
     ]);
     expect(BACKEND_SYNC_RPC_HANDLER_REGISTRATIONS.map((entry) => ({
@@ -88,6 +93,7 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
     }))).toEqual([
       { method: 'autocard.decision.resolve', family: 'autocard', owner: 'BackendAutoCardRpcAdapter' },
       { method: 'autocard.execute', family: 'autocard', owner: 'BackendAutoCardRpcAdapter' },
+      { method: 'autocard.executeBatch', family: 'autocard', owner: 'BackendAutoCardRpcAdapter' },
     ]);
   });
 
@@ -130,8 +136,16 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
       reviewedAt: 100,
     });
     expect(database.markReviewFeedbackOwnPersistedMainDbClean).toHaveBeenCalledTimes(1);
-    expect(logStep).toHaveBeenCalledWith('handler', expect.any(Number), {});
-    expect(logStep).toHaveBeenCalledWith('request-total', expect.any(Number), {});
+    expect(logStep).toHaveBeenCalledWith(
+      'handler',
+      expect.any(Number),
+      expect.objectContaining({ backendMethod: 'review.feedback' }),
+    );
+    expect(logStep).toHaveBeenCalledWith(
+      'request-total',
+      expect.any(Number),
+      expect.objectContaining({ backendMethod: 'review.feedback' }),
+    );
   });
 
   it('keeps review truth flush fail-closed when required storage is absent', async () => {

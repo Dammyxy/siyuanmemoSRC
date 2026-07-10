@@ -323,26 +323,6 @@ export async function getRiffDueCards(
     return request('/riff/getRiffDueCards', payload);
 }
 
-/** 提交复习评分 */
-export async function reviewRiffCard(
-    deckID: string,
-    cardID: string,
-    rating: 1 | 2 | 3 | 4,
-    reviewedCards: readonly RiffReviewCard[] = []
-): Promise<void> {
-    const payload = withReviewedCards({
-        deckID,
-        cardID,
-        rating,
-    }, reviewedCards);
-    return request('/riff/reviewRiffCard', payload);
-}
-
-/** 跳过复习 */
-export async function skipReviewRiffCard(deckID: string, cardID: string): Promise<void> {
-    return request('/riff/skipReviewRiffCard', { deckID, cardID });
-}
-
 /** 重置闪卡 */
 export async function resetRiffCards(
     type: 'notebook' | 'tree' | 'deck',

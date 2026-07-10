@@ -30,8 +30,6 @@ describe('createReviewBrowserServiceBundle', () => {
       getBlockBreadcrumb: vi.fn(async () => []),
       getIconByType: vi.fn(() => ''),
       updateBlockMarkdown: vi.fn(async (_blockId: string, markdown: string) => markdown),
-      reviewRiffCard: vi.fn(async () => undefined),
-      skipReviewRiffCard: vi.fn(async () => undefined),
       pushMsg: vi.fn(async () => undefined),
       pushErrMsg: vi.fn(async () => undefined),
     };

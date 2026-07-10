@@ -55,8 +55,6 @@ import type {
   BackendReviewTruthBackfillRequest,
   BackendReviewTruthBackfillResult,
   BackendReviewTruthMaintenanceStatusResult,
-  BackendReviewRiffFeedbackExecuteRequest,
-  BackendReviewRiffFeedbackExecuteResult,
   BackendReviewSourceRefreshExecuteRequest,
   BackendReviewSourceRefreshExecuteResult,
   BackendDomainSyncRepairApplyRequest,
@@ -605,12 +603,6 @@ export class SrsBackendClient {
     request: BackendTopicDerivedCommandExecuteRequest,
   ): Promise<BackendTopicDerivedCommandExecuteResult<TResult>> {
     return this.integrationClient.executeTopicDerivedCommand<TResult>(request);
-  }
-
-  async executeReviewRiffFeedback(
-    request: BackendReviewRiffFeedbackExecuteRequest,
-  ): Promise<BackendReviewRiffFeedbackExecuteResult> {
-    return this.reviewClient.executeReviewRiffFeedback(request);
   }
 
   async executeReviewSourceRefresh(

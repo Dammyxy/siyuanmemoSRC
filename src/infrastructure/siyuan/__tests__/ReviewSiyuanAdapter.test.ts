@@ -9,9 +9,7 @@ const getBlockKramdownMock = vi.fn();
 const getIconByTypeMock = vi.fn();
 const pushErrMsgMock = vi.fn();
 const pushMsgMock = vi.fn();
-const reviewRiffCardMock = vi.fn();
 const setBlockAttrsMock = vi.fn();
-const skipReviewRiffCardMock = vi.fn();
 const sqlMock = vi.fn();
 const updateBlockMock = vi.fn();
 
@@ -31,8 +29,6 @@ vi.mock('../api', () => ({
 
 vi.mock('@/core/siyuan/riff', () => ({
   BUILTIN_DECK_ID: 'builtin',
-  reviewRiffCard: (...args: unknown[]) => reviewRiffCardMock(...args),
-  skipReviewRiffCard: (...args: unknown[]) => skipReviewRiffCardMock(...args),
 }));
 
 describe('ReviewSiyuanAdapter', () => {
@@ -45,9 +41,7 @@ describe('ReviewSiyuanAdapter', () => {
     getIconByTypeMock.mockReset();
     pushErrMsgMock.mockReset();
     pushMsgMock.mockReset();
-    reviewRiffCardMock.mockReset();
     setBlockAttrsMock.mockReset();
-    skipReviewRiffCardMock.mockReset();
     sqlMock.mockReset();
     updateBlockMock.mockReset();
   });

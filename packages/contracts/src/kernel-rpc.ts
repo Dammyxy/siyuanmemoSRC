@@ -238,7 +238,6 @@ export const KERNEL_RELAY_METHODS = [
   'agent.tool.execute',
   'progressive.command.execute',
   'topic-derived.command.execute',
-  'review.riffFeedback.execute',
   'review.sourceRefresh.execute',
   'private.command.execute',
   'semantic.command.execute',

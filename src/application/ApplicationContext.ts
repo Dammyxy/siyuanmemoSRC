@@ -1562,36 +1562,6 @@ export class ApplicationContext {
         }
         return contextRef.getTopicDerivedItemService().executeFromBackend(request);
       },
-      executeReviewRiffFeedback: async (request) => {
-        if (!contextRef) {
-          throw new Error('SrsBackendWorker review.riffFeedback.execute unavailable: application context is not ready');
-        }
-        const siyuanApi = contextRef.getReviewService().getSiyuanApi();
-        if (request.action === 'skip') {
-          await siyuanApi.skipReviewRiffCard(request.deckId, request.riffCardId);
-        } else {
-          await siyuanApi.reviewRiffCard(request.deckId, request.riffCardId, request.rating as 1 | 2 | 3 | 4);
-        }
-        return {
-          status: 'completed',
-          commandId: request.commandId,
-          idempotencyKey: request.idempotencyKey,
-          action: request.action,
-          updated: request.action === 'rate' ? 1 : 0,
-          skipped: request.action === 'skip' ? 1 : 0,
-          queueImpact: {
-            refreshRequired: true,
-            projectionChanged: true,
-            removedFromQueue: request.action === 'rate' && Number(request.rating) >= 4,
-          },
-          diagnostics: {
-            diagnosticEventId: `review-riff-feedback:${request.commandId}:${Date.now()}`,
-            family: 'review.riff-feedback' as const,
-            commandId: request.commandId,
-            errorCategory: null,
-          },
-        };
-      },
       executeWriterRelayCommand,
       executeAgentTool: async (request) => {
         if (!contextRef) {

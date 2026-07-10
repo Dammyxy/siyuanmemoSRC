@@ -12,8 +12,6 @@ import type {
   BackendReviewSessionUndoResult,
   BackendReviewFeedbackTruthFlushRequest,
   BackendReviewFeedbackTruthFlushResult,
-  BackendReviewRiffFeedbackExecuteRequest,
-  BackendReviewRiffFeedbackExecuteResult,
   BackendReviewSourceRefreshExecuteRequest,
   BackendReviewSourceRefreshExecuteResult,
   BackendReviewTruthBackfillRequest,
@@ -33,7 +31,6 @@ export const BACKEND_REVIEW_RPC_METHODS = [
   'review.truth.flush',
   'review.truth.backfill',
   'review.truth.maintenanceStatus',
-  'review.riffFeedback.execute',
   'review.sourceRefresh.execute',
 ] as const satisfies readonly BackendRpcMethod[];
 
@@ -85,11 +82,6 @@ export type BackendReviewRpcMethodContractMap = {
     undefined,
     BackendReviewTruthMaintenanceStatusResult
   >;
-  readonly 'review.riffFeedback.execute': BackendRpcMethodContract<
-    'review.riffFeedback.execute',
-    BackendReviewRiffFeedbackExecuteRequest,
-    BackendReviewRiffFeedbackExecuteResult
-  >;
   readonly 'review.sourceRefresh.execute': BackendRpcMethodContract<
     'review.sourceRefresh.execute',
     BackendReviewSourceRefreshExecuteRequest,
@@ -107,7 +99,6 @@ export const BACKEND_REVIEW_RPC_METHOD_FAMILY_CATALOG = [
   { method: 'review.truth.flush', family: 'review', clientExposure: 'facade' },
   { method: 'review.truth.backfill', family: 'review', clientExposure: 'facade' },
   { method: 'review.truth.maintenanceStatus', family: 'review', clientExposure: 'facade' },
-  { method: 'review.riffFeedback.execute', family: 'review', clientExposure: 'facade' },
   { method: 'review.sourceRefresh.execute', family: 'review', clientExposure: 'facade' },
 ] as const satisfies readonly BackendRpcMethodContract[];
 

@@ -21,10 +21,8 @@ describe('backend migration ownership map', () => {
       'xiuyuan.sync',
       'progressive.command',
       'topic-derived.command',
-      'ai.tool-job',
       'browser.aggregate-read',
       'graph.query',
-      'review.riff-feedback',
       'review.source-refresh',
       'compatibility.read',
     ];
@@ -69,7 +67,6 @@ describe('backend migration ownership map', () => {
       'progressive.command',
       'browser.aggregate-read',
       'graph.query',
-      'review.riff-feedback',
       'review.source-refresh',
     ]));
     for (const { effect } of retained) {

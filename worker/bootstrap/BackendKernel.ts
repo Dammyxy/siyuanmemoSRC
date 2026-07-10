@@ -5,8 +5,6 @@ import {
   type BackendAutoCardExecuteBatchResult,
   type BackendNeuralGraphQueryRequest,
   type BackendNeuralGraphQueryResult,
-  type BackendReviewRiffFeedbackExecuteRequest,
-  type BackendReviewRiffFeedbackExecuteResult,
   type BackendDiagnosticsStatusResult,
   type BackendDomainSyncStatusRequest,
   type BackendPreRequestMergeDiagnostic,
@@ -82,9 +80,6 @@ interface BackendKernelDependencies {
   executeTopicDerivedCommand?: (
     request: BackendTopicDerivedCommandExecuteRequest,
   ) => Promise<BackendTopicDerivedCommandExecuteResult>;
-  executeReviewRiffFeedback?: (
-    request: BackendReviewRiffFeedbackExecuteRequest,
-  ) => Promise<BackendReviewRiffFeedbackExecuteResult>;
   truthFileStore?: MessagePackTruthSegmentFileStore;
 }
 
@@ -207,7 +202,6 @@ export class BackendKernel {
       database: this.deps.database,
       truthFileStore: this.deps.truthFileStore,
       reviewKernel: this.reviewKernel,
-      executeReviewRiffFeedback: this.deps.executeReviewRiffFeedback,
     });
     this.rpcDispatcher = new BackendRpcDispatcher(
       createBackendRpcHandlerRegistry(BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS),

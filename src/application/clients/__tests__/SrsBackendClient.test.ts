@@ -1497,35 +1497,12 @@ describe('SrsBackendClient', () => {
     ]);
   });
 
-  it('routes Review backend commands through typed RPC methods', async () => {
+  it('routes Review source refresh through the typed RPC method', async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const transport: SrsBackendTransport = {
       request: vi.fn(async (request) => {
         requests.push({ method: request.method, params: request.params });
         switch (request.method) {
-          case 'review.riffFeedback.execute':
-            return {
-              jsonrpc: '2.0',
-              id: request.id,
-              result: {
-                status: 'completed',
-                commandId: 'riff-1',
-                idempotencyKey: 'riff-key-1',
-                action: 'rate',
-                updated: 1,
-                skipped: 0,
-                queueImpact: {
-                  refreshRequired: true,
-                  projectionChanged: true,
-                  removedFromQueue: true,
-                },
-                diagnostics: {
-                  diagnosticEventId: 'diag-riff-1',
-                  family: 'review.riff-feedback',
-                  commandId: 'riff-1',
-                },
-              },
-            };
           case 'review.sourceRefresh.execute':
             return {
               jsonrpc: '2.0',
@@ -1553,14 +1530,6 @@ describe('SrsBackendClient', () => {
     };
     const client = new SrsBackendClient(transport);
 
-    await expect(client.executeReviewRiffFeedback({
-      commandId: 'riff-1',
-      idempotencyKey: 'riff-key-1',
-      action: 'rate',
-      deckId: 'deck-1',
-      riffCardId: 'card-1',
-      rating: 4,
-    })).resolves.toMatchObject({ status: 'completed', updated: 1 });
     await expect(client.executeReviewSourceRefresh({
       commandId: 'refresh-1',
       idempotencyKey: 'refresh-key-1',
@@ -1568,10 +1537,7 @@ describe('SrsBackendClient', () => {
       dependencyBlockIds: ['block-1'],
     })).resolves.toMatchObject({ status: 'refresh-required', matchedBlockIds: ['block-1'] });
 
-    expect(requests.map((request) => request.method)).toEqual([
-      'review.riffFeedback.execute',
-      'review.sourceRefresh.execute',
-    ]);
+    expect(requests.map((request) => request.method)).toEqual(['review.sourceRefresh.execute']);
   });
 
   it('reads domain sync diagnostics through the backend RPC', async () => {

@@ -89,16 +89,16 @@ const HOTSPOT_COVERAGE: Record<string, CoveragePattern[]> = {
       pattern: /classifies graph query unavailable, missing, and unreadable historical nodes explicitly/,
     },
   ],
-  'finaldrill riff': [
+  'finaldrill local-only': [
     {
-      label: 'happy path rates through backend ReviewApplicationService command',
+      label: 'easy rating updates local queue and progress',
       file: 'src/ui/review/v2/__tests__/FinalDrillV2Session.characterization.test.ts',
-      pattern: /rates native Riff cards through the ReviewApplicationService backend command path/,
+      pattern: /removes easy cards and advances local progress without a Native Riff bridge/,
     },
     {
-      label: 'Riff failure pushes explicit UI error',
+      label: 'skip rotates the local queue',
       file: 'src/ui/review/v2/__tests__/FinalDrillV2Session.characterization.test.ts',
-      pattern: /pushes explicit error and does not advance when backend Riff rating fails/,
+      pattern: /rotates skipped cards locally/,
     },
   ],
   'review source refresh': [

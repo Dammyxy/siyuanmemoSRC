@@ -2,8 +2,6 @@ import type { PluginFilePort } from '../../../../core/storage/ports.ts';
 import { StorageFileJsonAdapter } from '../../../../core/queue/adapters/storageFile.ts';
 import type { QueueItem, QueueUIConfig } from '../../../../core/queue/types.ts';
 import type { IQueueStrategy, QueueFeedback } from '../../../../core/queue/abstraction/Strategy.ts';
-import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
-import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import { createLogger } from '../../../../utils/logger.ts';
 
 const logger = createLogger('FinalDrillV2Session');
@@ -23,22 +21,6 @@ type ProgressSnapshot = {
   updatedAt: number;
   initialTotal: number;
 };
-
-type QueueItemWithLegacyIds = QueueItem & {
-  cardID?: unknown;
-  cardId?: unknown;
-  deckID?: unknown;
-  deckId?: unknown;
-  id?: unknown;
-};
-
-type PluginLike = {
-  getContext?: () => {
-    getReviewService?: () => Pick<ReviewApplicationService, 'executeFinalDrillRiffFeedback' | 'getSiyuanApi'>;
-  };
-};
-
-type FinalDrillReviewService = Pick<ReviewApplicationService, 'executeFinalDrillRiffFeedback' | 'getSiyuanApi'>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -61,23 +43,9 @@ function parseProgressSnapshot(input: unknown): ProgressSnapshot {
   };
 }
 
-function resolveCardID(item: QueueItem): string {
-  const candidate = item as QueueItemWithLegacyIds;
-  const raw = candidate.cardID ?? candidate.cardId ?? candidate.id;
-  return raw == null ? '' : String(raw);
-}
-
-function resolveDeckID(item: QueueItem): string {
-  const candidate = item as QueueItemWithLegacyIds;
-  const raw = candidate.deckID ?? candidate.deckId;
-  return raw == null ? '' : String(raw);
-}
-
 export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
   private readonly queue: FinalDrillQueueLike;
   private readonly i18n?: Record<string, string>;
-  private readonly reviewService: FinalDrillReviewService;
-  private readonly siyuanApi: Pick<ReviewSiyuanPort, 'pushErrMsg'>;
   private readonly progressAdapter: StorageFileJsonAdapter<ProgressSnapshot> | null;
   private cachedItems: QueueItem[] = [];
 
@@ -98,25 +66,9 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     queue: FinalDrillQueueLike;
     storage?: PluginFilePort;
     i18n?: Record<string, string>;
-    plugin?: unknown;
-    reviewService?: FinalDrillReviewService;
-    siyuanApi?: Pick<ReviewSiyuanPort, 'pushErrMsg'>;
   }) {
     this.queue = options.queue;
     this.i18n = options.i18n;
-
-    const contextReviewService = (options.plugin as PluginLike | undefined)
-      ?.getContext?.()
-      ?.getReviewService?.();
-
-    this.reviewService = options.reviewService || contextReviewService;
-    this.siyuanApi = options.siyuanApi || this.reviewService?.getSiyuanApi?.();
-    if (!this.reviewService) {
-      throw new Error('FinalDrillV2Session requires review application service');
-    }
-    if (!this.siyuanApi) {
-      throw new Error('FinalDrillV2Session requires review siyuan api');
-    }
 
     this.progressAdapter = options.storage
       ? new StorageFileJsonAdapter<ProgressSnapshot>(options.storage, 'review-v2-final-drill.json')
@@ -206,19 +158,6 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     this.tickDuration();
 
     if (action === 'skip') {
-      const cardID = resolveCardID(currentItem);
-      const deckID = resolveDeckID(currentItem);
-      if (cardID && deckID) {
-        const ok = await this.executeRiffFeedback({
-          action: 'skip',
-          deckId: deckID,
-          riffCardId: cardID,
-        });
-        if (!ok) {
-          await this.siyuanApi.pushErrMsg(this.t('drillFailed', '最终冲刺操作失败'));
-          return;
-        }
-      }
       await this.rotateToEnd(currentItem);
       await this.saveProgress();
       return;
@@ -228,26 +167,11 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     const rating = feedback.rating;
     if (!rating) return;
 
-    const cardID = resolveCardID(currentItem);
-    const deckID = resolveDeckID(currentItem);
-    if (!cardID || !deckID) return;
-
     this.ensureStarted();
     this.progress.inProgress = true;
     await this.refreshItems();
     if (this.progress.initialTotal === 0) {
       this.progress.initialTotal = this.progress.answered + this.cachedItems.length;
-    }
-
-    const ok = await this.executeRiffFeedback({
-      action: 'rate',
-      deckId: deckID,
-      riffCardId: cardID,
-      rating,
-    });
-    if (!ok) {
-      await this.siyuanApi.pushErrMsg(this.t('drillFailed', '最终冲刺操作失败'));
-      return;
     }
 
     this.progress.answered += 1;
@@ -338,30 +262,5 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
 
   private t(key: string, fallback: string): string {
     return this.i18n?.[key] || fallback;
-  }
-
-  private async executeRiffFeedback(input: {
-    action: 'rate' | 'skip';
-    deckId: string;
-    riffCardId: string;
-    rating?: number;
-  }): Promise<boolean> {
-    const now = Date.now();
-    const commandId = `final-drill:${input.action}:${input.deckId}:${input.riffCardId}:${now}`;
-    try {
-      const result = await this.reviewService.executeFinalDrillRiffFeedback({
-        commandId,
-        idempotencyKey: commandId,
-        sessionId: 'final-drill',
-        action: input.action,
-        deckId: input.deckId,
-        riffCardId: input.riffCardId,
-        rating: input.rating ?? null,
-      });
-      return result.status === 'completed' || result.status === 'duplicate';
-    } catch (error) {
-      logger.error('FinalDrill backend Riff feedback failed', error);
-      return false;
-    }
   }
 }

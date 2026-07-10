@@ -11,8 +11,6 @@ import type {
   BackendTopicDerivedCommandExecuteResult,
   BackendNeuralGraphQueryRequest,
   BackendNeuralGraphQueryResult,
-  BackendReviewRiffFeedbackExecuteRequest,
-  BackendReviewRiffFeedbackExecuteResult,
   BackendRpcRequest,
   BackendRpcResponse,
   BackendXiuyuanRiffReadAuditRequest,
@@ -89,9 +87,6 @@ export interface BrowserSrsBackendWorkerHostEffects {
   executeTopicDerivedCommand?: (
     request: BackendTopicDerivedCommandExecuteRequest,
   ) => Promise<BackendTopicDerivedCommandExecuteResult>;
-  executeReviewRiffFeedback?: (
-    request: BackendReviewRiffFeedbackExecuteRequest,
-  ) => Promise<BackendReviewRiffFeedbackExecuteResult>;
 }
 
 export interface BrowserSrsBackendWorkerTransportOptions {
@@ -613,11 +608,6 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('topic-derived.command.execute host effect unavailable');
         }
         return this.options.hostEffects.executeTopicDerivedCommand(effect.request);
-      case 'review.riffFeedback.execute':
-        if (!this.options.hostEffects.executeReviewRiffFeedback) {
-          throw unavailable('review.riffFeedback.execute host effect unavailable');
-        }
-        return this.options.hostEffects.executeReviewRiffFeedback(effect.request);
       default:
         throw unavailable(`unknown host effect ${(effect as { kind?: unknown }).kind}`);
     }

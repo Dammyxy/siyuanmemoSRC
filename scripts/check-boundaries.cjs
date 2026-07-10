@@ -42,12 +42,6 @@ function isApplicationManagerOrFactory(relativePath) {
     || relativePath.startsWith('src/application/factories/');
 }
 
-function isAllowedRiffFeedbackOwner(relativePath) {
-  return relativePath === 'src/application/ports/ReviewSiyuanPort.ts'
-    || relativePath === 'src/infrastructure/siyuan/ReviewSiyuanAdapter.ts'
-    || relativePath === 'src/application/ApplicationContext.ts';
-}
-
 for (const file of walk(srcRoot)) {
   const relativePath = rel(file);
   const text = fs.readFileSync(file, 'utf8');
@@ -78,10 +72,9 @@ for (const file of walk(srcRoot)) {
 
   if (
     !isTestFile(relativePath)
-    && !isAllowedRiffFeedbackOwner(relativePath)
     && /\b(reviewRiffCard|skipReviewRiffCard)\s*\(/.test(text)
   ) {
-    addFailure(file, 'FinalDrill native Riff feedback must use review.riffFeedback.execute backend/writer command');
+    addFailure(file, 'Native Riff feedback writes are forbidden');
   }
 }
 

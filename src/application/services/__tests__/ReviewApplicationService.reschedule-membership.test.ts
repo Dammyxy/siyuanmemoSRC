@@ -44,8 +44,6 @@ function createReviewSiyuanApi(overrides: Partial<ReviewSiyuanPort> = {}): Revie
     getBlockBreadcrumb: vi.fn(async () => []),
     getIconByType: vi.fn(() => ''),
     updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
-    reviewRiffCard: vi.fn(async () => {}),
-    skipReviewRiffCard: vi.fn(async () => {}),
     pushMsg: vi.fn(async () => {}),
     pushErrMsg: vi.fn(async () => {}),
     ...overrides,
@@ -344,63 +342,4 @@ describe('ReviewApplicationService reschedule queue membership', () => {
     expect(manager.updateCard).not.toHaveBeenCalled();
   });
 
-  it('routes explicit native Riff review feedback through the backend bridge', async () => {
-    const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
-    const schedulerRouter = {} as never;
-    const siyuanApi = createReviewSiyuanApi();
-    const backendClient = {
-      executeReviewRiffFeedback: vi.fn(async (request) => ({
-        status: 'completed' as const,
-        commandId: request.commandId,
-        idempotencyKey: request.idempotencyKey,
-        action: request.action,
-        updated: 1,
-        skipped: 0,
-        queueImpact: {
-          refreshRequired: true,
-          projectionChanged: true,
-          removedFromQueue: true,
-        },
-        diagnostics: {
-          diagnosticEventId: 'diag-native-riff-feedback',
-          family: 'review.riff-feedback',
-          commandId: request.commandId,
-        },
-      })),
-      executeReviewSourceRefresh: vi.fn(),
-    };
-    const service = new ReviewApplicationService(
-      manager,
-      schedulerRouter,
-      siyuanApi,
-      backendClient,
-    );
-
-    const result = await service.executeFinalDrillRiffFeedback({
-      commandId: 'cmd-native-riff-rate',
-      idempotencyKey: 'key-native-riff-rate',
-      sessionId: 'final-drill',
-      action: 'rate',
-      deckId: 'deck-1',
-      riffCardId: 'riff-card-1',
-      rating: 4,
-    });
-
-    expect(result).toMatchObject({
-      status: 'completed',
-      action: 'rate',
-      updated: 1,
-    });
-    expect(backendClient.executeReviewRiffFeedback).toHaveBeenCalledWith({
-      commandId: 'cmd-native-riff-rate',
-      idempotencyKey: 'key-native-riff-rate',
-      sessionId: 'final-drill',
-      action: 'rate',
-      deckId: 'deck-1',
-      riffCardId: 'riff-card-1',
-      rating: 4,
-    });
-    expect(siyuanApi.reviewRiffCard).not.toHaveBeenCalled();
-    expect(siyuanApi.skipReviewRiffCard).not.toHaveBeenCalled();
-  });
 });

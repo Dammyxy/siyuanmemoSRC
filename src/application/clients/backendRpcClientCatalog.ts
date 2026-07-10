@@ -57,7 +57,6 @@ export const SRS_BACKEND_CLIENT_METHOD_CATALOG = [
   { clientMethod: 'executeXiuyuanSync', rpcMethod: 'xiuyuan.sync.execute' },
   { clientMethod: 'executeProgressiveCommand', rpcMethod: 'progressive.command.execute' },
   { clientMethod: 'executeTopicDerivedCommand', rpcMethod: 'topic-derived.command.execute' },
-  { clientMethod: 'executeReviewRiffFeedback', rpcMethod: 'review.riffFeedback.execute' },
   { clientMethod: 'executeReviewSourceRefresh', rpcMethod: 'review.sourceRefresh.execute' },
   { clientMethod: 'browserAggregateSnapshot', rpcMethod: 'browser.aggregate.snapshot' },
   { clientMethod: 'browserAggregatePage', rpcMethod: 'browser.aggregate.page' },

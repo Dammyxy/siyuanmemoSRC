@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 695)
+Last update: 2026-07-10 (Round 696)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Remove Native Riff feedback bridge
+
+- Task: Apply `retire-native-riff-continuous-sync` task 5.3 after Native Riff add/delete write removal.
+- Touched slice: Review application/ports/adapters, FinalDrill local session behavior, backend contracts/clients/writer relay, worker protocol/kernel/RPC adapter, ApplicationContext ownership, boundary checks, focused tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: SiYuanMemo Review no longer exposes or routes Native Riff rate/skip feedback. `review.riffFeedback.execute`, writer-relay/worker/host-effect plumbing, Siyuan `reviewRiffCard`/`skipReviewRiffCard` methods, and feedback idempotency/runtime ownership were removed. FinalDrill rate/skip now changes only its local drill queue and progress.
+- Debt deferred: Dead `XiuyuanSyncService`, sync helpers, blacklist Module, duplicate sync types, and obsolete application tests remain task 5.4; `xiuyuan.sync.execute` worker/client/checkpoint runtime remains task 5.5; retired checkpoint/blacklist/delete-sync persistence fields remain task 5.6.
+- Why deferred: Those slices still contain migration compatibility reads and worker/persistence ownership that need separate deletion and validation gates.
+- Next safe step: Remove `XiuyuanSyncService`, sync helper runtimes, blacklist Module, duplicate sync types, and obsolete application tests under task 5.4.
+- Validation: 9 focused Vitest files passed with 70 tests; BackendKernel Review source-refresh coverage passed with 1 test and 10 skipped; production scan found only the intentional read-only capability assertion and boundary prohibition for removed Native Riff feedback names; hidden-fallback, boundary, strict OpenSpec, whitespace, and production build gates passed.
 
 ### 2026-07-10 - Remove Native Riff delete paths
 

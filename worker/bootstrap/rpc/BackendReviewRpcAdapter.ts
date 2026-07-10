@@ -15,8 +15,6 @@ import {
   type BackendReviewFeedbackTruthFlushDiagnostics,
   type BackendReviewFeedbackTruthFlushRequest,
   type BackendReviewFeedbackTruthFlushResult,
-  type BackendReviewRiffFeedbackExecuteRequest,
-  type BackendReviewRiffFeedbackExecuteResult,
   type BackendReviewSourceRefreshExecuteRequest,
   type BackendReviewSourceRefreshExecuteResult,
   type BackendReviewTruthBackfillDiagnostics,
@@ -69,9 +67,6 @@ export interface BackendReviewRpcRuntimeOptions {
   readonly database: BackendReviewRpcDatabase;
   readonly truthFileStore?: MessagePackTruthSegmentFileStore;
   readonly reviewKernel?: SrsReviewKernel | null;
-  executeReviewRiffFeedback?(
-    request: BackendReviewRiffFeedbackExecuteRequest,
-  ): Promise<BackendReviewRiffFeedbackExecuteResult> | BackendReviewRiffFeedbackExecuteResult;
 }
 
 export interface BackendReviewFeedbackKernelTiming {
@@ -81,7 +76,6 @@ export interface BackendReviewFeedbackKernelTiming {
 }
 
 export class BackendReviewRpcRuntime {
-  private readonly reviewRiffFeedbackResultsByIdempotencyKey = new Map<string, BackendReviewRiffFeedbackExecuteResult>();
   private readonly reviewSourceRefreshResultsByIdempotencyKey = new Map<string, BackendReviewSourceRefreshExecuteResult>();
   private lastReviewFeedbackTruthFlush: BackendReviewFeedbackTruthFlushResult | null = null;
   private lastReviewTruthBackfill: BackendReviewTruthBackfillResult | null = null;
@@ -236,36 +230,6 @@ export class BackendReviewRpcRuntime {
     };
   }
 
-  async handleReviewRiffFeedbackExecute(params: unknown): Promise<BackendReviewRiffFeedbackExecuteResult> {
-    const named = readRequiredNamedParams<BackendReviewRiffFeedbackExecuteRequest>(
-      params,
-      'review.riffFeedback.execute requires named params',
-    );
-    const key = String(named.idempotencyKey || '').trim();
-    const cached = this.reviewRiffFeedbackResultsByIdempotencyKey.get(key);
-    if (cached) {
-      return cached.status === 'completed' ? { ...cached, status: 'duplicate' } : cached;
-    }
-    if (typeof this.options.executeReviewRiffFeedback !== 'function') {
-      const result = this.createReviewRiffFeedbackUnavailable(named, 'review.riffFeedback.execute host effect unavailable');
-      this.reviewRiffFeedbackResultsByIdempotencyKey.set(key, result);
-      return result;
-    }
-    try {
-      const result = await this.options.executeReviewRiffFeedback(named);
-      this.reviewRiffFeedbackResultsByIdempotencyKey.set(key, result);
-      return result;
-    } catch (error) {
-      const result = this.createReviewRiffFeedbackUnavailable(
-        named,
-        error instanceof Error ? error.message : String(error || 'review riff feedback failed'),
-        'FAILED',
-      );
-      this.reviewRiffFeedbackResultsByIdempotencyKey.set(key, result);
-      return result;
-    }
-  }
-
   async handleReviewSourceRefreshExecute(params: unknown): Promise<BackendReviewSourceRefreshExecuteResult> {
     const named = readRequiredNamedParams<BackendReviewSourceRefreshExecuteRequest>(
       params,
@@ -401,40 +365,6 @@ export class BackendReviewRpcRuntime {
     }
   }
 
-  private createReviewRiffFeedbackUnavailable(
-    request: BackendReviewRiffFeedbackExecuteRequest,
-    reason: string,
-    unavailableClass: BackendReviewRiffFeedbackExecuteResult['unavailableClass'] = 'BACKEND_UNAVAILABLE',
-  ): BackendReviewRiffFeedbackExecuteResult {
-    const now = Date.now();
-    return {
-      status: unavailableClass === 'FAILED' ? 'failed' : 'unavailable',
-      commandId: String(request.commandId || ''),
-      idempotencyKey: String(request.idempotencyKey || ''),
-      action: request.action,
-      updated: 0,
-      skipped: 1,
-      unavailableClass,
-      reason,
-      queueImpact: {
-        refreshRequired: false,
-        projectionChanged: false,
-        removedFromQueue: false,
-      },
-      diagnostics: {
-        diagnosticEventId: `review-riff-feedback:${String(request.commandId || 'unknown')}:${now}`,
-        family: 'review.riff-feedback',
-        commandId: String(request.commandId || ''),
-        timing: {
-          submittedAt: now,
-          deadlineAt: request.deadlineAt ?? null,
-          completedAt: now,
-        },
-        errorCategory: unavailableClass,
-      },
-    };
-  }
-
   private requireReviewKernel(): SrsReviewKernel {
     if (!this.options.reviewKernel) {
       throw new Error('BACKEND_UNAVAILABLE: worker SRS Review Kernel unavailable');
@@ -546,13 +476,6 @@ const BACKEND_REVIEW_RPC_HANDLER_ADAPTERS: {
     family: 'review',
     handle(_params, context): Promise<BackendReviewTruthMaintenanceStatusResult> {
       return context.review.handleReviewTruthMaintenanceStatus();
-    },
-  },
-  'review.riffFeedback.execute': {
-    method: 'review.riffFeedback.execute',
-    family: 'review',
-    handle(params, context): Promise<BackendReviewRiffFeedbackExecuteResult> {
-      return context.review.handleReviewRiffFeedbackExecute(params);
     },
   },
   'review.sourceRefresh.execute': {

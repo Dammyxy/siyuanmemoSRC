@@ -122,7 +122,6 @@ export const BACKEND_RPC_METHODS = [
   'xiuyuan.sync.execute',
   'progressive.command.execute',
   'topic-derived.command.execute',
-  'review.riffFeedback.execute',
   'review.sourceRefresh.execute',
   'browser.aggregate.snapshot',
   'browser.aggregate.page',
@@ -254,7 +253,6 @@ export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_XIUYUAN_RPC_METHOD_CONTRACT_BY_METHOD['xiuyuan.sync.execute'],
   BACKEND_PROGRESSIVE_RPC_METHOD_CONTRACT_BY_METHOD['progressive.command.execute'],
   BACKEND_TOPIC_DERIVED_RPC_METHOD_CONTRACT_BY_METHOD['topic-derived.command.execute'],
-  BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.riffFeedback.execute'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.sourceRefresh.execute'],
   BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.aggregate.snapshot'],
   BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.aggregate.page'],
@@ -1193,7 +1191,6 @@ export type BackendHotspotCommandFamily =
   | 'progressive.command'
   | 'topic-derived.command'
   | 'ai.tool-job'
-  | 'review.riff-feedback'
   | 'review.source-refresh';
 
 export type BackendHotspotCommandState =
@@ -1799,34 +1796,6 @@ export type BackendGraphQueryResult =
         errorCategory: string;
       };
     };
-
-export interface BackendReviewRiffFeedbackExecuteRequest {
-  commandId: string;
-  idempotencyKey: string;
-  sessionId?: string | null;
-  action: 'rate' | 'skip';
-  deckId: string;
-  riffCardId: string;
-  rating?: number | null;
-  deadlineAt?: number | null;
-}
-
-export interface BackendReviewRiffFeedbackExecuteResult {
-  status: 'completed' | 'duplicate' | 'unavailable' | 'failed';
-  commandId: string;
-  idempotencyKey: string;
-  action: 'rate' | 'skip';
-  updated: number;
-  skipped: number;
-  unavailableClass?: BackendUnavailableClass | null;
-  reason?: string | null;
-  queueImpact: {
-    refreshRequired: boolean;
-    projectionChanged: boolean;
-    removedFromQueue: boolean;
-  };
-  diagnostics: BackendHotspotCommandDiagnostics;
-}
 
 export interface BackendReviewSourceRefreshExecuteRequest {
   commandId: string;

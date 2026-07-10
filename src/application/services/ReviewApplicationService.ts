@@ -19,8 +19,6 @@ import type { FSRSCard, Rating } from '@/types';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 import type {
-  BackendReviewRiffFeedbackExecuteRequest,
-  BackendReviewRiffFeedbackExecuteResult,
   BackendReviewSourceRefreshExecuteRequest,
   BackendReviewSourceRefreshExecuteResult,
   BackendUnavailableClass,
@@ -103,7 +101,7 @@ export class ReviewApplicationService {
     private readonly manager: IUnifiedDataSourceManagerFacade,
     private readonly schedulerRouter: SchedulerRouter,
     private readonly siyuanApi: ReviewSiyuanPort,
-    private readonly backendClient: Pick<SrsBackendClient, 'executeReviewRiffFeedback' | 'executeReviewSourceRefresh'> | null = null,
+    private readonly backendClient: Pick<SrsBackendClient, 'executeReviewSourceRefresh'> | null = null,
     private readonly frontendInstanceRuntime: Pick<FrontendInstanceRuntime, 'getMode' | 'getInstanceId'> | null = null,
     private readonly followerCommandClient: Pick<FollowerCommandClient, 'submitAndWait'> | null = null,
     cdfLiveRelationCardCreator: CdfLiveRelationCardCreatorPort | null = null,
@@ -253,17 +251,6 @@ export class ReviewApplicationService {
     return this.cdfLiveRelationWriteSync.reconcileWriteSync(options);
   }
 
-  async executeFinalDrillRiffFeedback(
-    request: BackendReviewRiffFeedbackExecuteRequest,
-  ): Promise<BackendReviewRiffFeedbackExecuteResult> {
-    return this.executeReviewBackendCommand(
-      'review.riffFeedback.execute',
-      request,
-      (client, params) => client.executeReviewRiffFeedback(params),
-      () => this.createReviewRiffFeedbackUnavailable(request, 'review.riffFeedback.execute backend authority unavailable'),
-    );
-  }
-
   async executeReviewSourceRefresh(
     request: BackendReviewSourceRefreshExecuteRequest,
   ): Promise<BackendReviewSourceRefreshExecuteResult> {
@@ -276,10 +263,10 @@ export class ReviewApplicationService {
   }
 
   private async executeReviewBackendCommand<TRequest, TResult>(
-    method: 'review.riffFeedback.execute' | 'review.sourceRefresh.execute',
+    method: 'review.sourceRefresh.execute',
     request: TRequest,
     execute: (
-      client: Pick<SrsBackendClient, 'executeReviewRiffFeedback' | 'executeReviewSourceRefresh'>,
+      client: Pick<SrsBackendClient, 'executeReviewSourceRefresh'>,
       request: TRequest,
     ) => Promise<TResult>,
     unavailable: () => TResult,
@@ -296,40 +283,6 @@ export class ReviewApplicationService {
       return unavailable();
     }
     return execute(this.backendClient, request);
-  }
-
-  private createReviewRiffFeedbackUnavailable(
-    request: BackendReviewRiffFeedbackExecuteRequest,
-    reason: string,
-    unavailableClass: BackendUnavailableClass = 'BACKEND_UNAVAILABLE',
-  ): BackendReviewRiffFeedbackExecuteResult {
-    const now = Date.now();
-    return {
-      status: 'unavailable',
-      commandId: request.commandId,
-      idempotencyKey: request.idempotencyKey,
-      action: request.action,
-      updated: 0,
-      skipped: 0,
-      unavailableClass,
-      reason,
-      queueImpact: {
-        refreshRequired: false,
-        projectionChanged: false,
-        removedFromQueue: false,
-      },
-      diagnostics: {
-        diagnosticEventId: `review-riff-feedback:${request.commandId}:${now}`,
-        family: 'review.riff-feedback',
-        commandId: request.commandId,
-        timing: {
-          submittedAt: now,
-          deadlineAt: request.deadlineAt ?? null,
-          completedAt: now,
-        },
-        errorCategory: unavailableClass,
-      },
-    };
   }
 
   private createReviewSourceRefreshUnavailable(

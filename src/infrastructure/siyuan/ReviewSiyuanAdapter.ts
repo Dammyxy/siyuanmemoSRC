@@ -1,5 +1,4 @@
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
-import type { Rating } from '@/types';
 import {
   getBlockAttrs,
   getBlockBreadcrumb,
@@ -13,7 +12,7 @@ import {
   sql,
   updateBlock,
 } from './api';
-import { BUILTIN_DECK_ID, reviewRiffCard, skipReviewRiffCard } from '@/core/siyuan/riff';
+import { BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 
 function escapeSql(value: string): string {
   return String(value || '').replace(/'/g, "''");
@@ -79,14 +78,6 @@ export class ReviewSiyuanAdapter implements ReviewSiyuanPort {
       data: markdown,
       id: blockId,
     });
-  }
-
-  async reviewRiffCard(deckID: string, cardID: string, rating: Rating): Promise<void> {
-    await reviewRiffCard(deckID, cardID, rating);
-  }
-
-  async skipReviewRiffCard(deckID: string, cardID: string): Promise<void> {
-    await skipReviewRiffCard(deckID, cardID);
   }
 
   async pushMsg(msg: string, timeout?: number): Promise<void> {

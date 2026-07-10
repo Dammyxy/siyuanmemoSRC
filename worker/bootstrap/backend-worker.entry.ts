@@ -6,8 +6,6 @@ import {
   type BackendNeuralGraphQueryResult,
   type BackendProgressiveCommandExecuteRequest,
   type BackendProgressiveCommandExecuteResult,
-  type BackendReviewRiffFeedbackExecuteRequest,
-  type BackendReviewRiffFeedbackExecuteResult,
   type BackendRpcResponse,
   type BackendTopicDerivedCommandExecuteRequest,
   type BackendTopicDerivedCommandExecuteResult,
@@ -328,10 +326,6 @@ const backendKernel = new BackendKernel({
   }),
   executeTopicDerivedCommand: (request: BackendTopicDerivedCommandExecuteRequest) => requestHostEffect<BackendTopicDerivedCommandExecuteResult>({
     kind: 'topic-derived.command.execute',
-    request,
-  }),
-  executeReviewRiffFeedback: (request: BackendReviewRiffFeedbackExecuteRequest) => requestHostEffect<BackendReviewRiffFeedbackExecuteResult>({
-    kind: 'review.riffFeedback.execute',
     request,
   }),
   readXiuyuanRiffFacts: (request: BackendXiuyuanRiffReadAuditRequest) => requestHostEffect<BackendXiuyuanRiffReadAuditResult>({
