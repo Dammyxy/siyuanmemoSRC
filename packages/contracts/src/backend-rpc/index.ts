@@ -13,4 +13,3 @@ export * from './review';
 export * from './semantic';
 export * from './sync';
 export * from './topic-derived';
-export * from './xiuyuan';

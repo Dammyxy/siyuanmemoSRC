@@ -9,8 +9,6 @@ import {
   type BackendRpcResponse,
   type BackendTopicDerivedCommandExecuteRequest,
   type BackendTopicDerivedCommandExecuteResult,
-  type BackendXiuyuanRiffReadAuditRequest,
-  type BackendXiuyuanRiffReadAuditResult,
 } from '../../packages/contracts/src/backend-rpc';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createIndexedDbReviewFeedbackJournalStore } from '../db/ReviewFeedbackJournalStore';
@@ -195,7 +193,6 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'browser.deck.documentCounts',
   'review.session.feedback',
   'storage.projection.rebuild',
-  'xiuyuan.sync.execute',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
   'queue.projection.replace',
@@ -326,10 +323,6 @@ const backendKernel = new BackendKernel({
   }),
   executeTopicDerivedCommand: (request: BackendTopicDerivedCommandExecuteRequest) => requestHostEffect<BackendTopicDerivedCommandExecuteResult>({
     kind: 'topic-derived.command.execute',
-    request,
-  }),
-  readXiuyuanRiffFacts: (request: BackendXiuyuanRiffReadAuditRequest) => requestHostEffect<BackendXiuyuanRiffReadAuditResult>({
-    kind: 'siyuan.riff.readAudit',
     request,
   }),
 });

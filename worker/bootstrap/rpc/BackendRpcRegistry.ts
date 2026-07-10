@@ -20,7 +20,6 @@ import { BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS, type BackendReviewRpcHandlerC
 import { BACKEND_SEMANTIC_RPC_HANDLER_REGISTRATIONS, type BackendSemanticRpcHandlerContext } from './BackendSemanticRpcAdapter';
 import { BACKEND_SYNC_RPC_HANDLER_REGISTRATIONS, type BackendSyncRpcHandlerContext } from './BackendSyncRpcAdapter';
 import { BACKEND_TOPIC_DERIVED_RPC_HANDLER_REGISTRATIONS, type BackendTopicDerivedRpcHandlerContext } from './BackendTopicDerivedRpcAdapter';
-import { BACKEND_XIUYUAN_RPC_HANDLER_REGISTRATIONS, type BackendXiuyuanRpcHandlerContext } from './BackendXiuyuanRpcAdapter';
 
 export interface BackendKernelRpcHandlerContext
   extends BackendAutoCardRpcHandlerContext,
@@ -36,7 +35,6 @@ export interface BackendKernelRpcHandlerContext
     BackendPrivateApiRpcHandlerContext,
     BackendSemanticRpcHandlerContext,
     BackendP6OwnershipRpcHandlerContext,
-    BackendXiuyuanRpcHandlerContext,
     BackendProgressiveRpcHandlerContext,
     BackendTopicDerivedRpcHandlerContext {}
 
@@ -72,7 +70,6 @@ export const BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS = Object.freeze([
   ...BACKEND_PRIVATE_API_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_SEMANTIC_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_P6_OWNERSHIP_RPC_HANDLER_REGISTRATIONS,
-  ...BACKEND_XIUYUAN_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_PROGRESSIVE_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_TOPIC_DERIVED_RPC_HANDLER_REGISTRATIONS,
 ]) as readonly BackendRpcHandlerRegistration<BackendKernelRpcHandlerContext>[];

@@ -37,7 +37,7 @@
 - [x] 5.2 Remove Native Riff remove-card/delete-sync event routing and hard-delete compatibility behavior.
 - [x] 5.3 Remove Native Riff rating/feedback bridge behavior from SiYuanMemo Review paths.
 - [x] 5.4 Remove `XiuyuanSyncService`, sync helper runtimes, blacklist Module, duplicate sync types, and obsolete application tests.
-- [ ] 5.5 Remove `xiuyuan.sync.execute` client/RPC catalogs, worker planner/runtime, SQLite checkpoint behavior, and obsolete worker tests.
+- [x] 5.5 Remove `xiuyuan.sync.execute` client/RPC catalogs, worker planner/runtime, SQLite checkpoint behavior, and obsolete worker tests.
 - [ ] 5.6 Remove retired Riff checkpoint/blacklist settings and persistence fields after migration compatibility reads are no longer needed.
 
 ## 6. Documentation And Validation

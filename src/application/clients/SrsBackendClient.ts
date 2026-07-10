@@ -109,8 +109,6 @@ import type {
   BackendProgressiveCommandExecuteResult,
   BackendTopicDerivedCommandExecuteRequest,
   BackendTopicDerivedCommandExecuteResult,
-  BackendXiuyuanSyncExecuteRequest,
-  BackendXiuyuanSyncExecuteResult,
 } from '../../../packages/contracts/src/backend-rpc';
 import { MESSAGEPACK_TRUTH_SCHEMA_VERSION } from '../../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
@@ -585,12 +583,6 @@ export class SrsBackendClient {
     request: BackendHotspotJobGetRequest,
   ): Promise<BackendHotspotJobGetResult<TResult>> {
     return this.integrationClient.getHotspotJob<TResult>(request);
-  }
-
-  async executeXiuyuanSync(
-    request: BackendXiuyuanSyncExecuteRequest,
-  ): Promise<BackendXiuyuanSyncExecuteResult> {
-    return this.integrationClient.executeXiuyuanSync(request);
   }
 
   async executeProgressiveCommand<TResult = unknown>(

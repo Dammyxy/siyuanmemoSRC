@@ -23,14 +23,8 @@ import { resolveTruthDeviceIdentity } from '@/application/factories/truthDeviceI
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import type { NeuralRoamNodeTypeResolverPort } from '@/core/queue/domain/ports';
 import type { NeuralRoamCardFacts } from '@/core/queue/neural/NeuralRoamCardFacts';
-import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
-import type {
-  BackendXiuyuanNativeRiffBlockFacts,
-  BackendXiuyuanRiffReadAuditRequest,
-  BackendXiuyuanRiffReadAuditResult,
-} from '../../../packages/contracts/src/backend-rpc';
 import { MESSAGEPACK_TRUTH_SCHEMA_VERSION } from '../../../packages/contracts/src/backend-rpc';
 import type { SqlitePersistenceBridge } from '../../../worker/db/SqlitePersistenceBridge';
 
@@ -183,7 +177,6 @@ export async function createApplicationBackendRuntimeBundle(
               blockIds,
             ),
             resolveNeuralGraphQuery: (request) => neuralRoamGraphQuery.query(request),
-            readXiuyuanRiffFacts: (request) => readXiuyuanRiffFactsViaApprovedAdapter(request),
             executeAutoCard: options.executeAutoCard,
             executeAutoCardBatch: options.executeAutoCardBatch,
             executeProgressiveCommand: options.executeProgressiveCommand,
@@ -402,91 +395,6 @@ function normalizeBackendStringArray(values: unknown): string[] {
     normalized.push(item);
   }
   return normalized;
-}
-
-function normalizeRiffFactBlock(block: {
-  id?: unknown;
-  content?: unknown;
-  ial?: Record<string, string>;
-  riffCardID?: unknown;
-  riffCardId?: unknown;
-  riffCard?: BackendXiuyuanNativeRiffBlockFacts['riffCard'];
-}): BackendXiuyuanNativeRiffBlockFacts {
-  return {
-    id: normalizeBackendString(block.id),
-    content: String(block.content ?? ''),
-    ial: block.ial && typeof block.ial === 'object' ? block.ial : undefined,
-    riffCardID: normalizeOptionalBackendString(block.riffCardID),
-    riffCardId: normalizeOptionalBackendString(block.riffCardId),
-    riffCard: block.riffCard,
-  };
-}
-
-async function readXiuyuanRiffFactsViaApprovedAdapter(
-  request: BackendXiuyuanRiffReadAuditRequest,
-): Promise<BackendXiuyuanRiffReadAuditResult> {
-  const requestId = normalizeBackendString(request.requestId) || `riff-read-${Date.now()}`;
-  const deckId = normalizeBackendString(request.deckId);
-  const mode = request.mode === 'incremental' || request.mode === 'full' || request.mode === 'audit'
-    ? request.mode
-    : 'audit';
-  const adapter = new XiuyuanSyncSiyuanAdapter();
-  try {
-    const scope = request.scope ?? {};
-    const blockIds = normalizeBackendStringArray(scope.blockIds);
-    const rawBlocks = blockIds.length > 0
-      ? await adapter.getRiffCardsByBlockIDs(blockIds)
-      : mode === 'incremental'
-      ? await adapter.getRiffNewCards(deckId, Number.isFinite(Number(request.since)) ? Number(request.since) : undefined)
-      : await adapter.getRiffCards(deckId, {
-        dueOnly: scope.dueOnly === true,
-        notebook: normalizeOptionalBackendString(scope.notebook),
-        rootID: normalizeOptionalBackendString(scope.rootId),
-        includeNew: scope.includeNew !== false,
-      });
-    const blockIdScope = new Set(blockIds);
-    const scopedBlocks = blockIdScope.size > 0
-      ? rawBlocks.filter((block) => blockIdScope.has(normalizeBackendString(block.id)))
-      : rawBlocks;
-    const blocks = scopedBlocks.map(normalizeRiffFactBlock);
-    const normalizedBlockCount = blocks.filter((block) => block.id && normalizeBackendString(block.content)).length;
-    const malformedBlockCount = blocks.length - normalizedBlockCount;
-    return {
-      status: 'ready',
-      requestId,
-      mode,
-      deckId,
-      readAt: Date.now(),
-      blocks,
-      diagnostics: {
-        source: 'renderer-host-effect',
-        blockCount: blocks.length,
-        normalizedBlockCount,
-        malformedBlockCount,
-        truncated: false,
-      },
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || 'native Riff read failed');
-    return {
-      status: 'unavailable',
-      requestId,
-      mode,
-      deckId,
-      unavailableClass: 'UPSTREAM_SIYUAN_UNAVAILABLE',
-      reason: message,
-      recoverable: true,
-      blocks: [],
-      diagnostics: {
-        source: 'renderer-host-effect',
-        blockCount: 0,
-        normalizedBlockCount: 0,
-        malformedBlockCount: 0,
-        truncated: false,
-        errorCategory: 'UPSTREAM_SIYUAN_UNAVAILABLE',
-      },
-    };
-  }
 }
 
 function readViteEnv(): RuntimeEnv {

@@ -4,7 +4,6 @@ import type {
   BackendProgressiveCommandExecuteRequest,
   BackendTopicDerivedCommandExecuteRequest,
   BackendNeuralGraphQueryRequest,
-  BackendXiuyuanRiffReadAuditRequest,
   BackendRpcRequest,
   BackendRpcResponse,
 } from '../../packages/contracts/src/backend-rpc';
@@ -30,7 +29,6 @@ export type BackendWorkerHostEffect =
   | { kind: 'sqlite.cleanupSyncConflictDatabaseSources'; sourceIds: string[] }
   | { kind: 'siyuan.resolveExistingBlockIds'; blockIds: string[] }
   | { kind: 'siyuan.neuralGraph.query'; request: BackendNeuralGraphQueryRequest }
-  | { kind: 'siyuan.riff.readAudit'; request: BackendXiuyuanRiffReadAuditRequest }
   | { kind: 'autocard.execute'; request: BackendAutoCardExecuteRequest }
   | { kind: 'autocard.executeBatch'; request: BackendAutoCardExecuteBatchRequest }
   | { kind: 'progressive.command.execute'; request: BackendProgressiveCommandExecuteRequest }

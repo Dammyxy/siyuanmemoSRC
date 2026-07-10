@@ -9,18 +9,6 @@ type CoveragePattern = {
 };
 
 const HOTSPOT_COVERAGE: Record<string, CoveragePattern[]> = {
-  'xiuyuan/riff sync': [
-    {
-      label: 'happy path plans Xiuyuan sync through backend Worker',
-      file: 'worker/__tests__/BackendKernel.xiuyuan-sync.test.ts',
-      pattern: /plans Xiuyuan sync through backend Worker using the native Riff read proxy/,
-    },
-    {
-      label: 'unavailable native Riff proxy is explicit',
-      file: 'worker/__tests__/WorkerXiuyuanSyncPlanner.test.ts',
-      pattern: /returns typed unavailable when the native Riff read proxy is absent/,
-    },
-  ],
   'incremental reading': [
     {
       label: 'happy path creates nested excerpt topic with local card ownership',

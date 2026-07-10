@@ -54,7 +54,6 @@ export const SRS_BACKEND_CLIENT_METHOD_CATALOG = [
   { clientMethod: 'privateCommand', rpcMethod: 'private.command.execute' },
   { clientMethod: 'submitHotspotCommand', rpcMethod: 'hotspot.command.submit' },
   { clientMethod: 'getHotspotJob', rpcMethod: 'hotspot.job.get' },
-  { clientMethod: 'executeXiuyuanSync', rpcMethod: 'xiuyuan.sync.execute' },
   { clientMethod: 'executeProgressiveCommand', rpcMethod: 'progressive.command.execute' },
   { clientMethod: 'executeTopicDerivedCommand', rpcMethod: 'topic-derived.command.execute' },
   { clientMethod: 'executeReviewSourceRefresh', rpcMethod: 'review.sourceRefresh.execute' },

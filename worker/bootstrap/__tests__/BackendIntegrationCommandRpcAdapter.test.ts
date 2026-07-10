@@ -14,68 +14,10 @@ import {
   BackendTopicDerivedCommandRuntime,
   type BackendTopicDerivedRpcHandlerContext,
 } from '../rpc/BackendTopicDerivedRpcAdapter';
-import {
-  BACKEND_XIUYUAN_RPC_HANDLER_REGISTRATIONS,
-  BackendXiuyuanSyncRuntime,
-  type BackendXiuyuanRpcHandlerContext,
-} from '../rpc/BackendXiuyuanRpcAdapter';
 import { BackendRpcDispatcher } from '../rpc/BackendRpcDispatcher';
 import { createBackendRpcHandlerRegistry } from '../rpc/BackendRpcRegistry';
 
 describe('Backend integration command RPC adapters', () => {
-  it('runs xiuyuan.sync.execute through the Xiuyuan runtime and replays idempotency', async () => {
-    const dispatcher = new BackendRpcDispatcher(
-      createBackendRpcHandlerRegistry(BACKEND_XIUYUAN_RPC_HANDLER_REGISTRATIONS),
-    );
-    const readNativeRiffFacts = vi.fn(async () => ({
-      status: 'ready' as const,
-      requestId: 'riff-read-xiuyuan-command-1',
-      mode: 'audit' as const,
-      deckId: 'deck-1',
-      readAt: 20,
-      blocks: [],
-      diagnostics: {
-        source: 'kernel-riff' as const,
-        blockCount: 0,
-        normalizedBlockCount: 0,
-        malformedBlockCount: 0,
-        truncated: false,
-      },
-    }));
-    const context: BackendXiuyuanRpcHandlerContext = {
-      xiuyuan: new BackendXiuyuanSyncRuntime({
-        loadLocalFacts: vi.fn(async () => ({ loadedAt: 10, xiuyuans: [], cards: [] })),
-        readNativeRiffFacts,
-        applySyncPlan: vi.fn(),
-        now: () => 100,
-      }),
-    };
-    const params = {
-      requestId: 'xiuyuan-request-1',
-      commandId: 'xiuyuan-command-1',
-      idempotencyKey: 'xiuyuan-key-1',
-      mode: 'audit',
-      dryRun: true,
-      deckId: 'deck-1',
-      requestedAt: 1,
-    };
-
-    await expect(dispatch(dispatcher, context, 'xiuyuan.sync.execute', params)).resolves.toMatchObject({
-      result: {
-        status: 'planned',
-        commandId: 'xiuyuan-command-1',
-        idempotencyKey: 'xiuyuan-key-1',
-      },
-    });
-    await expect(dispatch(dispatcher, context, 'xiuyuan.sync.execute', params)).resolves.toMatchObject({
-      result: {
-        status: 'planned',
-        commandId: 'xiuyuan-command-1',
-      },
-    });
-    expect(readNativeRiffFacts).toHaveBeenCalledTimes(1);
-  });
-
   it('runs progressive.command.execute through its runtime with duplicate replay', async () => {
     const dispatcher = new BackendRpcDispatcher(
       createBackendRpcHandlerRegistry(BACKEND_PROGRESSIVE_RPC_HANDLER_REGISTRATIONS),
@@ -185,8 +127,7 @@ describe('Backend integration command RPC adapters', () => {
 function dispatch<TContext>(
   dispatcher: BackendRpcDispatcher<TContext>,
   context: TContext,
-  method: typeof BACKEND_XIUYUAN_RPC_HANDLER_REGISTRATIONS[number]['method']
-    | typeof BACKEND_PROGRESSIVE_RPC_HANDLER_REGISTRATIONS[number]['method']
+  method: typeof BACKEND_PROGRESSIVE_RPC_HANDLER_REGISTRATIONS[number]['method']
     | typeof BACKEND_TOPIC_DERIVED_RPC_HANDLER_REGISTRATIONS[number]['method'],
   params?: unknown,
 ) {

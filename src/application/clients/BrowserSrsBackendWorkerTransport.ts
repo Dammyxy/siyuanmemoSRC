@@ -13,8 +13,6 @@ import type {
   BackendNeuralGraphQueryResult,
   BackendRpcRequest,
   BackendRpcResponse,
-  BackendXiuyuanRiffReadAuditRequest,
-  BackendXiuyuanRiffReadAuditResult,
 } from '../../../packages/contracts/src/backend-rpc';
 import type {
   BackendWorkerHostEffect,
@@ -34,7 +32,6 @@ const LONG_BACKEND_COMMAND_REQUEST_TIMEOUT_MS = 300_000;
 const LONG_BACKEND_COMMAND_HOST_EFFECT_TIMEOUT_MS = 300_000;
 const LONG_BACKEND_COMMAND_METHODS = new Set<string>([
   'storage.projection.rebuild',
-  'xiuyuan.sync.execute',
 ]);
 const REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT = 5;
 const PENDING_WORK_DIAGNOSTIC_LIMIT = 10;
@@ -76,9 +73,6 @@ export interface BrowserSrsBackendWorkerHostEffects {
   resolveNeuralGraphQuery?: (
     request: BackendNeuralGraphQueryRequest,
   ) => Promise<BackendNeuralGraphQueryResult>;
-  readXiuyuanRiffFacts?: (
-    request: BackendXiuyuanRiffReadAuditRequest,
-  ) => Promise<BackendXiuyuanRiffReadAuditResult>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
   executeAutoCardBatch?: (request: BackendAutoCardExecuteBatchRequest) => Promise<BackendAutoCardExecuteBatchResult>;
   executeProgressiveCommand?: (
@@ -583,11 +577,6 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('neural graph query host effect unavailable');
         }
         return this.options.hostEffects.resolveNeuralGraphQuery(effect.request);
-      case 'siyuan.riff.readAudit':
-        if (!this.options.hostEffects.readXiuyuanRiffFacts) {
-          throw unavailable('Xiuyuan native Riff read/audit host effect unavailable');
-        }
-        return this.options.hostEffects.readXiuyuanRiffFacts(effect.request);
       case 'autocard.execute':
         if (!this.options.hostEffects.executeAutoCard) {
           throw unavailable('autocard.execute host effect unavailable');

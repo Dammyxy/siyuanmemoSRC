@@ -78,11 +78,6 @@ import {
   BACKEND_TOPIC_DERIVED_RPC_METHOD_CONTRACT_BY_METHOD,
   type BackendTopicDerivedRpcMethod,
 } from '../backend-rpc/topic-derived';
-import {
-  BACKEND_XIUYUAN_RPC_METHODS,
-  BACKEND_XIUYUAN_RPC_METHOD_CONTRACT_BY_METHOD,
-  type BackendXiuyuanRpcMethod,
-} from '../backend-rpc/xiuyuan';
 
 describe('backend RPC method-family contract catalog', () => {
   it('declares every backend RPC method exactly once without changing method strings', () => {
@@ -350,10 +345,7 @@ describe('backend RPC method-family contract catalog', () => {
     );
   });
 
-  it('exports Xiuyuan, Progressive, and Topic-derived command contracts from their family modules', () => {
-    expect(BACKEND_XIUYUAN_RPC_METHODS).toEqual([
-      'xiuyuan.sync.execute',
-    ] satisfies BackendXiuyuanRpcMethod[]);
+  it('exports Progressive and Topic-derived command contracts from their family modules', () => {
     expect(BACKEND_PROGRESSIVE_RPC_METHODS).toEqual([
       'progressive.command.execute',
     ] satisfies BackendProgressiveRpcMethod[]);
@@ -361,10 +353,6 @@ describe('backend RPC method-family contract catalog', () => {
       'topic-derived.command.execute',
     ] satisfies BackendTopicDerivedRpcMethod[]);
 
-    expect(BACKEND_XIUYUAN_RPC_METHOD_CONTRACT_BY_METHOD['xiuyuan.sync.execute']).toMatchObject({
-      method: 'xiuyuan.sync.execute',
-      family: 'xiuyuan',
-    });
     expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['progressive.command.execute']).toBe(
       BACKEND_PROGRESSIVE_RPC_METHOD_CONTRACT_BY_METHOD['progressive.command.execute'],
     );

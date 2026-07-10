@@ -125,19 +125,17 @@ function createReviewFeedbackRequestForAction(
   };
 }
 
-function createXiuyuanSyncRequest(id = 1): BackendRpcRequest {
+function createStorageProjectionRebuildRequest(id = 1): BackendRpcRequest {
   return {
     jsonrpc: BACKEND_RPC_VERSION,
     id,
-    method: 'xiuyuan.sync.execute',
+    method: 'storage.projection.rebuild',
     params: [{
-      requestId: `sync-request-${id}`,
-      commandId: `sync-command-${id}`,
-      idempotencyKey: `sync-key-${id}`,
-      mode: 'full',
-      dryRun: false,
-      deckId: 'deck-a',
-      requestedAt: 1_700_000_000_000,
+      rebuildId: `projection-rebuild-${id}`,
+      cause: 'manual',
+      families: ['cards'],
+      deviceId: 'device-test',
+      generationId: 'generation-test',
     }],
   };
 }
@@ -1659,75 +1657,6 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
-  it('serves Xiuyuan native Riff read/audit host effects through the typed bridge', async () => {
-    const worker = new FakeWorker();
-    const readXiuyuanRiffFacts = vi.fn(async () => ({
-      status: 'ready' as const,
-      requestId: 'riff-read-1',
-      mode: 'audit' as const,
-      deckId: 'deck-a',
-      readAt: 1_700_000_000_100,
-      blocks: [
-        { id: 'block-a', content: 'Q <> A' },
-      ],
-      diagnostics: {
-        source: 'renderer-host-effect' as const,
-        blockCount: 1,
-        normalizedBlockCount: 1,
-        malformedBlockCount: 0,
-        truncated: false,
-      },
-    }));
-    const transport = new BrowserSrsBackendWorkerTransport({
-      workerFactory: () => worker as unknown as Worker,
-      hostEffects: { readXiuyuanRiffFacts },
-    });
-    const request = {
-      requestId: 'riff-read-1',
-      mode: 'audit' as const,
-      deckId: 'deck-a',
-      scope: {
-        blockIds: ['block-a'],
-      },
-    };
-
-    worker.emit({ kind: 'ready' });
-    worker.emit({
-      kind: 'host-effect',
-      effectId: 'effect-xiuyuan-riff-1',
-      effect: {
-        kind: 'siyuan.riff.readAudit',
-        request,
-      },
-    });
-
-    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
-    expect(readXiuyuanRiffFacts).toHaveBeenCalledWith(request);
-    expect(worker.posted[0]).toEqual({
-      kind: 'host-effect-result',
-      effectId: 'effect-xiuyuan-riff-1',
-      ok: true,
-      result: {
-        status: 'ready',
-        requestId: 'riff-read-1',
-        mode: 'audit',
-        deckId: 'deck-a',
-        readAt: 1_700_000_000_100,
-        blocks: [
-          { id: 'block-a', content: 'Q <> A' },
-        ],
-        diagnostics: {
-          source: 'renderer-host-effect',
-          blockCount: 1,
-          normalizedBlockCount: 1,
-          malformedBlockCount: 0,
-          truncated: false,
-        },
-      },
-    });
-    transport.dispose();
-  });
-
   it('posts explicit unavailable when neural graph query host effect is absent', async () => {
     const worker = new FakeWorker();
     const transport = new BrowserSrsBackendWorkerTransport({
@@ -1854,7 +1783,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     expect(worker.terminated).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the extended backend request timeout for long Xiuyuan sync commands', async () => {
+  it('uses the extended backend request timeout for projection rebuild commands', async () => {
     const worker = new FakeWorker();
     const transport = new BrowserSrsBackendWorkerTransport({
       workerFactory: () => worker as unknown as Worker,
@@ -1864,7 +1793,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     });
     worker.emit({ kind: 'ready' });
 
-    const request = createXiuyuanSyncRequest(67);
+    const request = createStorageProjectionRebuildRequest(67);
     const pending = transport.request(request);
     let settled = false;
     void pending.then(
@@ -1891,7 +1820,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       pendingProbeSummaries: [],
       pendingRequestSummaries: [
         expect.objectContaining({
-          method: 'xiuyuan.sync.execute',
+          method: 'storage.projection.rebuild',
           generation: 1,
           posted: true,
           queuedForMs: expect.any(Number),
@@ -1951,7 +1880,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     expect(worker.terminated).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps SQLite host effects alive while a long Xiuyuan sync command is pending', async () => {
+  it('keeps SQLite host effects alive while a projection rebuild command is pending', async () => {
     const worker = new FakeWorker();
     const writeBinary = vi.fn(() => new Promise<void>((resolve) => {
       setTimeout(resolve, 25);
@@ -1965,7 +1894,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     });
     worker.emit({ kind: 'ready' });
 
-    const request = createXiuyuanSyncRequest(68);
+    const request = createStorageProjectionRebuildRequest(68);
     const pending = transport.request(request);
     await Promise.resolve();
     expect(worker.posted).toEqual([
@@ -1982,7 +1911,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         kind: 'sqlite.writeBinary',
         path: 'siyuanmemo.db',
         bytes: new Uint8Array([1, 2, 3]),
-        requestMethod: 'xiuyuan.sync.execute',
+        requestMethod: 'storage.projection.rebuild',
       },
     });
 

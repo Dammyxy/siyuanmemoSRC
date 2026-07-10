@@ -80,7 +80,6 @@ import type {
   BackendSemanticSidebarReadResult,
   BackendSemanticSessionReadRequest,
   BackendSemanticSessionReadResult,
-  BackendXiuyuanSyncLocalFacts,
   BackendReviewFeedbackJournalDiagnostics,
   BackendReviewFeedbackJournalBackpressureDiagnostics,
   BackendReviewFeedbackJournalOperationStatus,
@@ -103,7 +102,6 @@ import type {
   ReviewTransactionUndoJournalConsumeRequest,
   ReviewTransactionUndoJournalEntry,
 } from '../review/ReviewTransactionUndoJournal';
-import type { WorkerXiuyuanSyncApplyInput } from '../xiuyuan/WorkerXiuyuanSyncPlanner';
 import type {
   SemanticEvent,
   SemanticLens,
@@ -147,7 +145,6 @@ import {
 } from '../queue-projection/WorkerQueueProjectionRuntime';
 import { SourceExistenceProjectionInvalidator } from '../queue-projection/SourceExistenceProjectionInvalidator';
 import { WorkerKernelTransactionRuntime } from '../kernel-transaction/WorkerKernelTransactionRuntime';
-import { WorkerXiuyuanSyncRuntime } from '../xiuyuan/WorkerXiuyuanSyncRuntime';
 import {
   StorageBootstrapRuntime,
   type StartupTruthProjectionInput,
@@ -6373,26 +6370,6 @@ export class WorkerSqliteDatabaseService {
     return Math.max(0, Math.min(1, value));
   }
 
-  async applyXiuyuanSyncPlan(input: WorkerXiuyuanSyncApplyInput): Promise<{
-    blockIds: string[];
-    cardIds: string[];
-  }> {
-    await this.init();
-    return this.createXiuyuanSyncRuntime().applyXiuyuanSyncPlan(input);
-  }
-
-  async readXiuyuanSyncLocalFacts(): Promise<BackendXiuyuanSyncLocalFacts> {
-    await this.init();
-    return this.createXiuyuanSyncRuntime().readXiuyuanSyncLocalFacts();
-  }
-
-  private createXiuyuanSyncRuntime(): WorkerXiuyuanSyncRuntime {
-    return new WorkerXiuyuanSyncRuntime({
-      runtime: this.runtime,
-      repository: this.repository!,
-      now: Date.now,
-    });
-  }
   private semanticFailed(
     requestId: string,
     unavailableReason: Extract<BackendSemanticCommandResult, { status: 'failed' }>['unavailableReason'],

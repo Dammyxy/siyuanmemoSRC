@@ -37,8 +37,6 @@ import type {
   BackendSyncConflictSummarizeResult,
   BackendTopicDerivedCommandExecuteRequest,
   BackendTopicDerivedCommandExecuteResult,
-  BackendXiuyuanSyncExecuteRequest,
-  BackendXiuyuanSyncExecuteResult,
   P6OwnershipCommandRequest,
   P6OwnershipQueryRequest,
   P6OwnershipResult,
@@ -69,7 +67,6 @@ export interface BackendIntegrationClientFacet {
   ingestKernelTransactions(request: BackendKernelTransactionIngestRequest): Promise<BackendKernelTransactionIngestResult>;
   dequeueKernelTransactions(request?: BackendKernelTransactionDequeueRequest): Promise<BackendKernelTransactionDequeueResult>;
   requeueKernelTransactions(request?: BackendKernelTransactionRequeueRequest): Promise<BackendKernelTransactionRequeueResult>;
-  executeXiuyuanSync(request: BackendXiuyuanSyncExecuteRequest): Promise<BackendXiuyuanSyncExecuteResult>;
   executeProgressiveCommand<TResult = unknown>(
     request: BackendProgressiveCommandExecuteRequest,
   ): Promise<BackendProgressiveCommandExecuteResult<TResult>>;
@@ -169,10 +166,6 @@ export class BackendIntegrationRpcClient implements BackendIntegrationClientFace
     request: BackendKernelTransactionRequeueRequest = {},
   ): Promise<BackendKernelTransactionRequeueResult> {
     return this.rpcCaller.call<BackendKernelTransactionRequeueResult>('kernel.transaction.requeue', request);
-  }
-
-  executeXiuyuanSync(request: BackendXiuyuanSyncExecuteRequest): Promise<BackendXiuyuanSyncExecuteResult> {
-    return this.rpcCaller.call<BackendXiuyuanSyncExecuteResult>('xiuyuan.sync.execute', request);
   }
 
   executeProgressiveCommand<TResult = unknown>(

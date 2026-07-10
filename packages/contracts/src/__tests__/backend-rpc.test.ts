@@ -21,10 +21,6 @@ import type {
   BackendRpcRequest,
   BackendStorageProjectionRebuildRequest,
   BackendStorageProjectionRebuildResult,
-  BackendXiuyuanRiffReadAuditRequest,
-  BackendXiuyuanRiffReadAuditResult,
-  BackendXiuyuanSyncExecuteRequest,
-  BackendXiuyuanSyncExecuteResult,
   BackendDomainSyncRepairApplyRequest,
   BackendDomainSyncRepairApplyResult,
   BackendDomainSyncRepairPreviewRequest,
@@ -680,126 +676,6 @@ describe('backend hotspot command placeholder contracts', () => {
         unavailableClass: 'WRITER_UNAVAILABLE',
       },
     });
-  });
-});
-
-describe('backend Xiuyuan sync contracts', () => {
-  it('serializes read/audit facts and execute planning without leaking Riff content into diagnostics', () => {
-    const readRequest = {
-      requestId: 'riff-read-1',
-      mode: 'incremental',
-      deckId: 'deck-a',
-      since: 1_700_000_000_000,
-      scope: {
-        blockIds: ['block-a'],
-        includeNew: true,
-      },
-      deadlineAt: 1_700_000_030_000,
-    } satisfies BackendXiuyuanRiffReadAuditRequest;
-    const readResult = {
-      status: 'ready',
-      requestId: 'riff-read-1',
-      mode: 'incremental',
-      deckId: 'deck-a',
-      readAt: 1_700_000_000_010,
-      blocks: [
-        {
-          id: 'block-a',
-          content: 'Q <> A',
-          ial: {
-            'custom-fsrs-card-type': 'item',
-          },
-          riffCard: {
-            due: '2026-05-24T00:00:00.000Z',
-            reps: 1,
-            lapses: 0,
-            state: 2,
-          },
-        },
-      ],
-      diagnostics: {
-        source: 'renderer-host-effect',
-        blockCount: 1,
-        normalizedBlockCount: 1,
-        malformedBlockCount: 0,
-        truncated: false,
-      },
-    } satisfies BackendXiuyuanRiffReadAuditResult;
-    const executeRequest = {
-      requestId: 'sync-request-1',
-      commandId: 'sync-command-1',
-      idempotencyKey: 'xiuyuan-sync:deck-a:incremental:1700000000000',
-      mode: 'incremental',
-      dryRun: true,
-      deckId: 'deck-a',
-      requestedAt: 1_700_000_000_000,
-      scope: {
-        blockIds: ['block-a'],
-      },
-      caller: {
-        instanceId: 'worker',
-        runtimeRole: 'worker',
-        surface: 'background',
-      },
-    } satisfies BackendXiuyuanSyncExecuteRequest;
-    const executeResult = {
-      status: 'planned',
-      commandId: 'sync-command-1',
-      idempotencyKey: 'xiuyuan-sync:deck-a:incremental:1700000000000',
-      mode: 'incremental',
-      dryRun: true,
-      progress: {
-        state: 'succeeded',
-        currentStep: 'planned',
-        completedUnits: 3,
-        totalUnits: 3,
-        updatedAt: 1_700_000_000_020,
-      },
-      plan: {
-        localXiuyuanCount: 1,
-        localCardCount: 1,
-        localManagedRiffCount: 1,
-        nativeRiffCount: 1,
-        normalizedNativeRiffCount: 1,
-        malformedNativeRiffCount: 0,
-        duplicateNativeRiffCount: 0,
-        createCount: 0,
-        updateCount: 1,
-        deleteCount: 0,
-        skippedLocalOwnedCount: 0,
-        candidateBlockIds: {
-          create: [],
-          update: ['block-a'],
-          delete: [],
-          skippedLocalOwned: [],
-        },
-      },
-      applyImpact: {
-        requested: false,
-        applied: false,
-        reason: 'dry-run',
-        changed: {},
-      },
-      diagnostics: {
-        diagnosticEventId: 'xiuyuan-sync:sync-command-1',
-        readSource: 'renderer-host-effect',
-        localLoadedAt: 1_700_000_000_005,
-        nativeReadAt: 1_700_000_000_010,
-        timingMs: 20,
-      },
-    } satisfies BackendXiuyuanSyncExecuteResult;
-
-    expect(JSON.parse(JSON.stringify({ readRequest, readResult, executeRequest, executeResult }))).toMatchObject({
-      readRequest: { mode: 'incremental', deckId: 'deck-a' },
-      readResult: { status: 'ready', diagnostics: { blockCount: 1 } },
-      executeRequest: { dryRun: true },
-      executeResult: {
-        status: 'planned',
-        plan: { updateCount: 1 },
-        applyImpact: { applied: false, reason: 'dry-run' },
-      },
-    });
-    expect(JSON.stringify(executeResult.diagnostics)).not.toContain('Q <> A');
   });
 });
 

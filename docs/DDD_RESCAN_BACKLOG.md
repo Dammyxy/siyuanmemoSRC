@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 697)
+Last update: 2026-07-10 (Round 698)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Remove Xiuyuan sync worker family
+
+- Task: Apply `retire-native-riff-continuous-sync` task 5.5 after application continuous-sync runtime removal.
+- Touched slice: Backend RPC contracts/family catalog, application backend clients/catalog/transport/runtime bundle, backend worker registry/protocol/kernel/entrypoint, Xiuyuan worker planner/runtime, SQLite service facade, ownership map, focused tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: Deleted `xiuyuan.sync.execute`, all `BackendXiuyuanSync*` and Riff read-audit contracts, `SrsBackendClient.executeXiuyuanSync`, integration client/catalog exposure, `siyuan.riff.readAudit`, `BackendXiuyuanSyncRuntime`, `WorkerXiuyuanSyncPlanner`, `WorkerXiuyuanSyncRuntime`, SQLite local-facts/apply/checkpoint facade methods, obsolete adapters/ports, and worker tests. Projection rebuild now solely owns long-command storage host-effect timeout coverage.
+- Debt deferred: Legacy `riffSyncState`, `riffBlacklist`, `deleteSync`, migration compatibility reads, and the legacy blacklist migration Module remain task 5.6.
+- Why deferred: Compatibility-field removal needs a separate persistence/settings migration scan and idempotency validation.
+- Next safe step: Remove retired Riff checkpoint/blacklist/delete-sync settings and persistence fields under task 5.6.
+- Validation: Focused contracts/client/transport/runtime-bundle/ownership/worker-registry suite passed: 8 files, 105 tests. Production code scan found no `xiuyuan.sync.execute`, `siyuan.riff.readAudit`, Xiuyuan sync contract/runtime, or SQLite sync facade reference.
 
 ### 2026-07-10 - Remove Xiuyuan continuous-sync application runtime
 

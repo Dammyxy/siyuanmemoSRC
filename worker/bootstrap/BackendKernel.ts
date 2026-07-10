@@ -13,8 +13,6 @@ import {
   type BackendProgressiveCommandExecuteResult,
   type BackendTopicDerivedCommandExecuteRequest,
   type BackendTopicDerivedCommandExecuteResult,
-  type BackendXiuyuanRiffReadAuditRequest,
-  type BackendXiuyuanRiffReadAuditResult,
   type BackendRpcMethod,
   type BackendRpcRequest,
   type BackendRpcResponse,
@@ -46,7 +44,6 @@ import {
   type BackendKernelRpcHandlerContext,
 } from './rpc/BackendRpcRegistry';
 import { BackendTopicDerivedCommandRuntime } from './rpc/BackendTopicDerivedRpcAdapter';
-import { BackendXiuyuanSyncRuntime } from './rpc/BackendXiuyuanRpcAdapter';
 import { WorkerReviewSessionRuntime } from '../review/WorkerReviewSessionRuntime';
 import { WorkerSrsReviewKernelAdapter, type SrsReviewKernel } from '../review/SrsReviewKernel';
 
@@ -71,9 +68,6 @@ interface BackendKernelDependencies {
   ) => Promise<BackendNeuralGraphQueryResult>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
   executeAutoCardBatch?: (request: BackendAutoCardExecuteBatchRequest) => Promise<BackendAutoCardExecuteBatchResult>;
-  readXiuyuanRiffFacts?: (
-    request: BackendXiuyuanRiffReadAuditRequest,
-  ) => Promise<BackendXiuyuanRiffReadAuditResult>;
   executeProgressiveCommand?: (
     request: BackendProgressiveCommandExecuteRequest,
   ) => Promise<BackendProgressiveCommandExecuteResult>;
@@ -148,7 +142,6 @@ export class BackendKernel {
   private readonly privateApiRuntime: BackendPrivateApiRuntime;
   private readonly semanticRuntime: BackendKernelRpcHandlerContext['semantic'];
   private readonly p6OwnershipRuntime: BackendP6OwnershipRuntime;
-  private readonly xiuyuanSyncRuntime: BackendXiuyuanSyncRuntime;
   private readonly progressiveCommandRuntime: BackendProgressiveCommandRuntime;
   private readonly topicDerivedCommandRuntime: BackendTopicDerivedCommandRuntime;
   private readonly reviewSessionRuntime: WorkerReviewSessionRuntime;
@@ -177,11 +170,6 @@ export class BackendKernel {
       readBrowser: (request) => this.deps.database.readSemanticBrowser(request),
     };
     this.p6OwnershipRuntime = new BackendP6OwnershipRuntime();
-    this.xiuyuanSyncRuntime = new BackendXiuyuanSyncRuntime({
-      loadLocalFacts: () => this.deps.database.readXiuyuanSyncLocalFacts(),
-      readNativeRiffFacts: this.deps.readXiuyuanRiffFacts,
-      applySyncPlan: (input) => this.deps.database.applyXiuyuanSyncPlan(input),
-    });
     this.progressiveCommandRuntime = new BackendProgressiveCommandRuntime(this.deps.executeProgressiveCommand);
     this.topicDerivedCommandRuntime = new BackendTopicDerivedCommandRuntime(this.deps.executeTopicDerivedCommand);
     this.reviewSessionRuntime = new WorkerReviewSessionRuntime({
@@ -275,7 +263,6 @@ export class BackendKernel {
       privateApi: this.privateApiRuntime,
       semantic: this.semanticRuntime,
       p6Ownership: this.p6OwnershipRuntime,
-      xiuyuan: this.xiuyuanSyncRuntime,
       progressive: this.progressiveCommandRuntime,
       topicDerived: this.topicDerivedCommandRuntime,
       hotspot: this.hotspotRuntime,
