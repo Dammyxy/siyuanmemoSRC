@@ -37,7 +37,6 @@ describe('kernel relay contract', () => {
       'kernelNetworkProxy',
       'privateHttp',
       'privateSse',
-      'riffReadAuditProxy',
     ]);
   });
 

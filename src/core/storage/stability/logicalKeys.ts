@@ -332,7 +332,6 @@ export function mergeCardDTOsLocalFirst(
     xiuyuanID: canonicalXiuyuanId || undefined,
     tags: mergedTags,
     cardTypeMarker: incomingCard.cardTypeMarker ?? localCard.cardTypeMarker,
-    syncToRiff: localCard.syncToRiff ?? incomingCard.syncToRiff,
     riffCardId: incomingCard.riffCardId ?? localCard.riffCardId,
     templateID: localCard.templateID ?? incomingCard.templateID,
     frontBlockIDs: mergedFrontBlockIDs,

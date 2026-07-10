@@ -37,10 +37,6 @@ import { Priority } from '../domain/Priority';
 import { Card } from '../domain/Card';
 import { CardId } from '../domain/CardId';
 import { ScheduleInfo } from '../domain/ScheduleInfo';
-import type {
-  AppliedSyncSummary,
-  SyncChangeSet,
-} from '../domain/repositories/SyncChangeSet';
 import { IXiuyuan } from '../types';
 import { CardState, CardType } from '../../../types/card';
 import type { FSRSCard } from '../../../types/card';
@@ -299,18 +295,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       : this.storage.deleteXiuYuan(xiuyuanId);
   }
 
-  private removeStorageRiffBlacklist(
-    blockId: string,
-    transaction?: StorageWriteTransaction,
-  ): void {
-    if (transaction) {
-      this.storage.removeFromRiffBlacklist(blockId, { transaction });
-      return;
-    }
-
-    this.storage.removeFromRiffBlacklist(blockId);
-  }
-
   private mergeDeferredSideEffects(
     target: DeferredRepositorySideEffects,
     source: DeferredRepositorySideEffects,
@@ -512,83 +496,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
     await this.runDeferredSideEffects(transactionalResult.value);
     return ok(undefined);
-  }
-
-  async applySyncChangeSet(changeSet: SyncChangeSet): Promise<Result<AppliedSyncSummary>> {
-    const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.applySyncChangeSet', async (transaction) => {
-      const rollbackSnapshot = this.cloneStorageSnapshot();
-      try {
-        const deferredSideEffects = this.createDeferredSideEffects();
-
-        for (const create of changeSet.creates) {
-          const stageResult = await this.stageSaveXiuyuanMutation(create.xiuyuanEntity, transaction);
-          if (!stageResult.ok) {
-            this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
-            return stageResult;
-          }
-          this.mergeDeferredSideEffects(deferredSideEffects, stageResult.value.sideEffects);
-        }
-
-        for (const update of changeSet.metadataUpdates) {
-          const stageResult = await this.stageSaveXiuyuanMutation(update.xiuyuanEntity, transaction);
-          if (!stageResult.ok) {
-            this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
-            return stageResult;
-          }
-          this.mergeDeferredSideEffects(deferredSideEffects, stageResult.value.sideEffects);
-        }
-
-        for (const deletion of changeSet.deletes) {
-          const stageResult = await this.stageDeleteXiuyuanMutation(deletion.xiuyuanEntity, transaction);
-          if (!stageResult.ok) {
-            this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
-            return stageResult;
-          }
-          this.mergeDeferredSideEffects(deferredSideEffects, stageResult.value);
-        }
-
-        const blacklistCleanup = Array.from(new Set(changeSet.blacklistCleanup));
-        for (const blockId of blacklistCleanup) {
-          this.removeStorageRiffBlacklist(blockId, transaction);
-        }
-
-        if (changeSet.checkpointAdvance) {
-          this.storage.patchRiffSyncState(
-            changeSet.checkpointAdvance,
-            this.withStorageTransaction({ scheduleSave: false }, transaction),
-          );
-        }
-
-        const saveResult = await this.storage.save({ transaction });
-        if (isErr(saveResult)) {
-          const error = saveResult.error || new Error('Failed to persist sync change set');
-          logger.error('Failed to persist sync change set:', error);
-          this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', error);
-          return err(error);
-        }
-
-        return ok({
-          deferredSideEffects,
-          summary: {
-            createdCount: changeSet.creates.length,
-            updatedCount: changeSet.metadataUpdates.length,
-            deletedCount: changeSet.deletes.length,
-            blacklistCleanedCount: blacklistCleanup.length,
-            checkpointApplied: Boolean(changeSet.checkpointAdvance),
-          },
-        });
-      } catch (error) {
-        this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', error);
-        return err(error instanceof Error ? error : new Error(String(error)));
-      }
-    });
-
-    if (!transactionalResult.ok) {
-      return transactionalResult;
-    }
-
-    await this.runDeferredSideEffects(transactionalResult.value.deferredSideEffects);
-    return ok(transactionalResult.value.summary);
   }
 
   /**

@@ -77,7 +77,6 @@ export interface CardPersistenceDTO {
 
   // ==================== 调度器相关 ====================
   schedulerType?: 'fsrs-v6' | 'a-factor-v2' | 'riff' | string;
-  syncToRiff?: boolean;
   riffCardId?: string;
   schedulerMeta?: {
     topic?: {

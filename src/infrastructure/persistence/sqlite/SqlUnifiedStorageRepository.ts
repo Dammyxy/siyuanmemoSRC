@@ -206,8 +206,6 @@ function createEmptyStore(): UnifiedCardStore {
     cardDTOs: {},
     deletedCardDTOs: {},
     deletedXiuyuans: {},
-    riffBlacklist: [],
-    riffSyncState: {},
   };
 }
 
@@ -262,8 +260,6 @@ function calculateStoreContentHash(store: UnifiedCardStore): string {
     cardDTOs: store.cardDTOs || {},
     deletedCardDTOs: store.deletedCardDTOs || {},
     deletedXiuyuans: store.deletedXiuyuans || {},
-    riffBlacklist: store.riffBlacklist || [],
-    riffSyncState: store.riffSyncState || {},
   }));
 }
 
@@ -546,20 +542,10 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         }
       }
 
-      const riffBlacklist = this.database.getOne<{ value_json: string }>(
-        'SELECT value_json FROM riff_sync WHERE key = ?',
-        ['blacklist'],
-      );
-      const riffSyncState = this.database.getOne<{ value_json: string }>(
-        'SELECT value_json FROM riff_sync WHERE key = ?',
-        ['sync_state'],
-      );
       const syncMetadata = this.database.getOne<{ value_json: string }>(
         'SELECT value_json FROM store_metadata WHERE key = ?',
         ['sync_metadata'],
       );
-      store.riffBlacklist = parseJson<string[]>(riffBlacklist?.value_json, []);
-      store.riffSyncState = parseJson<Record<string, unknown>>(riffSyncState?.value_json, {});
       store.syncMetadata = parseJson<UnifiedCardStore['syncMetadata'] | undefined>(syncMetadata?.value_json, undefined);
       return store;
     });
@@ -572,7 +558,6 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       db.run('DELETE FROM algorithm_card_state WHERE algorithm_id IN (?, ?)', [...ACTIVE_ALGORITHM_IDS]);
       db.run('DELETE FROM xiuyuans');
       db.run('DELETE FROM tombstones');
-      db.run('DELETE FROM riff_sync');
       db.run('DELETE FROM store_metadata WHERE key IN (?, ?)', ['sync_metadata', 'unified_store_version']);
 
       for (const { id, card, dto } of resolveCanonicalStoreCards(store)) {
@@ -622,14 +607,6 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
       const now = Date.now();
       db.run(
-        'INSERT OR REPLACE INTO riff_sync (key, value_json, updated_at) VALUES (?, ?, ?)',
-        ['blacklist', stringifyJson(store.riffBlacklist || []), now],
-      );
-      db.run(
-        'INSERT OR REPLACE INTO riff_sync (key, value_json, updated_at) VALUES (?, ?, ?)',
-        ['sync_state', stringifyJson(store.riffSyncState || {}), now],
-      );
-      db.run(
         'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
         ['sync_metadata', stringifyJson(store.syncMetadata || null), now],
       );
@@ -660,7 +637,6 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         cardDTOs: delta.cardDTOs,
         deletedCardDTOs: {},
         deletedXiuyuans: {},
-        riffBlacklist: [],
       })) {
         this.writeCardRecord(db, { ...card, id }, dto, existingSource.get(id), now);
       }

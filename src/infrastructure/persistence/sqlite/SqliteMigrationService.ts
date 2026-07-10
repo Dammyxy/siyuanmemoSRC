@@ -12,13 +12,20 @@ import type {
 import type { SqlQueueStateRepository } from './SqlQueueStateRepository';
 import type { SqlReviewLogRepository } from './SqlReviewLogRepository';
 import type { SqlArenaRepository } from './SqlArenaRepository';
+import { NATIVE_RIFF_IMPORT_EXCLUSION_KIND } from './SqlNativeRiffImportExclusionRepository';
+import { parseJson, stringifyJson } from './json';
 
 const logger = createLogger('SqliteMigrationService');
 const INITIAL_MIGRATION_ID = 'initial-msgpack-json-import-v1';
+const NATIVE_RIFF_PERSISTENCE_RETIREMENT_MIGRATION_ID = 'native-riff-persistence-retirement-v1';
 const ALGORITHM_CARD_STATE_MIGRATION_ID = 'algorithm-card-state-production-v1';
 const ALGORITHM_CARD_STATE_UNRESOLVED_REPAIR_ID = 'algorithm-card-state-production-repair-unresolved-v1';
 
-type LegacyStoreLoader = (reason?: StorageLoadReason) => Promise<UnifiedCardStore>;
+type LegacyUnifiedCardStore = UnifiedCardStore & {
+  riffBlacklist?: unknown;
+};
+
+type LegacyStoreLoader = (reason?: StorageLoadReason) => Promise<LegacyUnifiedCardStore>;
 
 interface MonthlyReviewLogs {
   reviewLogs?: ReviewLog[];
@@ -27,13 +34,13 @@ interface MonthlyReviewLogs {
   rescheduleLogs?: RescheduleLog[];
 }
 
-function hasStoreContent(store: UnifiedCardStore): boolean {
+function hasStoreContent(store: LegacyUnifiedCardStore): boolean {
   return Object.keys(store.cards || {}).length > 0
     || Object.keys(store.cardDTOs || {}).length > 0
     || Object.keys(store.xiuyuans || {}).length > 0
     || Object.keys(store.deletedCardDTOs || {}).length > 0
     || Object.keys(store.deletedXiuyuans || {}).length > 0
-    || (store.riffBlacklist || []).length > 0;
+    || (Array.isArray(store.riffBlacklist) && store.riffBlacklist.length > 0);
 }
 
 export class SqliteMigrationService {
@@ -51,8 +58,10 @@ export class SqliteMigrationService {
 
   async migrateIfNeeded(now = Date.now()): Promise<{ migrated: boolean; usedSql: boolean }> {
     let migrated = false;
+    let importedLegacyBlacklist: unknown = null;
     if (!this.database.hasMigration(INITIAL_MIGRATION_ID)) {
       const legacyStore = await this.legacyStoreLoader('startup-load');
+      importedLegacyBlacklist = legacyStore.riffBlacklist;
       if (hasStoreContent(legacyStore)) {
         await this.fileService.writeJSON(`migration-backups/unified-cards-${now}.json`, legacyStore);
       }
@@ -70,9 +79,78 @@ export class SqliteMigrationService {
       migrated = true;
     }
 
+    const nativeRiffRetirement = await this.migrateNativeRiffPersistenceIfNeeded(
+      now,
+      importedLegacyBlacklist,
+    );
+    migrated ||= nativeRiffRetirement.migrated;
+
     const stateMigration = await this.migrateAlgorithmCardStateIfNeeded(now);
     migrated ||= stateMigration.migrated;
     return { migrated, usedSql: true };
+  }
+
+  private async migrateNativeRiffPersistenceIfNeeded(
+    now: number,
+    importedLegacyBlacklist: unknown,
+  ): Promise<{ migrated: boolean }> {
+    if (this.database.hasMigration(NATIVE_RIFF_PERSISTENCE_RETIREMENT_MIGRATION_ID)) {
+      return { migrated: false };
+    }
+
+    await this.database.runTransaction('sqlite.native-riff-persistence-retirement', () => {
+      const legacyBlockIds = new Set(normalizeLegacyRiffBlacklist(importedLegacyBlacklist));
+      if (this.hasLegacyRiffSyncTable()) {
+        const row = this.database.getOne<{ value_json: string }>(
+          'SELECT value_json FROM riff_sync WHERE key = ?',
+          ['blacklist'],
+        );
+        for (const blockId of normalizeLegacyRiffBlacklist(
+          parseJson<unknown>(row?.value_json, []),
+        )) {
+          legacyBlockIds.add(blockId);
+        }
+      }
+
+      for (const blockId of Array.from(legacyBlockIds).sort()) {
+        const exclusion = {
+          version: 1,
+          blockId,
+          excludedAt: now,
+          source: 'legacy-blacklist',
+          reason: 'migrated-riff-blacklist',
+        } as const;
+        this.database.run(
+          `INSERT OR IGNORE INTO tombstones (
+            kind,
+            id,
+            deleted_at,
+            deleted_by,
+            payload_json
+          ) VALUES (?, ?, ?, ?, ?)`,
+          [
+            NATIVE_RIFF_IMPORT_EXCLUSION_KIND,
+            blockId,
+            now,
+            exclusion.source,
+            stringifyJson(exclusion),
+          ],
+        );
+      }
+
+      this.database.run('DROP TABLE IF EXISTS riff_sync');
+      this.database.markMigration(NATIVE_RIFF_PERSISTENCE_RETIREMENT_MIGRATION_ID, now);
+    });
+
+    return { migrated: true };
+  }
+
+  private hasLegacyRiffSyncTable(): boolean {
+    return Boolean(this.database.getOne<{ present: number }>(
+      `SELECT 1 AS present
+       FROM sqlite_master
+       WHERE type = 'table' AND name = 'riff_sync'`,
+    ));
   }
 
   private async migrateAlgorithmCardStateIfNeeded(now: number): Promise<{ migrated: boolean }> {
@@ -171,4 +249,16 @@ export class SqliteMigrationService {
       }
     }
   }
+}
+
+function normalizeLegacyRiffBlacklist(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(new Set(
+    value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean),
+  ));
 }

@@ -161,7 +161,6 @@ describe('createUnifiedReviewDialog', () => {
   });
 
   it('does not treat legacy ReviewSyncManager as close-time Review persistence authority', async () => {
-    const incrementalSync = vi.fn(async () => ({ success: true }));
     const flushReviewTruthNow = vi.fn(async () => true);
     const plugin = {
       app: {},
@@ -191,7 +190,6 @@ describe('createUnifiedReviewDialog', () => {
     await dialogOptions.onClose();
 
     expect(flushReviewTruthNow).toHaveBeenCalledWith('review-exit');
-    expect(incrementalSync).not.toHaveBeenCalled();
   });
 
   it('awaits durable Review truth flush before close callback', async () => {

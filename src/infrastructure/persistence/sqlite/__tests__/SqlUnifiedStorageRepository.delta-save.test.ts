@@ -96,11 +96,6 @@ function createStore(dtos: CardPersistenceDTO[], tombstones: UnifiedCardStore['d
     cardDTOs: Object.fromEntries(dtos.map((dto) => [dto.id, dto])),
     deletedCardDTOs: tombstones,
     deletedXiuyuans: {},
-    riffBlacklist: ['block-blacklisted'],
-    riffSyncState: {
-      lastSuccessfulIncrementalAt: 1_700_000_001_000,
-      lastSuccessfulIncrementalCursor: 'cursor:1',
-    },
   };
 }
 
@@ -155,8 +150,6 @@ describe('SqlUnifiedStorageRepository Xiuyuan/card delta persistence', () => {
     expect(loaded.deletedCardDTOs?.['card-deleted']).toMatchObject({
       deletedBy: 'test',
     });
-    expect(loaded.riffBlacklist).toEqual(['block-blacklisted']);
-    expect(loaded.riffSyncState?.lastSuccessfulIncrementalCursor).toBe('cursor:1');
     expect(loaded.cardDTOs?.['card-new']).toMatchObject({
       id: 'card-new',
       xiuyuanID: 'xy-new',

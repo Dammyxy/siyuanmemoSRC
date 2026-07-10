@@ -1,6 +1,7 @@
 ﻿/**
  * Riff API - 对接思源原生闪卡系统
- * 通过调用 /api/riff/* 接口读写思源闪卡
+ * 通过调用 /api/riff/* 接口读取思源闪卡事实。
+ * SiYuanMemo 不在这里暴露 Native Riff 写能力。
  */
 
 import { request, getBlocksByIds } from './api.ts';
@@ -152,21 +153,6 @@ async function enrichRiffBlocksWithTimestamps(blocks: RiffBlock[]): Promise<Riff
 export async function getRiffDecks(): Promise<RiffDeck[]> {
     const data = await request<RiffDeck[]>('/riff/getRiffDecks', {});
     return data || [];
-}
-
-/** 创建卡包 */
-export async function createRiffDeck(name: string): Promise<RiffDeck> {
-    return request('/riff/createRiffDeck', { name });
-}
-
-/** 删除卡包 */
-export async function removeRiffDeck(deckID: string): Promise<void> {
-    return request('/riff/removeRiffDeck', { deckID });
-}
-
-/** 重命名卡包 */
-export async function renameRiffDeck(deckID: string, name: string): Promise<void> {
-    return request('/riff/renameRiffDeck', { deckID, name });
 }
 
 // ==================== 卡片管理 ====================
@@ -321,23 +307,6 @@ export async function getRiffDueCards(
         rootID: rootID || '',
     }, reviewedCards);
     return request('/riff/getRiffDueCards', payload);
-}
-
-/** 重置闪卡 */
-export async function resetRiffCards(
-    type: 'notebook' | 'tree' | 'deck',
-    id: string,
-    deckID: string,
-    blockIDs?: string[]
-): Promise<void> {
-    return request('/riff/resetRiffCards', { type, id, deckID, blockIDs });
-}
-
-/** 批量设置到期时间 */
-export async function batchSetRiffCardsDueTime(
-    cardDues: Array<{ id: string; due: string }>
-): Promise<void> {
-    return request('/riff/batchSetRiffCardsDueTime', { cardDues });
 }
 
 export async function getTreeRiffDueCards(

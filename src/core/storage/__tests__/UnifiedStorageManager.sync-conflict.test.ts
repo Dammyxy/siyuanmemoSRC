@@ -17,8 +17,6 @@ function createEmptyStore(): UnifiedCardStore {
     cardDTOs: {},
     deletedCardDTOs: {},
     deletedXiuyuans: {},
-    riffBlacklist: [],
-    riffSyncState: {},
   };
 }
 
@@ -200,7 +198,10 @@ describe('UnifiedStorageManager sync conflict resolution', () => {
     });
     await managerA.save();
 
-    managerB.addToRiffBlacklist('block-local-only');
+    await managerB.createCardDTO(
+      createXiuyuan('xy-local-only'),
+      createDTO('card-local-only', 'xy-local-only'),
+    );
     await managerB.save();
 
     expect(remoteStore.cardDTOs?.['card-review']).toMatchObject({
@@ -215,7 +216,7 @@ describe('UnifiedStorageManager sync conflict resolution', () => {
       reps: 8,
       scheduledDays: 22,
     });
-    expect(remoteStore.riffBlacklist).toContain('block-local-only');
+    expect(remoteStore.cardDTOs?.['card-local-only']).toBeDefined();
   });
 
   it('keeps local snapshot when remote snapshot was last written by the same instance', async () => {
@@ -444,50 +445,12 @@ describe('UnifiedStorageManager sync conflict resolution', () => {
 
     const manager = createManager('merge');
     await manager.load();
-    manager.addToRiffBlacklist('20260101010101-abc1234');
+    await manager.createCardDTO(createXiuyuan('xy-hash'), createDTO('card-hash', 'xy-hash'));
     const saveResult = await manager.save();
 
     expect(saveResult.ok).toBe(true);
     expect(savedStores.at(-1)?.version).toBe(2);
     expect(savedStores.at(-1)?.syncMetadata?.contentHash).toMatch(/^[0-9a-f]{16}$/);
-  });
-
-  it('skips unchanged riff sync state patches without marking storage dirty', async () => {
-    const manager = createManager('merge');
-    await manager.load();
-
-    const changed = manager.patchRiffSyncState({
-      lastSuccessfulIncrementalAt: 123,
-      lastSuccessfulIncrementalCursor: 'timestamp:123',
-    }, { scheduleSave: false });
-    expect(changed).toBe(true);
-    expect(manager.isDirty()).toBe(true);
-
-    await manager.save();
-    expect(manager.isDirty()).toBe(false);
-
-    const unchanged = manager.patchRiffSyncState({
-      lastSuccessfulIncrementalAt: 123,
-      lastSuccessfulIncrementalCursor: 'timestamp:123',
-    }, { scheduleSave: false });
-
-    expect(unchanged).toBe(false);
-    expect(manager.isDirty()).toBe(false);
-  });
-
-  it('does not reschedule save when a riff blacklist block is already present', async () => {
-    const manager = createManager('merge');
-    await manager.load();
-
-    manager.addToRiffBlacklist('block-1');
-    expect(manager.isDirty()).toBe(true);
-    await manager.save();
-    expect(savedStores).toHaveLength(1);
-
-    manager.addToRiffBlacklist('block-1');
-
-    expect(manager.isDirty()).toBe(false);
-    expect(savedStores).toHaveLength(1);
   });
 
   it('skips no-op updateCardDTO writes', async () => {

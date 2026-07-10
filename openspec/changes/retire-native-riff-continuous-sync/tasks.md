@@ -38,12 +38,12 @@
 - [x] 5.3 Remove Native Riff rating/feedback bridge behavior from SiYuanMemo Review paths.
 - [x] 5.4 Remove `XiuyuanSyncService`, sync helper runtimes, blacklist Module, duplicate sync types, and obsolete application tests.
 - [x] 5.5 Remove `xiuyuan.sync.execute` client/RPC catalogs, worker planner/runtime, SQLite checkpoint behavior, and obsolete worker tests.
-- [ ] 5.6 Remove retired Riff checkpoint/blacklist settings and persistence fields after migration compatibility reads are no longer needed.
+- [x] 5.6 Remove retired Riff checkpoint/blacklist settings and persistence fields after migration compatibility reads are no longer needed.
 
 ## 6. Documentation And Validation
 
-- [ ] 6.1 Update `ARCHITECTURE.md` and `docs/DDD_RESCAN_BACKLOG.md` for read-only explicit import ownership and retired sync paths.
-- [ ] 6.2 Run focused import/adoption/persistence/ApplicationContext/worker tests in RED-GREEN slices.
-- [ ] 6.3 Run `node scripts/check-hidden-fallbacks.cjs` and `pnpm run check:boundaries`.
-- [ ] 6.4 Run `openspec validate retire-native-riff-continuous-sync --strict`, `git diff --check`, and `pnpm build`.
-- [ ] 6.5 Re-read the active call chain and confirm no startup, transaction, timer, add, remove, rating, checkpoint, or blacklist runtime remains.
+- [x] 6.1 Update `ARCHITECTURE.md` and `docs/DDD_RESCAN_BACKLOG.md` for read-only explicit import ownership and retired sync paths.
+- [x] 6.2 Run focused import/adoption/persistence/ApplicationContext/worker tests in RED-GREEN slices.
+- [x] 6.3 Run `node scripts/check-hidden-fallbacks.cjs` and `pnpm run check:boundaries`.
+- [x] 6.4 Run `openspec validate retire-native-riff-continuous-sync --strict`, `git diff --check`, and `pnpm build`.
+- [x] 6.5 Re-read the active call chain and confirm no startup, transaction, timer, add, remove, rating, checkpoint, or blacklist runtime remains.

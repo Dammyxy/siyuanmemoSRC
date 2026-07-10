@@ -83,21 +83,13 @@ describe('WorkerKernelTransactionRuntime', () => {
       queueLength: 1,
       queuedTransactions: 1,
       acceptedTotal: 1,
-      actionQueueLength: 2,
-      actionEnqueuedTotal: 2,
-      removeActionQueuedTotal: 1,
+      actionQueueLength: 1,
+      actionEnqueuedTotal: 1,
       autoCardActionQueuedTotal: 1,
     });
 
     await expect(runtime.dequeueKernelTransactionActions(8)).resolves.toMatchObject({
       actions: [
-        {
-          type: 'native-riff-remove',
-          blockIds: ['block-remove-a', 'block-remove-b'],
-          source: 'ws-main',
-          receivedAt: 42,
-          idempotencyKey: 'kernel-transaction-key',
-        },
         {
           type: 'auto-card-candidates',
           operations: [
@@ -117,7 +109,7 @@ describe('WorkerKernelTransactionRuntime', () => {
     expect(runtime.getStatus()).toMatchObject({
       queueLength: 0,
       actionQueueLength: 0,
-      actionDequeuedTotal: 2,
+      actionDequeuedTotal: 1,
       drainedTotal: 1,
       lastAcceptedAt: 1_700_000_000_000,
       lastDrainAt: 1_700_000_000_000,
@@ -153,15 +145,11 @@ describe('WorkerKernelTransactionRuntime', () => {
       queuedTransactions: 1,
       acceptedTotal: 1,
       deduplicatedTotal: 1,
-      actionQueueLength: 2,
+      actionQueueLength: 1,
     });
 
     await expect(restored.dequeueKernelTransactionActions()).resolves.toMatchObject({
       actions: [
-        expect.objectContaining({
-          type: 'native-riff-remove',
-          idempotencyKey: 'same-key',
-        }),
         expect.objectContaining({
           type: 'auto-card-candidates',
           idempotencyKey: 'same-key',
@@ -177,8 +165,8 @@ describe('WorkerKernelTransactionRuntime', () => {
     });
 
     const action: BackendKernelTransactionAction = {
-      type: 'native-riff-remove',
-      blockIds: ['block-requeue'],
+      type: 'auto-card-candidates',
+      operations: [{ action: 'update', blockId: 'block-requeue' }],
       source: 'ws-main',
       receivedAt: 1,
       idempotencyKey: 'requeue-key',
@@ -198,7 +186,7 @@ describe('WorkerKernelTransactionRuntime', () => {
     });
   });
 
-  it('collects native Riff upsert and filters auto-card candidates from transaction operations', async () => {
+  it('collects AutoCard candidates from transaction operations', async () => {
     const { runtime } = createRuntime();
 
     await runtime.ingestKernelTransactions({
@@ -224,13 +212,6 @@ describe('WorkerKernelTransactionRuntime', () => {
     await expect(runtime.dequeueKernelTransactionActions(8)).resolves.toMatchObject({
       actions: [
         {
-          type: 'native-riff-upsert',
-          blockIds: ['block-upsert-a', 'block-upsert-b'],
-          source: 'ws-main',
-          receivedAt: expect.any(Number),
-          idempotencyKey: 'collect-actions-key',
-        },
-        {
           type: 'auto-card-candidates',
           operations: [
             { action: 'update', blockId: 'block-marker-update' },
@@ -241,44 +222,6 @@ describe('WorkerKernelTransactionRuntime', () => {
         },
       ],
       remaining: 0,
-    });
-  });
-
-  it('filters auto-card candidate actions when ingest only enables native Riff actions', async () => {
-    const { runtime } = createRuntime();
-
-    await runtime.ingestKernelTransactions({
-      source: 'ws-main',
-      idempotencyKey: 'native-only-key',
-      enabledActionTypes: ['native-riff-remove', 'native-riff-upsert'],
-      transactions: [{
-        doOperations: [
-          { action: 'addFlashcards', blockIDs: ['block-riff-only'] },
-          {
-            action: 'update',
-            id: 'block-marker-disabled',
-            data: { new: { content: 'question >> answer' } },
-          },
-        ],
-      }],
-    });
-
-    await expect(runtime.dequeueKernelTransactionActions(8)).resolves.toMatchObject({
-      actions: [
-        {
-          type: 'native-riff-upsert',
-          blockIds: ['block-riff-only'],
-          source: 'ws-main',
-          receivedAt: expect.any(Number),
-          idempotencyKey: 'native-only-key',
-        },
-      ],
-      remaining: 0,
-    });
-    expect(runtime.getStatus()).toMatchObject({
-      actionEnqueuedTotal: 1,
-      upsertActionQueuedTotal: 1,
-      autoCardActionQueuedTotal: 0,
     });
   });
 
@@ -327,13 +270,6 @@ describe('WorkerKernelTransactionRuntime', () => {
     await expect(runtime.dequeueKernelTransactionActions(8)).resolves.toMatchObject({
       actions: [
         {
-          type: 'native-riff-upsert',
-          blockIds: ['riff-topic'],
-          source: 'ws-main',
-          receivedAt: 1_000,
-          idempotencyKey: 'shared-plan-key',
-        },
-        {
           type: 'auto-card-candidates',
           operations: [
             { action: 'update', blockId: 'user-topic' },
@@ -347,7 +283,7 @@ describe('WorkerKernelTransactionRuntime', () => {
     });
   });
 
-  it('coalesces mixed dequeue action batches before callers dispatch work', async () => {
+  it('coalesces AutoCard dequeue action batches before callers dispatch work', async () => {
     const { runtime } = createRuntime();
 
     await runtime.ingestKernelTransactions({
@@ -376,20 +312,6 @@ describe('WorkerKernelTransactionRuntime', () => {
 
     await expect(runtime.dequeueKernelTransactionActions(32)).resolves.toMatchObject({
       actions: [
-        {
-          type: 'native-riff-remove',
-          blockIds: ['block-rm-1', 'block-rm-2'],
-          source: 'ws-main',
-          receivedAt: expect.any(Number),
-          idempotencyKey: 'mixed-1',
-        },
-        {
-          type: 'native-riff-upsert',
-          blockIds: ['block-up-1', 'block-up-2'],
-          source: 'ws-main',
-          receivedAt: expect.any(Number),
-          idempotencyKey: 'mixed-1',
-        },
         {
           type: 'auto-card-candidates',
           operations: [

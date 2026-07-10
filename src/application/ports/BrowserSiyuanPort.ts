@@ -24,17 +24,6 @@ export interface BrowserBlockMetaRow extends Record<string, unknown> {
   tag?: unknown;
 }
 
-export interface BrowserRiffBlock {
-  id: string;
-  type?: string;
-  riffCardID?: string;
-  riffCardId?: string;
-  riffCard?: {
-    id?: string;
-    blockID?: string;
-  };
-}
-
 export interface BrowserSiyuanPort {
   readonly ATTR_CARD_ID: string;
   readonly ATTR_PRIORITY: string;
@@ -51,7 +40,6 @@ export interface BrowserSiyuanPort {
   ): Promise<BrowserBlockAttributeRow[]>;
   getDocTreeRowsByIds(rootIds: string[]): Promise<BrowserDocTreeRow[]>;
   getBlockMeta(blockId: string): Promise<BrowserBlockMetaRow | null>;
-  getRiffCards?(deckID: string, options?: { includeNew?: boolean }): Promise<BrowserRiffBlock[]>;
   setBlockAttrs(blockId: string, attrs: Record<string, string>): Promise<void>;
   pushMsg(msg: string, timeout?: number): Promise<void>;
   pushErrMsg(msg: string, timeout?: number): Promise<void>;

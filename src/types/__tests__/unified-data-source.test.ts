@@ -93,7 +93,7 @@ describe('Unified Data Source Types', () => {
 
         it('should return correct context menu options for advanced mode', () => {
             const options = getAdvancedModeContextMenuOptions();
-            expect(options).toHaveLength(7);
+            expect(options).toHaveLength(6);
             expect(options.map(o => o.id)).toEqual([
                 'open',
                 'delete',
@@ -101,7 +101,6 @@ describe('Unified Data Source Types', () => {
                 'switch-scheduler',
                 'modify-card-type',
                 'set-priority',
-                'sync-to-riff',
             ]);
         });
     });

@@ -49,7 +49,6 @@ type CardServiceLike = {
 describe('DataAccessFacade updateCard regression', () => {
   let cardService: CardServiceLike;
   let siyuanApi: {
-    batchSetRiffCardsDueTime: ReturnType<typeof vi.fn>;
   };
   let facade: DataAccessFacade;
 
@@ -82,7 +81,6 @@ describe('DataAccessFacade updateCard regression', () => {
       }),
     };
     siyuanApi = {
-      batchSetRiffCardsDueTime: vi.fn(),
     };
 
     facade = new DataAccessFacade(

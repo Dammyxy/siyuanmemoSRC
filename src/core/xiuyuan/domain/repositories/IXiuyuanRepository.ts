@@ -20,7 +20,6 @@ import { Result } from '../../../../types/result';
 import { Xiuyuan } from '../Xiuyuan';
 import { XiuyuanId } from '../XiuyuanId';
 import { BlockId } from '../BlockId';
-import type { AppliedSyncSummary, SyncChangeSet } from './SyncChangeSet';
 
 export interface IXiuyuanRepository {
   /**
@@ -104,16 +103,6 @@ export interface IXiuyuanRepository {
    * @returns Result<void> - 成功返回 void，失败返回错误
    */
   deleteMany(xiuyuans: Xiuyuan[]): Promise<Result<void>>;
-
-  /**
-   * 应用一次已经规划完成的同步变更集。
-   *
-   * 约束：
-   * - 变更集中的新增 / 更新 / 删除在一次存储提交内落盘
-   * - checkpoint 与 canonical store 同轮提交
-   * - 持久化成功后才执行块属性和事件等副作用
-   */
-  applySyncChangeSet(changeSet: SyncChangeSet): Promise<Result<AppliedSyncSummary>>;
 
   /**
    * 🚀 性能优化：通过卡片ID快速查找XiuyuanID

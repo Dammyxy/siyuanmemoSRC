@@ -12,14 +12,7 @@ function createMockPlugin(): Plugin {
     data: {},
     app: {},
     loadData: vi.fn(async (fileName: string) => fileName === 'settings.json' ? {
-      riffIntegration: {
-        mode: 'advanced',
-        useLocalScheduler: true,
-        storageConflictResolution: 'merge',
-        incrementalSync: { enabled: false, triggers: [], useBlacklist: true },
-        fullSync: { enabled: false, interval: 86_400_000, cleanupBlacklist: false },
-        deleteSync: { enabled: false, useBlacklistFallback: false },
-      },
+      storageConflictResolution: 'merge',
     } : null),
     saveData: vi.fn(async () => {}),
     removeData: vi.fn(async () => {}),
@@ -71,7 +64,7 @@ describe('ApplicationContext private API runtime policy wiring', () => {
     }
   });
 
-  it('keeps read surface available but blocks mutation getter when writer capability is missing', async () => {
+  it('fails closed when backend policy is enabled but the Worker runtime is unavailable', async () => {
     process.env[ENV_BACKEND] = 'true';
     process.env[ENV_WRITER] = 'false';
     process.env[ENV_PRIVATE] = 'true';
@@ -81,10 +74,8 @@ describe('ApplicationContext private API runtime policy wiring', () => {
       i18n: {},
     });
     try {
-      const service = context.getPrivateApiService();
-      expect(service).toBeDefined();
-      expect(() => context.getPrivateApiService({ mutation: true })).toThrow(
-        'BACKEND_UNAVAILABLE: private API mutation requires backend worker + writer relay runtime',
+      expect(() => context.getPrivateApiService()).toThrow(
+        'BACKEND_UNAVAILABLE: private API backend client unavailable',
       );
     } finally {
       await context.dispose();

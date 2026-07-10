@@ -10,7 +10,6 @@ function createQuerySiyuanApi(
     ATTR_SUSPENDED: 'custom-suspended',
     ATTR_CARD_TYPE: 'custom-card-type',
     sql: sql as QuerySiyuanPort['sql'],
-    batchSetRiffCardsDueTime: vi.fn(async () => {}),
   };
 }
 

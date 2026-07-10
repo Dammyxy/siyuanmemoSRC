@@ -3,24 +3,12 @@ import { ok } from '@/types/result';
 import { DataAccessFacade } from '../DataAccessFacade';
 
 describe('DataAccessFacade local card deletion', () => {
-  it('delegates only the local card identity when retired delete-sync settings remain readable', async () => {
+  it('delegates only the local card identity', async () => {
     const cardService = {
       deleteFSRSCard: vi.fn(async () => ok({ deleted: true })),
     };
-    const storage = {
-      getSettings: vi.fn(() => ({
-        riffIntegration: {
-          deleteSync: { enabled: true },
-        },
-      })),
-    };
-    const settingsService = {
-      getSettings: vi.fn(() => ({
-        riffIntegration: {
-          deleteSync: { enabled: true },
-        },
-      })),
-    };
+    const storage = {};
+    const settingsService = {};
     const applicationContext = {};
     const plugin = {
       getContext: vi.fn(() => applicationContext),

@@ -20,8 +20,6 @@ function createEmptyStore(): UnifiedCardStore {
     cardDTOs: {},
     deletedCardDTOs: {},
     deletedXiuyuans: {},
-    riffBlacklist: [],
-    riffSyncState: {},
   };
 }
 

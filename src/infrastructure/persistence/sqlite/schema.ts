@@ -230,11 +230,6 @@ export const SQL_SCHEMA_STATEMENTS = [
     payload_json TEXT NOT NULL,
     PRIMARY KEY(kind, id)
   )`,
-  `CREATE TABLE IF NOT EXISTS riff_sync (
-    key TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
-  )`,
   `CREATE TABLE IF NOT EXISTS queue_state (
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL,

@@ -40,11 +40,11 @@ describe('DialogManager settings dialog dependencies', () => {
   });
 
   it('keeps continuous Native Riff sync out of settings save wiring', () => {
-    expect(dialogManagerSource).toContain('storageConflictResolution: currentSettings.riffIntegration?.storageConflictResolution');
-    expect(dialogManagerSource).toContain('incrementalSync: {');
-    expect(dialogManagerSource).toContain('triggers: []');
-    expect(dialogManagerSource).toContain('fullSync: {');
-    expect(dialogManagerSource).not.toContain('riffIntegrationSettings: currentSettings.riffIntegration');
+    expect(dialogManagerSource).toContain('storageConflictResolution: currentSettings.storageConflictResolution');
+    expect(dialogManagerSource).not.toContain('riffIntegration: {');
+    expect(dialogManagerSource).not.toContain('incrementalSync: {');
+    expect(dialogManagerSource).not.toContain('fullSync: {');
+    expect(dialogManagerSource).not.toContain('deleteSync: {');
     expect(dialogManagerSource).not.toContain('updateHybridSyncConfig');
   });
 });

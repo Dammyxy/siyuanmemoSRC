@@ -15,7 +15,6 @@ export interface KernelCapabilitiesPayload {
   kernelNetworkProxy?: boolean;
   privateHttp?: boolean;
   privateSse?: boolean;
-  riffReadAuditProxy?: boolean;
 }
 
 export const KERNEL_FAST_PATH_CAPABILITY_KEYS = [
@@ -24,7 +23,6 @@ export const KERNEL_FAST_PATH_CAPABILITY_KEYS = [
   'kernelNetworkProxy',
   'privateHttp',
   'privateSse',
-  'riffReadAuditProxy',
 ] as const;
 
 export type KernelFastPathCapabilityKey = typeof KERNEL_FAST_PATH_CAPABILITY_KEYS[number];

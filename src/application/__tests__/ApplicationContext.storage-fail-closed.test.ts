@@ -24,14 +24,7 @@ function createMockPlugin(): Plugin {
     data: {},
     app: {},
     loadData: vi.fn(async (fileName: string) => fileName === 'settings.json' ? {
-      riffIntegration: {
-        mode: 'advanced',
-        useLocalScheduler: true,
-        storageConflictResolution: 'merge',
-        incrementalSync: { enabled: false, triggers: [], useBlacklist: true },
-        fullSync: { enabled: false, interval: 86_400_000, cleanupBlacklist: false },
-        deleteSync: { enabled: false, useBlacklistFallback: false },
-      },
+      storageConflictResolution: 'merge',
     } : null),
     saveData: vi.fn(async () => {}),
     removeData: vi.fn(async () => {}),

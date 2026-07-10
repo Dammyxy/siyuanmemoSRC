@@ -33,6 +33,5 @@ export function getAdvancedModeContextMenuOptions(i18n?: Record<string, string>)
     { id: 'switch-scheduler', label: resolveMenuLabel(i18n, 'switchScheduler', 'Switch Scheduler') },
     { id: 'modify-card-type', label: resolveMenuLabel(i18n, 'modifyCardType', 'Modify Card Type') },
     { id: 'set-priority', label: resolveMenuLabel(i18n, 'setPriority', 'Set Priority') },
-    { id: 'sync-to-riff', label: resolveMenuLabel(i18n, 'syncToRiff', 'Sync to Riff') },
   ];
 }

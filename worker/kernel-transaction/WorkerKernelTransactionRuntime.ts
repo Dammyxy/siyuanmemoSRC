@@ -15,8 +15,6 @@ import type {
 
 type KernelTransactionSource = 'kernel-sidecar' | 'ws-main';
 const ALL_KERNEL_TRANSACTION_ACTION_TYPES: readonly BackendKernelTransactionActionType[] = [
-  'native-riff-remove',
-  'native-riff-upsert',
   'auto-card-candidates',
 ];
 
@@ -65,8 +63,6 @@ type KernelTransactionActionSnapshot = {
     actionDequeuedTotal?: number;
     actionRequeuedTotal?: number;
     actionRejectedTotal?: number;
-    removeActionQueuedTotal?: number;
-    upsertActionQueuedTotal?: number;
     autoCardActionQueuedTotal?: number;
   };
 };
@@ -84,8 +80,6 @@ type KernelTransactionStatus = {
   actionDequeuedTotal: number;
   actionRequeuedTotal: number;
   actionRejectedTotal: number;
-  removeActionQueuedTotal: number;
-  upsertActionQueuedTotal: number;
   autoCardActionQueuedTotal: number;
   maxActionQueueLength: number;
   lastAcceptedAt: number | null;
@@ -116,8 +110,6 @@ export class WorkerKernelTransactionRuntime {
   private kernelActionDequeuedTotal = 0;
   private kernelActionRequeuedTotal = 0;
   private kernelActionRejectedTotal = 0;
-  private kernelRemoveActionQueuedTotal = 0;
-  private kernelUpsertActionQueuedTotal = 0;
   private kernelAutoCardActionQueuedTotal = 0;
   private lastKernelAcceptedAt: number | null = null;
   private lastKernelDrainAt: number | null = null;
@@ -166,8 +158,6 @@ export class WorkerKernelTransactionRuntime {
       actionDequeuedTotal: this.kernelActionDequeuedTotal,
       actionRequeuedTotal: this.kernelActionRequeuedTotal,
       actionRejectedTotal: this.kernelActionRejectedTotal,
-      removeActionQueuedTotal: this.kernelRemoveActionQueuedTotal,
-      upsertActionQueuedTotal: this.kernelUpsertActionQueuedTotal,
       autoCardActionQueuedTotal: this.kernelAutoCardActionQueuedTotal,
       maxActionQueueLength: this.maxKernelActionQueueLength,
       lastAcceptedAt: this.lastKernelAcceptedAt,
@@ -266,11 +256,7 @@ export class WorkerKernelTransactionRuntime {
       this.kernelTransactionActions.push(...actions);
       this.kernelActionEnqueuedTotal += actions.length;
       for (const action of actions) {
-        if (action.type === 'native-riff-remove') {
-          this.kernelRemoveActionQueuedTotal += 1;
-        } else if (action.type === 'native-riff-upsert') {
-          this.kernelUpsertActionQueuedTotal += 1;
-        } else if (action.type === 'auto-card-candidates') {
+        if (action.type === 'auto-card-candidates') {
           this.kernelAutoCardActionQueuedTotal += 1;
         }
       }
@@ -406,14 +392,6 @@ export class WorkerKernelTransactionRuntime {
           this.kernelActionRejectedTotal,
           Math.max(0, Math.floor(Number(metrics.actionRejectedTotal || 0))),
         );
-        this.kernelRemoveActionQueuedTotal = Math.max(
-          this.kernelRemoveActionQueuedTotal,
-          Math.max(0, Math.floor(Number(metrics.removeActionQueuedTotal || 0))),
-        );
-        this.kernelUpsertActionQueuedTotal = Math.max(
-          this.kernelUpsertActionQueuedTotal,
-          Math.max(0, Math.floor(Number(metrics.upsertActionQueuedTotal || 0))),
-        );
         this.kernelAutoCardActionQueuedTotal = Math.max(
           this.kernelAutoCardActionQueuedTotal,
           Math.max(0, Math.floor(Number(metrics.autoCardActionQueuedTotal || 0))),
@@ -539,8 +517,6 @@ export class WorkerKernelTransactionRuntime {
           actionDequeuedTotal: this.kernelActionDequeuedTotal,
           actionRequeuedTotal: this.kernelActionRequeuedTotal,
           actionRejectedTotal: this.kernelActionRejectedTotal,
-          removeActionQueuedTotal: this.kernelRemoveActionQueuedTotal,
-          upsertActionQueuedTotal: this.kernelUpsertActionQueuedTotal,
           autoCardActionQueuedTotal: this.kernelAutoCardActionQueuedTotal,
         },
       });
@@ -565,19 +541,6 @@ export class WorkerKernelTransactionRuntime {
       const idempotencyKey = String(record.idempotencyKey || '').trim();
       const type = String(record.type || '').trim();
       if (!idempotencyKey) {
-        continue;
-      }
-      if (type === 'native-riff-remove' || type === 'native-riff-upsert') {
-        const blockIds = Array.isArray(record.blockIds)
-          ? uniqueStrings(record.blockIds)
-          : [];
-        normalized.push({
-          type,
-          blockIds,
-          source,
-          receivedAt,
-          idempotencyKey,
-        });
         continue;
       }
       if (type === 'auto-card-candidates') {
@@ -686,30 +649,6 @@ function collectKernelTransactionActions(input: {
     provenance: input.provenanceSnapshot,
     now: input.receivedAt,
   });
-  if (
-    isKernelTransactionActionEnabled(input.enabledActionTypes, 'native-riff-remove')
-    && plan.nativeRiff.removeBlockIds.length > 0
-  ) {
-    actions.push({
-      type: 'native-riff-remove',
-      blockIds: plan.nativeRiff.removeBlockIds,
-      source: input.source,
-      receivedAt: input.receivedAt,
-      idempotencyKey: input.idempotencyKey,
-    });
-  }
-  if (
-    isKernelTransactionActionEnabled(input.enabledActionTypes, 'native-riff-upsert')
-    && plan.nativeRiff.upsertBlockIds.length > 0
-  ) {
-    actions.push({
-      type: 'native-riff-upsert',
-      blockIds: plan.nativeRiff.upsertBlockIds,
-      source: input.source,
-      receivedAt: input.receivedAt,
-      idempotencyKey: input.idempotencyKey,
-    });
-  }
   if (isKernelTransactionActionEnabled(input.enabledActionTypes, 'auto-card-candidates')) {
     const autoCardOperations = coalesceAutoCardOperationList([
       ...plan.autoCard.candidateOperations.map((operation) => ({
@@ -829,52 +768,17 @@ function coalesceDequeuedKernelActions(
   if (actions.length <= 1) {
     return actions;
   }
-  const removeBlockIds: string[] = [];
-  const upsertBlockIds: string[] = [];
   const autoCardOps: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> = [];
-  let removeEnvelope: BackendKernelTransactionAction | null = null;
-  let upsertEnvelope: BackendKernelTransactionAction | null = null;
   let autoCardEnvelope: BackendKernelTransactionAction | null = null;
-  const passthrough: BackendKernelTransactionAction[] = [];
 
   for (const action of actions) {
-    if (action.type === 'native-riff-remove') {
-      removeEnvelope = removeEnvelope ?? action;
-      removeBlockIds.push(...(Array.isArray(action.blockIds) ? action.blockIds : []));
-      continue;
-    }
-    if (action.type === 'native-riff-upsert') {
-      upsertEnvelope = upsertEnvelope ?? action;
-      upsertBlockIds.push(...(Array.isArray(action.blockIds) ? action.blockIds : []));
-      continue;
-    }
     if (action.type === 'auto-card-candidates') {
       autoCardEnvelope = autoCardEnvelope ?? action;
       autoCardOps.push(...(Array.isArray(action.operations) ? action.operations : []));
-      continue;
     }
-    passthrough.push(action);
   }
 
-  const merged: BackendKernelTransactionAction[] = [...passthrough];
-  if (removeEnvelope) {
-    merged.push({
-      type: 'native-riff-remove',
-      blockIds: uniqueStrings(removeBlockIds),
-      source: removeEnvelope.source,
-      receivedAt: removeEnvelope.receivedAt,
-      idempotencyKey: removeEnvelope.idempotencyKey,
-    });
-  }
-  if (upsertEnvelope) {
-    merged.push({
-      type: 'native-riff-upsert',
-      blockIds: uniqueStrings(upsertBlockIds),
-      source: upsertEnvelope.source,
-      receivedAt: upsertEnvelope.receivedAt,
-      idempotencyKey: upsertEnvelope.idempotencyKey,
-    });
-  }
+  const merged: BackendKernelTransactionAction[] = [];
   if (autoCardEnvelope) {
     const coalesced = coalesceAutoCardOperationList(autoCardOps);
     if (coalesced.length > 0) {

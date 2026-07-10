@@ -11,9 +11,7 @@ import { ApplicationContext } from '@/application/ApplicationContext';
 import { hasPluginAgentActionApi } from '@/application/agent/AgentToolContracts';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { TabRuntimeContext } from '@/application/managers/TabManager';
-import { ConfigMigrator } from '@/utils/configMigrator';
 import { createLogger } from '@/utils/logger';
-import type { RiffIntegrationConfig } from '@/types/settings';
 import { FormulaClozeAssistant } from '@/application/handlers/FormulaClozeAssistant';
 import { ImageOcclusionHandler } from '@/application/handlers/ImageOcclusionHandler';
 import { ProgressiveExcerptHotkeyHandler } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
@@ -262,12 +260,6 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         { frontend: frontEnd },
       );
       this.contextReady.resolve(this.getContext());
-      await measureRuntimePerformance(
-        'startup',
-        'plugin.config-migrations',
-        () => this.performConfigMigrations(),
-        { frontend: frontEnd },
-      );
       this.isInitialized = true;
       
       // ✅ 只有在初始化成功后才注册事件处理器
@@ -1448,39 +1440,4 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     ]);
   }
 
-  private async performConfigMigrations() {
-    const context = this.getContext();
-    const settingsService = context.getSettingsService();
-    const settings = settingsService.getSettings();
-    const riffConfig = settings.riffIntegration;
-
-    if (riffConfig && ConfigMigrator.needsMigration(riffConfig)) {
-      const legacyRiffConfig = riffConfig as Parameters<typeof ConfigMigrator.migrate>[0];
-      const migratedConfig = ConfigMigrator.migrate(legacyRiffConfig);
-      await settingsService.updateSettings({ ...settings, riffIntegration: migratedConfig });
-      setTimeout(() => pushMsg(ConfigMigrator.getMigrationMessage(legacyRiffConfig.mode)), 1000);
-    }
-
-    const { SimpleModeRemovalMigrator } = await import('./utils/simpleModeRemovalMigrator');
-    const finalConfig = settingsService.getSettings().riffIntegration;
-    
-    if (finalConfig && SimpleModeRemovalMigrator.needsMigration(finalConfig)) {
-      try {
-        const result = await SimpleModeRemovalMigrator.performMigration(finalConfig);
-        const migratedConfig: RiffIntegrationConfig = {
-          mode: 'advanced',
-          ...result.migratedConfig,
-        };
-        await settingsService.updateSettings({ ...settingsService.getSettings(), riffIntegration: migratedConfig });
-      } catch (error) {
-        await SimpleModeRemovalMigrator.handleMigrationError(error as Error, 'plugin initialization');
-      }
-    } else if (finalConfig && finalConfig.mode) {
-      const cleanConfig: RiffIntegrationConfig = {
-        ...finalConfig,
-        mode: finalConfig.mode === 'simple' ? 'advanced' : finalConfig.mode,
-      };
-      await settingsService.updateSettings({ ...settingsService.getSettings(), riffIntegration: cleanConfig });
-    }
-  }
 }

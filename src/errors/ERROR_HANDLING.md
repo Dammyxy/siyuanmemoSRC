@@ -202,24 +202,10 @@ async getCard(cardId: string): Promise<FSRSCard> {
     
     return card;
 }
-
-async syncToRiff(cardId: string): Promise<void> {
-    try {
-        const card = await this.getCard(cardId);
-        const dueDate = new Date(card.due).toISOString();
-        await batchSetRiffCardsDueTime([{ id: cardId, due: dueDate }]);
-        
-        console.log(`[AdvancedDataRouter] Synced card ${cardId} to Riff`);
-    } catch (error) {
-        // 同步失败不应该影响本地操作
-        console.error(`[AdvancedDataRouter] Failed to sync card ${cardId} to Riff:`, error);
-    }
-}
 ```
 
 **特点**:
 - ✅ 验证数据存在性
-- ✅ 同步失败不影响本地操作
 - ✅ 记录详细错误日志
 
 ## 错误场景覆盖
@@ -233,8 +219,6 @@ async syncToRiff(cardId: string): Promise<void> {
 | 观察者通知失败 | `UnifiedDataSourceManager.notifyObservers()` | 错误隔离，继续通知其他观察者 | ✅ |
 | 持久化失败 | 所有队列类的 `persistEntries()` | 捕获并记录错误，保留内存数据 | ✅ |
 | 卡片不存在 | 路由器的 `getCard()` | 抛出明确的错误消息 | ✅ |
-| Riff 同步失败 | `AdvancedDataRouter.syncToRiff()` | 记录错误但不影响本地操作 | ✅ |
-| 增量同步失败 | `HybridSyncService.triggerIncrementalSync()` | 抛出错误并记录日志 | ✅ |
 | 卡片获取失败（队列中） | 所有队列类的 `getCards()` | 跳过不存在的卡片，从队列移除 | ✅ |
 
 ## 错误处理最佳实践

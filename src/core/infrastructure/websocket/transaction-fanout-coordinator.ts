@@ -42,13 +42,6 @@ export interface TransactionFanoutPlan {
     shouldDispatch: boolean;
     reasons: string[];
   };
-  nativeRiff: {
-    hasSignal: boolean;
-    upsertBlockIds: string[];
-    removeBlockIds: string[];
-    shouldDispatch: boolean;
-    reasons: string[];
-  };
   documentTree: {
     hasHint: boolean;
     touchedBlockIds: string[];
@@ -137,7 +130,6 @@ export function buildTransactionFanoutPlan(input: BuildTransactionFanoutPlanInpu
 
   const autoCardShouldDispatch = candidateOperations.length > 0
     || classification.autoCard.cancelBlockIds.length > 0;
-  const nativeRiffShouldDispatch = false;
   const documentTreeShouldDispatch = classification.documentTree.hasHint;
   const kernelIngestShouldDispatch = autoCardShouldDispatch
     || documentTreeShouldDispatch;
@@ -147,7 +139,6 @@ export function buildTransactionFanoutPlan(input: BuildTransactionFanoutPlanInpu
     ...reasonsWhen(classification.autoCard.cancelBlockIds.length > 0, 'auto-card-cancel'),
     ...reasonsWhen(suppressedOperations.length > 0, 'auto-card-provenance-suppressed'),
   ];
-  const nativeRiffReasons: string[] = [];
   const documentTreeReasons = reasonsWhen(documentTreeShouldDispatch, 'document-tree-hint');
   const kernelIngestReasons = [
     ...reasonsWhen(autoCardShouldDispatch, 'auto-card'),
@@ -166,13 +157,6 @@ export function buildTransactionFanoutPlan(input: BuildTransactionFanoutPlanInpu
       shouldDispatch: autoCardShouldDispatch,
       reasons: autoCardReasons,
     },
-    nativeRiff: {
-      hasSignal: classification.nativeRiff.hasSignal,
-      upsertBlockIds: classification.nativeRiff.upsertBlockIds,
-      removeBlockIds: classification.nativeRiff.removeBlockIds,
-      shouldDispatch: nativeRiffShouldDispatch,
-      reasons: nativeRiffReasons,
-    },
     documentTree: {
       hasHint: classification.documentTree.hasHint,
       touchedBlockIds: classification.documentTree.touchedBlockIds,
@@ -183,16 +167,12 @@ export function buildTransactionFanoutPlan(input: BuildTransactionFanoutPlanInpu
       shouldDispatch: kernelIngestShouldDispatch,
       reasons: kernelIngestReasons,
     },
-    reasons: [...autoCardReasons, ...nativeRiffReasons, ...documentTreeReasons],
+    reasons: [...autoCardReasons, ...documentTreeReasons],
   };
 }
 
 export function shouldDispatchAutoCardFromFanoutPlan(plan: TransactionFanoutPlan): boolean {
   return plan.autoCard.shouldDispatch;
-}
-
-export function shouldDispatchNativeRiffFromFanoutPlan(plan: TransactionFanoutPlan): boolean {
-  return plan.nativeRiff.shouldDispatch;
 }
 
 export function shouldDispatchDocTreeFromFanoutPlan(plan: TransactionFanoutPlan): boolean {

@@ -19,7 +19,7 @@ import {
   ATTR_PRIORITY,
   ATTR_SUSPENDED,
 } from '@/core/siyuan/block';
-import { BUILTIN_DECK_ID, getRiffCards, type RiffBlock } from '@/core/siyuan/riff';
+import { BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import { buildInClause, escapeSQL } from '@/utils/sqlOptimizer';
 
 export class BrowserSiyuanAdapter implements BrowserSiyuanPort, BrowserPreviewSiyuanPort {
@@ -92,10 +92,6 @@ export class BrowserSiyuanAdapter implements BrowserSiyuanPort, BrowserPreviewSi
 
   async getDocInfo(docId: string): Promise<BrowserPreviewDocInfo | null> {
     return getDocInfo(docId);
-  }
-
-  async getRiffCards(deckID: string, options?: { includeNew?: boolean }): Promise<RiffBlock[]> {
-    return getRiffCards(deckID, options) as Promise<RiffBlock[]>;
   }
 
   async listNotebooks(): Promise<BrowserPreviewNotebookSummary[]> {

@@ -46,7 +46,6 @@ interface KernelCapabilitiesResult {
   kernelNetworkProxy?: boolean;
   privateSse?: boolean;
   privateHttp?: boolean;
-  riffReadAuditProxy?: boolean;
 }
 
 interface JsonRpcSuccess<TResult> {
@@ -126,10 +125,6 @@ function buildUnknownFastPathCapabilities(): KernelFastPathCapabilities {
       state: 'unknown',
       reason: 'smoke-required',
     },
-    riffReadAuditProxy: {
-      state: 'unknown',
-      reason: 'smoke-required',
-    },
   };
 }
 
@@ -168,12 +163,6 @@ function buildUnavailableFastPathCapabilities(
       message,
       checkedAt,
     },
-    riffReadAuditProxy: {
-      state: 'unavailable',
-      reason,
-      message,
-      checkedAt,
-    },
   };
 }
 
@@ -186,9 +175,6 @@ function buildAvailableCompanionFastPathCapabilities(
     || methods.has('network.fetchExternal');
   const privateHttpAvailable = capabilities?.privateHttp === true
     || (methods.has('private.http.status') && methods.has('private.http.command'));
-  const riffReadAuditProxyAvailable = capabilities?.riffReadAuditProxy === true
-    || (methods.has('riff.read') && methods.has('riff.audit'));
-  const riffReadAuditProxyExplicitlyUnavailable = capabilities?.riffReadAuditProxy === false;
   return {
     ...buildUnknownFastPathCapabilities(),
     rpcWebSocketPush: {
@@ -213,15 +199,6 @@ function buildAvailableCompanionFastPathCapabilities(
     privateSse: {
       state: capabilities?.privateSse === true ? 'available' : 'unknown',
       reason: capabilities?.privateSse === true ? undefined : 'smoke-required',
-      checkedAt,
-    },
-    riffReadAuditProxy: {
-      state: riffReadAuditProxyAvailable
-        ? 'available'
-        : (riffReadAuditProxyExplicitlyUnavailable ? 'unavailable' : 'unknown'),
-      reason: riffReadAuditProxyAvailable
-        ? undefined
-        : (riffReadAuditProxyExplicitlyUnavailable ? 'not-configured' : 'smoke-required'),
       checkedAt,
     },
   };

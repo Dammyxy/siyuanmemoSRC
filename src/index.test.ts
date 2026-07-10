@@ -86,22 +86,6 @@ vi.mock('@/infrastructure/siyuan/api', () => ({
   pushMsg: mocks.pushMsg,
 }));
 
-vi.mock('@/utils/configMigrator', () => ({
-  ConfigMigrator: {
-    needsMigration: () => false,
-    migrate: vi.fn((config) => config),
-    getMigrationMessage: vi.fn(() => 'migrated'),
-  },
-}));
-
-vi.mock('@/utils/simpleModeRemovalMigrator', () => ({
-  SimpleModeRemovalMigrator: {
-    needsMigration: () => false,
-    performMigration: vi.fn(),
-    handleMigrationError: vi.fn(),
-  },
-}));
-
 vi.mock('@/application/handlers/FormulaClozeAssistant', () => ({
   FormulaClozeAssistant: class {
     start(): void {}
@@ -158,7 +142,7 @@ function createContext(plugin: any) {
   const settingsService = {
     getSettings: vi.fn(() => ({
       progressiveReading: {},
-      riffIntegration: {},
+      storageConflictResolution: 'merge',
     })),
     updateSettings: vi.fn(async () => undefined),
   };
@@ -193,6 +177,17 @@ function createContext(plugin: any) {
     getI18n: vi.fn(() => plugin.i18n),
     getSettingsService: vi.fn(() => settingsService),
     getReviewQueuePreparationService: vi.fn(() => undefined),
+    getReviewAdmissionModule: vi.fn(() => ({
+      admitReviewSession: vi.fn(async ({ queueType, entrySurface }) => ({
+        queueType,
+        entrySurface: entrySurface ?? null,
+        projectionPolicyHash: `${queueType}:test-policy`,
+        projectionGeneration: 1,
+        readinessRequest: {},
+        admittedAt: Date.now(),
+        source: 'ready-projection',
+      })),
+    })),
     getUnifiedDataSourceManager: vi.fn(() => ({
       getQueue: vi.fn(() => queueStub),
     })),
@@ -290,9 +285,9 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
 
     deferred.resolve(createContext(plugin));
     await onloadPromise;
-    await flushMicrotasks();
-
-    expect(mocks.createApp).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => {
+      expect(mocks.createApp).toHaveBeenCalledTimes(2);
+    });
     expect(mocks.createApp.mock.calls[0][1]).toEqual(expect.objectContaining({
       mode: 'tab',
       initialOpenState: {

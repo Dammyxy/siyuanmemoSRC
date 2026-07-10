@@ -561,7 +561,7 @@ type ReviewPluginContextLike = {
 };
 
 type ReviewRuntimeSettingsLike = Pick<Partial<PluginSettings>,
-  'ai' | 'progressiveReading' | 'quickCard' | 'riffIntegration' | 'ui' | 'queues'
+  'ai' | 'progressiveReading' | 'quickCard' | 'ui' | 'queues'
 >;
 
 type ReviewPluginLike = {

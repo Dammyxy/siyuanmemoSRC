@@ -549,8 +549,7 @@ export class KernelTransactionActionPump {
 
   private async dequeueActions(): Promise<{
     actions: Array<{
-      type: 'native-riff-remove' | 'native-riff-upsert' | 'auto-card-candidates';
-      blockIds?: string[];
+      type: 'auto-card-candidates';
       operations?: Array<{
         action: 'insert' | 'update' | 'delete';
         blockId: string;
@@ -691,8 +690,7 @@ export class KernelTransactionActionPump {
 
   private async requeueActions(
     actions: Array<{
-      type: 'native-riff-remove' | 'native-riff-upsert' | 'auto-card-candidates';
-      blockIds?: string[];
+      type: 'auto-card-candidates';
       operations?: Array<{
         action: 'insert' | 'update' | 'delete';
         blockId: string;

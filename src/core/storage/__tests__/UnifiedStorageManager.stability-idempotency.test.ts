@@ -15,7 +15,6 @@ function createEmptyStore(): UnifiedCardStore {
     xiuyuans: {},
     cards: {},
     cardDTOs: {},
-    riffBlacklist: [],
   };
 }
 
@@ -153,7 +152,6 @@ describe('UnifiedStorageManager stability and idempotency', () => {
         'card-a': createDTO('card-a', 'xy-a', 0),
         'card-b': createDTO('card-b', 'xy-b', 1),
       },
-      riffBlacklist: [],
     };
 
     const storage = new UnifiedStorageManager();

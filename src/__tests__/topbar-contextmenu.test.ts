@@ -24,14 +24,6 @@ vi.mock('@/application/ApplicationContext', () => ({
   },
 }));
 
-vi.mock('@/utils/configMigrator', () => ({
-  ConfigMigrator: {
-    needsMigration: vi.fn(() => false),
-    migrate: vi.fn((value) => value),
-    getMigrationMessage: vi.fn(() => ''),
-  },
-}));
-
 vi.mock('@/utils/logger', () => ({
   createLogger: () => ({
     info: vi.fn(),

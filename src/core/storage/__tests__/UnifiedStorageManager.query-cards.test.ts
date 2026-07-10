@@ -252,7 +252,6 @@ describe('UnifiedStorageManager queryCards', () => {
       xiuyuans: {},
       cards: {},
       cardDTOs: {},
-      riffBlacklist: [],
     }));
     storage.setPersistenceCallbacks(save, load);
     const autoFixSpy = vi.spyOn(storage, 'autoFix');

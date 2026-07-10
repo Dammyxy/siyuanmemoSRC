@@ -116,7 +116,6 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
         'legacy-2': createDTO('legacy-2', 'xy-1', 'fsrs-v5'),
         current: createDTO('current', 'xy-1', 'fsrs-v6'),
       },
-      riffBlacklist: [],
     };
 
     manager.setPersistenceCallbacks(
@@ -303,7 +302,6 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
       },
       deletedCardDTOs: {},
       deletedXiuyuans: {},
-      riffBlacklist: [],
     };
 
     const storage = new UnifiedStorageManager();
@@ -379,7 +377,6 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
       },
       deletedCardDTOs: {},
       deletedXiuyuans: {},
-      riffBlacklist: [],
     };
 
     const storage = new UnifiedStorageManager();
@@ -536,7 +533,6 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
           },
         }),
       },
-      riffBlacklist: [],
     };
 
     const storage = new UnifiedStorageManager();
@@ -576,7 +572,6 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
           },
         }),
       },
-      riffBlacklist: [],
     };
 
     const storage = new UnifiedStorageManager();
@@ -630,7 +625,6 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
           },
         }),
       },
-      riffBlacklist: [],
     };
 
     const storage = new UnifiedStorageManager();

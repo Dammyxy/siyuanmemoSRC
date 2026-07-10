@@ -632,9 +632,7 @@ const logger = createLogger('SRSBrowser');
 
 // Props
 type BrowserStoragePort = CardTypeMarkerStoragePort &
-  RescheduleStoragePort & {
-    getSettings?: () => { riffIntegration?: unknown } | undefined;
-  };
+  RescheduleStoragePort;
 
 type BrowserPluginContext = {
   getBrowserService?: () => IBrowserApplicationService | null;

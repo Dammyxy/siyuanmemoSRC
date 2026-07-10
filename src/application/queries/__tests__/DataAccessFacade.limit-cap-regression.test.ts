@@ -46,7 +46,6 @@ type CardServiceLike = {
 describe('DataAccessFacade host block query regression', () => {
   let cardService: CardServiceLike;
   let siyuanApi: {
-    batchSetRiffCardsDueTime: ReturnType<typeof vi.fn>;
   };
   let getExistingBlockIds: ReturnType<typeof vi.fn>;
   let facade: DataAccessFacade;
@@ -59,7 +58,6 @@ describe('DataAccessFacade host block query regression', () => {
       deleteFSRSCard: vi.fn(),
     };
     siyuanApi = {
-      batchSetRiffCardsDueTime: vi.fn(),
     };
     getExistingBlockIds = vi.fn().mockResolvedValue(new Set<string>());
 

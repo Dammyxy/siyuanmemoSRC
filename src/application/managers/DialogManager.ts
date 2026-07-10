@@ -630,7 +630,7 @@ export class DialogManager implements IDialogManager {
         reviewsPerDay: currentSettings.reviewsPerDay,
         priorityRandomness: currentSettings.priorityRandomness,
         schedulerSettings: currentSettings.scheduler,
-        storageConflictResolution: currentSettings.riffIntegration?.storageConflictResolution,
+        storageConflictResolution: currentSettings.storageConflictResolution,
         incrementalSettings: currentSettings.incremental,
         quickCardSettings: currentSettings.quickCard,
         progressiveReadingSettings: currentSettings.progressiveReading,
@@ -675,21 +675,8 @@ export class DialogManager implements IDialogManager {
             reviewsPerDay: settings.reviewsPerDay ?? currentSettings.reviewsPerDay,
             priorityRandomness: settings.priorityRandomness ?? currentSettings.priorityRandomness,
             scheduler: settings.scheduler || currentSettings.scheduler,
-            riffIntegration: {
-              ...(currentSettings.riffIntegration || DEFAULT_SETTINGS.riffIntegration!),
-              incrementalSync: {
-                ...DEFAULT_SETTINGS.riffIntegration!.incrementalSync,
-                enabled: false,
-                triggers: [],
-              },
-              fullSync: {
-                ...DEFAULT_SETTINGS.riffIntegration!.fullSync,
-                enabled: false,
-              },
-              storageConflictResolution: settings.storageConflictResolution
-                || currentSettings.riffIntegration?.storageConflictResolution
-                || 'merge',
-            },
+            storageConflictResolution: settings.storageConflictResolution
+              || currentSettings.storageConflictResolution,
             incremental: settings.incremental || currentSettings.incremental,
             quickCard: settings.quickCard || currentSettings.quickCard,
             progressiveReading: settings.progressiveReading || currentSettings.progressiveReading,
@@ -707,7 +694,7 @@ export class DialogManager implements IDialogManager {
           });
           logger.info('[DialogManager] ✅ SchedulerRouter config updated');
 
-          const conflictStrategy = updatedSettings.riffIntegration?.storageConflictResolution || 'merge';
+          const conflictStrategy = updatedSettings.storageConflictResolution;
           this.context.getUnifiedStorage().setConflictResolutionStrategy(conflictStrategy);
           logger.info('[DialogManager] ✅ UnifiedStorage conflict strategy updated:', conflictStrategy);
 

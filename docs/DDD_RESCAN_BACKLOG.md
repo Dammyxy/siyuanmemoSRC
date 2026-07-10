@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 698)
+Last update: 2026-07-10 (Round 699)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Retire residual Native Riff runtime
+
+- Task: Complete `retire-native-riff-continuous-sync` tasks 5.6 and 6.1-6.5 after explicit read-only import/adoption became the only Native Riff capability.
+- Touched slice: Settings and canonical persistence compatibility fields, SQLite retirement migration, card persistence DTO/mappers, kernel transaction classifier/fanout/action queue, backend/kernel contracts, ApplicationContext and writer relay, focused tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: Removed the `syncToRiff` persistence chain, continuous-sync settings/checkpoint/blacklist fields, Riff read/audit and feedback contracts, Native Riff transaction classification/actions/snapshots/diagnostics, and stale compatibility tests. Native Riff runtime is now limited to explicit read-only import/adoption plus one-time migration reads of legacy `riffIntegration`, `riffBlacklist`, and `riff_sync` evidence.
+- Debt deferred: No Native Riff continuous-sync debt remains. Explicit import/adoption live SiYuan UI smoke remains release validation, not a hidden runtime dependency.
+- Why deferred: Automated tests and static gates can prove ownership and absence of forbidden runtime paths, but final host interaction still requires a deployed plugin session.
+- Next safe step: Run explicit import/adoption smoke after deployment; future Riff work must stay inside the read-only import source and local-owned adoption contracts.
+- Validation: 32 changed Vitest files passed with 262 tests; production forbidden-runtime scan returned `FORBIDDEN_RUNTIME_HITS=0`; hidden-fallback and boundary gates passed; strict OpenSpec validation passed; `git diff --check` passed with CRLF warnings only; production build passed with existing non-blocking i18n and Sass warnings.
 
 ### 2026-07-10 - Remove Xiuyuan sync worker family
 
@@ -9716,8 +9726,6 @@ Do not add an entry for skill-only or docs-only work.
 
 | Priority | Issue | Typical Locations | Suggested Action |
 |---|---|---|---|
-| P1 | Native Riff hard-delete and multi-device concurrency can still create real document conflicts beyond the in-process writer queue | review/browser delete entrypoints, card delete flows, Riff sync delete paths | Split local hide/tombstone semantics from destructive native Riff deletion, then decide whether a cross-window/device lock or tombstone reconciliation model is required |
-| P2 | Two-phase Riff sync has a planner/commit seam, and transaction-triggered scoped native upsert now has unit coverage, but browser/manual lifecycle coverage still needs expansion | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated full sync, manual incremental sync, and duplicate logical-face merge cleanup |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
 | P3 | Big-file line-count campaign is closed; target active files are now below 3000, with residual orchestration debt limited to concrete product seams rather than file-size blockers | `src/application/services/AIWorkbenchService.ts`, `src/ui/ai/AiWorkbenchPane.vue`, `src/ui/browser/SRSBrowser.vue`, `src/ui/review/v2/ReviewView.vue`, `src/ui/settings/SettingsPanel.vue`, plus extracted Review / AI / Browser / Settings helpers listed above | Reopen only when a single bounded-context behavior seam needs work: Browser helper dedupe, Review snapshot/lifecycle, Settings componentization, AI multi-window/multimodal, or product i18n/test-noise cleanup |
 | P2 | Browser datasource/query row helper logic still has local duplication after UI `cardFilters` facade cleanup | `src/application/queries/browser/shared/BrowserRowUtils.ts`, `src/ui/browser/datasource/DataSourceUtils.ts`, browser datasource helpers | Deduplicate generic row filters around shared parser/matcher only after deck/query snapshot parity tests cover the migrated behavior |
@@ -9729,11 +9737,10 @@ Do not add an entry for skill-only or docs-only work.
 | P2 | AI kernel SSE fast path now exists for GET SSE relay and private stream fanout, but real POST/body provider token delta remains unsupported by the inspected SiYuan `/es/network/proxy` source and still lacks live provider smoke | `src/infrastructure/ai/KernelAINetworkProxyAdapter.ts`, `src/infrastructure/siyuan/SiyuanKernelCompanionAdapter.ts`, `kernel.js`, `specs/001-backend-migration-next/quickstart.md` | Confirm real provider streaming in SiYuan; if provider requires POST SSE, add/confirm kernel POST streaming support or design a separate safe transport before declaring token delta default-on |
 | P2 | AI Workbench stale dialog can hold a disposed `ApplicationContext` after plugin reload | `src/ui/ai`, `src/application/services/AIWorkbenchPromptRuntime.ts`, dialog lifecycle wiring | Add a reload/dispose guard that closes or rebuilds stale AI panes before submit; current workaround is refresh page and reopen AI Workbench |
 | P2 | AutoCard listener live smoke is 10/10 after bounded retry, but the earlier merge-style storage conflict warning still needs classification if it repeats | `src/application/handlers/AutoCardHandler.ts`, `src/core/storage/UnifiedStorageManager.ts`, `specs/001-backend-migration-next/quickstart.md` | Keep listener diagnostics available during future live smoke; classify merge warnings as expected cross-window merge vs remaining un-tokened write entrance only if they recur |
-| P1 | Xiuyuan sync backend facade has worker/idempotency/unit coverage, but live SiYuan Riff read/audit smoke is still pending | `XiuyuanSyncService`, `BackendKernel`, `WorkerXiuyuanSyncPlanner`, `XiuyuanSyncSiyuanAdapter` | Run the privacy-safe SiYuan smoke for `siyuan.riff.readAudit` plus one incremental sync before checking OpenSpec 3.8 |
-| P1 | Progressive/Topic-derived commands now execute through typed backend command RPC + writer relay with unit/build coverage, but live two-window SiYuan smoke for real document/card/attr/native Riff side effects is still pending | `src/application/services/{ProgressiveReadingService,TopicDerivedItemService}.ts`, `BackendKernel`, `BrowserSrsBackendWorkerTransport`, `writerRelayCommandDispatcher` | Run privacy-safe live SiYuan smoke for one Progressive creation and one Topic-derived creation from a follower window, recording command ids/counts/unavailable classes only |
+| P1 | Progressive/Topic-derived commands now execute through typed backend command RPC + writer relay with unit/build coverage, but live two-window SiYuan smoke for real document/card/attr and local-card side effects is still pending | `src/application/services/{ProgressiveReadingService,TopicDerivedItemService}.ts`, `BackendKernel`, `BrowserSrsBackendWorkerTransport`, `writerRelayCommandDispatcher` | Run privacy-safe live SiYuan smoke for one Progressive creation and one Topic-derived creation from a follower window, recording command ids/counts/unavailable classes only |
 | P2 | P6 broader backend-command ownership remains staged after direct SQL/helper boundary closure | `src/application/usecases/xiuyuan/*`, `src/application/services/{ProgressiveReadingService,TopicDerivedItemService}.ts`, `src/application/handlers/AutoCardHandler.ts`, `src/application/managers/{BlockMenuHandler,DialogManager}.ts` | Current owner is explicit app query boundary + writer relay; only open a follow-up if these side effects must become backend-worker commands rather than writer-relayed application commands |
 
 ## 4. Next convergence batch
 
 1. Big-file line-count campaign is closed for current targets; continue with one P3 bounded context at a time, driven by product/runtime debt rather than line count. Safe next choices: Browser helper dedupe, Review snapshot/lifecycle command, Settings base componentization, AI multi-window/multimodal, mojibake docs/comments, AI descriptor i18n/happy-dom noise, or Arena UI scenario registration.
-2. Evaluate product semantics debt separately: Native Riff hard-delete vs local hide/tombstone and cross-window/device conflict handling.
+2. Validate explicit Native Riff import/adoption in one deployed SiYuan session; keep all future Riff behavior read-only and user-triggered.

@@ -1,6 +1,5 @@
-import type { QuerySiyuanPort, RiffDueTimeUpdate } from '@/application/ports/QuerySiyuanPort';
+import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import { sql } from './api';
-import { batchSetRiffCardsDueTime } from '@/core/siyuan/riff';
 import { ATTR_CARD_TYPE, ATTR_PRIORITY, ATTR_SUSPENDED } from '@/core/siyuan/block';
 
 export class QuerySiyuanAdapter implements QuerySiyuanPort {
@@ -10,9 +9,5 @@ export class QuerySiyuanAdapter implements QuerySiyuanPort {
 
   async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
     return sql<TRow>(stmt);
-  }
-
-  async batchSetRiffCardsDueTime(cards: RiffDueTimeUpdate[]): Promise<void> {
-    await batchSetRiffCardsDueTime(cards);
   }
 }

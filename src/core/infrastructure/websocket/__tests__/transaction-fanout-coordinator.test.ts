@@ -4,7 +4,6 @@ import {
   shouldDispatchAutoCardFromFanoutPlan,
   shouldDispatchDocTreeFromFanoutPlan,
   shouldDispatchKernelTransactionIngestFromFanoutPlan,
-  shouldDispatchNativeRiffFromFanoutPlan,
 } from '../transaction-fanout-coordinator';
 import type { Transaction } from '../transaction-types';
 
@@ -142,12 +141,8 @@ describe('transaction fan-out coordinator', () => {
     expect(plan.autoCard.candidateOperations).toEqual([]);
     expect(plan.autoCard.suppressedOperations.map((operation) => operation.blockId)).toEqual(['excerpt-doc']);
     expect(plan.documentTree.touchedBlockIds).toEqual(['excerpt-doc', 'source-doc', 'topic-card', 'removed-card']);
-    expect(plan.nativeRiff.upsertBlockIds).toEqual(['topic-card']);
-    expect(plan.nativeRiff.removeBlockIds).toEqual(['removed-card']);
-    expect(plan.nativeRiff.shouldDispatch).toBe(false);
-    expect(plan.nativeRiff.reasons).toEqual([]);
+    expect(plan).not.toHaveProperty('nativeRiff');
     expect(shouldDispatchDocTreeFromFanoutPlan(plan)).toBe(true);
-    expect(shouldDispatchNativeRiffFromFanoutPlan(plan)).toBe(false);
     expect(plan.reasons).not.toContain('native-riff-upsert');
     expect(plan.reasons).not.toContain('native-riff-remove');
   });

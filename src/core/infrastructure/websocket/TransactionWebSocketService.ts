@@ -314,7 +314,6 @@ export class TransactionWebSocketService {
                 documentTreeHint: classification.documentTree.hasHint,
                 handlerCount: this.handlers.length,
                 matchedHandlerCount,
-                nativeRiffSignal: classification.nativeRiff.hasSignal,
                 operationCount: classification.operationCount,
                 prefilteredNoOpCount: classification.autoCard.prefilteredNoOpCount,
                 suppressedAutoCardCount: fanoutPlan.autoCard.suppressedOperations.length,

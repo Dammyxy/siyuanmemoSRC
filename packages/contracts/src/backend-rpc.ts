@@ -3097,10 +3097,7 @@ export interface BackendKernelTransactionIngestRequest {
   };
 }
 
-export type BackendKernelTransactionActionType =
-  | 'native-riff-remove'
-  | 'native-riff-upsert'
-  | 'auto-card-candidates';
+export type BackendKernelTransactionActionType = 'auto-card-candidates';
 
 export interface BackendKernelTransactionIngestResult {
   accepted: number;
@@ -3117,16 +3114,6 @@ export interface BackendKernelTransactionActionBase {
   idempotencyKey: string;
 }
 
-export interface BackendKernelTransactionRemoveAction extends BackendKernelTransactionActionBase {
-  type: Extract<BackendKernelTransactionActionType, 'native-riff-remove'>;
-  blockIds: string[];
-}
-
-export interface BackendKernelTransactionUpsertAction extends BackendKernelTransactionActionBase {
-  type: Extract<BackendKernelTransactionActionType, 'native-riff-upsert'>;
-  blockIds: string[];
-}
-
 export interface BackendKernelTransactionAutoCardAction extends BackendKernelTransactionActionBase {
   type: Extract<BackendKernelTransactionActionType, 'auto-card-candidates'>;
   operations: Array<{
@@ -3135,10 +3122,7 @@ export interface BackendKernelTransactionAutoCardAction extends BackendKernelTra
   }>;
 }
 
-export type BackendKernelTransactionAction =
-  | BackendKernelTransactionRemoveAction
-  | BackendKernelTransactionUpsertAction
-  | BackendKernelTransactionAutoCardAction;
+export type BackendKernelTransactionAction = BackendKernelTransactionAutoCardAction;
 
 export interface BackendKernelTransactionDequeueRequest {
   maxActions?: number;

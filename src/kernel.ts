@@ -834,8 +834,6 @@ function buildCapabilities() {
       'writer.getCommandResult',
       'writer.takeCommand',
       'network.fetchExternal',
-      'riff.read',
-      'riff.audit',
       'agent.mcp.memo_query',
       'agent.mcp.memo_card',
       'agent.mcp.memo_review',
@@ -849,7 +847,6 @@ function buildCapabilities() {
     kernelNetworkProxy: true,
     privateHttp: Boolean(siyuan.server?.private?.http),
     privateSse: false,
-    riffReadAuditProxy: true,
     agentMcp: {
       available: hasAgentMcpRegisterApi(),
       registeredTools: Array.from(registeredAgentMcpTools),
@@ -877,81 +874,6 @@ async function postSiyuanKernelApi(path, payload) {
     throw new Error(`kernel api ${path} failed: http=${response.status} code=${json?.code ?? 'unknown'} msg=${json?.msg || ''}`);
   }
   return json.data;
-}
-
-function sanitizeRiffBlock(block) {
-  const riffCard = block?.riffCard && typeof block.riffCard === 'object'
-    ? {
-        id: normalizeOptionalString(block.riffCard.id, 128) || null,
-        blockID: normalizeOptionalString(block.riffCard.blockID || block.riffCard.blockId, 128) || null,
-        deckID: normalizeOptionalString(block.riffCard.deckID || block.riffCard.deckId, 128) || null,
-        state: Number.isFinite(Number(block.riffCard.state)) ? Number(block.riffCard.state) : null,
-        due: normalizeOptionalString(block.riffCard.due, 128) || null,
-        reps: Number.isFinite(Number(block.riffCard.reps)) ? Number(block.riffCard.reps) : null,
-        lapses: Number.isFinite(Number(block.riffCard.lapses)) ? Number(block.riffCard.lapses) : null,
-      }
-    : null;
-  return {
-    id: normalizeOptionalString(block?.id, 128) || null,
-    type: normalizeOptionalString(block?.type, 32) || null,
-    subType: normalizeOptionalString(block?.subType || block?.subtype, 32) || null,
-    box: normalizeOptionalString(block?.box, 128) || null,
-    riffCardID: normalizeOptionalString(block?.riffCardID, 128) || null,
-    riffCardId: normalizeOptionalString(block?.riffCardId, 128) || null,
-    riffCard,
-  };
-}
-
-async function readRiffCards(params) {
-  const named = toObjectParams(params);
-  const requestId = normalizeOptionalString(named.requestId, 128) || `riff-read-${nowMs()}`;
-  const deckId = normalizeDeckId(named.deckId || named.deckID || named.id);
-  const pageSize = normalizePositiveInt(named.pageSize, 100, 200);
-  const maxPages = normalizePositiveInt(named.maxPages, 20, 100);
-  const blocks = [];
-  let total = 0;
-  let pageCount = 0;
-  for (let page = 1; page <= maxPages; page += 1) {
-    const data = await postSiyuanKernelApi('/api/riff/getRiffCards', {
-      id: deckId,
-      page,
-      pageSize,
-    });
-    const pageBlocks = Array.isArray(data?.blocks) ? data.blocks : [];
-    total = Number(data?.total) || total;
-    pageCount = Number(data?.pageCount) || pageCount;
-    blocks.push(...pageBlocks.map(sanitizeRiffBlock));
-    if (pageBlocks.length === 0 || page >= pageCount) {
-      break;
-    }
-  }
-  return {
-    requestId,
-    deckId,
-    status: 'ready',
-    total,
-    pageCount,
-    blocks,
-    diagnostics: {
-      checkedAt: nowMs(),
-      returned: blocks.length,
-      contentReturned: false,
-    },
-  };
-}
-
-async function auditRiffCards(params) {
-  const result = await readRiffCards(params);
-  const malformed = result.blocks.filter((block) => !block.id || !(block.riffCardID || block.riffCardId || block.riffCard?.id)).length;
-  return {
-    requestId: result.requestId,
-    deckId: result.deckId,
-    status: result.status,
-    total: result.total,
-    normalized: result.blocks.length,
-    malformed,
-    diagnostics: result.diagnostics,
-  };
 }
 
 function writerHello(params) {
@@ -1599,8 +1521,6 @@ siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind('writer.takeCommand', async (params) => writerTakeCommand(params), 'Poll next pending writer relay command for active writer instance.');
   await siyuan.rpc.bind('queueProjection.publishIdentityChanged', async (params) => queueProjectionPublishIdentityChanged(params), 'Relay queue projection identity changes to active frontend instances.');
   await siyuan.rpc.bind('network.fetchExternal', async (params) => networkFetchExternal(params), 'Fetch external HTTP endpoint through kernel network proxy.');
-  await siyuan.rpc.bind('riff.read', async (params) => readRiffCards(params), 'Read native Riff card facts without returning block content.');
-  await siyuan.rpc.bind('riff.audit', async (params) => auditRiffCards(params), 'Audit native Riff card facts without returning block content.');
   await registerAgentMcpTools();
   if (siyuan.server?.private?.http) {
     siyuan.server.private.http.handler = handlePrivateHttp;

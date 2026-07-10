@@ -66,15 +66,7 @@ type DataAccessPlugin = Plugin & {
     i18n?: Record<string, string>;
 };
 
-interface SettingsServiceLike {
-    getSettings?: () => {
-        riffIntegration?: {
-            deleteSync?: {
-                enabled?: boolean;
-            };
-        };
-    };
-}
+type SettingsServiceLike = object;
 
 const logger = createLogger('DataAccessFacade');
 const SIYUAN_BLOCK_ID_PATTERN = /^\d{14}-[a-z0-9]{7}$/i;
@@ -85,7 +77,6 @@ const SIYUAN_BLOCK_ID_PATTERN = /^\d{14}-[a-z0-9]{7}$/i;
  * 数据访问门面,负责:
  * - 从应用服务获取卡片数据
  * - 更新和删除卡片
- * - 显式同步到 Riff(通过 syncToRiff 方法)
  * - 提供可用的队列类型和上下文菜单选项
  * 
  * 采用 Facade 模式,为 UnifiedDataSourceManager 提供简化的数据访问接口。
@@ -148,14 +139,6 @@ export class DataAccessFacade implements IDataRouter {
      * 用于访问应用服务（如 CardContentQueryService）
      */
     private applicationContext: DataAccessContextLike | null;
-    
-    /**
-     * Riff 同步启用标志
-     * 
-     * 控制是否自动同步到 Riff(默认不同步)
-     * @see 需求 17.2
-     */
-    private riffSyncEnabled: boolean = false;
     
     // 🚀 性能优化：缓存 getCards() 结果
     private cardsCache: FSRSCard[] | null = null;
@@ -402,8 +385,6 @@ export class DataAccessFacade implements IDataRouter {
      * 高级模式允许完全读写访问，可以更新卡片数据。
      * 通过卡片应用服务更新卡片。
      * 
-     * 如果启用了 Riff 同步且卡片使用 Riff 调度器，则自动同步到 Riff。
-     * 
      * @param card 要更新的卡片
      * @see 需求 3.4, 17.2, 17.3
      */
@@ -424,11 +405,6 @@ export class DataAccessFacade implements IDataRouter {
         // 🚀 性能优化：失效缓存
         this.clearCommittedBackendReviewCard(card.id);
         this.invalidateCardsCache();
-        
-        // 仅在用户明确选择 Riff 调度器时才同步
-        if (this.riffSyncEnabled && card.schedulerType === 'riff') {
-            await this.syncToRiff(card.id);
-        }
     }
 
     async batchUpdateCards(
@@ -465,7 +441,6 @@ export class DataAccessFacade implements IDataRouter {
                 this.clearCommittedBackendReviewCard(cardId);
             }
             this.invalidateCardsCache();
-            await this.syncUpdatedRiffCards(cardsToUpdate, updatedCardIds);
         }
 
         return {
@@ -529,67 +504,6 @@ export class DataAccessFacade implements IDataRouter {
     }
     
     // ========================================================================
-    // 高级模式特定方法
-    // ========================================================================
-    
-    /**
-     * 启用或禁用 Riff 同步
-     * 
-     * 控制是否在更新卡片时自动同步到 Riff。
-     * 
-     * @param enabled 是否启用同步
-     * @see 需求 17.2
-     */
-    enableRiffSync(enabled: boolean): void {
-        this.riffSyncEnabled = enabled;
-    }
-    
-    /**
-     * 同步卡片到 Riff
-     * 
-     * 显式将卡片的调度数据同步到 Riff API。
-     * 这是一个手动操作，通过上下文菜单"同步到 Riff"触发。
-     * 
-     * 注意：由于 Riff API 限制，目前只能同步 due 字段。
-     * 
-     * @param cardId 要同步的卡片 ID
-     * @see 需求 17.3
-     */
-    async syncToRiff(cardId: string): Promise<void> {
-        const card = await this.getCard(cardId);
-        
-        // 将 due 时间戳转换为 ISO 字符串
-        const dueDate = new Date(card.due).toISOString();
-        
-        // 使用 Riff API 同步
-        await this.siyuanApi.batchSetRiffCardsDueTime([
-            { id: cardId, due: dueDate }
-        ]);
-        
-        logger.info(`[SiYuanMemo][AdvancedDataRouter] Synced card ${cardId} to Riff`);
-    }
-
-    private async syncUpdatedRiffCards(cards: FSRSCard[], updatedCardIds: string[]): Promise<void> {
-        if (!this.riffSyncEnabled || updatedCardIds.length === 0) {
-            return;
-        }
-
-        const updatedIdSet = new Set(updatedCardIds);
-        const dueUpdates = cards
-            .filter((card) => updatedIdSet.has(card.id) && card.schedulerType === 'riff')
-            .map((card) => ({
-                id: card.id,
-                due: new Date(card.due).toISOString(),
-            }));
-
-        if (dueUpdates.length === 0) {
-            return;
-        }
-
-        await this.siyuanApi.batchSetRiffCardsDueTime(dueUpdates);
-    }
-    
-    // ========================================================================
     // 模式特定方法
     // ========================================================================
     
@@ -613,15 +527,13 @@ export class DataAccessFacade implements IDataRouter {
     /**
      * 获取当前模式下的上下文菜单选项
      * 
-     * 高级模式提供恰好 7 个上下文菜单选项：
+     * 高级模式提供恰好 6 个上下文菜单选项：
      * - 打开（open）
      * - 删除（delete）
      * - 添加到最终训练（add-to-final-drill）
      * - 切换调度器（switch-scheduler）
      * - 修改卡片类型（modify-card-type）
      * - 设置优先级（set-priority）
-     * - 同步到 Riff（sync-to-riff）
-     * 
      * @returns 上下文菜单选项数组
      * @see 需求 3.3
      */

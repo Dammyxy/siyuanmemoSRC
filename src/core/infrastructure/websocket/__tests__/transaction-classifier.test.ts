@@ -3,7 +3,6 @@ import {
   classifyTransactionBatch,
   shouldDispatchAutoCard,
   shouldDispatchKernelTransactionIngest,
-  shouldDispatchNativeRiffSync,
 } from '../transaction-classifier';
 import type { Transaction } from '../transaction-types';
 
@@ -36,12 +35,10 @@ describe('transaction classifier', () => {
     expect(classification.actionClasses).toEqual(['update']);
     expect(classification.autoCard.prefilteredNoOpCount).toBe(1);
     expect(classification.autoCard.candidateOperations).toEqual([]);
-    expect(classification.nativeRiff.hasSignal).toBe(false);
     expect(classification.documentTree.hasHint).toBe(false);
     expect(classification.hasSiYuanMemoSignal).toBe(false);
     expect(shouldDispatchKernelTransactionIngest(classification)).toBe(false);
     expect(shouldDispatchAutoCard(classification)).toBe(false);
-    expect(shouldDispatchNativeRiffSync(classification)).toBe(false);
   });
 
   it('classifies SiYuan HTML payloads stored directly in operation data as inspectable no-op edits', () => {
@@ -148,34 +145,6 @@ describe('transaction classifier', () => {
       },
     ]);
     expect(classification.hasSiYuanMemoSignal).toBe(true);
-  });
-
-  it('extracts native Riff upsert and remove hints', () => {
-    const classification = classifyTransactionBatch([
-      tx([
-        {
-          action: 'updateAttrs',
-          id: 'riff-upsert',
-          data: {
-            new: {
-              attrs: {
-                'custom-riff-decks': 'deck-1',
-              },
-            },
-          },
-        },
-        {
-          action: 'removeFlashcards',
-          id: '',
-          blockIDs: ['riff-remove', 'riff-remove'],
-        },
-      ]),
-    ]);
-
-    expect(classification.nativeRiff.hasSignal).toBe(true);
-    expect(classification.nativeRiff.upsertBlockIds).toEqual(['riff-upsert']);
-    expect(classification.nativeRiff.removeBlockIds).toEqual(['riff-remove']);
-    expect(shouldDispatchNativeRiffSync(classification)).toBe(true);
   });
 
   it('extracts document-tree hints from document block operations', () => {

@@ -57,7 +57,6 @@ type CardServiceLike = {
 describe('DataAccessFacade missing block filtering', () => {
   let cardService: CardServiceLike;
   let siyuanApi: {
-    batchSetRiffCardsDueTime: ReturnType<typeof vi.fn>;
   };
   let getExistingBlockIds: ReturnType<typeof vi.fn>;
   let facade: DataAccessFacade;
@@ -70,7 +69,6 @@ describe('DataAccessFacade missing block filtering', () => {
       deleteFSRSCard: vi.fn(),
     };
     siyuanApi = {
-      batchSetRiffCardsDueTime: vi.fn(),
     };
     getExistingBlockIds = vi.fn().mockResolvedValue(new Set<string>());
 

@@ -153,8 +153,7 @@ export async function executeWriterRelayCommand(
     }
     return srsBackendClient.requeueKernelTransactions(command.params as {
       actions?: Array<{
-        type: 'native-riff-remove' | 'native-riff-upsert' | 'auto-card-candidates';
-        blockIds?: string[];
+        type: 'auto-card-candidates';
         operations?: Array<{
           action: 'insert' | 'update' | 'delete';
           blockId: string;

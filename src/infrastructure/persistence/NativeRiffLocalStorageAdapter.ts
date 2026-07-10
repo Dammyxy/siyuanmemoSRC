@@ -259,7 +259,6 @@ NativeRiffAdoptionWritePort {
       const nextDto: CardPersistenceDTO = {
         ...currentDto,
         templateID: record.templateId,
-        syncToRiff: false,
         updatedAt: this.now(),
         meta: {
           ...(currentDto.meta ?? {}),

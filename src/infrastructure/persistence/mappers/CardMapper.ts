@@ -238,7 +238,6 @@ export class CardMapper {
 
       // 调度器
       schedulerType: card.schedulerType,
-      syncToRiff: card.syncToRiff,
       riffCardId: card.riffCardId,
       schedulerMeta: card.schedulerMeta,
 
@@ -353,7 +352,6 @@ export class CardMapper {
 
       // 调度器
       schedulerType: dto.schedulerType,
-      syncToRiff: dto.syncToRiff,
       riffCardId: dto.riffCardId,
       schedulerMeta: dto.schedulerMeta,
 

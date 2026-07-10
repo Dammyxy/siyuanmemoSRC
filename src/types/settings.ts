@@ -400,46 +400,6 @@ export interface QueueSettings {
 /** 存储冲突解决策略 */
 export type StorageConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
 
-/** 🆕 Riff 集成配置 */
-export interface RiffIntegrationConfig {
-    /** 模式选择 */
-    mode: 'advanced' | 'simple';
-    
-    /** 使用本地调度器 */
-    useLocalScheduler: boolean;
-    
-    /** 增量同步配置 */
-    incrementalSync: {
-        /** 是否启用增量同步 */
-        enabled: boolean;
-        /** 触发时机 */
-        triggers: Array<'plugin-start' | 'browser-open'>;
-        /** 是否使用黑名单过滤 */
-        useBlacklist: boolean;
-    };
-    
-    /** 全量同步配置 */
-    fullSync: {
-        /** 是否启用全量同步 */
-        enabled: boolean;
-        /** 同步间隔（毫秒） */
-        interval: number;
-        /** 是否清理黑名单 */
-        cleanupBlacklist: boolean;
-    };
-    
-    /** 删除同步配置 */
-    deleteSync: {
-        /** 是否启用删除同步 */
-        enabled: boolean;
-        /** 删除失败时是否使用黑名单作为后备 */
-        useBlacklistFallback: boolean;
-    };
-
-    /** 多实例/多设备写冲突时的解决策略 */
-    storageConflictResolution?: StorageConflictResolutionStrategy;
-}
-
 /** 插件完整设置 */
 export interface PluginSettings {
     // FSRS 算法
@@ -452,9 +412,9 @@ export interface PluginSettings {
 
     // 🆕 调度器配置
     scheduler?: SchedulerConfig;
-    
-    // 🆕 Riff 集成配置
-    riffIntegration?: RiffIntegrationConfig;
+
+    // 多实例/多设备写冲突时的解决策略
+    storageConflictResolution: StorageConflictResolutionStrategy;
 
     // 复习队列
     newCardsPerDay: number;    // 每日新卡上限
@@ -481,112 +441,44 @@ export interface PluginSettings {
     collectStats: boolean;     // 收集统计数据
 }
 
-type IncrementalSyncTrigger = RiffIntegrationConfig['incrementalSync']['triggers'][number];
-
-const LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET = ['plugin-start', 'browser-open', 'review-open'] as const;
-type LegacyIncrementalSyncTrigger = typeof LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET[number];
-
-function isIncrementalSyncTrigger(value: unknown): value is IncrementalSyncTrigger {
-    return value === 'plugin-start' || value === 'browser-open';
-}
-
-function isLegacyDefaultIncrementalSyncTriggerTriplet(
-    triggers: readonly unknown[]
-): boolean {
-    return triggers.length === LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET.length
-        && triggers.every((trigger, index) => trigger === LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET[index]);
-}
-
-function normalizeIncrementalSyncTriggers(
-    triggers: unknown
-): { triggers: IncrementalSyncTrigger[]; changed: boolean } {
-    const rawTriggers = Array.isArray(triggers)
-        ? triggers
-        : DEFAULT_RIFF_CONFIG.incrementalSync.triggers;
-    const sourceTriggers = rawTriggers.filter(isIncrementalSyncTrigger);
-    const dedupedTriggers = Array.from(new Set(sourceTriggers));
-    const normalizedTriggers = isLegacyDefaultIncrementalSyncTriggerTriplet(rawTriggers as readonly LegacyIncrementalSyncTrigger[])
-        ? ([] as IncrementalSyncTrigger[])
-        : dedupedTriggers;
-
-    return {
-        triggers: normalizedTriggers,
-        changed: rawTriggers.length !== sourceTriggers.length
-            || dedupedTriggers.length !== sourceTriggers.length
-            || normalizedTriggers.length !== dedupedTriggers.length
-            || normalizedTriggers.some((trigger, index) => trigger !== dedupedTriggers[index]),
-    };
-}
-
 function normalizeStorageConflictResolution(
     value: unknown
 ): StorageConflictResolutionStrategy {
     return value === 'merge' || value === 'prefer-local' || value === 'prefer-remote'
         ? value
-        : (DEFAULT_RIFF_CONFIG.storageConflictResolution || 'merge');
-}
-
-function normalizeRiffIntegrationConfig(
-    config: RiffIntegrationConfig | undefined
-): { config: RiffIntegrationConfig; changed: boolean } {
-    const normalizedTriggers = normalizeIncrementalSyncTriggers(config?.incrementalSync?.triggers);
-    const normalizedConfig: RiffIntegrationConfig = {
-        ...DEFAULT_RIFF_CONFIG,
-        ...(config || {}),
-        incrementalSync: {
-            ...DEFAULT_RIFF_CONFIG.incrementalSync,
-            ...(config?.incrementalSync || {}),
-            triggers: normalizedTriggers.triggers,
-        },
-        fullSync: {
-            ...DEFAULT_RIFF_CONFIG.fullSync,
-            ...(config?.fullSync || {}),
-        },
-        deleteSync: {
-            ...DEFAULT_RIFF_CONFIG.deleteSync,
-            ...(config?.deleteSync || {}),
-        },
-        storageConflictResolution: normalizeStorageConflictResolution(config?.storageConflictResolution),
-    };
-
-    const changed = !config
-        || normalizedTriggers.changed
-        || config.mode !== normalizedConfig.mode
-        || config.useLocalScheduler !== normalizedConfig.useLocalScheduler
-        || config.incrementalSync?.enabled !== normalizedConfig.incrementalSync.enabled
-        || config.incrementalSync?.useBlacklist !== normalizedConfig.incrementalSync.useBlacklist
-        || config.incrementalSync?.triggers?.length !== normalizedConfig.incrementalSync.triggers.length
-        || config.incrementalSync?.triggers?.some((trigger, index) => trigger !== normalizedConfig.incrementalSync.triggers[index])
-        || config.fullSync?.enabled !== normalizedConfig.fullSync.enabled
-        || config.fullSync?.interval !== normalizedConfig.fullSync.interval
-        || config.fullSync?.cleanupBlacklist !== normalizedConfig.fullSync.cleanupBlacklist
-        || config.deleteSync?.enabled !== normalizedConfig.deleteSync.enabled
-        || config.deleteSync?.useBlacklistFallback !== normalizedConfig.deleteSync.useBlacklistFallback
-        || config.storageConflictResolution !== normalizedConfig.storageConflictResolution;
-
-    return {
-        config: normalizedConfig,
-        changed,
-    };
+        : 'merge';
 }
 
 export function normalizePluginSettings(settings: PluginSettings): { settings: PluginSettings; changed: boolean } {
     let changed = false;
+    const legacySettings = settings as PluginSettings & {
+        riffIntegration?: {
+            storageConflictResolution?: unknown;
+        };
+    };
+    const hasRetiredRiffIntegration = Object.prototype.hasOwnProperty.call(legacySettings, 'riffIntegration');
+    const {
+        riffIntegration: _retiredRiffIntegration,
+        ...settingsWithoutRetiredRiffIntegration
+    } = legacySettings;
+    const normalizedStorageConflictResolution = normalizeStorageConflictResolution(
+        legacySettings.riffIntegration?.storageConflictResolution
+            ?? settings.storageConflictResolution
+    );
     const sourceProgressiveReading = settings.progressiveReading as (PluginSettings['progressiveReading'] & {
         dailyTraceEnabled?: boolean;
     }) | undefined;
     const hasRetiredAiSettings = Object.prototype.hasOwnProperty.call(settings, 'ai');
     const { dailyTraceEnabled: _legacyDailyTraceEnabled, ...sourceProgressiveReadingWithoutLegacy } = sourceProgressiveReading || {};
-    const normalizedRiffIntegration = normalizeRiffIntegrationConfig(settings.riffIntegration);
     const normalized: PluginSettings = {
-        ...settings,
+        ...settingsWithoutRetiredRiffIntegration,
         fsrs: { ...settings.fsrs },
         scheduler: {
             ...DEFAULT_SETTINGS.scheduler,
             ...(settings.scheduler || {}),
             srsV2: normalizeSrsV2SchedulerSettings(settings.scheduler?.srsV2),
         },
-        riffIntegration: normalizedRiffIntegration.config,
+        storageConflictResolution: normalizedStorageConflictResolution,
         queues: {
             ...DEFAULT_SETTINGS.queues,
             ...(settings.queues || {}),
@@ -775,7 +667,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         }
     }
 
-    if (normalizedRiffIntegration.changed) {
+    if (
+        hasRetiredRiffIntegration
+        || settings.storageConflictResolution !== normalizedStorageConflictResolution
+    ) {
         changed = true;
     }
 
@@ -808,30 +703,6 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
     return { settings: normalized, changed };
 }
 
-/** 默认 Riff 集成配置 */
-export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
-    mode: 'advanced',
-    useLocalScheduler: true,
-    storageConflictResolution: 'merge',
-    
-    incrementalSync: {
-        enabled: false,
-        triggers: [],
-        useBlacklist: true
-    },
-    
-    fullSync: {
-        enabled: false,
-        interval: 86400000,  // 24小时：删除检测只由 full reconcile 执行
-        cleanupBlacklist: true
-    },
-    
-    deleteSync: {
-        enabled: false,
-        useBlacklistFallback: true
-    }
-};
-
 /** 默认设置 */
 export const DEFAULT_SETTINGS: PluginSettings = {
     fsrs: {
@@ -857,7 +728,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
             },
         },
     },
-    riffIntegration: DEFAULT_RIFF_CONFIG,
+    storageConflictResolution: 'merge',
     newCardsPerDay: 20,
     reviewsPerDay: 0,
     defaultPriority: 50,

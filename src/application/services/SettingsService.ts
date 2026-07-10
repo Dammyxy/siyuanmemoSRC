@@ -3,12 +3,11 @@
  * 
  * @module SettingsService
  * @description
- * 应用层服务，负责管理插件设置和 Riff 集成配置。
+ * 应用层服务，负责管理插件设置。
  * 提供类型安全的设置访问接口，支持部分更新和验证。
  * 
  * **职责**：
  * - 管理插件设置的加载和保存
- * - 管理 Riff 集成配置的读写
  * - 验证设置的有效性
  * - 提供类型安全的设置访问接口
  * - 使用防抖机制避免频繁写入
@@ -17,8 +16,8 @@
  */
 
 import type { IFileService } from '../../infrastructure/services/FileService';
-import type { PluginSettings, RiffIntegrationConfig } from '../../types/settings';
-import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG, FSRS_WEIGHT_COUNT, normalizePluginSettings } from '../../types/settings';
+import type { PluginSettings } from '../../types/settings';
+import { DEFAULT_SETTINGS, FSRS_WEIGHT_COUNT, normalizePluginSettings } from '../../types/settings';
 import { applyDebugLogPreference, createLogger } from '@/utils/logger';
 import { getDefaultSiyuanFlashcardConfig, readSiyuanFlashcardConfig } from '@/utils/siyuanFlashcardConfig';
 
@@ -40,20 +39,9 @@ export interface ISettingsService {
   
   /**
    * 更新插件设置
-   * @param settings 部分设置（只更新提供的字段）
-   */
+  * @param settings 部分设置（只更新提供的字段）
+  */
   updateSettings(settings: Partial<PluginSettings>): Promise<void>;
-  
-  /**
-   * 获取 Riff 集成配置
-   */
-  getRiffIntegrationConfig(): RiffIntegrationConfig;
-  
-  /**
-   * 更新 Riff 集成配置
-   * @param config 部分配置（只更新提供的字段）
-   */
-  updateRiffIntegrationConfig(config: Partial<RiffIntegrationConfig>): Promise<void>;
 }
 
 /**
@@ -71,7 +59,6 @@ export class SettingsValidationError extends Error {
  */
 export class SettingsService implements ISettingsService {
   private currentSettings: PluginSettings;
-  private currentRiffConfig: RiffIntegrationConfig;
   private saveDebounceTimer: NodeJS.Timeout | null = null;
   private readonly DEBOUNCE_DELAY = 300; // 300ms 防抖延迟
   
@@ -81,7 +68,6 @@ export class SettingsService implements ISettingsService {
   constructor(private readonly fileService: IFileService) {
     // 初始化为默认设置
     this.currentSettings = { ...DEFAULT_SETTINGS };
-    this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
   }
 
   /**
@@ -106,13 +92,6 @@ export class SettingsService implements ISettingsService {
         // 🔍 调试日志：检查合并后的数据
         logger.info('[SettingsService] Merged settings:', this.currentSettings.quickCard);
         
-        // 🔧 修复：从 settings.json 中读取 riffIntegration 配置
-        // 不再使用单独的 riff-integration.json 文件
-        if (this.currentSettings.riffIntegration) {
-          this.currentRiffConfig = this.currentSettings.riffIntegration;
-        } else {
-          this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
-        }
         if (normalized.changed || seededQuickCardFlashcard) {
           await this.saveSettings();
           logger.info('[SettingsService] Persisted normalized or seeded settings');
@@ -120,7 +99,6 @@ export class SettingsService implements ISettingsService {
       } else {
         // 文件不存在，使用默认设置并保存
         this.currentSettings = { ...DEFAULT_SETTINGS };
-        this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
         this.applyRuntimeLogSettings();
         this.seedQuickCardFlashcardSettings();
         await this.saveSettings();
@@ -131,7 +109,6 @@ export class SettingsService implements ISettingsService {
       logger.error('[SettingsService] Failed to initialize settings:', error);
       // 初始化失败时使用默认设置
       this.currentSettings = { ...DEFAULT_SETTINGS };
-      this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
       throw error;
     }
   }
@@ -161,37 +138,6 @@ export class SettingsService implements ISettingsService {
       this.debouncedSaveSettings();
     } catch (error) {
       logger.error('[SettingsService] Failed to update settings:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * 获取 Riff 集成配置
-   */
-  getRiffIntegrationConfig(): RiffIntegrationConfig {
-    // 返回深拷贝，防止外部修改
-    return JSON.parse(JSON.stringify(this.currentRiffConfig));
-  }
-
-  /**
-   * 更新 Riff 集成配置
-   * @param config 部分配置（只更新提供的字段）
-   */
-  async updateRiffIntegrationConfig(config: Partial<RiffIntegrationConfig>): Promise<void> {
-    try {
-      // 验证配置
-      this.validateRiffConfig(config);
-
-      // 深度合并配置
-      this.currentRiffConfig = this.deepMerge(this.currentRiffConfig, config);
-      
-      // 🔧 修复：同时更新 currentSettings.riffIntegration
-      this.currentSettings.riffIntegration = this.currentRiffConfig;
-
-      // 🔧 修复：保存到 settings.json 而不是单独的文件
-      this.debouncedSaveSettings();
-    } catch (error) {
-      logger.error('[SettingsService] Failed to update Riff integration config:', error);
       throw error;
     }
   }
@@ -266,6 +212,16 @@ export class SettingsService implements ISettingsService {
         throw new SettingsValidationError(
           'priorityRandomness must be between 0 and 1',
           'priorityRandomness'
+        );
+      }
+    }
+
+    if (settings.storageConflictResolution !== undefined) {
+      const validStrategies = ['merge', 'prefer-local', 'prefer-remote'];
+      if (!validStrategies.includes(settings.storageConflictResolution)) {
+        throw new SettingsValidationError(
+          `Invalid storageConflictResolution: ${settings.storageConflictResolution}. Must be one of: ${validStrategies.join(', ')}`,
+          'storageConflictResolution'
         );
       }
     }
@@ -439,54 +395,6 @@ export class SettingsService implements ISettingsService {
         1,
         'queues.neuralRoam.hyperspace.raceRandomness'
       );
-    }
-  }
-
-  /**
-   * 验证 Riff 集成配置
-   */
-  private validateRiffConfig(config: Partial<RiffIntegrationConfig>): void {
-    // 验证模式
-    if (config.mode !== undefined) {
-      if (config.mode !== 'advanced' && config.mode !== 'simple') {
-        throw new SettingsValidationError(
-          'mode must be "advanced" or "simple"',
-          'mode'
-        );
-      }
-    }
-
-    // 验证全量同步间隔
-    if (config.fullSync?.interval !== undefined) {
-      if (config.fullSync.interval < 0) {
-        throw new SettingsValidationError(
-          'fullSync.interval must be non-negative',
-          'fullSync.interval'
-        );
-      }
-    }
-
-    // 验证增量同步触发器
-    if (config.incrementalSync?.triggers !== undefined) {
-      const validTriggers = ['plugin-start', 'browser-open'];
-      for (const trigger of config.incrementalSync.triggers) {
-        if (!validTriggers.includes(trigger)) {
-          throw new SettingsValidationError(
-            `Invalid trigger: ${trigger}. Must be one of: ${validTriggers.join(', ')}`,
-            'incrementalSync.triggers'
-          );
-        }
-      }
-    }
-
-    if (config.storageConflictResolution !== undefined) {
-      const validStrategies = ['merge', 'prefer-local', 'prefer-remote'];
-      if (!validStrategies.includes(config.storageConflictResolution)) {
-        throw new SettingsValidationError(
-          `Invalid storageConflictResolution: ${config.storageConflictResolution}. Must be one of: ${validStrategies.join(', ')}`,
-          'storageConflictResolution'
-        );
-      }
     }
   }
 

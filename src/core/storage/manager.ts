@@ -7,7 +7,7 @@
  */
 
 import type { FSRSCard, ReviewLog, PluginSettings, RescheduleLog } from '@/types';
-import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG, normalizePluginSettings, type RiffIntegrationConfig } from '@/types';
+import { DEFAULT_SETTINGS, normalizePluginSettings } from '@/types';
 import { CardType, CardState } from '@/types/card';
 import * as siyuanApi from '@/core/siyuan/api';
 import { ATTR_PRIORITY } from '@/core/siyuan/block';
@@ -284,22 +284,6 @@ export class StorageManager {
         await this.writePluginData(STORAGE_FILES.SETTINGS, JSON.stringify(this.settings, null, 2));
     }
 
-    /**
-     * 获取 Riff 集成配置
-     */
-    getRiffIntegrationConfig(): RiffIntegrationConfig {
-        return this.settings.riffIntegration || DEFAULT_RIFF_CONFIG;
-    }
-
-    /**
-     * 更新 Riff 集成配置
-     */
-    async updateRiffIntegrationConfig(config: Partial<RiffIntegrationConfig>): Promise<void> {
-        const currentConfig = this.getRiffIntegrationConfig();
-        this.settings.riffIntegration = { ...currentConfig, ...config };
-        await this.saveSettings();
-    }
-
     // ==================== 卡片 ====================
 
     /**
@@ -542,7 +526,6 @@ export class StorageManager {
         
         // 构造纯 FSRSCard（移除 QueueItem 字段）
         const meta = isRecord(source.meta) ? source.meta : undefined;
-        const syncToRiff = toBoolean(source.syncToRiff);
         const riffCardId = toStringOrUndefined(source.riffCardId);
         const skipUntil = toNumberOrUndefined(source.skipUntil);
         const postponeCount = toNumberOrUndefined(source.postponeCount);
@@ -584,7 +567,6 @@ export class StorageManager {
             
             // 保留其他字段（但不包括 deckID）
             ...(isSchedulerType(source.schedulerType) && { schedulerType: source.schedulerType }),
-            ...(syncToRiff !== undefined && { syncToRiff }),
             ...(riffCardId && { riffCardId }),
             ...(skipUntil !== undefined && { skipUntil }),
             ...(meta && { meta }),

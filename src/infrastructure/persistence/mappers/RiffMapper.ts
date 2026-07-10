@@ -90,7 +90,6 @@ export class RiffMapper {
       updatedAt,
       aFactor: undefined,
       schedulerType: type === CardType.Topic ? 'a-factor' : 'fsrs-v6',
-      syncToRiff: true,
       riffCardId: riffCard?.id || riffBlock.riffCardID || riffBlock.riffCardId || riffBlock.id,
       meta: {
         riffBlock,

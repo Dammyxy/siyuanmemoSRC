@@ -152,7 +152,11 @@ describe('BackendKernelTransactionRpcAdapter', () => {
         source: 'ws-main',
         idempotencyKey: 'diagnostics-key',
         transactions: [{
-          doOperations: [{ action: 'removeFlashcards', id: 'block-diagnostics' }],
+          doOperations: [{
+            action: 'update',
+            id: 'block-diagnostics',
+            data: { new: { content: 'Prompt >> Answer' } },
+          }],
         }],
       }],
     });
@@ -170,7 +174,7 @@ describe('BackendKernelTransactionRpcAdapter', () => {
       expect(status.result.ingest).toMatchObject({
         queueLength: 1,
         actionQueueLength: 1,
-        removeActionQueuedTotal: 1,
+        autoCardActionQueuedTotal: 1,
       });
     }
   });

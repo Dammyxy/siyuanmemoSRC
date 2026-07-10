@@ -61,9 +61,7 @@ export interface UnifiedCardStore {
   cardDTOs?: Record<string, CardPersistenceDTO>;
   deletedCardDTOs?: Record<string, StorageDeletionTombstone>;
   deletedXiuyuans?: Record<string, StorageDeletionTombstone>;
-  riffBlacklist?: string[];
   syncMetadata?: StorageSyncMetadata;
-  riffSyncState?: RiffSyncState;
 }
 
 export type StorageConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
@@ -73,12 +71,6 @@ export interface StorageSyncMetadata {
   contentHash: string;
   lastModifiedAt: number;
   lastModifiedBy: string;
-}
-
-export interface RiffSyncState {
-  lastSuccessfulIncrementalCursor?: string;
-  lastSuccessfulIncrementalAt?: number;
-  lastSuccessfulFullAt?: number;
 }
 
 export interface StorageDeletionTombstone {
@@ -98,8 +90,6 @@ export interface NativeRiffDeletionTombstoneCandidate {
   xiuyuanId?: string;
   riffCardId?: string;
 }
-
-export type RiffSyncStatePatch = Partial<RiffSyncState>;
 
 export interface StorageWriteTransaction {
   readonly token: symbol;
@@ -277,8 +267,6 @@ export class UnifiedStorageManager {
   private cardDTOs: Map<string, CardPersistenceDTO> = new Map();  // 鉁?鍙淮鎶?DTO Map
   private deletedCardDTOs: Map<string, StorageDeletionTombstone> = new Map();
   private deletedXiuyuans: Map<string, StorageDeletionTombstone> = new Map();
-  private riffBlacklist: Set<string> = new Set();
-  private riffSyncState: RiffSyncState = {};
 
   // === 鍐呭瓨绱㈠紩 ===
   private indexByBlockID: Map<string, string[]> = new Map();
@@ -926,48 +914,6 @@ export class UnifiedStorageManager {
     return this.conflictResolutionStrategy;
   }
 
-  getRiffSyncState(): RiffSyncState {
-    return { ...this.sanitizeRiffSyncState(this.riffSyncState) };
-  }
-
-  patchRiffSyncState(
-    patch: RiffSyncStatePatch,
-    options: StorageMutationOptions & {
-      scheduleSave?: boolean;
-    } = {},
-  ): boolean {
-    const nextState = this.sanitizeRiffSyncState({
-      ...this.riffSyncState,
-      ...patch,
-    });
-    if (areStructurallyEqual(this.riffSyncState, nextState)) {
-      return false;
-    }
-
-    this.riffSyncState = nextState;
-
-    if (options.scheduleSave === false) {
-      this.dirty = true;
-      return true;
-    }
-
-    this.scheduleSave('riff-sync-state-patch');
-    return true;
-  }
-
-  async updateRiffSyncState(patch: RiffSyncStatePatch): Promise<Result<void>> {
-    return this.runWriteMutation('riff-sync-state', async (transaction) => {
-      if (!this.patchRiffSyncState(patch, { scheduleSave: false })) {
-        return ok(undefined);
-      }
-      const saveResult = await this.save({ transaction });
-      if (isErr(saveResult)) {
-        return saveResult;
-      }
-      return ok(undefined);
-    });
-  }
-
   isDirty(): boolean {
     return this.dirty;
   }
@@ -983,42 +929,6 @@ export class UnifiedStorageManager {
 
       const store = await this.loadCallback('startup-load');
       this.applyStoreSnapshot(store);
-      return ok(undefined);
-
-      // 娓呯┖鐜版湁鏁版嵁
-      this.xiuyuans.clear();
-      this.cardDTOs.clear();
-      this.riffBlacklist.clear();
-
-      // 鍔犺浇 XiuYuans
-      for (const [id, xiuyuan] of Object.entries(store.xiuyuans)) {
-        this.xiuyuans.set(id, xiuyuan);
-      }
-
-      // 鉁?浼樺厛鍔犺浇 CardDTOs锛堟柊鏋舵瀯锛?
-      if (store.cardDTOs && Object.keys(store.cardDTOs).length > 0) {
-        // 浠?CardDTOs 鍔犺浇锛堟柊鏋舵瀯锛?
-        for (const [id, dto] of Object.entries(store.cardDTOs)) {
-          this.cardDTOs.set(id, dto);
-        }
-      } else {
-        // 闄嶇骇锛氫粠 Cards 鍔犺浇锛堟棫鏁版嵁鍏煎锛岃嚜鍔ㄨ縼绉伙級
-        for (const [id, card] of Object.entries(store.cards)) {
-          const dto = CardMapper.toPersistence(card);
-          this.cardDTOs.set(id, dto);
-        }
-        logger.info('[UnifiedStorageManager] 鈿狅笍 Migrated old cards data to cardDTOs format');
-      }
-
-      // 閲嶅缓绱㈠紩
-      if (Array.isArray(store.riffBlacklist)) {
-        this.riffBlacklist = new Set(
-          store.riffBlacklist.filter((id): id is string => typeof id === 'string' && id.length > 0)
-        );
-      }
-      this.rebuildIndexes();
-
-      this.dirty = false;
       return ok(undefined);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
@@ -1249,8 +1159,6 @@ export class UnifiedStorageManager {
     this.cardDTOs.clear();
     this.deletedCardDTOs.clear();
     this.deletedXiuyuans.clear();
-    this.riffBlacklist.clear();
-    this.riffSyncState = this.sanitizeRiffSyncState(canonicalStore.riffSyncState);
 
     for (const [id, xiuyuan] of Object.entries(canonicalStore.xiuyuans)) {
       this.xiuyuans.set(id, xiuyuan);
@@ -1266,10 +1174,6 @@ export class UnifiedStorageManager {
 
     for (const [id, tombstone] of Object.entries(canonicalStore.deletedXiuyuans || {})) {
       this.deletedXiuyuans.set(id, tombstone);
-    }
-
-    for (const blockId of this.sanitizeRiffBlacklist(canonicalStore.riffBlacklist)) {
-      this.riffBlacklist.add(blockId);
     }
 
     this.rebuildIndexes();
@@ -1416,13 +1320,6 @@ export class UnifiedStorageManager {
       mergedDeletedCardDTOsWithXiuyuanDeletes,
     );
 
-    const mergedBlacklist = Array.from(
-      new Set([
-        ...this.sanitizeRiffBlacklist(canonicalRemote.riffBlacklist),
-        ...this.sanitizeRiffBlacklist(canonicalLocal.riffBlacklist),
-      ])
-    ).sort();
-
     const mergedCards: Record<string, FSRSCard> = {};
     for (const [id, dto] of Object.entries(mergedCardDTOs)) {
       mergedCards[id] = this.toDomainCard(dto, mergedXiuyuans);
@@ -1439,11 +1336,6 @@ export class UnifiedStorageManager {
       cardDTOs: mergedCardDTOs,
       deletedCardDTOs: activeDeletedCardDTOs,
       deletedXiuyuans: activeDeletedXiuyuans,
-      riffBlacklist: mergedBlacklist,
-      riffSyncState: this.chooseMostRecentRiffSyncState(
-        this.sanitizeRiffSyncState(canonicalLocal.riffSyncState),
-        this.sanitizeRiffSyncState(canonicalRemote.riffSyncState)
-      ),
     };
   }
 
@@ -2113,8 +2005,6 @@ export class UnifiedStorageManager {
         cardDTOs,
         deletedCardDTOs: activeDeletedCardDTOs,
         deletedXiuyuans: activeDeletedXiuyuans,
-        riffBlacklist: this.sanitizeRiffBlacklist(store.riffBlacklist),
-        riffSyncState: this.sanitizeRiffSyncState(store.riffSyncState),
         syncMetadata,
       },
       changed,
@@ -2140,18 +2030,6 @@ export class UnifiedStorageManager {
     return migrated;
   }
 
-  private sanitizeRiffBlacklist(rawBlacklist: unknown): string[] {
-    if (!Array.isArray(rawBlacklist)) {
-      return [];
-    }
-
-    return Array.from(
-      new Set(
-        rawBlacklist.filter((id): id is string => typeof id === 'string' && id.length > 0)
-      )
-    ).sort();
-  }
-
   private calculateContentHash(store: UnifiedCardStore): string {
     const canonicalStore = this.prepareCanonicalStore(store, {
       logNormalizations: false,
@@ -2166,8 +2044,6 @@ export class UnifiedStorageManager {
       cardDTOs: canonicalStore.cardDTOs || {},
       deletedCardDTOs: canonicalStore.deletedCardDTOs || {},
       deletedXiuyuans: canonicalStore.deletedXiuyuans || {},
-      riffBlacklist: canonicalStore.riffBlacklist || [],
-      riffSyncState: canonicalStore.riffSyncState || {},
     });
     return fnv1aHash(hashInput);
   }
@@ -2207,45 +2083,6 @@ export class UnifiedStorageManager {
       }
     }
     return 0;
-  }
-
-  private sanitizeRiffSyncState(value: unknown): RiffSyncState {
-    if (!isObjectRecord(value)) {
-      return {};
-    }
-
-    const lastSuccessfulIncrementalCursor = typeof value.lastSuccessfulIncrementalCursor === 'string'
-      && value.lastSuccessfulIncrementalCursor.trim().length > 0
-      ? value.lastSuccessfulIncrementalCursor.trim()
-      : undefined;
-    const lastSuccessfulIncrementalAt = readFiniteNumber(value.lastSuccessfulIncrementalAt);
-    const lastSuccessfulFullAt = readFiniteNumber(value.lastSuccessfulFullAt);
-
-    return {
-      ...(lastSuccessfulIncrementalCursor ? { lastSuccessfulIncrementalCursor } : {}),
-      ...(lastSuccessfulIncrementalAt !== undefined ? { lastSuccessfulIncrementalAt } : {}),
-      ...(lastSuccessfulFullAt !== undefined ? { lastSuccessfulFullAt } : {}),
-    };
-  }
-
-  private chooseMostRecentRiffSyncState(
-    localState: RiffSyncState,
-    remoteState: RiffSyncState
-  ): RiffSyncState {
-    return {
-      lastSuccessfulIncrementalCursor:
-        (localState.lastSuccessfulIncrementalAt ?? 0) >= (remoteState.lastSuccessfulIncrementalAt ?? 0)
-          ? localState.lastSuccessfulIncrementalCursor
-          : remoteState.lastSuccessfulIncrementalCursor,
-      lastSuccessfulIncrementalAt: Math.max(
-        localState.lastSuccessfulIncrementalAt ?? 0,
-        remoteState.lastSuccessfulIncrementalAt ?? 0
-      ) || undefined,
-      lastSuccessfulFullAt: Math.max(
-        localState.lastSuccessfulFullAt ?? 0,
-        remoteState.lastSuccessfulFullAt ?? 0
-      ) || undefined,
-    };
   }
 
   private scheduleSave(reason: string = 'unspecified'): void {
@@ -2410,8 +2247,6 @@ export class UnifiedStorageManager {
       cardDTOs,  // 涓绘暟鎹簮
       deletedCardDTOs,
       deletedXiuyuans,
-      riffBlacklist: Array.from(this.riffBlacklist),
-      riffSyncState: this.sanitizeRiffSyncState(this.riffSyncState),
       syncMetadata: this.lastKnownContentHash
         ? {
             revision: this.lastKnownRevision,
@@ -3476,43 +3311,6 @@ export class UnifiedStorageManager {
     }
 
     return stats;
-  }
-
-  addToRiffBlacklist(blockID: string, _options: StorageMutationOptions = {}): void {
-    if (this.riffBlacklist.has(blockID)) {
-      return;
-    }
-    this.riffBlacklist.add(blockID);
-    this.scheduleSave('add-riff-blacklist');
-  }
-
-  removeFromRiffBlacklist(blockID: string, _options: StorageMutationOptions = {}): void {
-    if (!this.riffBlacklist.has(blockID)) {
-      return;
-    }
-
-    this.riffBlacklist.delete(blockID);
-    this.scheduleSave('remove-riff-blacklist');
-  }
-
-  isInRiffBlacklist(blockID: string): boolean {
-    return this.riffBlacklist.has(blockID);
-  }
-
-  getRiffBlacklist(): Set<string> {
-    return new Set(this.riffBlacklist);
-  }
-
-  async clearRiffBlacklist(): Promise<void> {
-    if (this.riffBlacklist.size === 0) {
-      return;
-    }
-
-    this.riffBlacklist.clear();
-    const result = await this.save();
-    if (isErr(result)) {
-      throw result.error;
-    }
   }
 
   // ========================================================================

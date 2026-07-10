@@ -6,7 +6,6 @@ export type TransactionActionClass =
   | 'delete'
   | 'move'
   | 'attrs'
-  | 'riff'
   | 'other';
 
 export type AutoCardCandidateEvidence = 'marker' | 'maybe-scan';
@@ -28,11 +27,6 @@ export interface TransactionClassification {
     candidateOperations: ClassifiedAutoCardCandidateOperation[];
     cancelBlockIds: string[];
     prefilteredNoOpCount: number;
-  };
-  nativeRiff: {
-    hasSignal: boolean;
-    upsertBlockIds: string[];
-    removeBlockIds: string[];
   };
   documentTree: {
     hasHint: boolean;
@@ -75,17 +69,6 @@ const QUICK_CARD_CONTENT_KEYS = new Set([
   'html',
   'data',
 ]);
-
-const RELEVANT_NATIVE_RIFF_UPSERT_ACTIONS = new Set(['insert', 'update', 'delete', 'setAttrs', 'updateAttrs']);
-const NATIVE_RIFF_MARKERS = [
-  'custom-riff-decks',
-  'custom-fsrs-flashcard',
-  'flashcard',
-  'riffCardID',
-  'riffCardId',
-  'riffCard',
-  'custom-card-type',
-];
 
 interface QuickCardPayloadInspection {
   inspected: boolean;
@@ -151,7 +134,6 @@ function classifyAction(actionInput: unknown): TransactionActionClass {
   if (action === 'delete') return 'delete';
   if (action === 'move' || action === 'moveDoc') return 'move';
   if (action === 'setAttrs' || action === 'updateAttrs') return 'attrs';
-  if (action === 'addFlashcards' || action === 'removeFlashcards') return 'riff';
   return 'other';
 }
 
@@ -211,60 +193,6 @@ function inspectOperationQuickCardPayload(operation: DoOperation): QuickCardPayl
   };
 }
 
-function containsNativeRiffMarker(value: unknown): boolean {
-  if (typeof value === 'string') {
-    const normalized = value.trim();
-    if (!normalized) {
-      return false;
-    }
-    return NATIVE_RIFF_MARKERS.some((marker) => normalized.includes(marker));
-  }
-  if (Array.isArray(value)) {
-    return value.some((entry) => containsNativeRiffMarker(entry));
-  }
-  if (!isRecord(value)) {
-    return false;
-  }
-  return Object.entries(value).some(([key, nested]) => (
-    NATIVE_RIFF_MARKERS.includes(key)
-    || containsNativeRiffMarker(nested)
-  ));
-}
-
-function looksLikeNativeRiffAttrRemoval(operation: DoOperation): boolean {
-  if (operation.action !== 'setAttrs' && operation.action !== 'updateAttrs') {
-    return false;
-  }
-  const data = isRecord(operation.data) ? operation.data : undefined;
-  return containsNativeRiffMarker(data?.old) && !containsNativeRiffMarker(data?.new);
-}
-
-function looksLikeNativeRiffUpsert(operation: DoOperation): boolean {
-  if (operation.action === 'addFlashcards') {
-    return extractOperationBlockIds(operation).length > 0;
-  }
-  if (looksLikeNativeRiffAttrRemoval(operation)) {
-    return false;
-  }
-  if (!RELEVANT_NATIVE_RIFF_UPSERT_ACTIONS.has(operation.action)) {
-    return false;
-  }
-  const data = isRecord(operation.data) ? operation.data : undefined;
-  return containsNativeRiffMarker(data?.new)
-    || containsNativeRiffMarker(data?.old);
-}
-
-function extractNativeRiffRemoveBlockIds(operation: DoOperation): string[] {
-  if (operation.action === 'removeFlashcards') {
-    return extractOperationBlockIds(operation);
-  }
-  if (looksLikeNativeRiffAttrRemoval(operation)) {
-    const blockId = primaryOperationBlockId(operation);
-    return blockId ? [blockId] : [];
-  }
-  return [];
-}
-
 function isDocumentTypePayload(value: unknown): boolean {
   return isRecord(value) && normalizeId(value.type) === 'd';
 }
@@ -301,10 +229,6 @@ export function classifyTransactionBatch(transactions: Transaction[]): Transacti
   const autoCardCandidateSeen = new Set<string>();
   const autoCardCancelBlockIds: string[] = [];
   const autoCardCancelSeen = new Set<string>();
-  const nativeRiffUpsertBlockIds: string[] = [];
-  const nativeRiffUpsertSeen = new Set<string>();
-  const nativeRiffRemoveBlockIds: string[] = [];
-  const nativeRiffRemoveSeen = new Set<string>();
   const documentTreeTouchedBlockIds: string[] = [];
   const documentTreeTouchedSeen = new Set<string>();
   let operationCount = 0;
@@ -341,15 +265,6 @@ export function classifyTransactionBatch(transactions: Transaction[]): Transacti
         addUnique(autoCardCancelBlockIds, autoCardCancelSeen, primaryOperationBlockId(operation));
       }
 
-      if (looksLikeNativeRiffUpsert(operation)) {
-        for (const blockId of operationBlockIds) {
-          addUnique(nativeRiffUpsertBlockIds, nativeRiffUpsertSeen, blockId);
-        }
-      }
-      for (const blockId of extractNativeRiffRemoveBlockIds(operation)) {
-        addUnique(nativeRiffRemoveBlockIds, nativeRiffRemoveSeen, blockId);
-      }
-
       const operationData = isRecord(operation.data) ? operation.data : undefined;
       if (isDocumentTypePayload(operationData?.new) || isDocumentTypePayload(operationData?.old)) {
         documentTreeHasHint = true;
@@ -362,10 +277,8 @@ export function classifyTransactionBatch(transactions: Transaction[]): Transacti
     }
   }
 
-  const nativeRiffHasSignal = nativeRiffUpsertBlockIds.length > 0 || nativeRiffRemoveBlockIds.length > 0;
   const hasSiYuanMemoSignal = autoCardCandidateOperations.length > 0
     || autoCardCancelBlockIds.length > 0
-    || nativeRiffHasSignal
     || documentTreeHasHint;
 
   return {
@@ -379,11 +292,6 @@ export function classifyTransactionBatch(transactions: Transaction[]): Transacti
       cancelBlockIds: autoCardCancelBlockIds,
       prefilteredNoOpCount,
     },
-    nativeRiff: {
-      hasSignal: nativeRiffHasSignal,
-      upsertBlockIds: nativeRiffUpsertBlockIds,
-      removeBlockIds: nativeRiffRemoveBlockIds,
-    },
     documentTree: {
       hasHint: documentTreeHasHint,
       touchedBlockIds: documentTreeTouchedBlockIds,
@@ -394,17 +302,12 @@ export function classifyTransactionBatch(transactions: Transaction[]): Transacti
 
 export function shouldDispatchKernelTransactionIngest(classification: TransactionClassification): boolean {
   return classification.autoCard.candidateOperations.length > 0
-    || classification.nativeRiff.hasSignal
     || classification.documentTree.hasHint;
 }
 
 export function shouldDispatchAutoCard(classification: TransactionClassification): boolean {
   return classification.autoCard.candidateOperations.length > 0
     || classification.autoCard.cancelBlockIds.length > 0;
-}
-
-export function shouldDispatchNativeRiffSync(classification: TransactionClassification): boolean {
-  return classification.nativeRiff.hasSignal;
 }
 
 export function shouldDispatchDocTreeReviewScope(classification: TransactionClassification): boolean {

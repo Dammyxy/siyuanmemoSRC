@@ -96,7 +96,6 @@ export interface FSRSCard {
 
     // === 🆕 调度器相关字段 ===
     schedulerType?: 'fsrs-v6' | 'a-factor-v2' | 'riff' | string;
-    syncToRiff?: boolean;     // 是否同步到 Riff
     riffCardId?: string;      // Riff 卡片 ID
     schedulerMeta?: {
         topic?: {

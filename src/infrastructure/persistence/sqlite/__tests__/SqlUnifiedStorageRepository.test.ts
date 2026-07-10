@@ -274,7 +274,6 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       },
       deletedCardDTOs: {},
       deletedXiuyuans: {},
-      riffBlacklist: [],
     });
     database.run(
       'UPDATE cards SET payload_json = ?, dto_json = ? WHERE id = ?',
@@ -318,8 +317,6 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       },
       deletedCardDTOs: {},
       deletedXiuyuans: {},
-      riffBlacklist: [],
-      riffSyncState: {},
     });
 
     const row = database.getOne<{
@@ -389,8 +386,6 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       },
       deletedCardDTOs: {},
       deletedXiuyuans: {},
-      riffBlacklist: [],
-      riffSyncState: {},
     });
 
     expect(repository.getCard(dto.id)).toMatchObject({
@@ -878,7 +873,6 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       },
       deletedCardDTOs: {},
       deletedXiuyuans: {},
-      riffBlacklist: [],
     });
 
     const loaded = await repository.loadStore();
@@ -933,7 +927,6 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       },
       deletedCardDTOs: {},
       deletedXiuyuans: {},
-      riffBlacklist: [],
     });
 
     const loaded = await repository.loadStore();
@@ -988,7 +981,6 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       },
       deletedCardDTOs: {},
       deletedXiuyuans: {},
-      riffBlacklist: [],
     });
 
     const loaded = await repository.loadStore();
@@ -1029,7 +1021,6 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       },
       deletedCardDTOs: {},
       deletedXiuyuans: {},
-      riffBlacklist: [],
     });
 
     const loaded = await repository.loadStore();
@@ -1067,7 +1058,6 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       },
       deletedCardDTOs: {},
       deletedXiuyuans: {},
-      riffBlacklist: [],
     })).rejects.toThrow(/Invalid card DTO card-unrecoverable-difficulty: Invalid difficulty: must be between 0 and 10/);
   });
 

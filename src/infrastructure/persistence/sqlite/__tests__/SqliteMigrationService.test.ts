@@ -91,8 +91,6 @@ function createLegacyStore(): UnifiedCardStore {
     cardDTOs: {},
     deletedCardDTOs: {},
     deletedXiuyuans: {},
-    riffBlacklist: [],
-    riffSyncState: {},
   };
 }
 
@@ -116,8 +114,6 @@ function createDtoOnlyLegacyStore(): UnifiedCardStore {
     },
     deletedCardDTOs: {},
     deletedXiuyuans: {},
-    riffBlacklist: [],
-    riffSyncState: {},
   };
 }
 
@@ -167,10 +163,107 @@ function createPollutedNewCardLegacyStore(): UnifiedCardStore {
     },
     deletedCardDTOs: {},
     deletedXiuyuans: {},
-    riffBlacklist: [],
-    riffSyncState: {},
   };
 }
+
+describe('SqliteMigrationService Native Riff persistence retirement', () => {
+  it('migrates existing SQLite blacklist rows into durable exclusions and drops riff_sync', async () => {
+    const fileService = new MemoryMigrationFileService();
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+    database.run(
+      `CREATE TABLE riff_sync (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`,
+    );
+    database.run(
+      'INSERT INTO riff_sync (key, value_json, updated_at) VALUES (?, ?, ?)',
+      ['blacklist', JSON.stringify([' block-b ', 'block-a', 'block-a']), 10],
+    );
+    database.run(
+      'INSERT INTO riff_sync (key, value_json, updated_at) VALUES (?, ?, ?)',
+      ['sync_state', JSON.stringify({ lastSuccessfulFullAt: 10 }), 10],
+    );
+    database.markMigration('initial-msgpack-json-import-v1', 10);
+    database.markMigration('algorithm-card-state-production-v1', 10);
+    const migration = new SqliteMigrationService(
+      database,
+      fileService,
+      {
+        unified: new SqlUnifiedStorageRepository(database),
+        queue: new SqlQueueStateRepository(database),
+        reviewLogs: new SqlReviewLogRepository(database),
+        arena: new SqlArenaRepository(database),
+      },
+      async () => createLegacyStore(),
+    );
+
+    const result = await migration.migrateIfNeeded(1_701_000_000_010);
+
+    expect(result).toEqual({ migrated: true, usedSql: true });
+    expect(database.hasMigration('native-riff-persistence-retirement-v1')).toBe(true);
+    expect(database.getAll<{ id: string }>(
+      `SELECT id
+       FROM tombstones
+       WHERE kind = 'native-riff-import-exclusion'
+       ORDER BY id`,
+    )).toEqual([
+      { id: 'block-a' },
+      { id: 'block-b' },
+    ]);
+    expect(database.getOne<{ name: string }>(
+      `SELECT name
+       FROM sqlite_master
+       WHERE type = 'table' AND name = 'riff_sync'`,
+    )).toBeNull();
+
+    await expect(migration.migrateIfNeeded(1_701_000_000_011)).resolves.toEqual({
+      migrated: false,
+      usedSql: true,
+    });
+  });
+
+  it('migrates legacy file-store blacklist entries during initial SQLite import', async () => {
+    const fileService = new MemoryMigrationFileService();
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+    const legacyStore = createLegacyStore();
+    const legacyStoreWithBlacklist = legacyStore as UnifiedCardStore & {
+      riffBlacklist?: string[];
+    };
+    legacyStoreWithBlacklist.riffBlacklist = ['block-file-a', 'block-file-b'];
+    const migration = new SqliteMigrationService(
+      database,
+      fileService,
+      {
+        unified: new SqlUnifiedStorageRepository(database),
+        queue: new SqlQueueStateRepository(database),
+        reviewLogs: new SqlReviewLogRepository(database),
+        arena: new SqlArenaRepository(database),
+      },
+      async () => legacyStore,
+    );
+
+    await migration.migrateIfNeeded(1_701_000_000_012);
+
+    expect(database.getAll<{ id: string }>(
+      `SELECT id
+       FROM tombstones
+       WHERE kind = 'native-riff-import-exclusion'
+       ORDER BY id`,
+    )).toEqual([
+      { id: 'block-file-a' },
+      { id: 'block-file-b' },
+    ]);
+    expect(database.getOne<{ name: string }>(
+      `SELECT name
+       FROM sqlite_master
+       WHERE type = 'table' AND name = 'riff_sync'`,
+    )).toBeNull();
+  });
+});
 
 describe('SqliteMigrationService algorithm card state migration', () => {
   it('imports DTO-only legacy cards during initial migration', async () => {

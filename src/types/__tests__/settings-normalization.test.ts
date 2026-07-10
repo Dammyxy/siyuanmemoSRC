@@ -149,48 +149,37 @@ describe('settings normalization', () => {
     expect(normalized.settings.ui.reviewSourceBlockRefreshEnabled).toBe(false);
   });
 
-  it('fills missing native Riff integration with default disabled passive sync', () => {
+  it('fills missing storage conflict resolution with merge', () => {
     const legacy = cloneSettings();
-    delete (legacy as Partial<PluginSettings>).riffIntegration;
+    delete (legacy as Partial<PluginSettings>).storageConflictResolution;
 
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
-    expect(normalized.settings.riffIntegration?.incrementalSync.enabled).toBe(false);
-    expect(normalized.settings.riffIntegration?.incrementalSync.triggers).toEqual([]);
-    expect(normalized.settings.riffIntegration?.fullSync.enabled).toBe(false);
-    expect(normalized.settings.riffIntegration?.deleteSync.enabled).toBe(false);
+    expect(normalized.settings.storageConflictResolution).toBe('merge');
   });
 
-  it('normalizes the legacy default incremental sync trigger triplet down to no startup trigger', () => {
-    const legacy = cloneSettings();
+  it('migrates legacy nested conflict resolution and drops retired Riff settings', () => {
+    const legacy = cloneSettings() as PluginSettings & {
+      riffIntegration?: {
+        storageConflictResolution?: string;
+        incrementalSync?: unknown;
+        fullSync?: unknown;
+        deleteSync?: unknown;
+      };
+    };
     legacy.riffIntegration = {
-      ...legacy.riffIntegration!,
-      incrementalSync: {
-        ...legacy.riffIntegration!.incrementalSync,
-        triggers: ['plugin-start', 'browser-open', 'review-open'],
-      },
+      storageConflictResolution: 'prefer-remote',
+      incrementalSync: { enabled: true },
+      fullSync: { enabled: true },
+      deleteSync: { enabled: true },
     };
 
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
-    expect(normalized.settings.riffIntegration?.incrementalSync.triggers).toEqual([]);
-  });
-
-  it('preserves user-customized incremental sync trigger combinations', () => {
-    const legacy = cloneSettings();
-    legacy.riffIntegration = {
-      ...legacy.riffIntegration!,
-      incrementalSync: {
-        ...legacy.riffIntegration!.incrementalSync,
-        triggers: ['plugin-start', 'browser-open'],
-      },
-    };
-
-    const normalized = normalizePluginSettings(legacy);
-
-    expect(normalized.settings.riffIntegration?.incrementalSync.triggers).toEqual(['plugin-start', 'browser-open']);
+    expect(normalized.settings.storageConflictResolution).toBe('prefer-remote');
+    expect(normalized.settings).not.toHaveProperty('riffIntegration');
   });
 
   it('drops the removed progressiveReading.dailyTraceEnabled field during normalization', () => {

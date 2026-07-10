@@ -28,25 +28,7 @@ describe('服务访问集成测试', () => {
       app: {},
       loadData: vi.fn(async (fileName: string) => fileName === 'settings.json'
         ? {
-          riffIntegration: {
-            mode: 'advanced',
-            useLocalScheduler: true,
-            storageConflictResolution: 'merge',
-            incrementalSync: {
-              enabled: false,
-              triggers: [],
-              useBlacklist: true,
-            },
-            fullSync: {
-              enabled: false,
-              interval: 86_400_000,
-              cleanupBlacklist: false,
-            },
-            deleteSync: {
-              enabled: false,
-              useBlacklistFallback: false,
-            },
-          },
+          storageConflictResolution: 'merge',
         }
         : null),
       saveData: vi.fn(async () => {}),
@@ -284,7 +266,7 @@ describe('服务访问集成测试', () => {
       expect(context.isServiceCreated('browserService')).toBe(true);
     });
 
-    it('开启 worker backend feature flag 时应注入 SrsBackendClient 到 browser service', async () => {
+    it('开启 worker backend flag 但 Worker 不可用时不应伪造 SrsBackendClient', async () => {
       const flagKey = 'VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER';
       const previous = process.env[flagKey];
       process.env[flagKey] = 'true';
@@ -296,7 +278,7 @@ describe('服务访问集成测试', () => {
           i18n: {},
         });
         const browserService = flaggedContext.getBrowserService() as unknown as { srsBackendClient?: unknown };
-        expect(browserService.srsBackendClient).toBeTruthy();
+        expect(browserService.srsBackendClient).toBeNull();
       } finally {
         if (flaggedContext && !flaggedContext.isDisposed()) {
           await flaggedContext.dispose();

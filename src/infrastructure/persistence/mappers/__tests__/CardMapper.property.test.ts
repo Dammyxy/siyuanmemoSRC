@@ -2,7 +2,7 @@
  * CardMapper property tests for the active FSRSCard <-> CardPersistenceDTO interface.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fc from 'fast-check';
 import { CardMapper } from '../CardMapper';
 import { CardState, CardType, type FSRSCard } from '../../../../types/card';
@@ -54,7 +54,6 @@ const fsrsCardArbitrary: fc.Arbitrary<FSRSCard> = fc.record({
     fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
     { nil: undefined },
   ),
-  syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
   riffCardId: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: undefined }),
   schedulerMeta: fc.option(fc.object(), { nil: undefined }),
   postponeCount: fc.option(fc.integer({ min: 0, max: 10 }), { nil: undefined }),
@@ -64,6 +63,14 @@ const fsrsCardArbitrary: fc.Arbitrary<FSRSCard> = fc.record({
 });
 
 describe('CardMapper active DTO properties', () => {
+  beforeEach(() => {
+    vi.spyOn(Date, 'now').mockReturnValue(2_000_000_000_000);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('round-trips FSRSCard through persistence DTO', () => {
     fc.assert(
       fc.property(fsrsCardArbitrary, (card) => {

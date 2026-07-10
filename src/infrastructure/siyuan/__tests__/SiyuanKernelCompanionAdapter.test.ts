@@ -262,7 +262,6 @@ describe('SiyuanKernelCompanionAdapter', () => {
         kernelNetworkProxy: { state: 'unknown' },
         privateHttp: { state: 'unknown' },
         privateSse: { state: 'unknown' },
-        riffReadAuditProxy: { state: 'unknown' },
       },
     });
   });
@@ -293,7 +292,6 @@ describe('SiyuanKernelCompanionAdapter', () => {
           kernelNetworkProxy: true,
           privateHttp: true,
           privateSse: true,
-          riffReadAuditProxy: false,
         },
         id: 1,
       }));
@@ -306,7 +304,6 @@ describe('SiyuanKernelCompanionAdapter', () => {
         kernelNetworkProxy: { state: 'available' },
         privateHttp: { state: 'available' },
         privateSse: { state: 'available' },
-        riffReadAuditProxy: { state: 'unavailable' },
       },
     });
   });

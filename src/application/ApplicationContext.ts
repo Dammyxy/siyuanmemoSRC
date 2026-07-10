@@ -1662,8 +1662,7 @@ export class ApplicationContext {
     await measureRuntimePerformance('startup', 'settings-service.init', () => settingsService.init());
     logger.info('[ApplicationContext] ✅ SettingsService initialized');
 
-    const initializedRiffConfig = settingsService.getSettings().riffIntegration;
-    const startupConflictStrategy = initializedRiffConfig?.storageConflictResolution || 'merge';
+    const startupConflictStrategy = settingsService.getSettings().storageConflictResolution;
     unifiedStorageManager.setConflictResolutionStrategy(startupConflictStrategy);
     logger.info('[ApplicationContext] UnifiedStorage conflict strategy set:', startupConflictStrategy);
     
