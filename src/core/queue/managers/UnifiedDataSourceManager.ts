@@ -9,7 +9,8 @@ import type {
   CardFilter,
   DataChangeEvent,
   IReviewQueue,
-  QueueProjectionSnapshot,
+  QueueProjectionReadRequest,
+  QueueProjectionReadResult,
   QueueProjectionRolloutDiagnostic,
   QueueProjectionRolloutState,
   QueueType,
@@ -65,15 +66,7 @@ export interface QueueRuntimePort {
   getPriorityRandomness?(): number;
   getAutoSortEnabled?(): boolean;
   getAddToOutstandingEveryNth?(): number;
-  readQueueProjectionSnapshot?(
-    queueType: QueueType,
-    options?: { forceRefresh?: boolean },
-  ): Promise<QueueProjectionSnapshot | null>;
-  getQueueProjectionCardsBySnapshotIds?(
-    queueType: QueueType,
-    ids: string[],
-    options?: { forceRefresh?: boolean },
-  ): Promise<FSRSCard[]>;
+  readQueueProjection?(request: QueueProjectionReadRequest): Promise<QueueProjectionReadResult>;
   getQueueProjectionRolloutDiagnostics?(queueType?: QueueType): QueueProjectionRolloutDiagnostic[];
   getQueueProjectionRolloutState?(queueType: QueueType): QueueProjectionRolloutState | string | null | undefined;
 }
@@ -103,15 +96,7 @@ export interface UnifiedDataSourceManager {
   getPriorityRandomness?(): number;
   getAutoSortEnabled?(): boolean;
   getAddToOutstandingEveryNth?(): number;
-  readQueueProjectionSnapshot?(
-    queueType: QueueType,
-    options?: { forceRefresh?: boolean },
-  ): Promise<QueueProjectionSnapshot | null>;
-  getQueueProjectionCardsBySnapshotIds?(
-    queueType: QueueType,
-    ids: string[],
-    options?: { forceRefresh?: boolean },
-  ): Promise<FSRSCard[]>;
+  readQueueProjection?(request: QueueProjectionReadRequest): Promise<QueueProjectionReadResult>;
   getQueueProjectionRolloutDiagnostics?(queueType?: QueueType): QueueProjectionRolloutDiagnostic[];
   getQueueProjectionRolloutState?(queueType: QueueType): QueueProjectionRolloutState | string | null | undefined;
 }

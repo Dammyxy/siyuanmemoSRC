@@ -328,16 +328,6 @@ export class QueueProjectionRuntime {
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
           freshness: result.freshness ?? null,
         });
-        if (!this.isCurrentInstanceFollower()) {
-          const repair = await this.tryMaterializeQueueProjection(queueType, backend, {
-            currentPolicyHash: result.policyHash,
-            currentGeneration: result.generation,
-            reason: 'row-hydration-refresh',
-          });
-          if (repair?.status === 'ready') {
-            this.clearQueueProjectionUnavailable(queueType);
-          }
-        }
         return [];
       }
 

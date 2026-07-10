@@ -1001,6 +1001,7 @@ describe('ReviewContent editor state', () => {
   });
 
   it('exposes editable targets for supported renderers and keeps image occlusion unsupported', async () => {
+    const protyleContent = createProtyleContent();
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -1011,12 +1012,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createProtyleContent(),
+        content: protyleContent,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(protyleContent, null),
       },
       global: {
         stubs: {

@@ -416,7 +416,20 @@ export class SrsBackendClient {
     request: BackendReviewSessionFeedbackRequest,
   ): Promise<BackendReviewSessionFeedbackResult> {
     const result = await this.reviewClient.reviewSessionFeedback(request);
-    this.scheduleReviewTruthFlushAfterFeedback(result.feedback);
+    this.scheduleReviewTruthFlushAfterFeedback({
+      cardId: result.receipt.answeredCardId,
+      committed: result.receipt.commit.outcome === 'committed',
+      reviewedAt: result.receipt.reviewedAt,
+      queueType: result.receipt.queueType,
+      updatedCard: result.receipt.commit.updatedCard,
+      idempotencyKey: result.receipt.factIdentity.kind === 'idempotency-key'
+        ? result.receipt.factIdentity.idempotencyKey
+        : null,
+      duplicate: result.receipt.commit.duplicate,
+      undoJournalPersisted: result.receipt.undo.evidence === 'transaction-journal',
+      queueImpact: result.receipt.queueImpact,
+      ...(result.receipt.storage ? { storage: result.receipt.storage } : {}),
+    });
     return result;
   }
 

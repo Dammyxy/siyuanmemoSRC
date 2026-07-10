@@ -9,8 +9,39 @@ import {
 import { createSrsV2QueueProfile } from '../SrsV2QueueProfiles';
 import { SrsV2SessionQueueRuntime } from '../SrsV2SessionQueueRuntime';
 import { WorkerReviewSessionQueueRuntime } from '../WorkerReviewSessionQueueRuntime';
+import type { ProjectionQueueEntryTarget } from '@/application/services/ReviewEntryTargetResolver';
+import type { ReviewAdmissionTicket } from '@/application/services/ReviewAdmissionModule';
 
 const MINUTE_MS = 60_000;
+const WORKER_ENTRY_TARGET: ProjectionQueueEntryTarget = {
+  kind: 'projection-queue',
+  queueType: QueueType.RetrievalPractice,
+  entrySurface: 'test:worker-review-session',
+  admission: { kind: 'required' },
+};
+
+function createAdmissionTicket(
+  target: ProjectionQueueEntryTarget = WORKER_ENTRY_TARGET,
+): ReviewAdmissionTicket {
+  return {
+    queueType: target.queueType,
+    entrySurface: target.entrySurface,
+    entryTargetIdentity: `${target.kind}:${target.queueType}:${target.entrySurface}`,
+    projectionPolicyHash: 'test-policy',
+    projectionGeneration: 1,
+    readinessRequest: {
+      queueType: target.queueType,
+      preset: 'all',
+      searchText: null,
+      docId: null,
+      scopeDocIds: [],
+      cardType: 'all',
+      source: 'browser',
+    },
+    admittedAt: Date.now(),
+    source: 'ready-projection',
+  };
+}
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
@@ -425,8 +456,9 @@ describe('SrsV2SessionQueueRuntime', () => {
       reviewSessionUndo: vi.fn(),
     };
     const runtime = new WorkerReviewSessionQueueRuntime({
-      queueType: QueueType.RetrievalPractice,
+      entryTarget: WORKER_ENTRY_TARGET,
       backend,
+      reviewAdmissionTicket: createAdmissionTicket(),
     });
 
     await expect(runtime.next()).resolves.toMatchObject({ id: first.id });
@@ -460,15 +492,34 @@ describe('SrsV2SessionQueueRuntime', () => {
         projectionState: 'ready' as const,
         projectionGeneration: 1,
         projectionPolicyHash: 'test-policy',
-        answeredCardId: first.id,
-        undoToken: 'worker-undo:1',
-        feedback: {
-          cardId: first.id,
-          committed: true,
+        receipt: {
+          answeredCardId: first.id,
           reviewedAt: Date.now(),
           queueType: QueueType.RetrievalPractice,
-          updatedCard: { ...first, reps: first.reps + 1 },
-          idempotencyKey: 'worker-feedback',
+          commit: {
+            outcome: 'committed' as const,
+            updatedCard: { ...first, reps: first.reps + 1 },
+            duplicate: false,
+          },
+          factIdentity: {
+            kind: 'idempotency-key' as const,
+            idempotencyKey: 'worker-feedback',
+          },
+          durability: {
+            status: 'durable' as const,
+            evidence: 'worker-commit' as const,
+          },
+          undo: {
+            token: 'worker-undo:1',
+            evidence: 'transaction-journal' as const,
+          },
+          queueImpact: null,
+          storage: null,
+          diagnostics: {
+            authority: 'worker-review-session' as const,
+            projectionState: 'ready' as const,
+            storageSummaryAvailable: false,
+          },
         },
       })),
       reviewSessionSkip: vi.fn(),
@@ -487,8 +538,9 @@ describe('SrsV2SessionQueueRuntime', () => {
       })),
     };
     const runtime = new WorkerReviewSessionQueueRuntime({
-      queueType: QueueType.RetrievalPractice,
+      entryTarget: WORKER_ENTRY_TARGET,
       backend,
+      reviewAdmissionTicket: createAdmissionTicket(),
     });
 
     await expect(runtime.next()).resolves.toMatchObject({ id: first.id });
@@ -517,6 +569,23 @@ describe('SrsV2SessionQueueRuntime', () => {
       sessionId: 'worker-session',
       undoToken: 'worker-undo:1',
     });
+  });
+
+  it('fails closed before session creation when Review Admission is stale', () => {
+    expect(() => new WorkerReviewSessionQueueRuntime({
+      entryTarget: WORKER_ENTRY_TARGET,
+      backend: {
+        reviewSessionStart: vi.fn(),
+        reviewSessionCurrent: vi.fn(),
+        reviewSessionFeedback: vi.fn(),
+        reviewSessionSkip: vi.fn(),
+        reviewSessionUndo: vi.fn(),
+      },
+      reviewAdmissionTicket: {
+        ...createAdmissionTicket(),
+        entrySurface: 'stale:surface',
+      },
+    })).toThrow('REVIEW_ADMISSION_STALE');
   });
 
   it('restores runtime queue and counter state with an undo token', async () => {

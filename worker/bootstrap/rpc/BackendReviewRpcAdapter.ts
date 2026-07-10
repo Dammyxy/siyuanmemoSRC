@@ -99,7 +99,11 @@ export class BackendReviewRpcRuntime {
       params,
       'review.session.start requires named params',
     );
-    return this.requireReviewKernel().startSession(named);
+    const result = await this.requireReviewKernel().execute({
+      type: 'start',
+      request: named,
+    });
+    return requireKernelResult(result, 'start').state;
   }
 
   handleReviewSessionCurrent(params: unknown): BackendReviewSessionState {
@@ -111,7 +115,11 @@ export class BackendReviewRpcRuntime {
     if (!sessionId) {
       throw new Error('INVALID_REQUEST: review.session.current requires sessionId');
     }
-    return this.requireReviewKernel().current(sessionId);
+    const result = this.requireReviewKernel().read({
+      type: 'current',
+      sessionId,
+    });
+    return requireKernelView(result, 'current').state;
   }
 
   async handleReviewSessionFeedback(params: unknown): Promise<BackendReviewSessionFeedbackResult> {
@@ -119,7 +127,15 @@ export class BackendReviewRpcRuntime {
       params,
       'review.session.feedback requires named params',
     );
-    return this.requireReviewKernel().answer(named);
+    const result = await this.requireReviewKernel().execute({
+      type: 'answer',
+      request: named,
+    });
+    const answer = requireKernelResult(result, 'answer');
+    return {
+      ...answer.state,
+      receipt: answer.receipt,
+    };
   }
 
   handleReviewSessionSkip(params: unknown): Promise<BackendReviewSessionSkipResult> {
@@ -127,7 +143,10 @@ export class BackendReviewRpcRuntime {
       params,
       'review.session.skip requires named params',
     );
-    return this.requireReviewKernel().skip(named);
+    return this.requireReviewKernel().execute({
+      type: 'skip',
+      request: named,
+    }).then((result) => requireKernelResult(result, 'skip').state);
   }
 
   handleReviewSessionUndo(params: unknown): Promise<BackendReviewSessionUndoResult> {
@@ -139,7 +158,10 @@ export class BackendReviewRpcRuntime {
     if (!sessionId) {
       throw new Error('INVALID_REQUEST: review.session.undo requires sessionId');
     }
-    return this.requireReviewKernel().undo(named);
+    return this.requireReviewKernel().execute({
+      type: 'undo',
+      request: named,
+    }).then((result) => requireKernelResult(result, 'undo').state);
   }
 
   async handleReviewTruthFlush(params: unknown): Promise<BackendReviewFeedbackTruthFlushResult> {
@@ -524,4 +546,30 @@ function isReviewFeedbackCardNotFoundError(error: unknown, cardId: string): bool
   const message = error instanceof Error ? error.message : String(error);
   return message.includes('review.feedback card not found')
     && message.includes(cardId);
+}
+
+function requireKernelResult<TType extends 'start' | 'answer' | 'skip' | 'undo'>(
+  result: Awaited<ReturnType<SrsReviewKernel['execute']>>,
+  expectedType: TType,
+): Extract<Awaited<ReturnType<SrsReviewKernel['execute']>>, { type: TType }> {
+  if (result.type === 'failure') {
+    throw new Error(`${result.error.code}: ${result.error.message}`);
+  }
+  if (result.type !== expectedType) {
+    throw new Error(`REVIEW_RUNTIME_FAILURE: expected ${expectedType}, received ${result.type}`);
+  }
+  return result as Extract<Awaited<ReturnType<SrsReviewKernel['execute']>>, { type: TType }>;
+}
+
+function requireKernelView<TType extends 'current' | 'diagnostics'>(
+  result: ReturnType<SrsReviewKernel['read']>,
+  expectedType: TType,
+): Extract<ReturnType<SrsReviewKernel['read']>, { type: TType }> {
+  if (result.type === 'failure') {
+    throw new Error(`${result.error.code}: ${result.error.message}`);
+  }
+  if (result.type !== expectedType) {
+    throw new Error(`REVIEW_RUNTIME_FAILURE: expected ${expectedType}, received ${result.type}`);
+  }
+  return result as Extract<ReturnType<SrsReviewKernel['read']>, { type: TType }>;
 }

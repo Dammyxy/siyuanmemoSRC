@@ -22,7 +22,7 @@ function createManager() {
     getQueue: vi.fn(() => ({
       getConceptBlocks: vi.fn(() => []),
     })),
-    ensureQueueProjectionReady: vi.fn(async () => ({
+    readQueueProjection: vi.fn(async () => ({
       status: 'ready',
       queueId: QueueType.RetrievalPractice,
       policyId: 'policy-a',
@@ -287,7 +287,7 @@ describe('browserLoadDataRuntime', () => {
     });
     const manager = {
       ...createManager(),
-      ensureQueueProjectionReady: vi.fn(async () => ({
+      readQueueProjection: vi.fn(async () => ({
         status: 'refreshing',
         queueId: 'retrieval-practice',
         policyId: 'policy-a',
@@ -312,7 +312,7 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(false);
     expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
-    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
+    expect(manager.readQueueProjection).not.toHaveBeenCalled();
     expect(deps.scheduleQueueProjectionWarmup).toHaveBeenCalledWith('browser-open');
     expect(deps.onQueueViewLifecycleState).toHaveBeenCalledWith(expect.objectContaining({
       status: 'ready',
@@ -404,7 +404,7 @@ describe('browserLoadDataRuntime', () => {
   it('loads neural-roam queue view without waiting for projection readiness', async () => {
     const manager = {
       ...createManager(),
-      ensureQueueProjectionReady: vi.fn(async () => ({
+      readQueueProjection: vi.fn(async () => ({
         status: 'refreshing',
         queueId: QueueType.NeuralRoam,
         policyId: 'policy-neural',
@@ -421,7 +421,7 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
+    expect(manager.readQueueProjection).not.toHaveBeenCalled();
     expect(deps.refreshNeuralSubviewData).toHaveBeenCalledTimes(1);
     expect(deps.currentDataSource.value?.id).toBe('neural-roam');
   });
@@ -429,7 +429,7 @@ describe('browserLoadDataRuntime', () => {
   it('reports unavailable when Browser read model readiness service is unavailable', async () => {
     const manager = {
       ...createManager(),
-      ensureQueueProjectionReady: vi.fn(async () => ({
+      readQueueProjection: vi.fn(async () => ({
         status: 'refreshing',
         queueId: QueueType.RetrievalPractice,
         policyId: 'policy-retrieval',
@@ -447,7 +447,7 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
+    expect(manager.readQueueProjection).not.toHaveBeenCalled();
     expect(deps.currentDataSource.value).toBeNull();
     expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
     expect(deps.scheduleQueueProjectionWarmup).not.toHaveBeenCalled();
@@ -478,7 +478,7 @@ describe('browserLoadDataRuntime', () => {
     });
     const manager = {
       ...createManager(),
-      ensureQueueProjectionReady: vi.fn(async () => ({
+      readQueueProjection: vi.fn(async () => ({
         status: 'refreshing',
         queueId: QueueType.RetrievalPractice,
         policyId: 'policy-retrieval',
@@ -499,7 +499,7 @@ describe('browserLoadDataRuntime', () => {
     await vi.advanceTimersByTimeAsync(10);
 
     expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
-    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
+    expect(manager.readQueueProjection).not.toHaveBeenCalled();
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(2);
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
     vi.useRealTimers();
@@ -547,7 +547,7 @@ describe('browserLoadDataRuntime', () => {
     vi.useFakeTimers();
     const manager = {
       ...createManager(),
-      ensureQueueProjectionReady: vi.fn(async () => ({
+      readQueueProjection: vi.fn(async () => ({
         status: 'ready',
         queueId: QueueType.RetrievalPractice,
         policyId: 'policy-a',
@@ -593,7 +593,7 @@ describe('browserLoadDataRuntime', () => {
     vi.useFakeTimers();
     const manager = {
       ...createManager(),
-      ensureQueueProjectionReady: vi.fn(async () => ({
+      readQueueProjection: vi.fn(async () => ({
         status: 'ready',
         queueId: QueueType.RetrievalPractice,
         policyId: 'policy-retrieval',

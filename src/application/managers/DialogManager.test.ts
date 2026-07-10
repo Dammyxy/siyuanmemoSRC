@@ -212,15 +212,16 @@ describe('DialogManager', () => {
       getBrowserService: vi.fn(() => ({})),
       getTabApplicationService: vi.fn(() => ({})),
       getEventBus: vi.fn(() => ({})),
+      getReviewRuntimeAccess: vi.fn(() => ({})),
       getReviewQueuePreparationService: vi.fn(() => null),
       getReviewAdmissionModule: vi.fn(() => ({
-        admitReviewSession: vi.fn(async ({ queueType, entrySurface }) => ({
-          queueType,
-          entrySurface: entrySurface ?? null,
+        admitReviewSession: vi.fn(async ({ target }) => ({
+          queueType: target.queueType,
+          entrySurface: target.entrySurface ?? null,
           projectionPolicyHash: 'test-policy',
           projectionGeneration: 1,
           readinessRequest: {
-            queueType,
+            queueType: target.queueType,
             preset: 'all',
             searchText: null,
             docId: null,
@@ -236,7 +237,11 @@ describe('DialogManager', () => {
       getRetrievalQueue: vi.fn(() => mockRetrievalQueue),
       getUnifiedDataSourceManager: vi.fn(() => ({
         getQueue: vi.fn(() => ({ cards: [] })),
-        materializeQueueProjection: vi.fn(async () => undefined),
+        repairQueueProjection: vi.fn(async () => ({
+          status: 'unavailable',
+          queueType: QueueType.RetrievalPractice,
+          reason: 'unused-test-repair',
+        })),
       })),
       getTabManager: vi.fn(() => mockTabManager),
       readDomainSyncDiagnostics: mockReadDomainSyncDiagnostics,
@@ -404,7 +409,9 @@ describe('DialogManager', () => {
       await dialogManager.openReviewDialog();
 
       expect(createUnifiedReviewDialogMock).toHaveBeenCalledWith(expect.objectContaining({
-        queueType: QueueType.RetrievalPractice,
+        entryTarget: expect.objectContaining({
+          queueType: QueueType.RetrievalPractice,
+        }),
       }));
       expect(openManualSyncConflictResolutionDialogMock).not.toHaveBeenCalled();
     });
@@ -432,7 +439,11 @@ describe('DialogManager', () => {
     it('blocks scoped Review before creating a subset queue', async () => {
       const manager = {
         getQueue: vi.fn(() => ({ cards: [] })),
-        materializeQueueProjection: vi.fn(async () => undefined),
+        repairQueueProjection: vi.fn(async () => ({
+          status: 'unavailable',
+          queueType: QueueType.FilterGroup,
+          reason: 'unused-test-repair',
+        })),
       };
       vi.mocked(mockContext.getUnifiedDataSourceManager).mockReturnValueOnce(manager as never);
       mockReadDomainSyncDiagnostics.mockResolvedValueOnce(buildDomainStatus('source-error', {
@@ -458,10 +469,14 @@ describe('DialogManager', () => {
 
       expect(createUnifiedReviewDialogMock).toHaveBeenCalledTimes(3);
       expect(createUnifiedReviewDialogMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
-        queueType: QueueType.RetrievalPractice,
+        entryTarget: expect.objectContaining({
+          queueType: QueueType.RetrievalPractice,
+        }),
       }));
       expect(createUnifiedReviewDialogMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
-        queueType: QueueType.FinalDrill,
+        entryTarget: expect.objectContaining({
+          queueType: QueueType.FinalDrill,
+        }),
       }));
       expect(createUnifiedReviewDialogMock).toHaveBeenNthCalledWith(3, expect.objectContaining({
         headerVariant: 'subset-review',

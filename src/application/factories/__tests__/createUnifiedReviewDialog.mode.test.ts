@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
 import { QueueType } from '@/types/unified-data-source';
+import { ReviewRuntimeAccess } from '@/application/runtime-access';
+import type { ProjectionQueueEntryTarget } from '@/application/services/ReviewEntryTargetResolver';
 
 const { createVueDialogMock, unifiedQueueStrategyMock, unifiedReviewAdapterMock, managerInstance } = vi.hoisted(() => ({
   createVueDialogMock: vi.fn(() => ({ destroy: vi.fn() })),
@@ -29,6 +31,31 @@ vi.mock('@/application/services/UnifiedDataSourceManager', () => ({
   },
 }));
 
+function createEntryTarget(): ProjectionQueueEntryTarget {
+  return {
+    kind: 'projection-queue',
+    queueType: QueueType.RetrievalPractice,
+    entrySurface: 'test:create-unified-review-dialog',
+    admission: { kind: 'required' },
+  };
+}
+
+function createRuntimeAccess(overrides: {
+  reviewService?: unknown;
+  backendClient?: unknown;
+} = {}): ReviewRuntimeAccess {
+  return new ReviewRuntimeAccess({
+    reviewService: () => (overrides.reviewService ?? {}) as never,
+    backendClient: () => (overrides.backendClient ?? null) as never,
+    scheduler: () => ({}) as never,
+    settingsService: () => ({
+      getSettings: () => ({
+        progressiveReading: {},
+      }),
+    }) as never,
+  });
+}
+
 describe('createUnifiedReviewDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -51,19 +78,12 @@ describe('createUnifiedReviewDialog', () => {
       app: {},
       isMobile: false,
       i18n: {},
-      getContext: () => ({
-        getSchedulerRouter: () => ({}),
-        getSettingsService: () => ({
-          getSettings: () => ({
-            progressiveReading: {},
-          }),
-        }),
-      }),
     };
 
     createUnifiedReviewDialog({
       plugin,
-      queueType: QueueType.RetrievalPractice,
+      runtimeAccess: createRuntimeAccess(),
+      entryTarget: createEntryTarget(),
       title: '提取练习',
       headerVariant: 'retrieval-practice',
       initialSessionState,
@@ -93,19 +113,12 @@ describe('createUnifiedReviewDialog', () => {
       app: {},
       isMobile: true,
       i18n: {},
-      getContext: () => ({
-        getSchedulerRouter: () => ({}),
-        getSettingsService: () => ({
-          getSettings: () => ({
-            progressiveReading: {},
-          }),
-        }),
-      }),
     };
 
     createUnifiedReviewDialog({
       plugin,
-      queueType: QueueType.RetrievalPractice,
+      runtimeAccess: createRuntimeAccess(),
+      entryTarget: createEntryTarget(),
       title: '提取练习',
       headerVariant: 'retrieval-practice',
       eventBus: { subscribe: vi.fn() } as never,
@@ -133,20 +146,14 @@ describe('createUnifiedReviewDialog', () => {
       app: {},
       isMobile: false,
       i18n: {},
-      getContext: () => ({
-        getSchedulerRouter: () => ({}),
-        getSettingsService: () => ({
-          getSettings: () => ({
-            progressiveReading: {},
-          }),
-        }),
-        getReviewService: () => ({ refreshCdfLiveRelationOnOpen }),
-      }),
     };
 
     createUnifiedReviewDialog({
       plugin,
-      queueType: QueueType.RetrievalPractice,
+      runtimeAccess: createRuntimeAccess({
+        reviewService: { refreshCdfLiveRelationOnOpen },
+      }),
+      entryTarget: createEntryTarget(),
       title: '提取练习',
       headerVariant: 'retrieval-practice',
       eventBus: { subscribe: vi.fn() } as never,
@@ -167,20 +174,14 @@ describe('createUnifiedReviewDialog', () => {
       isMobile: false,
       i18n: {},
       reviewSyncManager: { reviewCount: 1 },
-      getContext: () => ({
-        getSchedulerRouter: () => ({}),
-        getSettingsService: () => ({
-          getSettings: () => ({
-            progressiveReading: {},
-          }),
-        }),
-        getSrsBackendClient: () => ({ flushReviewTruthNow }),
-      }),
     };
 
     createUnifiedReviewDialog({
       plugin,
-      queueType: QueueType.RetrievalPractice,
+      runtimeAccess: createRuntimeAccess({
+        backendClient: { flushReviewTruthNow },
+      }),
+      entryTarget: createEntryTarget(),
       title: '提取练习',
       headerVariant: 'retrieval-practice',
       eventBus: { subscribe: vi.fn() } as never,
@@ -206,20 +207,14 @@ describe('createUnifiedReviewDialog', () => {
       isMobile: false,
       i18n: {},
       reviewSyncManager: { reviewCount: 1 },
-      getContext: () => ({
-        getSchedulerRouter: () => ({}),
-        getSettingsService: () => ({
-          getSettings: () => ({
-            progressiveReading: {},
-          }),
-        }),
-        getSrsBackendClient: () => ({ flushReviewTruthNow }),
-      }),
     };
 
     createUnifiedReviewDialog({
       plugin,
-      queueType: QueueType.RetrievalPractice,
+      runtimeAccess: createRuntimeAccess({
+        backendClient: { flushReviewTruthNow },
+      }),
+      entryTarget: createEntryTarget(),
       title: '提取练习',
       headerVariant: 'retrieval-practice',
       eventBus: { subscribe: vi.fn() } as never,
@@ -248,20 +243,14 @@ describe('createUnifiedReviewDialog', () => {
       app: {},
       isMobile: false,
       i18n: {},
-      getContext: () => ({
-        getSchedulerRouter: () => ({}),
-        getSettingsService: () => ({
-          getSettings: () => ({
-            progressiveReading: {},
-          }),
-        }),
-        getSrsBackendClient: () => ({ flushReviewTruthNow }),
-      }),
     };
 
     createUnifiedReviewDialog({
       plugin,
-      queueType: QueueType.RetrievalPractice,
+      runtimeAccess: createRuntimeAccess({
+        backendClient: { flushReviewTruthNow },
+      }),
+      entryTarget: createEntryTarget(),
       title: '提取练习',
       headerVariant: 'retrieval-practice',
       eventBus: { subscribe: vi.fn() } as never,
@@ -287,20 +276,14 @@ describe('createUnifiedReviewDialog', () => {
       app: {},
       isMobile: false,
       i18n: {},
-      getContext: () => ({
-        getSchedulerRouter: () => ({}),
-        getSettingsService: () => ({
-          getSettings: () => ({
-            progressiveReading: {},
-          }),
-        }),
-        getSrsBackendClient: () => ({ requestReviewTruthFlush }),
-      }),
     };
 
     createUnifiedReviewDialog({
       plugin,
-      queueType: QueueType.RetrievalPractice,
+      runtimeAccess: createRuntimeAccess({
+        backendClient: { requestReviewTruthFlush },
+      }),
+      entryTarget: createEntryTarget(),
       title: '提取练习',
       headerVariant: 'retrieval-practice',
       eventBus: { subscribe: vi.fn() } as never,

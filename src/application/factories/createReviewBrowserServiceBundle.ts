@@ -1,5 +1,4 @@
 import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
-import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
 import type { BrowserAdvancedSqlQuerySourcePort } from '@/application/ports/BrowserAdvancedSqlQuerySourcePort';
 import { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
@@ -11,31 +10,23 @@ import type { ReviewLogService } from '@/application/services/ReviewLogService';
 import { ReviewLogLearningCurveEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
 import type { ArenaKernelService } from '@/application/services/ArenaKernelService';
-import type { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
-import type { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
+import type {
+  BrowserQueueRuntimeAccess,
+  ReviewRuntimeAccess,
+} from '@/application/runtime-access';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import type { StorageManager } from '@/core/storage';
-import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import type { SchedulerRouter } from '@/core/scheduler';
 import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { threeChoiceDialog } from '@/utils/dialog';
 
 type I18nDictionary = Record<string, string>;
-
-export interface ReviewBrowserSharedCompositionDeps {
-  getUnifiedStorage: () => UnifiedStorageManager;
-  getUnifiedDataSourceManager: () => IUnifiedDataSourceManagerFacade;
-  getSrsBackendClient: () => SrsBackendClient | null;
-  getFrontendInstanceRuntime: () => FrontendInstanceRuntime | null;
-  getFollowerCommandClient: () => FollowerCommandClient | null;
-}
 
 export interface ReviewBrowserNeuralRoamCompositionDeps {
   getStorage: () => StorageManager;
@@ -46,21 +37,20 @@ export interface ReviewBrowserNeuralRoamCompositionDeps {
   openNeuralRoamDialog: (options?: NeuralRoamOpenOptions) => Promise<void>;
 }
 
-export interface ReviewBrowserBrowserCompositionDeps extends ReviewBrowserSharedCompositionDeps {
-  getBrowserDeckReadPort: () => BrowserDeckReadPort | null;
+export interface ReviewBrowserBrowserCompositionDeps {
+  runtimeAccess: BrowserQueueRuntimeAccess;
   createBrowserAdvancedSqlQuerySource: () => BrowserAdvancedSqlQuerySourcePort;
   createBrowserSiyuanPort: () => BrowserSiyuanPort;
   createBrowserQuerySiyuanPort: () => BrowserQuerySiyuanPort;
 }
 
-export interface ReviewBrowserReviewCompositionDeps extends ReviewBrowserSharedCompositionDeps {
-  getScheduler: () => SchedulerRouter;
+export interface ReviewBrowserReviewCompositionDeps {
+  runtimeAccess: ReviewRuntimeAccess;
   createReviewSiyuanPort: () => ReviewSiyuanPort;
 }
 
 export interface ReviewBrowserCardEditorCompositionDeps {
-  getUnifiedDataSourceManager: () => IUnifiedDataSourceManagerFacade;
-  getReviewService: () => ReviewApplicationService;
+  runtimeAccess: ReviewRuntimeAccess;
 }
 
 export interface ReviewBrowserSrsTransparencyCompositionDeps {
@@ -122,42 +112,44 @@ export function createReviewBrowserServiceBundle(
     },
     createBrowserApplicationService: () => {
       const browser = deps.browser;
+      const runtime = browser.runtimeAccess;
       const browserSiyuanApi = browser.createBrowserSiyuanPort();
       const browserQuerySiyuanApi = browser.createBrowserQuerySiyuanPort();
       return new BrowserApplicationService(
-        browser.getUnifiedStorage(),
+        runtime.unifiedStorage,
         new CardScheduleService(),
         new CardFilterService(),
         new CardSortService(),
-        browser.getUnifiedDataSourceManager(),
+        runtime.unifiedDataSourceManager,
         browserSiyuanApi,
         browserQuerySiyuanApi,
         null,
-        browser.getBrowserDeckReadPort(),
-        browser.getSrsBackendClient(),
-        browser.getFrontendInstanceRuntime(),
-        browser.getFollowerCommandClient(),
+        runtime.browserDeckReadPort,
+        runtime.backendClient,
+        runtime.frontendInstanceRuntime,
+        runtime.followerCommandClient,
         browser.createBrowserAdvancedSqlQuerySource(),
-        createCdfLiveRelationCardCreatorFromUnifiedStorage(browser.getUnifiedStorage()),
+        createCdfLiveRelationCardCreatorFromUnifiedStorage(runtime.unifiedStorage),
       );
     },
     createReviewApplicationService: () => {
       const review = deps.review;
+      const runtime = review.runtimeAccess;
       return new ReviewApplicationService(
-        review.getUnifiedDataSourceManager(),
-        review.getScheduler(),
+        runtime.unifiedDataSourceManager,
+        runtime.scheduler,
         review.createReviewSiyuanPort(),
-        review.getSrsBackendClient(),
-        review.getFrontendInstanceRuntime(),
-        review.getFollowerCommandClient(),
-        createCdfLiveRelationCardCreatorFromUnifiedStorage(review.getUnifiedStorage()),
+        runtime.backendClient,
+        runtime.frontendInstanceRuntime,
+        runtime.followerCommandClient,
+        createCdfLiveRelationCardCreatorFromUnifiedStorage(runtime.unifiedStorage),
       );
     },
     createCardEditorApplicationService: () => {
-      const cardEditor = deps.cardEditor;
+      const runtime = deps.cardEditor.runtimeAccess;
       return new CardEditorApplicationService(
-        cardEditor.getUnifiedDataSourceManager(),
-        cardEditor.getReviewService(),
+        runtime.unifiedDataSourceManager,
+        runtime.reviewService,
       );
     },
     createSrsTransparencyApplicationService: () => {

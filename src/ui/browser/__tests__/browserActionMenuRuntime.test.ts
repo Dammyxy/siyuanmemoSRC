@@ -204,6 +204,7 @@ describe('browserActionMenuRuntime', () => {
     expect(openSubsetReviewDialog).toHaveBeenCalledWith(['shared-block'], {
       cardIds: ['card-a', 'card-b'],
       preferredCardId: 'card-b',
+      entrySurface: 'browser:review-subset',
     });
     expect(dataSource.performAction).not.toHaveBeenCalled();
   });

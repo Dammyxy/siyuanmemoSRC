@@ -1,7 +1,14 @@
 import type { QueueSnapshotRow } from '@/types/queue-browser';
-import type { QueueCounterSnapshot, QueueType } from './queue-core';
+import type { FSRSCard } from '@/types/card';
+import type { QueueProjectionLiveIdentityListener } from '@/types/queue-projection-live-identity';
+import type { BackendQueueProjectionReplaceResult } from '../../../packages/contracts/src/backend-rpc';
+import type { IReviewQueue, QueueCounterSnapshot, QueueType } from './queue-core';
 
 export type {
+  QueueProjectionReadiness,
+  QueueProjectionReadinessRequest,
+} from '../../../packages/contracts/src/backend-rpc';
+import type {
   QueueProjectionReadiness,
   QueueProjectionReadinessRequest,
 } from '../../../packages/contracts/src/backend-rpc';
@@ -12,6 +19,67 @@ export interface QueueProjectionSnapshot {
   generation: number;
   rows: QueueSnapshotRow[];
   counters: QueueCounterSnapshot | null;
+}
+
+export type QueueProjectionReadRequest =
+  | { type: 'readiness'; request: QueueProjectionReadinessRequest }
+  | { type: 'snapshot'; queueType: QueueType }
+  | { type: 'rows-by-id'; queueType: QueueType; ids: string[] }
+  | { type: 'diagnostics'; queueType?: QueueType };
+
+export type QueueProjectionReadResult =
+  | { type: 'readiness'; readiness: QueueProjectionReadiness }
+  | {
+    type: 'snapshot';
+    status: QueueProjectionReadiness['status'];
+    readiness: QueueProjectionReadiness;
+    snapshot: QueueProjectionSnapshot | null;
+  }
+  | {
+    type: 'rows-by-id';
+    status: QueueProjectionReadiness['status'];
+    readiness: QueueProjectionReadiness;
+    cards: FSRSCard[];
+  }
+  | { type: 'diagnostics'; diagnostics: QueueProjectionRolloutDiagnostic[] };
+
+export type QueueProjectionRepairCommand =
+  | {
+    type: 'materialize' | 'rebuild' | 'refresh';
+    queueType: QueueType;
+    queueOverride?: Pick<IReviewQueue, 'getCards'> | null;
+    readinessRequest?: QueueProjectionReadinessRequest | null;
+    reason?: string | null;
+  }
+  | {
+    type: 'invalidate';
+    queueType: QueueType;
+    reason?: string | null;
+  };
+
+export type QueueProjectionRepairReceipt =
+  | {
+    status: 'ready';
+    queueType: QueueType;
+    policyHash: string;
+    generation: number;
+    result: BackendQueueProjectionReplaceResult;
+  }
+  | {
+    status: 'invalidated';
+    queueType: QueueType;
+    reason: string;
+  }
+  | {
+    status: 'unavailable';
+    queueType: QueueType;
+    reason: string;
+  };
+
+export interface QueueProjectionLifecycleInterface {
+  read(request: QueueProjectionReadRequest): Promise<QueueProjectionReadResult>;
+  repair(command: QueueProjectionRepairCommand): Promise<QueueProjectionRepairReceipt>;
+  observe(listener: QueueProjectionLiveIdentityListener): () => void;
 }
 
 export type QueueProjectionRolloutState =

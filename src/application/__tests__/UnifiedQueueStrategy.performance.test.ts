@@ -202,11 +202,38 @@ function createWorkerSessionBackend(
         remaining.push({ ...answeredCard });
       }
       current = selectNext();
+      const feedback = buildFeedback(request.cardId, request.rating, request.idempotencyKey);
       return {
         ...buildState(),
-        answeredCardId: request.cardId,
-        feedback: buildFeedback(request.cardId, request.rating, request.idempotencyKey),
-        undoToken,
+        receipt: {
+          answeredCardId: request.cardId,
+          reviewedAt: feedback.reviewedAt,
+          queueType: QueueType.RetrievalPractice,
+          commit: {
+            outcome: 'committed',
+            updatedCard: answeredCard,
+            duplicate: false,
+          },
+          factIdentity: {
+            kind: 'idempotency-key',
+            idempotencyKey: request.idempotencyKey ?? `worker-feedback-${request.cardId}`,
+          },
+          durability: {
+            status: 'durable',
+            evidence: 'worker-commit',
+          },
+          undo: {
+            token: undoToken,
+            evidence: 'session-snapshot',
+          },
+          queueImpact: feedback.queueImpact ?? null,
+          storage: null,
+          diagnostics: {
+            authority: 'worker-review-session',
+            projectionState: 'ready',
+            storageSummaryAvailable: false,
+          },
+        },
       };
     }),
     reviewSessionSkip: vi.fn(async (request: {
@@ -746,14 +773,27 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
           projectionState: 'ready',
           projectionGeneration: 1,
           projectionPolicyHash: 'test-policy',
-          answeredCardId: request.cardId,
-          feedback: {
-            ok: true,
-            cardId: request.cardId,
-            rating: request.rating,
+          receipt: {
+            answeredCardId: request.cardId,
             reviewedAt: Date.now(),
-            idempotencyKey: request.idempotencyKey ?? 'timing-feedback',
-            durable: true,
+            queueType: QueueType.RetrievalPractice,
+            commit: {
+              outcome: 'committed',
+              updatedCard: { ...firstCard },
+              duplicate: false,
+            },
+            factIdentity: {
+              kind: 'idempotency-key',
+              idempotencyKey: request.idempotencyKey ?? 'timing-feedback',
+            },
+            durability: {
+              status: 'durable',
+              evidence: 'worker-commit',
+            },
+            undo: {
+              token: 'timing-undo',
+              evidence: 'session-snapshot',
+            },
             queueImpact: {
               version: 1,
               entries: [],
@@ -761,11 +801,11 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
               hotPatchable: true,
               refreshRequired: false,
             },
-            projectionAction: null,
-            projectionImpactEntry: null,
-            truthFlush: {
-              status: 'pending',
-              reason: 'timing-test',
+            storage: null,
+            diagnostics: {
+              authority: 'worker-review-session',
+              projectionState: 'ready',
+              storageSummaryAvailable: false,
             },
           },
         };

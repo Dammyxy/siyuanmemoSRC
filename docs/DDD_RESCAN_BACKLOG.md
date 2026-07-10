@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 699)
+Last update: 2026-07-10 (Round 701)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Deepen Review and projection runtime Interfaces
+
+- Task: Complete OpenSpec `deepen-review-and-projection-runtime-interfaces` after the Native Riff retirement baseline.
+- Touched slice: worker SRS Review Kernel and accepted-answer transaction, backend Review RPC adapters, application Review attempt/session adapters, Queue Projection Lifecycle and Browser/Admission callers, Review Entry/Content Target resolution, bounded-context Runtime Access, tests, architecture/context docs, and OpenSpec artifacts.
+- Debt fixed now: SRS Review Kernel now exposes only `execute/read`; durable Review truth commits before SessionQueueIndex advancement and post-commit projection maintenance. Queue Projection external access is `read/repair/observe`, so ordinary Browser and Admission reads cannot materialize. Entry Target and Content Target separate launch identity from render/source identity. `ApplicationContext` callers use explicit bounded-context access Modules and bind-once callback ports. Superseded projection methods, target inference, queue-impact interpretation, broad getters, and callback closures were removed with their final callers.
+- Debt deferred: Legacy metadata normalization remains private to the single Review Content Target ingress Adapter; host-level two-window writer/follower smoke remains release validation because automated tests cannot create two live SiYuan windows and writer lease handover.
+- Why deferred: Removing the private ingress normalization would reopen non-Review renderer contracts; multi-window lease, cross-window identity broadcast, and live source-detach behavior require deployed host processes.
+- Next safe step: Run the recorded two-window writer/follower checklist after packaging; future changes must preserve worker/writer mutation authority, passive projection reads, and separate Entry/Content Target contracts.
+- Validation: 41 focused Vitest files passed with 667 tests across worker Review/session, application Review adapters, Entry/Content Target and render, Queue Projection/Browser, managers, and Runtime Access; hidden-fallback scan passed; architecture boundary gate passed; production build passed with existing non-blocking i18n/Sass warnings; strict OpenSpec validation passed; `git diff --check` passed with CRLF warnings only.
 
 ### 2026-07-10 - Retire residual Native Riff runtime
 
@@ -9687,6 +9697,13 @@ Do not add an entry for skill-only or docs-only work.
 - Validation: `pnpm exec vitest run worker/review/__tests__/SrsReviewKernel.test.ts worker/review/__tests__/WorkerReviewSessionRuntime.test.ts worker/bootstrap/rpc/BackendReviewRpcAdapter.test.ts src/application/adapters/review-session/__tests__/SrsV2SessionQueueRuntime.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts --pool=forks --maxWorkers=1 --minWorkers=1`; pending full gates in this slice.
 
 ## 1. Re-scan summary
+
+- 2026-07-10 Review Content Target contract:
+  - Task: Complete OpenSpec `deepen-review-and-projection-runtime-interfaces` tasks 8.1-8.8.
+  - Touched slice: application Review content target/legacy ingress Adapter, Review render context, SRS render-contract target consumer, active Review render/editor/navigation/action routing, focused tests, and OpenSpec tasks.
+  - Debt fixed now: Four discriminated content targets replace `ReviewRenderableContext` target-kind inference. Missing/detached/conflicting/unsupported evidence is typed unavailable and fail closed. Active current-content edit, source navigation, answer, convert/advance, skip, back, card action references, and prepared rendering use target identity. SiYuan blocks/Xiuyuan aggregates remain content authority; targets store no copied question/answer content and never become persistence state.
+  - Debt deferred: Legacy render-semantic normalization remains internally hidden behind the single ingress Adapter because existing non-Review editor tests still exercise the render-policy Module directly. A later renderer-specific slice may narrow that internal helper without reopening target inference.
+  - Validation: Review Content Target/render/editor/action regression suite `158 passed`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`; `openspec validate deepen-review-and-projection-runtime-interfaces --strict`; `git diff --check`. Full `pnpm run check:boundaries` reaches the pre-existing Queue Projection runtime-path guard and stops because `UnifiedDataSourceManager` / `BaseReviewQueue` have not yet exposed the required projection methods; that unrelated slice remains out of scope here.
 
 - 2026-06-03 Review hot-path delta threshold live fix:
   - Task: Fix live `review.feedback` failure after queue count correctly dropped from 185 to 184 but formal review errored with `SQLite delta durability unavailable for hot path review.feedback: delta-threshold-exceeded`.

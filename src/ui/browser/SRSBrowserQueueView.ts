@@ -15,20 +15,12 @@ import type {
     DataChangeEvent,
     QueueType,
     CardFilter,
-    QueueProjectionSnapshot,
 } from '@/types/unified-data-source';
 import type { GridApi } from 'ag-grid-community';
 import { filterService } from './services/FilterService';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SRSBrowserQueueView');
-
-type QueueProjectionReadManager = IUnifiedDataSourceManagerFacade & {
-    readQueueProjectionSnapshot?: (
-        queueType: QueueType,
-        options?: { forceRefresh?: boolean }
-    ) => Promise<QueueProjectionSnapshot | null>;
-};
 
 type QueueFilterCommandManager = IUnifiedDataSourceManagerFacade & {
     setFilterGroupFilter?: (filter: CardFilter) => Promise<boolean>;
@@ -127,19 +119,23 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
         try {
             logger.info(`[SRSBrowserQueueView] Loading queue data for: ${this.currentQueueType}`);
             
-            const projectionReader = this.manager as QueueProjectionReadManager;
-            if (typeof projectionReader.readQueueProjectionSnapshot !== 'function') {
+            if (typeof this.manager.readQueueProjection !== 'function') {
                 throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: ${this.currentQueueType} browser snapshot unavailable`);
             }
 
-            const snapshot = await projectionReader.readQueueProjectionSnapshot(this.currentQueueType, {
-                forceRefresh: true,
+            const result = await this.manager.readQueueProjection({
+                type: 'snapshot',
+                queueType: this.currentQueueType,
             });
-            if (!snapshot) {
-                throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: ${this.currentQueueType} browser snapshot unavailable`);
+            if (result.type !== 'snapshot' || result.status !== 'ready' || !result.snapshot) {
+                throw new Error(
+                    `QUEUE_PROJECTION_UNAVAILABLE: ${this.currentQueueType} browser snapshot ${
+                        result.type === 'snapshot' ? result.status : 'contract-mismatch'
+                    }`,
+                );
             }
 
-            const rows = snapshot.rows || [];
+            const rows = result.snapshot.rows || [];
 
             logger.info(`[SRSBrowserQueueView] Loaded ${rows.length} projection rows`);
             

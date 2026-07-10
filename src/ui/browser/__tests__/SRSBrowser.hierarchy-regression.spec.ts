@@ -886,7 +886,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     });
     const manager = {
       getQueue: vi.fn(() => neuralQueue),
-      ensureQueueProjectionReady: vi.fn(async () => projectionReady),
+      readQueueProjection: vi.fn(async () => projectionReady),
     };
     getQueueByIdBridgeMock.mockReturnValue(neuralQueue);
     createQueueDataSourceMock.mockReturnValue(createQueryableDataSource([]));
@@ -919,7 +919,7 @@ describe('SRSBrowser hierarchy regressions', () => {
 
     await advance(0);
     expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
-    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
+    expect(manager.readQueueProjection).not.toHaveBeenCalled();
 
     browserAdapterSyncHarness.options?.onQueueChanged({
       affectedQueueTypes: [QueueType.NeuralRoam],
@@ -932,7 +932,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     await nextTick();
 
     expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
-    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
+    expect(manager.readQueueProjection).not.toHaveBeenCalled();
 
     resolveProjectionReady?.({
       status: 'ready',

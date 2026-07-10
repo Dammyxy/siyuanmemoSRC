@@ -137,7 +137,7 @@ describe('BrowserApplicationService queue counts', () => {
   let projectionCountersByType: Map<QueueType, ReturnType<typeof createProjectionCounters> | null>;
   let manager: {
     getQueue: ReturnType<typeof vi.fn>;
-    readQueueProjectionSnapshot?: ReturnType<typeof vi.fn>;
+    readQueueProjection?: ReturnType<typeof vi.fn>;
     getQueueProjectionRolloutDiagnostics?: ReturnType<typeof vi.fn>;
   };
   let service: BrowserApplicationService;
@@ -158,17 +158,27 @@ describe('BrowserApplicationService queue counts', () => {
         }
         return queue as unknown as IReviewQueue;
       }),
-      readQueueProjectionSnapshot: vi.fn(async (type: QueueType, options?: { forceRefresh?: boolean }) => {
-        const queue = queueByType.get(type);
+      readQueueProjection: vi.fn(async (request: { type: string; queueType: QueueType }) => {
+        const queue = queueByType.get(request.queueType);
         if (!queue) {
-          throw new Error(`Queue mock missing for ${type}`);
+          throw new Error(`Queue mock missing for ${request.queueType}`);
         }
         return {
-          queueType: type,
-          policyHash: `policy-${type}`,
-          generation: 1,
-          rows: await queue.getSnapshotRows(Boolean(options?.forceRefresh)),
-          counters: projectionCountersByType.get(type) ?? null,
+          type: 'snapshot',
+          status: 'ready',
+          readiness: {
+            status: 'ready',
+            queueId: request.queueType,
+            policyId: `policy-${request.queueType}`,
+            generation: 1,
+          },
+          snapshot: {
+            queueType: request.queueType,
+            policyHash: `policy-${request.queueType}`,
+            generation: 1,
+            rows: await queue.getSnapshotRows(false),
+            counters: projectionCountersByType.get(request.queueType) ?? null,
+          },
         };
       }),
     };
@@ -289,8 +299,11 @@ describe('BrowserApplicationService queue counts', () => {
     });
 
     expect(counts.retrieval).toBe(4);
-    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledTimes(1);
-    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, { forceRefresh: true });
+    expect(manager.readQueueProjection).toHaveBeenCalledTimes(1);
+    expect(manager.readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType: QueueType.RetrievalPractice,
+    });
     expect(manager.getQueue).not.toHaveBeenCalled();
     expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getCounterSnapshot).not.toHaveBeenCalled();
@@ -318,11 +331,14 @@ describe('BrowserApplicationService queue counts', () => {
         activeQueueType: QueueType.RetrievalPractice,
       },
     });
-    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledTimes(1);
-    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, { forceRefresh: true });
+    expect(manager.readQueueProjection).toHaveBeenCalledTimes(1);
+    expect(manager.readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType: QueueType.RetrievalPractice,
+    });
     expect(manager.getQueue).not.toHaveBeenCalled();
 
-    manager.readQueueProjectionSnapshot?.mockClear();
+    manager.readQueueProjection?.mockClear();
     manager.getQueue.mockClear();
 
     const counts = await service.getQueueCounts({
@@ -340,7 +356,7 @@ describe('BrowserApplicationService queue counts', () => {
       'filter-group': 1,
       'neural-roam': 5,
     });
-    expect(manager.readQueueProjectionSnapshot?.mock.calls.map((call) => call[0])).toEqual(expect.arrayContaining([
+    expect(manager.readQueueProjection?.mock.calls.map((call) => call[0].queueType)).toEqual(expect.arrayContaining([
       QueueType.RetrievalPractice,
       QueueType.FinalDrill,
       QueueType.IncrementalLearning,

@@ -21,11 +21,10 @@ import type {
 import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
-import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
-import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
-import type { BackendNeuralRoamStartFromFocusRequest } from '../../../packages/contracts/src/backend-rpc';
 import { createLogger } from '@/utils/logger';
 import type { ReviewAdmissionTicket } from '@/application/services/ReviewAdmissionModule';
+import type { ReviewEntryTarget } from '@/application/services/ReviewEntryTargetResolver';
+import type { ReviewRuntimeAccess } from '@/application/runtime-access';
 
 const logger = createLogger('createUnifiedReviewDialog');
 
@@ -33,21 +32,6 @@ type ReviewDialogPluginLike = {
     app: unknown;
     isMobile?: boolean;
     i18n?: Record<string, string>;
-    getContext?: () => {
-        getSchedulerRouter: () => ISchedulerRouter;
-        getSettingsService: () => {
-            getSettings: () => {
-                progressiveReading?: {
-                    altXExcerptEnabled?: boolean;
-                };
-            };
-        };
-        getSrsBackendClient?: () => {
-            requestReviewTruthFlush?: (reason: 'review-exit' | 'queue-complete' | 'manual') => boolean;
-            flushReviewTruthNow?: (reason: 'review-exit' | 'queue-complete' | 'manual') => Promise<boolean>;
-        } | null | undefined;
-        getReviewService?: () => Pick<ReviewApplicationService, 'refreshCdfLiveRelationOnOpen'> | null | undefined;
-    } | undefined;
 };
 
 /**
@@ -56,10 +40,10 @@ type ReviewDialogPluginLike = {
 export interface CreateUnifiedReviewDialogOptions {
     /** 插件实例 */
     plugin: ReviewDialogPluginLike;
+    runtimeAccess: ReviewRuntimeAccess;
     
-    /** 队列类型 */
-    queueType: QueueType;
-    entrySurface?: string | null;
+    /** 已解析的 Review 会话入口目标 */
+    entryTarget: ReviewEntryTarget;
     reviewAdmissionTicket?: ReviewAdmissionTicket | null;
 
     /** 可选：直接传入队列实例（用于临时/子集复习） */
@@ -71,12 +55,6 @@ export interface CreateUnifiedReviewDialogOptions {
     /** 可选：传入可序列化队列迁移状态（用于对话框再打开为 Tab 时保持精确子集） */
     transferState?: ReviewTabTransferState;
 
-    /** 可选：神经漫游后端首次 advance 的起点 */
-    neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
-
-    /** 可选：打开 Review 时固定到已有 Semantic Exploration session */
-    initialSemanticPinnedSessionId?: string | null;
-    
     /** 对话框标题 */
     title: string;
 
@@ -103,7 +81,13 @@ export interface CreateUnifiedReviewDialogOptions {
  * ```typescript
  * const dialog = createUnifiedReviewDialog({
  *     plugin: this.plugin,
- *     queueType: QueueType.RetrievalPractice,
+ *     runtimeAccess: this.reviewRuntimeAccess,
+ *     entryTarget: {
+ *         kind: 'projection-queue',
+ *         queueType: QueueType.RetrievalPractice,
+ *         entrySurface: 'topbar:retrieval-practice',
+ *         admission: { kind: 'required' },
+ *     },
  *     title: '提取练习',
  *     onClose: () => {
  *         this.plugin.reviewDialog = null;
@@ -115,39 +99,53 @@ export interface CreateUnifiedReviewDialogOptions {
  * @returns 对话框实例
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
-    const { plugin, queueType, queueInstance, initialSessionState, transferState, neuralRoamStartFromFocus, initialSemanticPinnedSessionId, title, headerVariant, eventBus, startFullscreen, entrySurface, reviewAdmissionTicket, onClose } = options;
+    const {
+        plugin,
+        runtimeAccess,
+        entryTarget,
+        queueInstance,
+        initialSessionState,
+        transferState,
+        title,
+        headerVariant,
+        eventBus,
+        startFullscreen,
+        reviewAdmissionTicket,
+        onClose,
+    } = options;
+    const queueType = entryTarget.queueType;
+    const neuralRoamStartFromFocus = entryTarget.kind === 'neural-roam'
+        ? entryTarget.launch.startFromFocus
+        : null;
+    const initialSemanticPinnedSessionId = entryTarget.kind === 'neural-roam'
+        ? entryTarget.launch.semanticPinnedSessionId
+        : null;
     const isMobile = plugin.isMobile === true;
     
     try {
         logger.info('[SiYuanMemo][ReviewEntryDiagnostic] creating review dialog', {
             queueType,
             headerVariant,
-            entrySurface: entrySurface ?? null,
+            entrySurface: entryTarget.entrySurface,
             hasQueueInstance: Boolean(queueInstance),
         });
         
         // 获取依赖
         const manager = UnifiedDataSourceManager.getInstance();
         
-        // ✅ 通过 Facade 获取 ApplicationContext（兼容旧字段）
-        const context = plugin.getContext?.();
-        if (!context) {
-            throw new Error('ApplicationContext not found in plugin');
-        }
-        
         // 创建统一队列策略（使用依赖注入）
-        const schedulerRouter = context.getSchedulerRouter();
-        const reviewService = context.getReviewService?.();
+        const schedulerRouter = runtimeAccess.scheduler;
+        const reviewService = runtimeAccess.reviewService;
         const queue = new UnifiedQueueStrategy(queueInstance ?? queueType, manager, eventBus, schedulerRouter, reviewService
             ? { refreshCdfLiveRelationOnOpen: (card) => reviewService.refreshCdfLiveRelationOnOpen(card) }
-            : null, entrySurface ?? null, reviewAdmissionTicket ?? null);
+            : null, entryTarget, reviewAdmissionTicket ?? null);
         queue.startNeuralRoamFromFocusOnNextAdvance(neuralRoamStartFromFocus);
         
         // 创建统一复习适配器
         const adapter = new UnifiedReviewAdapter({
             i18n: plugin.i18n || {},
             headerVariant,
-            progressiveExcerptEnabled: context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
+            progressiveExcerptEnabled: runtimeAccess.settingsService.getSettings().progressiveReading?.altXExcerptEnabled === true,
         });
 
         let closeFinalized = false;
@@ -158,7 +156,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             closeFinalized = true;
 
             try {
-                const backendClient = context.getSrsBackendClient?.();
+                const backendClient = runtimeAccess.backendClient;
                 if (backendClient?.flushReviewTruthNow) {
                     await backendClient.flushReviewTruthNow('review-exit');
                 } else {

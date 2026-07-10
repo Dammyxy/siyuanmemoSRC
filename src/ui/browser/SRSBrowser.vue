@@ -669,6 +669,7 @@ type BrowserDialogManagerPort = {
   hasOpenNeuralReviewDialog?: () => boolean;
   openSrsCardSemanticsRepairDialog?: () => Promise<void> | void;
   openNeuralRoamDialog?: (options?: {
+    entrySurface?: string;
     focusBlockId?: string;
     includeFocusAsFirst?: boolean;
     resetHistory?: boolean;
@@ -837,6 +838,7 @@ const browserSemanticWorkspaceRuntime = createBrowserSemanticWorkspaceRuntime({
       ));
     }
     await dialogManager.openNeuralRoamDialog({
+      entrySurface: 'browser:semantic-review-handoff',
       focusBlockId: handoff.focusBlockId ?? handoff.currentNodeId,
       includeFocusAsFirst: false,
       resetHistory: false,
@@ -3270,7 +3272,7 @@ onMounted(() => {
   setupLongTaskMonitor();
   unsubscribeSourceExistence = browserAppServiceRef.value?.subscribeSourceExistenceUpdates?.(handleSourceExistenceUpdate) ?? null;
   unsubscribeQueueProjectionLiveIdentity = pluginUnifiedDataSourceManager.value
-    ?.subscribeQueueProjectionLiveIdentityEvents?.(browserLoadDataRuntime.handleQueueProjectionLiveIdentityEvent) ?? null;
+    ?.observeQueueProjection?.(browserLoadDataRuntime.handleQueueProjectionLiveIdentityEvent) ?? null;
 
   // Subscribe to incremental updates
   unsubscribe = subscribeCacheUpdate((cards, isComplete) => {

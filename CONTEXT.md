@@ -287,7 +287,8 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - A **Browser Read Model** consumes **SRS Browser Card Universe** and, for projection-backed queue views, consumes queue projection identity before hydrating Browser rows.
 - A **Review Entry Target** is resolved before Review Admission or session creation and determines only launch/session identity.
 - A **Review Content Target** is resolved for the current item before Review Renderable Context, SRS Card Render Contract, editing, or source navigation consumes it.
-- The **SRS Review Kernel** consumes a valid **Review Entry Target** plus required Review Admission evidence when starting a worker-backed session and returns the current **Review Content Target** as part of authoritative session state.
+- Application code resolves a **Review Entry Target** and maps it with required Review Admission evidence into the normalized worker session-start command consumed by the **SRS Review Kernel**.
+- The **SRS Review Kernel** returns authoritative current card/item identity and state; application target resolution combines that result with semantic/source evidence to produce the **Review Content Target**.
 - The **SRS Review Kernel** consumes **Review Ledger**, **Card Schedule Store**, and **SessionQueueIndex** internally, and exposes only active Review session operations to renderer-side adapters.
 - The **SRS Review Kernel** owns **Review Transaction Undo Journal** evidence for worker-backed `go-back`; **Review History** remains local-only for non-worker sessions and failed-feedback cleanup.
 - **Review Storage Audit** compares **Review Ledger** facts, **Card Schedule Store** rows, and derived projection evidence; repair remains explicit and evidence-complete, never a hidden Browser/queue projection fallback.

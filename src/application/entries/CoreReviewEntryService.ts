@@ -19,6 +19,7 @@ export interface CoreReviewMenuAction {
 }
 
 export interface CoreReviewScopeOptions {
+  entrySurface: string;
   scopeDocIds?: string[];
   emptyMessages?: {
     noDueCards?: string;
@@ -29,7 +30,7 @@ export interface CoreReviewScopeOptions {
 export class CoreReviewEntryService {
   constructor(private readonly deps: CoreReviewEntryServiceDeps) {}
 
-  createMenuActions(cards: FSRSCard[], options?: CoreReviewScopeOptions): CoreReviewMenuAction[] {
+  createMenuActions(cards: FSRSCard[], options: CoreReviewScopeOptions): CoreReviewMenuAction[] {
     const retrievalCards = this.toRetrievalCards(cards);
     const dueRetrievalCards = this.filterDueCards(retrievalCards);
     const dueAllCards = this.filterDueCards(cards);
@@ -68,7 +69,7 @@ export class CoreReviewEntryService {
     ];
   }
 
-  async execute(actionId: CoreReviewEntryActionId, cards: FSRSCard[], options?: CoreReviewScopeOptions): Promise<void> {
+  async execute(actionId: CoreReviewEntryActionId, cards: FSRSCard[], options: CoreReviewScopeOptions): Promise<void> {
     switch (actionId) {
       case 'retrieval-due': {
         const dueRetrievalCards = this.filterDueCards(this.toRetrievalCards(cards));
@@ -123,7 +124,10 @@ export class CoreReviewEntryService {
           await this.deps.notify(options?.emptyMessages?.noPracticeableCards || this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
           return;
         }
-        await this.deps.dialogManager.openTemporaryDrill(blockIds, this.buildExactCardOptions(cards));
+        await this.deps.dialogManager.openTemporaryDrill(
+          blockIds,
+          this.buildExactCardOptions(cards, options),
+        );
         return;
       }
       default: {
@@ -143,22 +147,24 @@ export class CoreReviewEntryService {
   private buildFilterOptions(
     cards: FSRSCard[],
     dueOnly: boolean,
-    options?: CoreReviewScopeOptions,
+    options: CoreReviewScopeOptions,
   ): {
     blockIds: string[];
     cardIds: string[];
     preferredCardId?: string;
     scopeDocIds?: string[];
     dueOnly: boolean;
+    entrySurface: string;
   } {
     const blockIds = Array.from(new Set(cards.map((card) => card.blockId).filter(Boolean)));
-    const exactCardOptions = this.buildExactCardOptions(cards);
+    const exactCardOptions = this.buildExactCardOptions(cards, options);
     const filterOptions: {
       blockIds: string[];
       cardIds: string[];
       preferredCardId?: string;
       scopeDocIds?: string[];
       dueOnly: boolean;
+      entrySurface: string;
     } = { blockIds, ...exactCardOptions, dueOnly };
 
     if (options?.scopeDocIds && options.scopeDocIds.length > 0) {
@@ -168,14 +174,16 @@ export class CoreReviewEntryService {
     return filterOptions;
   }
 
-  private buildExactCardOptions(cards: FSRSCard[]): {
+  private buildExactCardOptions(cards: FSRSCard[], options: CoreReviewScopeOptions): {
     cardIds: string[];
     preferredCardId?: string;
+    entrySurface: string;
   } {
     const cardIds = Array.from(new Set(cards.map((card) => String(card.id || '').trim()).filter(Boolean)));
     return {
       cardIds,
       preferredCardId: cardIds[0],
+      entrySurface: options.entrySurface,
     };
   }
 

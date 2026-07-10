@@ -42,13 +42,14 @@ describe('CoreReviewEntryService', () => {
       { id: 'topic-due', blockId: 'block-topic-due', type: CardType.Topic, due: dayEnd - 1 } as FSRSCard,
     ];
 
-    await service.execute('retrieval-due', cards);
+    await service.execute('retrieval-due', cards, { entrySurface: 'test:retrieval-due' });
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-item-due', 'block-descriptor-due'],
       cardIds: ['item-due', 'descriptor-due'],
       preferredCardId: 'item-due',
       dueOnly: true,
+      entrySurface: 'test:retrieval-due',
     });
     expect(notify).not.toHaveBeenCalled();
   });
@@ -68,13 +69,14 @@ describe('CoreReviewEntryService', () => {
       } as FSRSCard,
     ];
 
-    await service.execute('retrieval-all', cards);
+    await service.execute('retrieval-all', cards, { entrySurface: 'test:retrieval-all' });
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-item-due', 'block-descriptor-due'],
       cardIds: ['item-due', 'descriptor-due'],
       preferredCardId: 'item-due',
       dueOnly: false,
+      entrySurface: 'test:retrieval-all',
     });
     expect(notify).not.toHaveBeenCalled();
   });
@@ -96,7 +98,7 @@ describe('CoreReviewEntryService', () => {
       } as FSRSCard,
     ];
 
-    const actions = service.createMenuActions(cards);
+    const actions = service.createMenuActions(cards, { entrySurface: 'test:menu-actions' });
 
     expect(actions[0].label).toContain('(2/3)');
     expect(actions[1].label).toContain('(3)');
@@ -110,13 +112,14 @@ describe('CoreReviewEntryService', () => {
       { id: 'item-future', blockId: 'block-item-future', type: 'item', due: dayEnd + 1 } as FSRSCard,
     ];
 
-    await service.execute('incremental-due', cards);
+    await service.execute('incremental-due', cards, { entrySurface: 'test:incremental-due' });
 
     expect(dialogManager.openIncrementalLearningWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-item-due', 'block-topic-due'],
       cardIds: ['item-due', 'topic-due'],
       preferredCardId: 'item-due',
       dueOnly: true,
+      entrySurface: 'test:incremental-due',
     });
     expect(notify).not.toHaveBeenCalled();
   });
@@ -128,13 +131,14 @@ describe('CoreReviewEntryService', () => {
       { id: 'item-future', blockId: 'block-item-future', type: 'item', due: now + 60_000 } as FSRSCard,
     ];
 
-    await service.execute('incremental-all', cards);
+    await service.execute('incremental-all', cards, { entrySurface: 'test:incremental-all' });
 
     expect(dialogManager.openIncrementalLearningWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-item-due', 'block-topic-due', 'block-item-future'],
       cardIds: ['item-due', 'topic-due', 'item-future'],
       preferredCardId: 'item-due',
       dueOnly: false,
+      entrySurface: 'test:incremental-all',
     });
     expect(notify).not.toHaveBeenCalled();
   });
@@ -146,11 +150,12 @@ describe('CoreReviewEntryService', () => {
       { id: 'card-3', blockId: 'other-block', type: 'item', due: now + 60_000 } as FSRSCard,
     ];
 
-    await service.execute('temporary-drill', cards);
+    await service.execute('temporary-drill', cards, { entrySurface: 'test:temporary-drill' });
 
     expect(dialogManager.openTemporaryDrill).toHaveBeenCalledWith(['same-block', 'other-block'], {
       cardIds: ['card-1', 'card-2', 'card-3'],
       preferredCardId: 'card-1',
+      entrySurface: 'test:temporary-drill',
     });
     expect(notify).not.toHaveBeenCalled();
   });
@@ -161,6 +166,7 @@ describe('CoreReviewEntryService', () => {
     ];
 
     await service.execute('retrieval-all', cards, {
+      entrySurface: 'test:document-scope',
       scopeDocIds: ['doc-1', 'doc-2'],
     });
 
@@ -170,6 +176,7 @@ describe('CoreReviewEntryService', () => {
       preferredCardId: 'item-1',
       scopeDocIds: ['doc-1', 'doc-2'],
       dueOnly: false,
+      entrySurface: 'test:document-scope',
     });
   });
 });

@@ -41,6 +41,31 @@ function cleanDomainSyncStatus() {
   };
 }
 
+function createAdmissionTicket(target: {
+  kind: string;
+  queueType: QueueType;
+  entrySurface: string;
+}) {
+  return {
+    queueType: target.queueType,
+    entrySurface: target.entrySurface,
+    entryTargetIdentity: `${target.kind}:${target.queueType}:${target.entrySurface}`,
+    projectionPolicyHash: 'test-policy',
+    projectionGeneration: 1,
+    readinessRequest: {
+      queueType: target.queueType,
+      preset: 'all' as const,
+      searchText: null,
+      docId: null,
+      scopeDocIds: [],
+      cardType: 'all' as const,
+      source: 'browser' as const,
+    },
+    admittedAt: 1,
+    source: 'ready-projection' as const,
+  };
+}
+
 const { unifiedQueueStrategyMock, unifiedReviewAdapterMock } = vi.hoisted(() => ({
   unifiedQueueStrategyMock: vi.fn().mockImplementation(() => ({})),
   unifiedReviewAdapterMock: vi.fn().mockImplementation((options) => ({ options })),
@@ -116,7 +141,20 @@ function createDialogManager(options?: {
   };
 
   const manager = {
-    materializeQueueProjection: vi.fn().mockResolvedValue(undefined),
+    repairQueueProjection: vi.fn().mockResolvedValue({
+      status: 'ready',
+      queueType: QueueType.Leech,
+      policyHash: 'leech-policy',
+      generation: 1,
+      result: {
+        queueType: QueueType.Leech,
+        policyHash: 'leech-policy',
+        generation: 1,
+        status: 'ready',
+        rows: 0,
+        counters: { all: 0, item: 0, descriptor: 0, topic: 0, concept: 0 },
+      },
+    }),
     neuralRoamCommand: vi.fn(async () => ({ ok: true })),
     getQueue: vi.fn((queueType: string) => {
       if (queueType === 'filter-group') {
@@ -164,6 +202,11 @@ function createDialogManager(options?: {
       }),
     }),
     getReviewQueuePreparationService: vi.fn().mockReturnValue(preparationService),
+    getReviewRuntimeAccess: vi.fn().mockReturnValue({}),
+    getReviewAdmissionModule: vi.fn().mockReturnValue({
+      admitReviewSession: vi.fn(async ({ target }: { target: { kind: string; queueType: QueueType; entrySurface: string } }) =>
+        target.kind === 'projection-queue' ? createAdmissionTicket(target) : null),
+    }),
     getTabManager: vi.fn().mockReturnValue(tabManager),
     readDomainSyncDiagnostics: vi.fn().mockResolvedValue(cleanDomainSyncStatus()),
     getBackendMigrationRuntimePolicy: vi.fn().mockReturnValue({
@@ -260,11 +303,16 @@ describe('DialogManager review header variants', () => {
     expect(tabManager.openReviewTabInNewTab).toHaveBeenCalledWith(expect.objectContaining({
       headerVariant: 'neural-roam',
       title: '神经漫游',
-      neuralRoamStartFromFocus: expect.objectContaining({
-        blockId: 'concept-block',
-        includeFocusAsFirst: true,
-        resetHistory: false,
-        startNewSession: true,
+      entryTarget: expect.objectContaining({
+        kind: 'neural-roam',
+        launch: expect.objectContaining({
+          startFromFocus: expect.objectContaining({
+            blockId: 'concept-block',
+            includeFocusAsFirst: true,
+            resetHistory: false,
+            startNewSession: true,
+          }),
+        }),
       }),
     }));
     expect(createUnifiedReviewDialog).not.toHaveBeenCalled();
@@ -302,6 +350,14 @@ describe('DialogManager review header variants', () => {
     expect(vi.mocked(createUnifiedReviewDialog)).toHaveBeenCalledWith(expect.objectContaining({
       title: '子集复习 (2 张)',
       headerVariant: 'subset-review',
+      entryTarget: expect.objectContaining({
+        kind: 'static-subset',
+        scope: {
+          blockIds: ['block-1'],
+          cardIds: ['card-2', 'card-3'],
+          preferredCardId: 'card-3',
+        },
+      }),
       transferState: {
         kind: 'static-subset-session',
         queueType: QueueType.FilterGroup,
@@ -331,6 +387,14 @@ describe('DialogManager review header variants', () => {
     expect(vi.mocked(createUnifiedReviewDialog)).toHaveBeenCalledWith(expect.objectContaining({
       title: '临时练习 (2 张)',
       headerVariant: 'temporary-drill',
+      entryTarget: expect.objectContaining({
+        kind: 'static-subset',
+        scope: {
+          blockIds: ['block-1'],
+          cardIds: ['card-2', 'card-3'],
+          preferredCardId: 'card-3',
+        },
+      }),
       transferState: {
         kind: 'static-subset-session',
         queueType: QueueType.FinalDrill,
@@ -347,7 +411,12 @@ describe('DialogManager review header variants', () => {
     await dialogManager.openLeechReviewDialog();
 
     const leechQueue = vi.mocked(createUnifiedReviewDialog).mock.calls[0]?.[0].queueInstance;
-    expect(manager.materializeQueueProjection).toHaveBeenCalledWith(QueueType.Leech, leechQueue);
+    expect(manager.repairQueueProjection).toHaveBeenCalledWith({
+      type: 'materialize',
+      queueType: QueueType.Leech,
+      queueOverride: leechQueue,
+      reason: 'leech-review-entry',
+    });
   });
 
   it('opens standard desktop review entries in new tabs when configured', async () => {
@@ -389,7 +458,10 @@ describe('DialogManager review header variants', () => {
 
     expect(tabManager.openReviewTabInNewTab).not.toHaveBeenCalled();
     expect(createUnifiedReviewDialog).toHaveBeenCalledWith(expect.objectContaining({
-      queueType: 'retrieval-practice',
+      entryTarget: expect.objectContaining({
+        kind: 'projection-queue',
+        queueType: QueueType.RetrievalPractice,
+      }),
       headerVariant: 'retrieval-practice',
       queueInstance,
       initialSessionState,
@@ -405,7 +477,10 @@ describe('DialogManager review header variants', () => {
 
     expect(tabManager.openReviewTabInNewTab).not.toHaveBeenCalled();
     expect(createUnifiedReviewDialog).toHaveBeenCalledWith(expect.objectContaining({
-      queueType: 'incremental-learning',
+      entryTarget: expect.objectContaining({
+        kind: 'projection-queue',
+        queueType: QueueType.IncrementalLearning,
+      }),
       title: '渐进学习',
       headerVariant: 'incremental-learning',
     }));
@@ -443,7 +518,10 @@ describe('DialogManager review header variants', () => {
 
       expect(dialogRecords[1]?.destroy).toHaveBeenCalledTimes(1);
       expect(dialogFactory).toHaveBeenNthCalledWith(3, expect.objectContaining({
-        queueType: 'final-drill',
+        entryTarget: expect.objectContaining({
+          kind: 'managed-queue',
+          queueType: QueueType.FinalDrill,
+        }),
         title: '刻意练习',
         headerVariant: 'final-drill',
       }));
@@ -501,7 +579,10 @@ describe('DialogManager review header variants', () => {
     });
     expect(createUnifiedReviewDialog).toHaveBeenNthCalledWith(1, expect.objectContaining({
       headerVariant: 'retrieval-practice',
-      queueType: QueueType.FilterGroup,
+      entryTarget: expect.objectContaining({
+        kind: 'static-subset',
+        queueType: QueueType.FilterGroup,
+      }),
       transferState: {
         kind: 'static-subset-session',
         queueType: QueueType.FilterGroup,
@@ -512,7 +593,10 @@ describe('DialogManager review header variants', () => {
     }));
     expect(createUnifiedReviewDialog).toHaveBeenNthCalledWith(2, expect.objectContaining({
       headerVariant: 'incremental-learning',
-      queueType: QueueType.FilterGroup,
+      entryTarget: expect.objectContaining({
+        kind: 'static-subset',
+        queueType: QueueType.FilterGroup,
+      }),
       transferState: {
         kind: 'static-subset-session',
         queueType: QueueType.FilterGroup,

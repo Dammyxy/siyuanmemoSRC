@@ -55,6 +55,11 @@ import type {
     BackendNeuralRoamViewState,
 } from '../../../packages/contracts/src/backend-rpc';
 import type { ReviewAdmissionTicket } from '@/application/services/ReviewAdmissionModule';
+import {
+    requireResolvedReviewEntryTarget,
+    ReviewEntryTargetResolver,
+    type ReviewEntryTarget,
+} from '@/application/services/ReviewEntryTargetResolver';
 
 const logger = createLogger('UnifiedQueueStrategy');
 
@@ -219,6 +224,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private pendingSrsV2NextCard: FSRSCard | null | undefined;
     private pendingSrsV2CounterSnapshot: QueueCounterSnapshot | null = null;
     private lastNeuralRoamViewState: BackendNeuralRoamViewState | null = null;
+    private readonly reviewEntryTarget: ReviewEntryTarget;
+    private readonly reviewAdmissionTicket: ReviewAdmissionTicket | null;
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -226,8 +233,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         _eventBus: EventBus,
         schedulerRouter: ISchedulerRouter | null = null,
         private readonly cdfLiveRelationReviewOpenRefresher: CdfLiveRelationReviewOpenRefresher | null = null,
-        private readonly reviewEntrySurface: string | null = null,
-        private readonly reviewAdmissionTicket: ReviewAdmissionTicket | null = null
+        reviewEntryTargetOrSurface: ReviewEntryTarget | string | null = null,
+        reviewAdmissionTicket: ReviewAdmissionTicket | null = null
     ) {
         this.manager = manager;
         this.schedulerRouter = schedulerRouter;
@@ -239,6 +246,21 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             this.queue = queueTypeOrQueue;
             this.queueType = queueTypeOrQueue.getType();
         }
+        const entryResolution = typeof reviewEntryTargetOrSurface === 'object' && reviewEntryTargetOrSurface !== null
+            ? { status: 'resolved' as const, target: reviewEntryTargetOrSurface }
+            : new ReviewEntryTargetResolver().resolveCompatibility({
+                queueType: this.queueType,
+                entrySurface: typeof reviewEntryTargetOrSurface === 'string'
+                    ? reviewEntryTargetOrSurface
+                    : 'compatibility:unified-queue-strategy',
+            });
+        this.reviewEntryTarget = requireResolvedReviewEntryTarget(entryResolution);
+        if (this.reviewEntryTarget.queueType !== this.queueType) {
+            throw new Error(
+                `REVIEW_ENTRY_TARGET_AMBIGUOUS: queue ${this.queueType} conflicts with target ${this.reviewEntryTarget.queueType}`,
+            );
+        }
+        this.reviewAdmissionTicket = reviewAdmissionTicket;
 
         this.cdfPreparationEvidenceStore = new ReviewCdfPreparationEvidenceStore<CardWithNextDues | null>({
             queueType: this.queueType,
@@ -1039,19 +1061,20 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private createWorkerReviewSessionRuntime(): SrsV2SessionQueueRuntime | WorkerReviewSessionQueueRuntime {
+        if (this.reviewEntryTarget.kind !== 'projection-queue') {
+            throw new Error(`REVIEW_ENTRY_TARGET_UNSUPPORTED: ${this.queueType} cannot start a worker Review session`);
+        }
         const backend = this.resolveWorkerReviewSessionBackend();
         if (!backend) {
             return new WorkerReviewSessionQueueRuntime({
-                queueType: this.queueType,
+                entryTarget: this.reviewEntryTarget,
                 backend: createUnavailableWorkerReviewSessionBackend(),
-                entrySurface: this.reviewEntrySurface,
                 reviewAdmissionTicket: this.reviewAdmissionTicket,
             });
         }
         return new WorkerReviewSessionQueueRuntime({
-            queueType: this.queueType,
+            entryTarget: this.reviewEntryTarget,
             backend,
-            entrySurface: this.reviewEntrySurface,
             reviewAdmissionTicket: this.reviewAdmissionTicket,
         });
     }

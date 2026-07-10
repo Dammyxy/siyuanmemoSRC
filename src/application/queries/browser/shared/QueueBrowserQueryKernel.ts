@@ -292,16 +292,21 @@ export class QueueBrowserQueryKernel {
     route: QueueReadModelRoute,
     forceRefresh: boolean,
   ): Promise<QueueProjectionSnapshot> {
-    if (typeof this.manager.readQueueProjectionSnapshot === 'function') {
-      const snapshot = await this.manager.readQueueProjectionSnapshot(route.queueType, { forceRefresh });
-      if (snapshot) {
-        this.assertProjectionSnapshotReadable(route, snapshot);
-        return snapshot;
+    if (typeof this.manager.readQueueProjection === 'function') {
+      const result = await this.manager.readQueueProjection({
+        type: 'snapshot',
+        queueType: route.queueType,
+      });
+      if (result.type === 'snapshot' && result.status === 'ready' && result.snapshot) {
+        this.assertProjectionSnapshotReadable(route, result.snapshot);
+        return result.snapshot;
       }
       throw createQueueProjectionBrowserReadError(
-        `QUEUE_PROJECTION_UNAVAILABLE: ${route.queueId} Browser projection snapshot unavailable`,
-        'preparing',
-        'refresh-required',
+        `QUEUE_PROJECTION_UNAVAILABLE: ${route.queueId} Browser projection snapshot ${
+          result.type === 'snapshot' ? result.status : 'contract-mismatch'
+        }`,
+        result.type === 'snapshot' && result.status === 'refreshing' ? 'preparing' : 'unavailable',
+        result.type === 'snapshot' && result.status === 'refreshing' ? 'refresh-required' : 'owner-unavailable',
         { readOwner: route.readOwner },
       );
     }
@@ -376,8 +381,22 @@ export class QueueBrowserQueryKernel {
     orderedIds: string[],
     forceRefresh: boolean,
   ): Promise<FSRSCard[]> {
-    if (typeof this.manager.getQueueProjectionCardsBySnapshotIds === 'function') {
-      return this.manager.getQueueProjectionCardsBySnapshotIds(route.queueType, orderedIds, { forceRefresh });
+    if (typeof this.manager.readQueueProjection === 'function') {
+      const result = await this.manager.readQueueProjection({
+        type: 'rows-by-id',
+        queueType: route.queueType,
+        ids: orderedIds,
+      });
+      if (result.type === 'rows-by-id' && result.status === 'ready') {
+        return result.cards;
+      }
+      throw createQueueProjectionBrowserReadError(
+        `QUEUE_PROJECTION_UNAVAILABLE: ${route.queueId} Browser projection row hydration ${
+          result.type === 'rows-by-id' ? result.status : 'contract-mismatch'
+        }`,
+        result.type === 'rows-by-id' && result.status === 'refreshing' ? 'preparing' : 'unavailable',
+        result.type === 'rows-by-id' && result.status === 'refreshing' ? 'refresh-required' : 'owner-unavailable',
+      );
     }
 
     if (route.requiresManagerProjectionRead) {

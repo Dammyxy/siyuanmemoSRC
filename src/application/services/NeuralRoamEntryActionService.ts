@@ -74,6 +74,7 @@ export type NeuralRoamEntryActionResult =
     };
 
 export interface NeuralRoamOpenOptions {
+  entrySurface: string;
   focusBlockId?: string;
   seedBlockId?: string | null;
   sourceReviewCardId?: string | null;
@@ -198,6 +199,7 @@ export class NeuralRoamEntryActionService {
 
     const modeBefore = await this.forceOrbit();
     await this.deps.openNeuralRoamDialog({
+      entrySurface: 'neural-roam-entry:concept-card-roam',
       focusBlockId: normalizedBlockId,
       seedBlockId: normalizedBlockId,
       conceptBlockId: normalizedBlockId,
@@ -348,6 +350,7 @@ export class NeuralRoamEntryActionService {
 
     const modeBefore = await this.forceOrbit();
     await this.deps.openNeuralRoamDialog({
+      entrySurface: 'neural-roam-entry:station-roam',
       focusBlockId: station.blockId,
       seedBlockId: station.blockId,
       includeFocusAsFirst: true,
@@ -382,6 +385,7 @@ export class NeuralRoamEntryActionService {
       return temporaryRoute;
     }
     await this.deps.openNeuralRoamDialog({
+      entrySurface: 'semantic-temporary:current-block',
       focusBlockId: normalizedBlockId,
       seedBlockId,
       sourceReviewCardId: String(input.sourceReviewCardId || '').trim() || null,
@@ -417,6 +421,7 @@ export class NeuralRoamEntryActionService {
       return temporaryRoute;
     }
     await this.deps.openNeuralRoamDialog({
+      entrySurface: 'semantic-temporary:concept',
       focusBlockId: conceptBlockId,
       seedBlockId: conceptBlockId,
       conceptBlockId,

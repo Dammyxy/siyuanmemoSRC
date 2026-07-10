@@ -292,9 +292,12 @@ describe('UnifiedReviewAdapter', () => {
       null as never,
       createContext(),
     );
-    expect(emptyUi.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
-      version: 1,
-      specialRendererKind: null,
+    expect(emptyUi.meta.renderContext).toEqual(expect.objectContaining({
+      targetKind: 'unavailable',
+      renderPolicy: null,
+      unavailable: expect.objectContaining({
+        code: 'empty-target',
+      }),
     }));
   });
 
@@ -471,40 +474,21 @@ describe('UnifiedReviewAdapter', () => {
     );
 
     expect(ui.meta.renderContext).toEqual(expect.objectContaining({
+      contentTarget: null,
       targetKind: 'progressive-excerpt',
-      sourceLineage: expect.objectContaining({
-        sourceBlockId: 'source-block-1',
-        sourceDocId: 'doc-source-1',
-      }),
-      progressiveDisclosure: {
-        version: 1,
-        state: 'created',
-        formalSchedulerMutation: false,
-      },
-      allowedActions: expect.arrayContaining(['advance', 'defer', 'convert']),
-      diagnostics: expect.arrayContaining(['source-missing']),
+      allowedActions: ['skip', 'back'],
+      diagnostics: expect.arrayContaining(['missing-source-block:source-block-1']),
       unavailable: expect.objectContaining({
-        reason: 'source-missing',
-        source: 'missing',
-      }),
-    }));
-    expect(ui.meta.renderContext?.allowedActions).not.toContain('edit');
-    expect(buildReviewRenderableCommand({
-      context: ui.meta.renderContext!,
-      action: 'advance',
-      idempotencyKey: 'advance-1',
-      payload: { pieceDocId: 'piece-1' },
-    })).toEqual(expect.objectContaining({
-      version: 1,
-      action: 'advance',
-      idempotencyKey: 'advance-1',
-      targetIdentity: expect.objectContaining({
-        cardId: 'topic-excerpt-context',
+        code: 'source-missing',
+        targetKind: 'progressive-excerpt',
+        identity: expect.objectContaining({
+          cardId: 'topic-excerpt-context',
+        }),
       }),
     }));
     expect(() => buildReviewRenderableCommand({
       context: ui.meta.renderContext!,
-      action: 'edit',
+      action: 'advance',
     })).toThrow(/REVIEW_RENDER_COMMAND_UNAVAILABLE/);
   });
 
@@ -578,9 +562,14 @@ describe('UnifiedReviewAdapter', () => {
         textLength: 42,
         domLength: 84,
       },
-      unavailable: expect.objectContaining({
-        source: 'current',
+      contentTarget: expect.objectContaining({
+        versionEvidence: expect.objectContaining({
+          sourceStatus: 'current',
+          expectedSourceHash: 'payload-valid',
+          currentSourceHash: 'payload-valid',
+        }),
       }),
+      unavailable: null,
     }));
   });
 
@@ -642,10 +631,7 @@ describe('UnifiedReviewAdapter', () => {
         formalSchedulerMutation: false,
       },
       sourcePayloadIdentity: null,
-      unavailable: expect.objectContaining({
-        source: undefined,
-        reason: undefined,
-      }),
+      unavailable: null,
     }));
     expect(ui.meta.renderContext?.diagnostics).not.toContain('source-ghost');
   });
@@ -1596,9 +1582,12 @@ describe('UnifiedReviewAdapter', () => {
     );
 
     expect(ui.meta.renderContext).toEqual(expect.objectContaining({
-      targetKind: 'unknown',
+      targetKind: 'unavailable',
       diagnostics: ['empty-review-target'],
-      allowedActions: ['skip'],
+      allowedActions: ['skip', 'back'],
+      unavailable: expect.objectContaining({
+        code: 'empty-target',
+      }),
     }));
   });
 

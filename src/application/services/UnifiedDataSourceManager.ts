@@ -26,6 +26,10 @@ import {
     type QueueProjectionSnapshot,
     type QueueProjectionRolloutDiagnostic,
     type QueueProjectionRolloutState,
+    type QueueProjectionReadRequest,
+    type QueueProjectionReadResult,
+    type QueueProjectionRepairCommand,
+    type QueueProjectionRepairReceipt,
 } from '@/types/unified-data-source';
 import type { QueueProjectionLiveIdentityListener } from '@/types/queue-projection-live-identity';
 import type { QueueProjectionLiveIdentityEvent } from '@/types/queue-projection-live-identity';
@@ -66,7 +70,7 @@ import type {
     QueueProjectionReadinessRequest,
 } from '../../../packages/contracts/src/backend-rpc';
 import { QueueProjectionRuntime } from '@/application/services/queue-projection/QueueProjectionRuntime';
-import { QueueProjectionReadModule } from '@/application/services/queue-projection/QueueProjectionReadModule';
+import { QueueProjectionLifecycle } from '@/application/services/queue-projection/QueueProjectionReadModule';
 import type { BlockContentResult } from '@/application/queries/CardContentQueryService';
 
 const logger = createLogger('UnifiedDataSourceManager');
@@ -301,7 +305,7 @@ export class UnifiedDataSourceManager {
     private pendingObserverEventOrder: string[];
     private observerFlushScheduled: boolean;
     private readonly queueProjectionRuntime: QueueProjectionRuntime;
-    private readonly queueProjectionReadModule: QueueProjectionReadModule;
+    private readonly queueProjectionLifecycle: QueueProjectionLifecycle;
     private unsubscribeQueueProjectionIdentityBroadcasts: (() => void) | null;
     
     // ========================================================================
@@ -347,7 +351,7 @@ export class UnifiedDataSourceManager {
             ),
             logger,
         });
-        this.queueProjectionReadModule = new QueueProjectionReadModule({
+        this.queueProjectionLifecycle = new QueueProjectionLifecycle({
             runtime: this.queueProjectionRuntime,
         });
     }
@@ -705,23 +709,10 @@ export class UnifiedDataSourceManager {
         };
     }
 
-    public async readQueueProjectionSnapshot(
-        queueType: QueueType,
-        options: { forceRefresh?: boolean } = {},
-    ): Promise<QueueProjectionSnapshot | null> {
-        return this.queueProjectionReadModule.readSnapshot(queueType, options);
-    }
-
-    public async ensureQueueProjectionReady(
-        request: QueueProjectionReadinessRequest,
-    ): Promise<QueueProjectionReadiness> {
-        return this.queueProjectionReadModule.ensureReady(request);
-    }
-
-    public subscribeQueueProjectionLiveIdentityEvents(
+    public observeQueueProjection(
         listener: QueueProjectionLiveIdentityListener,
     ): () => void {
-        return this.queueProjectionReadModule.subscribeLiveIdentityEvents(listener);
+        return this.queueProjectionLifecycle.observe(listener);
     }
 
     private refreshQueueProjectionIdentityBroadcastSubscription(): void {
@@ -736,14 +727,6 @@ export class UnifiedDataSourceManager {
         });
     }
 
-    public async getQueueProjectionCardsBySnapshotIds(
-        queueType: QueueType,
-        ids: string[],
-        options: { forceRefresh?: boolean } = {},
-    ): Promise<FSRSCard[]> {
-        return this.queueProjectionReadModule.getCardsBySnapshotIds(queueType, ids, options);
-    }
-
     public async appendDrillLogV2(log: DrillLogV2): Promise<void> {
         const plugin = this.resolvePlugin();
         const reviewLogs = plugin?.getContext?.()?.getReviewLogService?.();
@@ -754,19 +737,16 @@ export class UnifiedDataSourceManager {
         await reviewLogs.addDrillLogV2(log);
     }
 
-    public async materializeQueueProjection(
-        queueType: QueueType,
-        queueOverride?: Pick<IReviewQueue, 'getCards'> | null,
-        options: {
-            readinessRequest?: QueueProjectionReadinessRequest | null;
-            reason?: string | null;
-        } = {},
-    ): Promise<BackendQueueProjectionReplaceResult | null> {
-        return this.queueProjectionRuntime.materialize(queueType, queueOverride, options);
+    public getQueueProjectionRolloutDiagnostics(queueType?: QueueType): QueueProjectionRolloutDiagnostic[] {
+        return this.queueProjectionRuntime.getRolloutDiagnostics(queueType);
     }
 
-    public getQueueProjectionRolloutDiagnostics(queueType?: QueueType): QueueProjectionRolloutDiagnostic[] {
-        return this.queueProjectionReadModule.getRolloutDiagnostics(queueType);
+    public readQueueProjection(request: QueueProjectionReadRequest): Promise<QueueProjectionReadResult> {
+        return this.queueProjectionLifecycle.read(request);
+    }
+
+    public repairQueueProjection(command: QueueProjectionRepairCommand): Promise<QueueProjectionRepairReceipt> {
+        return this.queueProjectionLifecycle.repair(command);
     }
 
     private normalizeQueueType(queueType: unknown): QueueType | null {

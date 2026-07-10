@@ -3,6 +3,7 @@ import { CardState, CardType, Rating, type FSRSCard } from '@/types/card';
 import { QueueType } from '@/types/unified-data-source';
 import type { QueueReviewCommitResult } from '@/core/queue/managers/UnifiedDataSourceManager';
 import { ReviewAttemptKernel } from '../ReviewAttemptKernel';
+import { mapReviewProjectionReceipt } from '../ReviewProjectionReceipt';
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = new Date('2026-05-13T08:00:00+08:00').getTime();
@@ -34,15 +35,20 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
 
 function createCommitResult(
   overrides: Partial<QueueReviewCommitResult> = {},
-): QueueReviewCommitResult {
+  queueType: QueueType = QueueType.RetrievalPractice,
+): QueueReviewCommitResult & ReturnType<typeof mapReviewProjectionReceipt> {
   const card = createCard();
   const updatedCard = createCard({ due: card.due + 86_400_000 });
-  return {
+  const result = {
     card,
     updatedCard,
     committed: true,
     queueImpact: null,
     ...overrides,
+  };
+  return {
+    ...result,
+    ...mapReviewProjectionReceipt(queueType, result.queueImpact),
   };
 }
 
@@ -230,7 +236,7 @@ describe('ReviewAttemptKernel', () => {
         counters: null,
       }],
     };
-    const execute = vi.fn(async () => createCommitResult({ queueImpact }));
+    const execute = vi.fn(async () => createCommitResult({ queueImpact }, QueueType.FinalDrill));
     const kernel = new ReviewAttemptKernel({ reviewCommitter: { execute } });
 
     const result = await kernel.execute({
@@ -272,7 +278,7 @@ describe('ReviewAttemptKernel', () => {
         counters: null,
       }],
     };
-    const execute = vi.fn(async () => createCommitResult({ queueImpact }));
+    const execute = vi.fn(async () => createCommitResult({ queueImpact }, QueueType.FilterGroup));
     const kernel = new ReviewAttemptKernel({ reviewCommitter: { execute } });
 
     const result = await kernel.execute({

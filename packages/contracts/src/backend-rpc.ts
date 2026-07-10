@@ -2672,10 +2672,45 @@ export interface BackendReviewSessionState {
   projectionPolicyHash: string | null;
 }
 
-export interface BackendReviewSessionFeedbackResult extends BackendReviewSessionState {
+export type BackendSrsReviewKernelFactIdentity =
+  | {
+    kind: 'idempotency-key';
+    idempotencyKey: string;
+  }
+  | {
+    kind: 'unavailable';
+    idempotencyKey: null;
+  };
+
+export interface BackendSrsReviewKernelAnswerReceipt {
   answeredCardId: string;
-  feedback: BackendReviewFeedbackResult;
-  undoToken?: string | null;
+  reviewedAt: number;
+  queueType: string;
+  commit: {
+    outcome: 'committed' | 'not-committed';
+    updatedCard: unknown | null;
+    duplicate: boolean;
+  };
+  factIdentity: BackendSrsReviewKernelFactIdentity;
+  durability: {
+    status: 'durable' | 'not-durable';
+    evidence: 'storage-summary' | 'worker-commit';
+  };
+  undo: {
+    token: string | null;
+    evidence: 'transaction-journal' | 'session-snapshot' | 'unavailable';
+  };
+  queueImpact: BackendReviewFeedbackQueueImpact | null;
+  storage: BackendReviewFeedbackStorageState | null;
+  diagnostics: {
+    authority: 'worker-review-session';
+    projectionState: BackendReviewSessionProjectionState;
+    storageSummaryAvailable: boolean;
+  };
+}
+
+export interface BackendReviewSessionFeedbackResult extends BackendReviewSessionState {
+  receipt: BackendSrsReviewKernelAnswerReceipt;
 }
 
 export interface BackendReviewSessionSkipResult extends BackendReviewSessionState {

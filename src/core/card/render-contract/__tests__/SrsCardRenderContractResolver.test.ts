@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import { resolveSrsCardRenderContract } from '../SrsCardRenderContractResolver';
+import {
+  resolveSrsCardRenderContract,
+  resolveSrsCardRenderContractFromTarget,
+} from '../SrsCardRenderContractResolver';
 
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
@@ -34,6 +37,26 @@ function receiptStatus(contract: ReturnType<typeof resolveSrsCardRenderContract>
 }
 
 describe('SrsCardRenderContractResolver', () => {
+  it('consumes the resolved content target contract without re-reading metadata', () => {
+    const contract = resolveSrsCardRenderContract({
+      card: buildCard(),
+      contentBlockId: 'block-1',
+    });
+
+    expect(resolveSrsCardRenderContractFromTarget({
+      renderIntent: {
+        policy: {
+          renderContract: contract,
+        },
+      },
+    })).toBe(contract);
+    expect(() => resolveSrsCardRenderContractFromTarget({
+      renderIntent: {
+        policy: {},
+      },
+    })).toThrow('SRS_CARD_RENDER_CONTRACT_UNAVAILABLE');
+  });
+
   it('represents ordinary source-block cards as Protyle render family', () => {
     const contract = resolveSrsCardRenderContract({
       card: buildCard(),

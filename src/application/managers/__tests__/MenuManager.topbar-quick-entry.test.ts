@@ -189,6 +189,7 @@ describe('MenuManager top bar quick entry actions', () => {
       preferredCardId: 'due-card',
       scopeDocIds: ['doc-1', 'doc-child-1'],
       dueOnly: true,
+      entrySurface: 'topbar:current-document-review',
     });
     expect(dialogManager.openReviewDialog).not.toHaveBeenCalled();
     expect(dialogManager.openTemporaryDrill).not.toHaveBeenCalled();
@@ -202,6 +203,7 @@ describe('MenuManager top bar quick entry actions', () => {
     expect(dialogManager.openTemporaryDrill).toHaveBeenCalledWith(['due-block', 'future-block'], {
       cardIds: ['due-card', 'future-card'],
       preferredCardId: 'due-card',
+      entrySurface: 'topbar:current-document-review',
     });
     expect(dialogManager.openReviewDialog).not.toHaveBeenCalled();
   });

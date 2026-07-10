@@ -12,7 +12,6 @@ import { stringifyJson, parseJson } from '@/infrastructure/persistence/sqlite/js
 import type { SqliteDatabaseService as RuntimeSqliteDatabaseService } from '@/infrastructure/persistence/sqlite';
 import type { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
 import type {
-  BackendReviewFeedbackQueueImpact,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
   MessagePackReviewEventTruthRecord,
@@ -65,20 +64,18 @@ export type WorkerReviewFeedbackMutationInput = {
   transactionUndoJournalEntry?: ReviewTransactionUndoJournalEntry | null;
 };
 
-export type WorkerReviewFeedbackQueueImpactBuilder = (input: {
+export type WorkerReviewFeedbackQueueImpactInput = {
   queueType: string;
   request: BackendReviewFeedbackRequest;
   reviewedCard: FSRSCard;
   reviewedAt: number;
   committed: boolean;
   updatedCard: FSRSCard | null;
-}) => BackendReviewFeedbackQueueImpact | null;
+};
 
-type ReviewAnswerTransactionQueueImpactInput = Parameters<WorkerReviewFeedbackQueueImpactBuilder>[0];
-
-type ReviewAnswerTransactionEnvelope = {
+export type WorkerReviewFeedbackPersistenceReceipt = {
   result: BackendReviewFeedbackResult;
-  postCommitQueueImpactInput: ReviewAnswerTransactionQueueImpactInput | null;
+  queueImpactInput: WorkerReviewFeedbackQueueImpactInput | null;
 };
 
 type ReviewLedgerDuplicateCommit = {
@@ -110,36 +107,22 @@ export class WorkerReviewCardMutationPersistenceModule {
 
   async commitReviewFeedback(
     input: WorkerReviewFeedbackMutationInput,
-    buildQueueImpact: WorkerReviewFeedbackQueueImpactBuilder,
     onTruthCandidate?: (candidate: WorkerReviewFeedbackTruthCandidate) => void,
-  ): Promise<BackendReviewFeedbackResult> {
-    const envelope = await this.measureReviewFeedbackStep('transaction', input, () => this.deps.runtime.runTransaction('review.feedback', async () => (
-      this.commitReviewAnswerTransaction(input, buildQueueImpact, onTruthCandidate)
+  ): Promise<WorkerReviewFeedbackPersistenceReceipt> {
+    return await this.measureReviewFeedbackStep('transaction', input, () => this.deps.runtime.runTransaction('review.feedback', async () => (
+      this.commitReviewAnswerTransaction(input, onTruthCandidate)
     ), {
       persist: input.commitPolicy === 'write-schedule',
       diagnosticRecorder: (step, durationMs, extra) => (
         this.recordReviewFeedbackTransactionDiagnosticStep(step, input, durationMs, extra)
       ),
     }));
-    if (!envelope.postCommitQueueImpactInput) {
-      return envelope.result;
-    }
-    return {
-      ...envelope.result,
-      queueImpact: this.measureReviewFeedbackStep(
-        'queue-impact',
-        input,
-        () => buildQueueImpact(envelope.postCommitQueueImpactInput!),
-      ),
-    };
   }
 
   private async commitReviewAnswerTransaction(
     input: WorkerReviewFeedbackMutationInput,
-    buildQueueImpact: WorkerReviewFeedbackQueueImpactBuilder,
     onTruthCandidate?: (candidate: WorkerReviewFeedbackTruthCandidate) => void,
-  ): Promise<ReviewAnswerTransactionEnvelope> {
-    let postCommitQueueImpactInput: ReviewAnswerTransactionQueueImpactInput | null = null;
+  ): Promise<WorkerReviewFeedbackPersistenceReceipt> {
     const domainSyncLedger = this.deps.domainSyncLedger ?? new DomainSyncLedger(this.deps.runtime);
     const reviewLedger = new SqlReviewLedgerStore(this.deps.runtime);
     const cardScheduleStore = new SqlCardScheduleStore(this.deps.repository);
@@ -178,7 +161,7 @@ export class WorkerReviewCardMutationPersistenceModule {
           queueImpact: duplicateQueueImpact,
           undoJournalPersisted: duplicateUndoPersisted,
         },
-        postCommitQueueImpactInput: null,
+        queueImpactInput: null,
       };
     }
 
@@ -268,12 +251,7 @@ export class WorkerReviewCardMutationPersistenceModule {
       committed: commitResult.committed,
       updatedCard: commitResult.updatedCard ?? null,
     };
-    const queueImpact = shouldBuildQueueImpactAfterReviewTransaction(input.queueType)
-      ? null
-      : this.measureReviewFeedbackTransactionStep('queue-impact.build', input, () => buildQueueImpact(queueImpactInput));
-    if (shouldBuildQueueImpactAfterReviewTransaction(input.queueType)) {
-      postCommitQueueImpactInput = queueImpactInput;
-    }
+    const queueImpact = null;
 
     if (commitResult.committed) {
       this.measureReviewFeedbackTransactionStep('sql.manual-queue-state-cleanup', input, () => (
@@ -302,7 +280,7 @@ export class WorkerReviewCardMutationPersistenceModule {
         queueImpact,
         undoJournalPersisted: Boolean(input.transactionUndoJournalEntry && commitResult.committed),
       },
-      postCommitQueueImpactInput,
+      queueImpactInput,
     };
   }
 
@@ -556,11 +534,6 @@ class SqlReviewLedgerStore implements ReviewLedgerStore {
       ],
     );
   }
-}
-
-function shouldBuildQueueImpactAfterReviewTransaction(queueType: string): boolean {
-  return queueType !== 'retrieval-practice'
-    && queueType !== 'incremental-learning';
 }
 
 function buildReviewEventIndexPayload(input: {

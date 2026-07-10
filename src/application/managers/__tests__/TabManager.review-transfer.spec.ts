@@ -55,13 +55,16 @@ function createReviewServiceContextSlice() {
       })),
     })),
     getReviewAdmissionModule: vi.fn(() => ({
-      admitReviewSession: vi.fn(async (request: { queueType: QueueType; entrySurface?: string | null }) => ({
-        queueType: request.queueType,
-        entrySurface: request.entrySurface ?? null,
-        projectionPolicyHash: `${request.queueType}:test-policy`,
+      admitReviewSession: vi.fn(async (request: {
+        target: { kind: string; queueType: QueueType; entrySurface: string };
+      }) => ({
+        queueType: request.target.queueType,
+        entrySurface: request.target.entrySurface,
+        entryTargetIdentity: `${request.target.kind}:${request.target.queueType}:${request.target.entrySurface}`,
+        projectionPolicyHash: `${request.target.queueType}:test-policy`,
         projectionGeneration: 1,
         readinessRequest: {
-          queueType: request.queueType,
+          queueType: request.target.queueType,
           preset: 'all',
           searchText: null,
           docId: null,
@@ -787,6 +790,7 @@ describe('TabManager filter-group review transfer restore', () => {
     const staleTicket = {
       queueType: QueueType.IncrementalLearning,
       entrySurface: 'tab-manager:open-review-tab',
+      entryTargetIdentity: 'projection-queue:incremental-learning:tab-manager:open-review-tab',
       projectionPolicyHash: 'stale-policy',
       projectionGeneration: 2,
       readinessRequest: {
@@ -803,7 +807,8 @@ describe('TabManager filter-group review transfer restore', () => {
     };
     const freshTicket = {
       ...staleTicket,
-      entrySurface: 'tab-manager:init-review-tab',
+      entrySurface: 'compatibility:tab-manager:serialized-review-tab',
+      entryTargetIdentity: 'projection-queue:incremental-learning:compatibility:tab-manager:serialized-review-tab',
       projectionPolicyHash: 'fresh-policy',
       projectionGeneration: 9,
       admittedAt: 2,
@@ -865,15 +870,18 @@ describe('TabManager filter-group review transfer restore', () => {
     });
 
     expect(admitReviewSession).toHaveBeenCalledWith(expect.objectContaining({
-      queueType: QueueType.IncrementalLearning,
-      entrySurface: 'tab-manager:init-review-tab',
+      target: expect.objectContaining({
+        kind: 'projection-queue',
+        queueType: QueueType.IncrementalLearning,
+        entrySurface: 'compatibility:tab-manager:serialized-review-tab',
+      }),
       queueInstance: sharedQueue,
     }));
     const [, props] = mocks.createApp.mock.calls[0];
     expect((props.queue as any).reviewAdmissionTicket).toMatchObject({
       projectionPolicyHash: 'fresh-policy',
       projectionGeneration: 9,
-      entrySurface: 'tab-manager:init-review-tab',
+      entrySurface: 'compatibility:tab-manager:serialized-review-tab',
     });
   });
 
@@ -1262,7 +1270,11 @@ describe('TabManager filter-group review transfer restore', () => {
       custom: expect.objectContaining({
         title: '分组队列',
         data: expect.objectContaining({
-          queueType: 'filter-group',
+          entryTarget: expect.objectContaining({
+            kind: 'managed-queue',
+            queueType: QueueType.FilterGroup,
+            entrySurface: 'tab-manager:replace-standard-review-tab',
+          }),
           headerVariant: 'filter-group',
         }),
       }),

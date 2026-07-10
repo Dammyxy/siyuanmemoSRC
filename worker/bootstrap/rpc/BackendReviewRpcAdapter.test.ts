@@ -3,7 +3,7 @@ import { BACKEND_RPC_VERSION, type BackendReviewFeedbackRequest } from '../../..
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { QueueType } from '@/types/unified-data-source';
 import { WorkerReviewSessionRuntime } from '../../review/WorkerReviewSessionRuntime';
-import { WorkerSrsReviewKernelAdapter } from '../../review/SrsReviewKernel';
+import { WorkerSrsReviewKernel } from '../../review/SrsReviewKernel';
 import { BackendReviewRpcRuntime, type BackendReviewRpcDatabase } from './BackendReviewRpcAdapter';
 import { BackendRpcDispatcher } from './BackendRpcDispatcher';
 import { createBackendRpcHandlerRegistry, BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS } from './BackendRpcRegistry';
@@ -189,7 +189,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
     });
     const review = new BackendReviewRpcRuntime({
       database: createDatabase(reviewFeedback),
-      reviewKernel: new WorkerSrsReviewKernelAdapter(sessionRuntime),
+      reviewKernel: new WorkerSrsReviewKernel(sessionRuntime),
     });
     const dispatcher = new BackendRpcDispatcher(createBackendRpcHandlerRegistry(BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS));
 
@@ -233,11 +233,13 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
     }, { review });
 
     expect(feedback.result).toMatchObject({
-      answeredCardId: first.id,
       current: expect.objectContaining({ id: second.id }),
       lookaheadCards: [],
       counters: expect.objectContaining({ remaining: 1, source: 'worker-session' }),
-      feedback: expect.objectContaining({ committed: true }),
+      receipt: expect.objectContaining({
+        answeredCardId: first.id,
+        commit: expect.objectContaining({ outcome: 'committed' }),
+      }),
     });
     expect(readRows).toHaveBeenCalledOnce();
     expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
@@ -333,7 +335,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
     });
     const review = new BackendReviewRpcRuntime({
       database: createDatabase(reviewFeedback),
-      reviewKernel: new WorkerSrsReviewKernelAdapter(sessionRuntime),
+      reviewKernel: new WorkerSrsReviewKernel(sessionRuntime),
     });
     const dispatcher = new BackendRpcDispatcher(createBackendRpcHandlerRegistry(BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS));
 
@@ -436,7 +438,7 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
     });
     const review = new BackendReviewRpcRuntime({
       database: createDatabase(reviewFeedback),
-      reviewKernel: new WorkerSrsReviewKernelAdapter(sessionRuntime),
+      reviewKernel: new WorkerSrsReviewKernel(sessionRuntime),
     });
     const dispatcher = new BackendRpcDispatcher(createBackendRpcHandlerRegistry(BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS));
 
@@ -468,7 +470,9 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
         },
       },
     }, { review });
-    const undoToken = (feedback.result as { undoToken?: string }).undoToken;
+    const undoToken = (feedback.result as {
+      receipt?: { undo?: { token?: string | null } };
+    }).receipt?.undo?.token;
     expect(undoToken).toBeTruthy();
 
     const undone = await dispatcher.dispatch({

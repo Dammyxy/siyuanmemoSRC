@@ -80,7 +80,10 @@ describe('BrowserApplicationService queue query path', () => {
     } as const;
     const manager = {
       getQueue: vi.fn(() => ({})),
-      ensureQueueProjectionReady: vi.fn(async () => readiness),
+      readQueueProjection: vi.fn(async () => ({
+        type: 'readiness',
+        readiness,
+      })),
     } as never;
     const service = new BrowserApplicationService(
       {
@@ -144,33 +147,42 @@ describe('BrowserApplicationService queue query path', () => {
       cardType: 'all',
       source: 'browser',
     })).resolves.toEqual(readiness);
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledWith({
-      queueType: QueueType.RetrievalPractice,
-      preset: 'all',
-      cardType: 'all',
-      source: 'browser',
+    expect(manager.readQueueProjection).toHaveBeenCalledWith({
+      type: 'readiness',
+      request: {
+        queueType: QueueType.RetrievalPractice,
+        preset: 'all',
+        cardType: 'all',
+        source: 'browser',
+      },
     });
   });
 
   it('routes explicit Browser queue read-model repair through queue projection materialization', async () => {
     const manager = {
       getQueue: vi.fn(() => ({})),
-      materializeQueueProjection: vi.fn(async () => ({
+      repairQueueProjection: vi.fn(async () => ({
+        status: 'ready',
         queueType: QueueType.RetrievalPractice,
         policyHash: 'policy-retrieval',
         generation: 9,
-        status: 'ready',
-        rows: 2,
-        counters: {
+        result: {
           queueType: QueueType.RetrievalPractice,
           policyHash: 'policy-retrieval',
           generation: 9,
-          version: 1,
-          remaining: 2,
-          due: 2,
-          total: 2,
-          buckets: { all: 2, item: 2, descriptor: 0 },
-          updatedAt: 1,
+          status: 'ready',
+          rows: 2,
+          counters: {
+            queueType: QueueType.RetrievalPractice,
+            policyHash: 'policy-retrieval',
+            generation: 9,
+            version: 1,
+            remaining: 2,
+            due: 2,
+            total: 2,
+            buckets: { all: 2, item: 2, descriptor: 0 },
+            updatedAt: 1,
+          },
         },
       })),
     } as never;
@@ -215,19 +227,17 @@ describe('BrowserApplicationService queue query path', () => {
       source: 'browser',
     })).resolves.toBe(true);
 
-    expect(manager.materializeQueueProjection).toHaveBeenCalledWith(
-      QueueType.RetrievalPractice,
-      null,
-      {
-        readinessRequest: {
-          queueType: QueueType.RetrievalPractice,
-          preset: 'all',
-          cardType: 'all',
-          source: 'browser',
-        },
-        reason: 'browser-warmup-repair',
+    expect(manager.repairQueueProjection).toHaveBeenCalledWith({
+      type: 'refresh',
+      queueType: QueueType.RetrievalPractice,
+      readinessRequest: {
+        queueType: QueueType.RetrievalPractice,
+        preset: 'all',
+        cardType: 'all',
+        source: 'browser',
       },
-    );
+      reason: 'browser-warmup-repair',
+    });
   });
 
   it('enriches submitted FilterGroup readiness with committed queue projection identity', async () => {
@@ -254,7 +264,10 @@ describe('BrowserApplicationService queue query path', () => {
     };
     const manager = {
       getQueue: vi.fn(() => queue),
-      ensureQueueProjectionReady: vi.fn(async () => readiness),
+      readQueueProjection: vi.fn(async () => ({
+        type: 'readiness',
+        readiness,
+      })),
     } as never;
     const service = new BrowserApplicationService(
       {
@@ -298,17 +311,20 @@ describe('BrowserApplicationService queue query path', () => {
       commitPolicy: 'write-schedule',
     })).resolves.toEqual(readiness);
 
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledWith(expect.objectContaining({
-      queueType: QueueType.FilterGroup,
-      source: 'browser',
-      filterHash: expect.stringContaining('alpha'),
-      manualCardIds: ['manual-b', 'manual-a'],
-      temporaryBlacklistIds: ['hidden-b', 'hidden-a'],
-      customOrder: ['visible-a', 'visible-b'],
-      transferSessionId: 'transfer-a',
-      sessionId: 'session-a',
-      commitPolicy: 'write-schedule',
-    }));
+    expect(manager.readQueueProjection).toHaveBeenCalledWith({
+      type: 'readiness',
+      request: expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        source: 'browser',
+        filterHash: expect.stringContaining('alpha'),
+        manualCardIds: ['manual-b', 'manual-a'],
+        temporaryBlacklistIds: ['hidden-b', 'hidden-a'],
+        customOrder: ['visible-a', 'visible-b'],
+        transferSessionId: 'transfer-a',
+        sessionId: 'session-a',
+        commitPolicy: 'write-schedule',
+      }),
+    });
   });
 
   it('routes explicit-local Browser queue rows through the queue read model without projection snapshots', async () => {
@@ -415,21 +431,44 @@ describe('BrowserApplicationService queue query path', () => {
       }),
       getCardsBySnapshotIds: vi.fn(),
     };
-    const readQueueProjectionSnapshot = vi.fn(async () => ({
-      queueType: QueueType.FilterGroup,
-      policyHash: 'filter-policy',
-      generation: 5,
-      rows: [buildSnapshotRow('filter-row', {
-        fsrsCardId: 'filter-card',
-        blockId: 'filter-block',
-        priority: 80,
-        queueIndex: 1,
-      })],
-      counters: null,
-    }));
-    const getQueueProjectionCardsBySnapshotIds = vi.fn(async (_queueType: QueueType, ids: string[]) => (
-      ids.includes('filter-card') ? [card] : []
-    ));
+    const readQueueProjection = vi.fn(async (request: {
+      type: 'snapshot' | 'rows-by-id';
+      queueType: QueueType;
+      ids?: string[];
+    }) => request.type === 'snapshot'
+      ? {
+          type: 'snapshot',
+          status: 'ready',
+          readiness: {
+            status: 'ready',
+            queueId: QueueType.FilterGroup,
+            policyId: 'filter-policy',
+            generation: 5,
+          },
+          snapshot: {
+            queueType: QueueType.FilterGroup,
+            policyHash: 'filter-policy',
+            generation: 5,
+            rows: [buildSnapshotRow('filter-row', {
+              fsrsCardId: 'filter-card',
+              blockId: 'filter-block',
+              priority: 80,
+              queueIndex: 1,
+            })],
+            counters: null,
+          },
+        }
+      : {
+          type: 'rows-by-id',
+          status: 'ready',
+          readiness: {
+            status: 'ready',
+            queueId: QueueType.FilterGroup,
+            policyId: 'filter-policy',
+            generation: 5,
+          },
+          cards: request.ids?.includes('filter-card') ? [card] : [],
+        });
     const manager = {
       getQueue: vi.fn(() => queue),
       getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
@@ -439,8 +478,7 @@ describe('BrowserApplicationService queue query path', () => {
         state: 'backend-projection',
         reason: 'rollout-enabled',
       }]),
-      readQueueProjectionSnapshot,
-      getQueueProjectionCardsBySnapshotIds,
+      readQueueProjection,
     } as never;
     const service = new BrowserApplicationService(
       {
@@ -510,12 +548,15 @@ describe('BrowserApplicationService queue query path', () => {
         priority: 80,
       })],
     });
-    expect(readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.FilterGroup, { forceRefresh: false });
-    expect(getQueueProjectionCardsBySnapshotIds).toHaveBeenCalledWith(
-      QueueType.FilterGroup,
-      ['filter-card'],
-      { forceRefresh: false },
-    );
+    expect(readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType: QueueType.FilterGroup,
+    });
+    expect(readQueueProjection).toHaveBeenCalledWith({
+      type: 'rows-by-id',
+      queueType: QueueType.FilterGroup,
+      ids: ['filter-card'],
+    });
     expect(queue.getCards).not.toHaveBeenCalled();
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
   });

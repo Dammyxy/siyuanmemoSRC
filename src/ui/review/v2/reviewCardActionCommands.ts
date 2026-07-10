@@ -45,6 +45,7 @@ export type ReviewCardActionRuntimeOptions = {
   confirmDialog: ConfirmReviewCardActionDialog;
   getCurrentCard: () => FSRSCard | null | undefined;
   getCurrentCardMeta: () => { cardID?: string; blockID?: string } | null | undefined;
+  getCurrentContentTargetIdentity?: () => { cardId?: string; blockId?: string } | null | undefined;
   getCurrentReviewCardId: () => string;
   getCurrentReviewBlockId: () => string;
   getCardEditorService: () => CardEditorApplicationService | null;
@@ -114,11 +115,12 @@ export function createReviewCardActionRuntime(options: ReviewCardActionRuntimeOp
   }
 
   function getCurrentReviewCardReference(): { cardId: string; blockId: string } {
+    const targetIdentity = options.getCurrentContentTargetIdentity?.();
     const cardMeta = options.getCurrentCardMeta();
     const currentCard = options.getCurrentCard();
     return {
-      cardId: String(cardMeta?.cardID || currentCard?.id || '').trim(),
-      blockId: String(cardMeta?.blockID || currentCard?.blockId || '').trim(),
+      cardId: String(targetIdentity?.cardId || cardMeta?.cardID || currentCard?.id || '').trim(),
+      blockId: String(targetIdentity?.blockId || cardMeta?.blockID || currentCard?.blockId || '').trim(),
     };
   }
 

@@ -122,21 +122,43 @@ describe('QueueBrowserQueryKernel', () => {
     };
     const manager = {
       getQueue: vi.fn(() => queue),
-      readQueueProjectionSnapshot: vi.fn(async () => ({
-        queueType: 'retrieval-practice',
-        policyHash: 'retrieval-practice:queue-snapshot',
-        generation: 'generation-a',
-        rows: projectionRows,
-        counters: null,
-      })),
-      getQueueProjectionCardsBySnapshotIds: vi.fn(async (_queueType: string, ids: string[]) => {
+      readQueueProjection: vi.fn(async (request: { type: string; ids?: string[] }) => {
+        if (request.type === 'snapshot') {
+          return {
+            type: 'snapshot' as const,
+            status: 'ready' as const,
+            readiness: {
+              status: 'ready' as const,
+              queueId: 'retrieval-practice',
+              policyId: 'retrieval-practice:queue-snapshot',
+              generation: 5,
+            },
+            snapshot: {
+              queueType: 'retrieval-practice',
+              policyHash: 'retrieval-practice:queue-snapshot',
+              generation: 5,
+              rows: projectionRows,
+              counters: null,
+            },
+          };
+        }
         const cardById = new Map([
           ['card-a', hydratedCards[0]],
           ['card-b', hydratedCards[1]],
           ['row-a', hydratedCards[0]],
           ['row-b', hydratedCards[1]],
         ]);
-        return ids.map((id) => cardById.get(id)).filter(Boolean);
+        return {
+          type: 'rows-by-id' as const,
+          status: 'ready' as const,
+          readiness: {
+            status: 'ready' as const,
+            queueId: 'retrieval-practice',
+            policyId: 'retrieval-practice:queue-snapshot',
+            generation: 5,
+          },
+          cards: (request.ids ?? []).map((id) => cardById.get(id)).filter(Boolean),
+        };
       }),
       getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
         queueType: 'retrieval-practice',
@@ -161,7 +183,10 @@ describe('QueueBrowserQueryKernel', () => {
       queueId: 'retrieval',
       projectionBacked: true,
     });
-    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledTimes(1);
+    expect(manager.readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType: 'retrieval-practice',
+    });
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
     expect(queue.getCards).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
@@ -169,7 +194,11 @@ describe('QueueBrowserQueryKernel', () => {
     const hydrated = await kernel.getQueueRowsByIds('retrieval', ['card-a']);
     expect(hydrated.map((row) => row.fsrsCardId)).toEqual(['card-a']);
     expect(hydrated[0]?.queueIndex).toBe(2);
-    expect(manager.getQueueProjectionCardsBySnapshotIds).toHaveBeenCalledWith('retrieval-practice', ['card-a'], { forceRefresh: false });
+    expect(manager.readQueueProjection).toHaveBeenCalledWith({
+      type: 'rows-by-id',
+      queueType: 'retrieval-practice',
+      ids: ['card-a'],
+    });
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
     expect(queue.getCards).not.toHaveBeenCalled();
   });
@@ -218,12 +247,22 @@ describe('QueueBrowserQueryKernel', () => {
     };
     const manager = {
       getQueue: vi.fn(() => queue),
-      readQueueProjectionSnapshot: vi.fn(async () => ({
-        queueType: 'retrieval-practice',
-        policyHash: 'retrieval-practice:queue-snapshot',
-        generation: 'generation-a',
-        rows: snapshotRows,
-        counters: null,
+      readQueueProjection: vi.fn(async () => ({
+        type: 'snapshot' as const,
+        status: 'ready' as const,
+        readiness: {
+          status: 'ready' as const,
+          queueId: 'retrieval-practice',
+          policyId: 'retrieval-practice:queue-snapshot',
+          generation: 5,
+        },
+        snapshot: {
+          queueType: 'retrieval-practice',
+          policyHash: 'retrieval-practice:queue-snapshot',
+          generation: 5,
+          rows: snapshotRows,
+          counters: null,
+        },
       })),
       getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
         queueType: 'retrieval-practice',
@@ -241,7 +280,7 @@ describe('QueueBrowserQueryKernel', () => {
 
     expect(normal.rows.map((row) => row.id)).toEqual(['card-active', 'card-incomplete', 'card-orphaned']);
     expect(unknownDiagnosticPreset.rows.map((row) => row.id)).toEqual(['card-active', 'card-incomplete', 'card-orphaned']);
-    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledTimes(2);
+    expect(manager.readQueueProjection).toHaveBeenCalledTimes(2);
     expect(queue.getCards).not.toHaveBeenCalled();
   });
 

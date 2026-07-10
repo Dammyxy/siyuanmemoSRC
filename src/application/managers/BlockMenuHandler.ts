@@ -15,8 +15,7 @@ import { QueueType } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
 
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
-import type { ApplicationContext } from '@/application/ApplicationContext';
-import type { DialogManager } from '@/application/managers/DialogManager';
+import type { IntegrationRuntimeAccess } from '@/application/runtime-access';
 import type { StorageManager } from '@/core/storage';
 import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
@@ -118,7 +117,6 @@ interface ReviewScopeSnapshot {
 export interface BlockMenuHandlerDeps {
   app: App;
   i18n: Record<string, string>;
-  dialogManager: DialogManager;
   openCreateTemplateCardDialog: (blockIds: string[]) => Promise<void>;
   openNeuralReviewDialog: (options?: {
     focusBlockId?: string;
@@ -131,7 +129,7 @@ export interface BlockMenuHandlerDeps {
     startNewSession?: boolean;
     entrySessionKind?: 'temporary-current-block' | 'temporary-concept' | 'station-roam' | 'concept-card-roam' | 'direct-focus' | null;
   }) => Promise<void>;
-  applicationContext: ApplicationContext;  // ✅ 必需：用于访问所有 DDD 架构服务
+  runtimeAccess: IntegrationRuntimeAccess;
   cardCreationHelper: CardCreationHelper;  // ✅ 卡片创建辅助类
   siyuanApi: ManagerSiyuanPort;
   hostBlockQuery?: HostBlockQueryPort;
@@ -150,19 +148,10 @@ export class BlockMenuHandler {
   private createCoreReviewEntryService(): CoreReviewEntryService {
     return new CoreReviewEntryService({
       i18n: this.deps.i18n,
-      dialogManager: this.deps.dialogManager,
+      dialogManager: this.deps.runtimeAccess.dialogManager,
       notify: async (message) => this.siyuanApi.pushMsg(message),
-      getDayStartHour: () => this.deps.applicationContext.getUnifiedDataSourceManager().getDayStartHour(),
+      getDayStartHour: () => this.deps.runtimeAccess.unifiedDataSourceManager.getDayStartHour(),
     });
-  }
-
-  /**
-   * 设置 ApplicationContext（用于解决循环依赖）
-   * 
-   * @param context ApplicationContext 实例
-   */
-  setApplicationContext(context: ApplicationContext): void {
-    this.deps.applicationContext = context;
   }
 
   /**
@@ -172,7 +161,7 @@ export class BlockMenuHandler {
    * @throws Error 如果 ApplicationContext 未初始化
    */
   private getCardService(): CardApplicationService {
-    return this.deps.applicationContext.getCardService();
+    return this.deps.runtimeAccess.cardService;
   }
 
   /**
@@ -182,15 +171,15 @@ export class BlockMenuHandler {
    * @throws Error 如果 ApplicationContext 未初始化
    */
   private getStorage(): StorageManager {
-    return this.deps.applicationContext.getStorage();
+    return this.deps.runtimeAccess.storage;
   }
 
   private getQueue(type: QueueType): IReviewQueue {
-    return this.deps.applicationContext.getUnifiedDataSourceManager().getQueue(type);
+    return this.deps.runtimeAccess.unifiedDataSourceManager.getQueue(type);
   }
 
   private getNeuralRoamEntryActionService(): NeuralRoamEntryActionService {
-    return this.deps.applicationContext.getNeuralRoamEntryActionService();
+    return this.deps.runtimeAccess.neuralRoamEntryActionService;
   }
 
   private escapeAttr(value: string): string {
@@ -347,6 +336,7 @@ export class BlockMenuHandler {
     const scope = this.collectReviewScopeFromBlockIcon(elements) ?? { cards: this.collectCardsFromElements(elements) };
     const coreReviewEntryService = this.createCoreReviewEntryService();
     await coreReviewEntryService.execute(actionId, scope.cards, {
+      entrySurface: 'block-menu:direct-core-review-action',
       scopeDocIds: scope.scopeDocIds,
     });
   }
@@ -381,8 +371,8 @@ export class BlockMenuHandler {
         },
         deckId: this.siyuanApi.BUILTIN_DECK_ID,
         i18n: this.deps.i18n || {},
-        plugin: this.deps.applicationContext.getPlugin(),
-        reviewService: this.deps.applicationContext.getReviewService(),
+        plugin: this.deps.runtimeAccess.plugin,
+        reviewService: this.deps.runtimeAccess.reviewService,
       },
       width: 'min(680px, 92vw)',
       height: 'min(640px, 66vh)',
@@ -470,7 +460,7 @@ export class BlockMenuHandler {
         }
         
         if (action === 'continue') {
-          await this.deps.dialogManager.openFinalDrillDialog();
+          await this.deps.runtimeAccess.dialogManager.openFinalDrillDialog();
           return;
         }
         
@@ -493,7 +483,7 @@ export class BlockMenuHandler {
       
       const shouldStart = await this.confirmStartFinalDrillDialog(addedCount);
       if (shouldStart) {
-        await this.deps.dialogManager.openFinalDrillDialog();
+        await this.deps.runtimeAccess.dialogManager.openFinalDrillDialog();
       }
     } catch (err) {
       logger.error('[BlockMenuHandler] Failed to add to FinalDrill:', err);
@@ -679,14 +669,14 @@ export class BlockMenuHandler {
         icon: 'iconFiles',
         label: this.deps.i18n?.progressiveSplitLinear || '渐进 Split（线性）',
         click: async () => {
-          await this.deps.dialogManager.openProgressiveSplitDialog(docId, 'linear');
+          await this.deps.runtimeAccess.dialogManager.openProgressiveSplitDialog(docId, 'linear');
         },
       },
       {
         icon: 'iconFiles',
         label: this.deps.i18n?.progressiveSplitNonlinear || '渐进 Split（非线性）',
         click: async () => {
-          await this.deps.dialogManager.openProgressiveSplitDialog(docId, 'nonlinear');
+          await this.deps.runtimeAccess.dialogManager.openProgressiveSplitDialog(docId, 'nonlinear');
         },
       },
     ];
@@ -698,7 +688,7 @@ export class BlockMenuHandler {
         icon: 'iconRiffCard',
         label: this.deps.i18n?.openSrsBrowser || '打开 SRS 浏览器',
         click: async () => {
-          await this.deps.dialogManager.openBrowserDialog({
+          await this.deps.runtimeAccess.dialogManager.openBrowserDialog({
             initialOpenState: {
               scopeDocIds: scope.scopeDocIds,
               preset: 'all',
@@ -761,6 +751,7 @@ export class BlockMenuHandler {
         'iconPlay',
         [
           ...this.buildReviewActions(scope.cards, {
+            entrySurface: 'block-menu:document-scope-review',
             scopeDocIds: scope.scopeDocIds,
           }),
           this.separator(),
@@ -850,7 +841,7 @@ export class BlockMenuHandler {
   }
 
   private collectDocReviewScope(docId: string): ReviewScopeSnapshot | null {
-    const scope = this.deps.applicationContext.getDocTreeReviewScopeService().collectDocReviewScope(docId);
+    const scope = this.deps.runtimeAccess.docTreeReviewScopeService.collectDocReviewScope(docId);
     if (!scope) {
       return null;
     }
@@ -875,7 +866,7 @@ export class BlockMenuHandler {
       return true;
     }
 
-    return this.deps.applicationContext.getDocTreeReviewScopeService().hasDoc(blockId);
+    return this.deps.runtimeAccess.docTreeReviewScopeService.hasDoc(blockId);
   }
 
   private collectReviewScopeFromBlockIcon(blockElements: HTMLElement[]): ReviewScopeSnapshot | null {
@@ -941,7 +932,7 @@ export class BlockMenuHandler {
     }
 
     try {
-      const result = await this.deps.applicationContext.getSelectionExcerptService().executeSelectionExcerptAction({
+      const result = await this.deps.runtimeAccess.selectionExcerptService.executeSelectionExcerptAction({
         selection,
         origin: 'block-menu',
         sourceMarkingEnabled: this.isProgressiveExcerptSourceMarkingEnabled(),
@@ -973,8 +964,8 @@ export class BlockMenuHandler {
 
   private isProgressiveExcerptSourceMarkingEnabled(): boolean {
     try {
-      const settingsService = this.deps.applicationContext.getSettingsService?.();
-      return settingsService?.getSettings?.().progressiveReading?.sourceMarkingEnabled !== false;
+      const settingsService = this.deps.runtimeAccess.settingsService;
+      return settingsService.getSettings().progressiveReading?.sourceMarkingEnabled !== false;
     } catch (error) {
       logger.warn('[BlockMenuHandler] Failed to read progressive source-mark setting, defaulting to enabled:', error);
       return true;
@@ -999,7 +990,7 @@ export class BlockMenuHandler {
       return null;
     }
 
-    const preparation = this.deps.applicationContext.getSelectionTopicContinuationService().prepareCurrentBlockMarks({
+    const preparation = this.deps.runtimeAccess.selectionTopicContinuationService.prepareCurrentBlockMarks({
       sourceBlockId: selection.sourceBlockId,
       contentDom: selection.contentDom,
       rootId: this.resolveBlockMenuRootId(blockElement, selection.sourceBlockId),
@@ -1027,7 +1018,7 @@ export class BlockMenuHandler {
       return;
     }
 
-    const service = this.deps.applicationContext.getSelectionTopicContinuationService();
+    const service = this.deps.runtimeAccess.selectionTopicContinuationService;
     const resolvedRootId = this.resolveBlockMenuRootId(blockElement, selection.sourceBlockId);
     const prepared = preparation || service.prepareCurrentBlockMarks({
       sourceBlockId: selection.sourceBlockId,
@@ -1087,7 +1078,10 @@ export class BlockMenuHandler {
       ? (scope ? this.buildDocReviewMenuItems(singleDocBlockId, scope) : this.buildDocLoadingMenuItems(singleDocBlockId))
       : null;
     const reviewActions = scope
-      ? this.buildReviewActions(scope.cards, { scopeDocIds: scope.scopeDocIds })
+      ? this.buildReviewActions(scope.cards, {
+          entrySurface: 'block-menu:block-scope-review',
+          scopeDocIds: scope.scopeDocIds,
+        })
       : this.buildReviewLoadingActions();
     const submenu: SiyuanMenuItem[] = [
       ...(docScopedMenuItems ?? reviewActions),
@@ -1499,7 +1493,7 @@ export class BlockMenuHandler {
     );
 
     if (marker === 'concept') {
-      await this.deps.dialogManager.createCdfMultilineTemplateCards(
+      await this.deps.runtimeAccess.dialogManager.createCdfMultilineTemplateCards(
         [parentBlockId],
         'builtin-list-concept-multiline',
         { skipSymbolConfirmation: true }
@@ -1508,7 +1502,7 @@ export class BlockMenuHandler {
     }
 
     if (marker === 'descriptor') {
-      await this.deps.dialogManager.createCdfMultilineTemplateCards(
+      await this.deps.runtimeAccess.dialogManager.createCdfMultilineTemplateCards(
         [parentBlockId],
         'builtin-list-descriptor-multiline',
         { skipSymbolConfirmation: true }
@@ -1568,7 +1562,7 @@ export class BlockMenuHandler {
         return;
       }
 
-      const xiuyuanAppService = await this.deps.applicationContext.getXiuyuanApplicationService();
+      const xiuyuanAppService = await this.deps.runtimeAccess.xiuyuanApplicationService;
 
       let orderedCreated = 0;
       let unorderedCreated = 0;
@@ -1707,7 +1701,7 @@ export class BlockMenuHandler {
       logger.info('[BlockMenuHandler] Rebinding descriptor concept for block:', blockId);
       
       // 获取 XiuyuanApplicationService
-      const xiuyuanAppService = await this.deps.applicationContext.getXiuyuanApplicationService();
+      const xiuyuanAppService = await this.deps.runtimeAccess.xiuyuanApplicationService;
       if (!xiuyuanAppService) {
         await this.siyuanApi.pushErrMsg('❌ Xiuyuan 应用服务未初始化');
         return;

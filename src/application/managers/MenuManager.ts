@@ -30,7 +30,8 @@ import {
   TOPBAR_QUICK_ENTRY_DEFINITIONS,
   type TopBarQuickEntryActionId,
 } from '@/application/entries/TopBarQuickEntryRegistry';
-import { CoreReviewEntryService, type CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryService';
+import { CoreReviewEntryService } from '@/application/entries/CoreReviewEntryService';
+import type { CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryRegistry';
 import {
   formatMenuActionError,
   wrapSafeMenuAction,
@@ -493,6 +494,7 @@ export class MenuManager {
     }
 
     await this.createCoreReviewEntryService().execute(actionId, scope.cards, {
+      entrySurface: 'topbar:current-document-review',
       scopeDocIds: scope.docIds,
       emptyMessages: {
         noDueCards: this.i18n?.docTreeReviewNoDueCards || '当前文档及子文档内没有到期卡片',

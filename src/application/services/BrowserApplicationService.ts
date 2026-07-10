@@ -902,7 +902,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         recoverable: false,
       };
     }
-    if (typeof this.unifiedDataSourceManager.ensureQueueProjectionReady !== 'function') {
+    if (typeof this.unifiedDataSourceManager.readQueueProjection !== 'function') {
       return {
         status: 'unavailable',
         queueId: queueType,
@@ -914,9 +914,20 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       };
     }
     try {
-      return await this.unifiedDataSourceManager.ensureQueueProjectionReady(
-        this.buildSubmittedQueueProjectionReadinessRequest(queueType, request),
-      );
+      const result = await this.unifiedDataSourceManager.readQueueProjection({
+        type: 'readiness',
+        request: this.buildSubmittedQueueProjectionReadinessRequest(queueType, request),
+      });
+      return result.type === 'readiness'
+        ? result.readiness
+        : {
+          status: 'unavailable',
+          queueId: queueType,
+          policyId: 'browser-queue-read-model',
+          cause: 'contract_mismatch',
+          reason: `Browser queue read model returned unexpected ${result.type} result`,
+          recoverable: false,
+        };
     } catch (error) {
       return {
         status: 'unavailable',
@@ -935,19 +946,17 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     if (!queueType || !this.unifiedDataSourceManager) {
       return false;
     }
-    if (typeof this.unifiedDataSourceManager.materializeQueueProjection !== 'function') {
+    if (typeof this.unifiedDataSourceManager.repairQueueProjection !== 'function') {
       return false;
     }
 
-    const result = await this.unifiedDataSourceManager.materializeQueueProjection(
+    const result = await this.unifiedDataSourceManager.repairQueueProjection({
+      type: 'refresh',
       queueType,
-      null,
-      {
-        readinessRequest: this.buildSubmittedQueueProjectionReadinessRequest(queueType, request),
-        reason: 'browser-warmup-repair',
-      },
-    );
-    return result?.status === 'ready';
+      readinessRequest: this.buildSubmittedQueueProjectionReadinessRequest(queueType, request),
+      reason: 'browser-warmup-repair',
+    });
+    return result.status === 'ready';
   }
 
   private buildSubmittedQueueProjectionReadinessRequest(

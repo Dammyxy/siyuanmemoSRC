@@ -311,11 +311,12 @@ describe('WorkerReviewFeedbackRuntime', () => {
       'sql.review-events-write',
       'sql.domain-sync-write',
       'truth-candidate-build',
-      'queue-impact.build',
       'sql.manual-queue-state-cleanup',
       'sql.undo-journal-write',
       'sql.review-mutation-stamp',
+      'projection-deferred-enqueue',
     ]));
+    expect(timing?.innerSteps.find((step) => step.step === 'queue-impact.build')).toBeUndefined();
     expect(timing?.innerSteps.find((step) => step.step === 'scheduler.compute')).toMatchObject({
       layer: 'transaction',
       cardId: reviewed.id,

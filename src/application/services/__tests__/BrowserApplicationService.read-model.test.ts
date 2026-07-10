@@ -492,43 +492,65 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
     };
     const manager = {
       getQueue: vi.fn(() => queue),
-      readQueueProjectionSnapshot: vi.fn(async () => ({
-        queueType: QueueType.RetrievalPractice,
-        policyHash: 'policy-ready',
-        generation: null,
-        status: 'ready',
-        rows: [{
-        id: 'queue-row',
-        fsrsCardId: 'queue-card',
-        blockId: 'queue-block',
-        deckId: 'deck-a',
-        rootId: 'doc-a',
-        content: 'queue row',
-        fullContent: 'queue row',
-        state: CardState.Review,
-        due: Date.now(),
-        stability: 4,
-        difficulty: 5,
-        retrievability: 0.8,
-        reps: 3,
-        lapses: 0,
-        elapsedDays: 1,
-        scheduledDays: 7,
-        lastReview: Date.now() - 60_000,
-        interval: 7,
-        firstReview: Date.now() - 120_000,
-        priority: 70,
-        suspended: false,
-        cardType: CardType.Item,
-        queueIndex: 1,
-        tags: [],
-        blockType: 'paragraph',
-        }],
-        counters: null,
-      })),
-      getQueueProjectionCardsBySnapshotIds: vi.fn(async (_queueType: QueueType, ids: string[]) => (
-        ids.includes('queue-card') ? [card] : []
-      )),
+      readQueueProjection: vi.fn(async (request: {
+        type: 'snapshot' | 'rows-by-id';
+        queueType: QueueType;
+        ids?: string[];
+      }) => request.type === 'snapshot'
+        ? {
+            type: 'snapshot',
+            status: 'ready',
+            readiness: {
+              status: 'ready',
+              queueId: QueueType.RetrievalPractice,
+              policyId: 'policy-ready',
+              generation: 0,
+            },
+            snapshot: {
+              queueType: QueueType.RetrievalPractice,
+              policyHash: 'policy-ready',
+              generation: null,
+              rows: [{
+                id: 'queue-row',
+                fsrsCardId: 'queue-card',
+                blockId: 'queue-block',
+                deckId: 'deck-a',
+                rootId: 'doc-a',
+                content: 'queue row',
+                fullContent: 'queue row',
+                state: CardState.Review,
+                due: Date.now(),
+                stability: 4,
+                difficulty: 5,
+                retrievability: 0.8,
+                reps: 3,
+                lapses: 0,
+                elapsedDays: 1,
+                scheduledDays: 7,
+                lastReview: Date.now() - 60_000,
+                interval: 7,
+                firstReview: Date.now() - 120_000,
+                priority: 70,
+                suspended: false,
+                cardType: CardType.Item,
+                queueIndex: 1,
+                tags: [],
+                blockType: 'paragraph',
+              }],
+              counters: null,
+            },
+          }
+        : {
+            type: 'rows-by-id',
+            status: 'ready',
+            readiness: {
+              status: 'ready',
+              queueId: QueueType.RetrievalPractice,
+              policyId: 'policy-ready',
+              generation: 0,
+            },
+            cards: request.ids?.includes('queue-card') ? [card] : [],
+          }),
       getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
         queueType: QueueType.RetrievalPractice,
         projectionBacked: true,
@@ -608,18 +630,32 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
     expect(queue.getCards).not.toHaveBeenCalled();
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
-    expect(manager.readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, { forceRefresh: false });
-    expect(manager.getQueueProjectionCardsBySnapshotIds).toHaveBeenCalledWith(
-      QueueType.RetrievalPractice,
-      ['queue-card'],
-      { forceRefresh: false },
-    );
+    expect(manager.readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType: QueueType.RetrievalPractice,
+    });
+    expect(manager.readQueueProjection).toHaveBeenCalledWith({
+      type: 'rows-by-id',
+      queueType: QueueType.RetrievalPractice,
+      ids: ['queue-card'],
+    });
   });
 
   it('returns preparing when a projection-backed queue snapshot is cold without local queue fallback', async () => {
-    const readQueueProjectionSnapshot = vi.fn(async () => null);
+    const readQueueProjection = vi.fn(async () => ({
+      type: 'snapshot',
+      status: 'refreshing',
+      readiness: {
+        status: 'refreshing',
+        queueId: QueueType.RetrievalPractice,
+        policyId: 'policy-retrieval',
+        cause: 'materialization_in_progress',
+        retryAfterMs: 300,
+      },
+      snapshot: null,
+    }));
     const service = createProjectionQueueService({
-      readQueueProjectionSnapshot,
+      readQueueProjection,
     });
 
     const page = await service.getBrowserReadModel().page({
@@ -647,13 +683,27 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
       },
       diagnostics: [expect.objectContaining({ kind: 'refresh-required' })],
     });
-    expect(readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, { forceRefresh: false });
+    expect(readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType: QueueType.RetrievalPractice,
+    });
   });
 
   it('returns preparing for missing derived-cache projection instead of ready empty or local fallback', async () => {
-    const readQueueProjectionSnapshot = vi.fn(async () => null);
+    const readQueueProjection = vi.fn(async () => ({
+      type: 'snapshot',
+      status: 'refreshing',
+      readiness: {
+        status: 'refreshing',
+        queueId: QueueType.RetrievalPractice,
+        policyId: 'policy-retrieval',
+        cause: 'missing_derived_cache',
+        retryAfterMs: 300,
+      },
+      snapshot: null,
+    }));
     const service = createProjectionQueueService({
-      readQueueProjectionSnapshot,
+      readQueueProjection,
       getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
         queueType: QueueType.RetrievalPractice,
         projectionBacked: true,
@@ -694,26 +744,39 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
       },
       diagnostics: [expect.objectContaining({ kind: 'refresh-required' })],
     });
-    expect(readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, { forceRefresh: false });
+    expect(readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType: QueueType.RetrievalPractice,
+    });
   });
 
   it('returns repair-required when queue projection freshness reports stale or missing rows', async () => {
     const service = createProjectionQueueService({
-      readQueueProjectionSnapshot: vi.fn(async () => ({
-        queueType: QueueType.RetrievalPractice,
-        policyHash: 'policy-stale',
-        generation: 9,
+      readQueueProjection: vi.fn(async () => ({
+        type: 'snapshot',
         status: 'ready',
-        rows: [buildQueueSnapshotRow('stale-row', { fsrsCardId: 'stale-card' })],
-        counters: null,
-        freshness: {
-          checkedAt: 1_700_000_000_000,
-          totalRows: 1,
-          freshRows: 0,
-          staleRows: 1,
-          missingRows: 0,
-          staleCardIds: ['stale-card'],
-          missingCardIds: [],
+        readiness: {
+          status: 'ready',
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-stale',
+          generation: 9,
+        },
+        snapshot: {
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'policy-stale',
+          generation: 9,
+          status: 'ready',
+          rows: [buildQueueSnapshotRow('stale-row', { fsrsCardId: 'stale-card' })],
+          counters: null,
+          freshness: {
+            checkedAt: 1_700_000_000_000,
+            totalRows: 1,
+            freshRows: 0,
+            staleRows: 1,
+            missingRows: 0,
+            staleCardIds: ['stale-card'],
+            missingCardIds: [],
+          },
         },
       })),
     });
@@ -746,7 +809,7 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
 
   it('returns unavailable when projection owner read fails without local queue fallback', async () => {
     const service = createProjectionQueueService({
-      readQueueProjectionSnapshot: vi.fn(async () => {
+      readQueueProjection: vi.fn(async () => {
         throw new Error('backend projection reader down');
       }),
     });
@@ -775,17 +838,40 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
   });
 
   it('returns repair-required when projection row hydration misses visible ids', async () => {
-    const getQueueProjectionCardsBySnapshotIds = vi.fn(async () => []);
+    const readQueueProjection = vi.fn(async (request: {
+      type: 'snapshot' | 'rows-by-id';
+    }) => request.type === 'snapshot'
+      ? {
+          type: 'snapshot',
+          status: 'ready',
+          readiness: {
+            status: 'ready',
+            queueId: QueueType.RetrievalPractice,
+            policyId: 'policy-ready',
+            generation: 10,
+          },
+          snapshot: {
+            queueType: QueueType.RetrievalPractice,
+            policyHash: 'policy-ready',
+            generation: 10,
+            status: 'ready',
+            rows: [buildQueueSnapshotRow('visible-row', { fsrsCardId: 'visible-card' })],
+            counters: null,
+          },
+        }
+      : {
+          type: 'rows-by-id',
+          status: 'ready',
+          readiness: {
+            status: 'ready',
+            queueId: QueueType.RetrievalPractice,
+            policyId: 'policy-ready',
+            generation: 10,
+          },
+          cards: [],
+        });
     const service = createProjectionQueueService({
-      readQueueProjectionSnapshot: vi.fn(async () => ({
-        queueType: QueueType.RetrievalPractice,
-        policyHash: 'policy-ready',
-        generation: 10,
-        status: 'ready',
-        rows: [buildQueueSnapshotRow('visible-row', { fsrsCardId: 'visible-card' })],
-        counters: null,
-      })),
-      getQueueProjectionCardsBySnapshotIds,
+      readQueueProjection,
     });
 
     const page = await service.getBrowserReadModel().page({
@@ -812,10 +898,10 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
         rowIds: ['visible-card'],
       })],
     });
-    expect(getQueueProjectionCardsBySnapshotIds).toHaveBeenCalledWith(
-      QueueType.RetrievalPractice,
-      ['visible-card'],
-      { forceRefresh: false },
-    );
+    expect(readQueueProjection).toHaveBeenCalledWith({
+      type: 'rows-by-id',
+      queueType: QueueType.RetrievalPractice,
+      ids: ['visible-card'],
+    });
   });
 });

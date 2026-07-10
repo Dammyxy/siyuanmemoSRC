@@ -67,7 +67,7 @@ type BrowserActionSelectionRuntime = {
 type BrowserSubsetReviewPlugin = {
   openSubsetReviewDialog?: (
     blockIds: string[],
-    options?: { cardIds?: string[]; preferredCardId?: string },
+    options?: { cardIds?: string[]; preferredCardId?: string; entrySurface?: string },
   ) => Promise<void> | void;
 };
 
@@ -87,7 +87,7 @@ type BrowserPracticeDialogManager = {
   openReviewDialog?: (options?: { entrySurface?: string | null }) => Promise<void> | void;
   openIncrementalLearningDialog?: () => Promise<void> | void;
   openFinalDrillDialog?: () => Promise<void> | void;
-  openNeuralRoamDialog?: () => Promise<void> | void;
+  openNeuralRoamDialog?: (options?: { entrySurface?: string }) => Promise<void> | void;
   openFilterGroupPracticeDialog?: () => Promise<void> | void;
   openNativeRiffImportDialog?: () => Promise<void> | void;
   openNativeRiffAdoptionDialog?: () => Promise<void> | void;
@@ -213,6 +213,7 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
       plugin.openSubsetReviewDialog(selection.blockIds, {
         cardIds: selection.cardIds.length > 0 ? selection.cardIds : undefined,
         preferredCardId: selection.preferredCardId,
+        entrySurface: 'browser:review-subset',
       }),
     );
   }
@@ -639,7 +640,7 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
       label: deps.t('practiceNeural', 'Neural Roam'),
       click: wrapBrowserMenuAction(
         deps.t('practiceNeural', 'Neural Roam'),
-        () => dialogManager.openNeuralRoamDialog?.(),
+        () => dialogManager.openNeuralRoamDialog?.({ entrySurface: 'browser-toolbar-practice-menu:neural-roam' }),
       ),
     });
     menu.addItem({

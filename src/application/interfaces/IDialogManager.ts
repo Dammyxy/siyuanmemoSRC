@@ -44,6 +44,7 @@ export interface IDialogManager {
    * 打开带过滤条件的提取练习对话框
    */
   openRetrievalPracticeWithFilter(options: {
+    entrySurface?: string;
     blockIds: string[];
     cardIds?: string[];
     preferredCardId?: string;
@@ -60,6 +61,7 @@ export interface IDialogManager {
    * 打开带过滤条件的渐进学习对话框
    */
   openIncrementalLearningWithFilter(options: {
+    entrySurface?: string;
     blockIds: string[];
     cardIds?: string[];
     preferredCardId?: string;
@@ -82,10 +84,17 @@ export interface IDialogManager {
    * @param options.startNewSession - 是否新建独立漫游路径并保留旧历史
    */
   openNeuralRoamDialog(options?: {
+    entrySurface?: string;
     focusBlockId?: string;
+    seedBlockId?: string | null;
+    sourceReviewCardId?: string | null;
+    conceptBlockId?: string | null;
+    previousEngineMode?: 'orbit' | 'hyperspace' | null;
     includeFocusAsFirst?: boolean;
     resetHistory?: boolean;
     startNewSession?: boolean;
+    entrySessionKind?: 'temporary-current-block' | 'temporary-concept' | 'station-roam' | 'concept-card-roam' | 'direct-focus' | null;
+    semanticPinnedSessionId?: string;
   }): Promise<void>;
   
   /**
@@ -169,6 +178,7 @@ export interface IDialogManager {
     options?: {
       cardIds?: string[];
       preferredCardId?: string;
+      entrySurface?: string;
     }
   ): Promise<void>;
   
@@ -182,6 +192,7 @@ export interface IDialogManager {
     options?: {
       cardIds?: string[];
       preferredCardId?: string;
+      entrySurface?: string;
     },
   ): Promise<void>;
   

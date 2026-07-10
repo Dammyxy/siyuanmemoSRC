@@ -176,7 +176,7 @@ export class WorkerReviewFeedbackRuntime {
       runtime: this.deps.runtime,
       domainSyncLedger: this.deps.domainSyncLedger ?? new DomainSyncLedger(this.deps.runtime),
     });
-    return await mutationModule.commitReviewFeedback(
+    const receipt = await mutationModule.commitReviewFeedback(
       {
         request: durableRequest,
         cardId,
@@ -188,9 +188,20 @@ export class WorkerReviewFeedbackRuntime {
         idempotencyKey: durableIdempotencyKey,
         transactionUndoJournalEntry: durableRequest.transactionUndoJournalEntry ?? null,
       },
-      (input) => this.buildReviewFeedbackQueueImpact(input),
       (candidate) => this.deps.recordReviewTruthCandidate?.(candidate),
     );
+    if (!receipt.queueImpactInput) {
+      return receipt.result;
+    }
+    return {
+      ...receipt.result,
+      queueImpact: this.measureQueueImpactStep(
+        'queue-impact',
+        receipt.queueImpactInput.queueType,
+        receipt.queueImpactInput.reviewedCard.id,
+        () => this.buildReviewFeedbackQueueImpact(receipt.queueImpactInput!),
+      ),
+    };
   }
 
   private recordUnavailable(): void {

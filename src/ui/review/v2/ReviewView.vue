@@ -310,6 +310,11 @@ import {
 } from '@/types/unified-data-source';
 import type { NeuralRoamRouteListItem } from '@/core/queue/neural/routes';
 import type { FSRSCard } from '@/types/card';
+import {
+  buildReviewRenderableCommand,
+  type ReviewRenderableAction,
+  type ReviewRenderableCommand,
+} from '@/application/adapters/reviewRenderableContext';
 import type { ReviewTabRuntimeState } from '@/types/review-tab';
 import { isTopicLikeCard } from './reviewCardSemantics';
 import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } from './reviewDialogEscape';
@@ -401,10 +406,8 @@ import {
   getReviewProgressiveReadingService,
   handleProgressiveCompletePiece as handleProgressiveCompletePieceCommand,
   handleProgressiveOpenSource as handleProgressiveOpenSourceCommand,
-  isLinearPieceReviewCard,
   isProgressiveExcerptCard,
   isReviewProgressiveExcerptEnabled,
-  resolveProgressiveSourceTargetId,
   runReviewProgressiveExcerptCommand,
   type ReviewProgressiveExcerptTrigger,
   type ReviewProgressiveReadingServiceLike,
@@ -917,6 +920,7 @@ const reviewCardActionRuntime = createReviewCardActionRuntime({
   confirmDialog,
   getCurrentCard: () => state.value.content.card as FSRSCard | null | undefined,
   getCurrentCardMeta: () => state.value.actions.cardMeta,
+  getCurrentContentTargetIdentity: () => state.value.meta.renderContext?.contentTarget?.identity ?? null,
   getCurrentReviewCardId: resolveCurrentReviewCardId,
   getCurrentReviewBlockId: resolveCurrentReviewBlockId,
   getCardEditorService,
@@ -2031,6 +2035,31 @@ function getCurrentReviewCardReference(): { cardId: string; blockId: string } {
   return reviewCardActionRuntime.getCurrentReviewCardReference();
 }
 
+function resolveCurrentReviewContentCommand(
+  action: ReviewRenderableAction,
+  payload: Record<string, unknown> = {},
+): ReviewRenderableCommand | null {
+  const context = state.value.meta.renderContext;
+  if (!context) {
+    return null;
+  }
+  try {
+    return buildReviewRenderableCommand({
+      context,
+      action,
+      payload,
+    });
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Review content action unavailable', {
+      action,
+      targetKind: context.targetKind,
+      diagnostics: context.diagnostics,
+      error,
+    });
+    return null;
+  }
+}
+
 function buildExpectedRefreshOptions(reference: { cardId?: string; blockId?: string } | null | undefined): RefreshCurrentItemOptions {
   return {
     expectedCurrentCardId: String(reference?.cardId || '').trim(),
@@ -2539,6 +2568,9 @@ function handleReveal(): void {
   }
   clearSemanticTemporaryView();
   escRepeatLatch = false;
+  if (!resolveCurrentReviewContentCommand('answer')) {
+    return;
+  }
   hook.reveal();
 }
 
@@ -2569,6 +2601,10 @@ function handleGrade(rating: number): void {
   }
   clearSemanticTemporaryView();
   escRepeatLatch = false;
+  const command = resolveCurrentReviewContentCommand('answer', { rating });
+  if (!command) {
+    return;
+  }
   kernelTransactionWriterActionTracker.record({
     type: 'grade',
     rating: Math.max(1, Math.min(4, Math.floor(rating))) as 1 | 2 | 3 | 4,
@@ -2586,6 +2622,9 @@ function handleSkip(): void {
   }
   clearSemanticTemporaryView();
   escRepeatLatch = false;
+  if (!resolveCurrentReviewContentCommand('skip')) {
+    return;
+  }
   kernelTransactionWriterActionTracker.record({ type: 'skip' });
   void hook.skip();
 }
@@ -2600,6 +2639,9 @@ function handleBack(): void {
   }
   clearSemanticTemporaryView();
   escRepeatLatch = false;
+  if (!resolveCurrentReviewContentCommand('back')) {
+    return;
+  }
   void hook.back();
 }
 
@@ -4443,6 +4485,7 @@ async function confirmInlineCardEditorSource(): Promise<void> {
 
 function buildMoreMenuItems(): ReviewMenuItem[] {
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
+  const contentTarget = state.value.meta.renderContext?.contentTarget;
   const openAsItems = buildOpenAsMenuItems();
   const peerInfo = resolveCurrentBlockPeerCards();
   const editableSourceTitle = shouldExposeHeaderEditButton()
@@ -4461,8 +4504,12 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
       contexts: getReviewProgressiveContexts(),
       logger,
     }),
-    hasProgressiveSourceTarget: Boolean(resolveProgressiveSourceTargetId(currentCard)),
-    isLinearPieceReviewCard: isLinearPieceReviewCard(currentCard),
+    hasProgressiveSourceTarget: Boolean(
+      contentTarget?.sourceLineage?.sourceBlockId
+      || contentTarget?.identity.sourceLocationId,
+    ),
+    isLinearPieceReviewCard: contentTarget?.kind === 'source-location'
+      && contentTarget.sourceLineage.mode === 'linear',
     openAsItems,
     editableSourceTitle,
     currentPriority: resolveCurrentReviewCardPriority(),
@@ -5026,8 +5073,11 @@ function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string
 }
 
 function resolveCurrentReviewBlockId(): string {
+  const targetIdentity = state.value.meta.renderContext?.contentTarget?.identity
+    ?? state.value.meta.renderContext?.unavailable?.identity;
   return String(
-    state.value.actions.cardMeta?.blockID
+    targetIdentity?.blockId
+    || state.value.actions.cardMeta?.blockID
     || state.value.content.card?.blockId
     || state.value.content.data
     || state.value.content.id
@@ -5036,8 +5086,11 @@ function resolveCurrentReviewBlockId(): string {
 }
 
 function resolveCurrentReviewSourceBlockId(): string {
+  const target = state.value.meta.renderContext?.contentTarget;
   return String(
-    resolvePrimaryEditableTarget()?.blockId
+    target?.sourceLineage?.sourceBlockId
+    || target?.identity.contentBlockId
+    || resolvePrimaryEditableTarget()?.blockId
     || state.value.content.id
     || state.value.content.data
     || state.value.actions.cardMeta?.blockID
@@ -5069,19 +5122,26 @@ function resolveCurrentReviewNeuralSyncIds(): string[] {
 }
 
 function resolveCurrentReviewCardId(): string {
+  const targetIdentity = state.value.meta.renderContext?.contentTarget?.identity
+    ?? state.value.meta.renderContext?.unavailable?.identity;
   return String(
-    state.value.actions.cardMeta?.cardID
+    targetIdentity?.cardId
+    || state.value.actions.cardMeta?.cardID
     || state.value.content.card?.id
     || '',
   ).trim();
 }
 
 async function handleProgressiveExcerptFromReview(trigger: ReviewProgressiveExcerptTrigger): Promise<void> {
+  const command = resolveCurrentReviewContentCommand('convert', { trigger });
+  if (!command) {
+    return;
+  }
   await runReviewProgressiveExcerptCommand({
     trigger,
     contexts: getReviewProgressiveContexts(),
     currentCard: state.value.content.card,
-    currentCardId: resolveCurrentReviewCardId(),
+    currentCardId: command.targetIdentity.cardId,
     root: rootRef.value,
     resolveSelection: resolveProgressiveExcerptSelectionSnapshot,
     resolveProtyle: (commonElement) => {
@@ -5102,18 +5162,29 @@ async function handleProgressiveExcerptFromReview(trigger: ReviewProgressiveExce
 }
 
 function handleProgressiveOpenSource(): void {
+  const command = resolveCurrentReviewContentCommand('open-source');
+  if (!command) {
+    return;
+  }
+  const target = state.value.meta.renderContext?.contentTarget;
   handleProgressiveOpenSourceCommand({
     app: props.app,
-    sourceTargetId: resolveProgressiveSourceTargetId(state.value.content.card),
+    sourceTargetId: target?.sourceLineage?.sourceBlockId
+      || command.targetIdentity.sourceLocationId
+      || command.targetIdentity.contentBlockId,
     t,
     showMessage,
   });
 }
 
 async function handleProgressiveCompletePiece(): Promise<void> {
+  const command = resolveCurrentReviewContentCommand('advance');
+  if (!command) {
+    return;
+  }
   await handleProgressiveCompletePieceCommand({
     service: getReviewProgressiveReadingService(getReviewProgressiveContexts()),
-    pieceDocId: resolveCurrentReviewBlockId(),
+    pieceDocId: command.targetIdentity.sourceLocationId || command.targetIdentity.blockId,
     gradeGood: () => handleGrade(3),
     t,
     showMessage,

@@ -195,15 +195,11 @@ import {
   useCssClassOptimizer,
 } from './composables/useCssClassOptimizer';
 import {
-  buildReviewRenderWatchKey,
   buildReviewRenderWatchKeyFromPolicy,
-  isProgressiveDerivedItemCard,
   isNeuralRoamNonFlashcard,
   isOrdinaryMultiClozeReviewCard,
-  shouldPreferStableQuickForcePath,
 } from './reviewRenderPolicy';
 import { createLogger } from '@/utils/logger';
-import { resolveRenderProfile } from '@/core/card/render-profile/RenderProfileResolver';
 import type { ReviewRenderableRenderPolicy } from '@/application/adapters/reviewRenderableRenderPolicy';
 import type { RichContentResult } from '@/core/card/common/application/richContent';
 
@@ -473,16 +469,12 @@ const contextRenderPolicy = computed<ReviewRenderableRenderPolicy | null>(() => 
   props.meta?.renderContext?.renderPolicy ?? null
 ));
 const forceProtyleRender = computed(() => {
-  if (contextRenderPolicy.value) {
-    return contextRenderPolicy.value.forceProtyleRender
-      || (
-        answerPaneTemplateForcesProtyle.value
-        && contextRenderPolicy.value.renderContract?.rendererKind !== 'quick'
-      );
-  }
-
-  return props.content.card?.meta?.forceProtyleRender === true
-    || answerPaneTemplateForcesProtyle.value;
+  const policy = contextRenderPolicy.value;
+  return policy?.forceProtyleRender === true
+    || (
+      answerPaneTemplateForcesProtyle.value
+      && policy?.renderContract?.rendererKind !== 'quick'
+    );
 });
 const isTopicReadModeCard = computed(() => String(props.content.card?.type || '') === 'topic');
 const isTopicDocumentCard = computed(() => (
@@ -494,42 +486,24 @@ const isTopicDocumentCard = computed(() => (
 ));
 const neuralIsFlashcard = computed(() => resolveNeuralIsFlashcard(props.content.card));
 const isNeuralRoamNonFlashcardCard = computed(() => isNeuralRoamNonFlashcard(props.content.card));
-const isProgressiveDerivedItem = computed(() => isProgressiveDerivedItemCard(props.content.card));
-const quickRenderCardId = computed(() => String(props.content.card?.id || props.content.id || ''));
-const quickRenderFallbackReason = computed(() => {
-  if (props.content.card?.id) return 'fsrs-card-id';
-  if (props.content.id) return 'content-id-fallback';
-  return 'missing-card-id';
-});
-const quickDetectReason = computed(() => {
-  if (contextRenderPolicy.value) {
-    return contextRenderPolicy.value.quickDetectReason;
-  }
-  const reason = props.content.card?.meta?.quickDetectReason;
-  return typeof reason === 'string' ? reason : '';
-});
-const resolvedRenderProfile = computed(() => contextRenderPolicy.value?.profile ?? resolveRenderProfile(props.content.card));
+const contentTarget = computed(() => props.meta?.renderContext?.contentTarget ?? null);
+const contentTargetIdentity = computed(() => (
+  contentTarget.value?.identity
+  ?? props.meta?.renderContext?.targetIdentity
+  ?? null
+));
+const isProgressiveDerivedItem = computed(() => contentTarget.value?.kind === 'topic-derived-item');
+const quickRenderCardId = computed(() => contentTargetIdentity.value?.cardId ?? '');
+const quickRenderFallbackReason = computed(() => (
+  quickRenderCardId.value ? 'content-target-card-id' : 'missing-content-target-card-id'
+));
+const quickDetectReason = computed(() => contextRenderPolicy.value?.quickDetectReason ?? '');
+const resolvedRenderProfile = computed(() => contextRenderPolicy.value?.profile ?? null);
 const hasConceptDefinitionSemanticSignal = computed(() => checkIsConceptDefinitionCard(props.content.card));
 const hasConceptCardSemanticSignal = computed(() => checkIsConceptCard(props.content.card));
 const hasDescriptorSemanticSignal = computed(() => checkIsDescriptorSemanticCard(props.content.card));
-const preferStableQuickForcePath = computed(() => shouldPreferStableQuickForcePath(
-  props.content.card,
-  resolvedRenderProfile.value,
-));
+const preferStableQuickForcePath = computed(() => contextRenderPolicy.value?.forceQuickRender === true);
 const isLatexNumberedQuickHint = computed(() => quickDetectReason.value === 'cloze-latex-numbered');
-const quickIndicatorSource = computed(() => {
-  const source = props.content.card?.meta?.source;
-  return typeof source === 'string' ? source : '';
-});
-const quickIndicatorSymbolDetected = computed(() => props.content.card?.meta?.symbolDetected === true);
-const quickIndicatorCardSource = computed(() => {
-  const cardSource = props.content.card?.meta?.cardSource;
-  return typeof cardSource === 'string' ? cardSource : '';
-});
-const quickIndicatorSymbolType = computed(() => {
-  const symbolType = props.content.card?.meta?.symbolType;
-  return typeof symbolType === 'string' ? symbolType : '';
-});
 const forceQuickRender = computed(() => {
   if (forceProtyleRender.value) return false;
   if (isTopicReadModeCard.value) return false;
@@ -545,22 +519,7 @@ const renderWatchKey = computed(() =>
     contentType: String(props.content.type || ''),
     blockId: String(props.content.id || ''),
     policy: contextRenderPolicy.value,
-  }) ?? buildReviewRenderWatchKey({
-    contentType: String(props.content.type || ''),
-    blockId: String(props.content.id || ''),
-    cardId: String(props.content.card?.id || ''),
-    cardType: String(props.content.card?.type || ''),
-    typeMarker: resolveTypeMarker(props.content.card),
-    neuralIsFlashcard: neuralIsFlashcard.value,
-    forceProtyleRender: forceProtyleRender.value,
-    forceQuickRender: forceQuickRender.value,
-    source: quickIndicatorSource.value,
-    symbolDetected: quickIndicatorSymbolDetected.value,
-    cardSource: quickIndicatorCardSource.value,
-    symbolType: quickIndicatorSymbolType.value,
-    renderProfile: resolvedRenderProfile.value || '',
-    quickDetectReason: quickDetectReason.value,
-  }),
+  }) ?? `unavailable:${String(props.content.type || '')}:${String(props.content.id || '')}`,
 );
 
 const specialRendererKind = computed(() => {
@@ -823,8 +782,12 @@ function appendConceptReferenceTarget(
 const editableTargets = computed<ReviewEditableTarget[]>(() => {
   const targets: ReviewEditableTarget[] = [];
   const seenBlockIds = new Set<string>();
+  const targetContentBlockId = contentTargetIdentity.value?.contentBlockId
+    || contentTargetIdentity.value?.blockId
+    || '';
+  const targetAnswerBlockId = contentTargetIdentity.value?.answerBlockId ?? '';
 
-  if (props.content.type !== 'protyle') {
+  if (props.content.type !== 'protyle' || !contentTargetIdentity.value) {
     return targets;
   }
 
@@ -848,7 +811,7 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
     appendEditableTarget(
       targets,
       seenBlockIds,
-      readRecordString(preparedMultiClozeViewModel.value, 'blockId') || props.content.id,
+      readRecordString(preparedMultiClozeViewModel.value, 'blockId') || targetContentBlockId,
       t('editCurrentContent', '编辑当前内容'),
       'multi-cloze',
       'current-content',
@@ -882,7 +845,7 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
       appendEditableTarget(
         targets,
         seenBlockIds,
-        props.content.id,
+        targetContentBlockId,
         t('editCurrentContent', '编辑当前内容'),
         'concept-definition',
         'current-content',
@@ -898,7 +861,7 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
       readRecordString(preparedConceptViewModel.value, 'conceptBlockId')
         || readRecordString(preparedConceptViewModel.value, 'blockId')
         || readFieldMappingBlockId(['concept'])
-        || props.content.id,
+        || targetContentBlockId,
       t('editConceptSource', '编辑概念'),
       'concept',
       'concept',
@@ -915,7 +878,7 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
       seenBlockIds,
       readRecordString(preparedDescriptorViewModel.value, 'blockId')
         || readFieldMappingBlockId(['descriptor'])
-        || props.content.id,
+        || targetContentBlockId,
       t('editDescriptorSource', '编辑描述符'),
       'descriptor',
       'descriptor',
@@ -935,7 +898,7 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
     appendEditableTarget(
       targets,
       seenBlockIds,
-      readRecordString(preparedQuickViewModel.value, 'blockId') || props.content.id,
+      readRecordString(preparedQuickViewModel.value, 'blockId') || targetContentBlockId,
       t('editCurrentContent', '编辑当前内容'),
       'quick',
       'current-content',
@@ -946,15 +909,15 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
   appendEditableTarget(
     targets,
     seenBlockIds,
-    props.content.id,
-    props.content.answerBlockID ? t('editQuestionSource', '编辑问题') : t('editCurrentContent', '编辑当前内容'),
+    targetContentBlockId,
+    targetAnswerBlockId ? t('editQuestionSource', '编辑问题') : t('editCurrentContent', '编辑当前内容'),
     'main-protyle',
     'current-content',
   );
   appendEditableTarget(
     targets,
     seenBlockIds,
-    props.content.answerBlockID || '',
+    targetAnswerBlockId,
     t('editAnswerSource', '编辑答案'),
     'main-protyle',
     'current-content',

@@ -706,11 +706,13 @@ describe('BackendReviewSyncRpcAdapter', () => {
     const countResponse = await kernel.handle({
       id: 'trigger-pre-request-merge',
       jsonrpc: '2.0',
-      method: 'browser.count',
-      params: [{ query: {} }],
+      method: 'domainSync.status',
+      params: [],
     });
     expect(countResponse).toEqual(expect.objectContaining({
-      result: expect.objectContaining({ count: expect.any(Number) }),
+      result: expect.objectContaining({
+        sanity: expect.objectContaining({ status: 'merged' }),
+      }),
     }));
 
     const diagnosticsResponse = await kernel.handle({
@@ -723,7 +725,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       result: expect.objectContaining({
         preRequestMerge: expect.objectContaining({
           latest: expect.objectContaining({
-            method: 'browser.count',
+            method: 'domainSync.status',
             sources: 1,
             mergedReviewEvents: 1,
             mergedCards: 1,
@@ -732,7 +734,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
           }),
           history: expect.arrayContaining([
             expect.objectContaining({
-              method: 'browser.count',
+              method: 'domainSync.status',
               mergedReviewEvents: 1,
               mergedCards: 1,
             }),
@@ -810,8 +812,11 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
     expect(feedbackResponse).toEqual(expect.objectContaining({
       result: expect.objectContaining({
-        answeredCardId: first.id,
         current: expect.objectContaining({ id: second.id }),
+        receipt: expect.objectContaining({
+          answeredCardId: first.id,
+          commit: expect.objectContaining({ outcome: 'committed' }),
+        }),
       }),
     }));
     expect(mergeSpy).not.toHaveBeenCalled();
@@ -3072,8 +3077,8 @@ describe('BackendReviewSyncRpcAdapter', () => {
     await kernel.handle({
       id: 'trigger-domain-sync-pre-request',
       jsonrpc: '2.0',
-      method: 'browser.count',
-      params: [{ query: {} }],
+      method: 'domainSync.status',
+      params: [],
     });
     const diagnostics = await kernel.handle({
       id: 'read-domain-sync-pre-request',
@@ -3086,7 +3091,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       result: {
         preRequestMerge: {
           latest: {
-            method: 'browser.count',
+            method: 'domainSync.status',
             sourceIds: ['pre-request-domain-sync-source'],
             importedOperations: 1,
             ignoredOperations: 0,
@@ -4063,6 +4068,12 @@ describe('BackendReviewSyncRpcAdapter', () => {
             cardReps: 1,
           }),
         ]),
+        undo: {
+          answerUndoPairs: 0,
+          openUndoPlans: 0,
+          staleUndoPlans: 0,
+          undonePlans: 0,
+        },
       },
     });
     expect(JSON.stringify(response)).not.toContain('card-audit-consistent');

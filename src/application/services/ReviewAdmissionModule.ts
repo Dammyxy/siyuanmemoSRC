@@ -8,6 +8,12 @@ import {
   type IReviewQueue,
 } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
+import {
+  buildReviewEntryTargetIdentity,
+  type ProjectionQueueEntryTarget,
+  type ReviewEntryTarget,
+  type ReviewProjectionQueueType,
+} from '@/application/services/ReviewEntryTargetResolver';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ReviewAdmissionModule');
@@ -17,13 +23,12 @@ const REVIEW_ADMISSION_QUEUE_TYPES = new Set<QueueType>([
   QueueType.IncrementalLearning,
 ]);
 
-type ReviewAdmissionQueueType =
-  | QueueType.RetrievalPractice
-  | QueueType.IncrementalLearning;
+type ReviewAdmissionQueueType = ReviewProjectionQueueType;
 
 export interface ReviewAdmissionTicket {
   queueType: ReviewAdmissionQueueType;
-  entrySurface: string | null;
+  entrySurface: string;
+  entryTargetIdentity: string;
   projectionPolicyHash: string;
   projectionGeneration: number;
   readinessRequest: QueueProjectionReadinessRequest;
@@ -32,8 +37,7 @@ export interface ReviewAdmissionTicket {
 }
 
 export interface ReviewAdmissionRequest {
-  queueType: QueueType;
-  entrySurface?: string | null;
+  target: ReviewEntryTarget;
   queueInstance?: Pick<IReviewQueue, 'getCards'> | null;
 }
 
@@ -41,43 +45,57 @@ export class ReviewAdmissionModule {
   constructor(private readonly manager: UnifiedDataSourceManager) {}
 
   async admitReviewSession(request: ReviewAdmissionRequest): Promise<ReviewAdmissionTicket | null> {
-    if (!isReviewAdmissionQueueType(request.queueType)) {
+    if (request.target.kind !== 'projection-queue') {
       return null;
     }
 
-    const readinessRequest = buildReviewAdmissionReadinessRequest(request.queueType);
-    const entrySurface = normalizeOptionalString(request.entrySurface);
-    const ready = await this.manager.ensureQueueProjectionReady(readinessRequest);
+    const target = request.target;
+    const readinessRequest = buildReviewAdmissionReadinessRequest(target.queueType);
+    const readinessResult = await this.manager.readQueueProjection({
+      type: 'readiness',
+      request: readinessRequest,
+    });
+    const ready = readinessResult.type === 'readiness'
+      ? readinessResult.readiness
+      : {
+        status: 'unavailable' as const,
+        queueId: target.queueType,
+        policyId: '',
+        cause: 'contract_mismatch' as const,
+        reason: 'Review Admission received unexpected lifecycle read result',
+        recoverable: false,
+      };
     if (ready.status === 'ready') {
-      return this.toTicket(request.queueType, entrySurface, readinessRequest, ready, 'ready-projection');
+      return this.toTicket(target, readinessRequest, ready, 'ready-projection');
     }
 
     if (!isRecoverableReadiness(ready)) {
-      throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${request.queueType} projection is not readable: ${formatReadiness(ready)}`);
+      throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${target.queueType} projection is not readable: ${formatReadiness(ready)}`);
     }
 
-    const materialized = await this.manager.materializeQueueProjection(
-      request.queueType,
-      request.queueInstance ?? this.manager.getQueue(request.queueType),
-      {
-        readinessRequest,
-        reason: 'review-admission',
-      },
-    );
-    if (!isReadyMaterialization(materialized)) {
-      throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${request.queueType} projection materialization did not produce a ready identity`);
+    const repaired = await this.manager.repairQueueProjection({
+      type: 'materialize',
+      queueType: target.queueType,
+      queueOverride: request.queueInstance ?? this.manager.getQueue(target.queueType),
+      readinessRequest,
+      reason: 'review-admission',
+    });
+    if (repaired.status !== 'ready' || !isReadyMaterialization(repaired.result)) {
+      throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${target.queueType} projection materialization did not produce a ready identity`);
     }
+    const materialized = repaired.result;
 
     logger.info('[SiYuanMemo][ReviewAdmission] admitted review session after projection materialization', {
-      queueType: request.queueType,
-      entrySurface,
+      queueType: target.queueType,
+      entrySurface: target.entrySurface,
       projectionPolicyHash: materialized.policyHash,
       projectionGeneration: materialized.generation,
       rows: materialized.rows,
     });
     return {
-      queueType: request.queueType,
-      entrySurface,
+      queueType: target.queueType,
+      entrySurface: target.entrySurface,
+      entryTargetIdentity: buildReviewEntryTargetIdentity(target),
       projectionPolicyHash: materialized.policyHash,
       projectionGeneration: Number(materialized.generation),
       readinessRequest,
@@ -87,15 +105,15 @@ export class ReviewAdmissionModule {
   }
 
   private toTicket(
-    queueType: ReviewAdmissionQueueType,
-    entrySurface: string | null,
+    target: ProjectionQueueEntryTarget,
     readinessRequest: QueueProjectionReadinessRequest,
     readiness: Extract<QueueProjectionReadiness, { status: 'ready' }>,
     source: ReviewAdmissionTicket['source'],
   ): ReviewAdmissionTicket {
     return {
-      queueType,
-      entrySurface,
+      queueType: target.queueType,
+      entrySurface: target.entrySurface,
+      entryTargetIdentity: buildReviewEntryTargetIdentity(target),
       projectionPolicyHash: readiness.policyId,
       projectionGeneration: Number(readiness.generation),
       readinessRequest,
@@ -123,11 +141,14 @@ export function buildReviewAdmissionReadinessRequest(queueType: ReviewAdmissionQ
 
 export function isValidReviewAdmissionTicket(
   value: ReviewAdmissionTicket | null | undefined,
-  queueType: QueueType | null | undefined,
+  target: ReviewEntryTarget,
 ): value is ReviewAdmissionTicket {
   return Boolean(
     value
-    && value.queueType === queueType
+    && target.admission.kind === 'required'
+    && value.queueType === target.queueType
+    && value.entrySurface === target.entrySurface
+    && value.entryTargetIdentity === buildReviewEntryTargetIdentity(target)
     && isReviewAdmissionQueueType(value.queueType)
     && isNonEmptyString(value.projectionPolicyHash)
     && isPositiveInteger(value.projectionGeneration),
@@ -156,10 +177,6 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isPositiveInteger(value: unknown): boolean {
   return typeof value === 'number' && Number.isFinite(value) && Math.floor(value) === value && value > 0;
-}
-
-function normalizeOptionalString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 function formatReadiness(readiness: QueueProjectionReadiness): string {

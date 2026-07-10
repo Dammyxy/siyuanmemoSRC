@@ -55,16 +55,17 @@ export class ProjectionBrowserQueueCountReadModel implements BrowserQueueCountRe
     queueId: BrowserQueueId,
     forceRefresh: boolean,
   ): Promise<number> {
-    if (typeof this.manager.readQueueProjectionSnapshot !== 'function') {
+    if (typeof this.manager.readQueueProjection !== 'function') {
       throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} queue projection snapshot reader unavailable`);
     }
 
     try {
-      const snapshot = await this.manager.readQueueProjectionSnapshot(queueType, { forceRefresh });
-      if (!snapshot) {
-        throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: ${queueId} queue projection snapshot unavailable`);
+      const result = await this.manager.readQueueProjection({ type: 'snapshot', queueType });
+      if (result.type !== 'snapshot' || result.status !== 'ready' || !result.snapshot) {
+        const status = result.type === 'snapshot' ? result.status : 'unavailable';
+        throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: ${queueId} queue projection snapshot ${status}`);
       }
-      return this.resolveProjectionVisibleCount(snapshot);
+      return this.resolveProjectionVisibleCount(result.snapshot);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       const unavailable = new Error(

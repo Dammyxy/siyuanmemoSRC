@@ -76,14 +76,37 @@ function createProjectionBackedManager(scopedCard: FSRSCard, projectedCard: FSRS
     [scopedCard.id, scopedCard],
     [projectedCard.id, projectedCard],
   ]);
-  const readQueueProjectionSnapshot = vi.fn(async () => ({
-    queueType: QueueType.FilterGroup,
-    policyHash: 'global-filter-group-projection',
-    generation: 1,
-    rows: [buildQueueSnapshotRow(projectedCard, { queueIndex: 1 })],
-    counters: createCounterSnapshot([projectedCard]),
-  }));
-  const getQueueProjectionCardsBySnapshotIds = vi.fn(async () => [{ ...projectedCard }]);
+  const readQueueProjection = vi.fn(async (request: {
+    type: 'snapshot' | 'rows-by-id';
+  }) => request.type === 'snapshot'
+    ? {
+        type: 'snapshot',
+        status: 'ready',
+        readiness: {
+          status: 'ready',
+          queueId: QueueType.FilterGroup,
+          policyId: 'global-filter-group-projection',
+          generation: 1,
+        },
+        snapshot: {
+          queueType: QueueType.FilterGroup,
+          policyHash: 'global-filter-group-projection',
+          generation: 1,
+          rows: [buildQueueSnapshotRow(projectedCard, { queueIndex: 1 })],
+          counters: createCounterSnapshot([projectedCard]),
+        },
+      }
+    : {
+        type: 'rows-by-id',
+        status: 'ready',
+        readiness: {
+          status: 'ready',
+          queueId: QueueType.FilterGroup,
+          policyId: 'global-filter-group-projection',
+          generation: 1,
+        },
+        cards: [{ ...projectedCard }],
+      });
 
   return {
     getCards: vi.fn(async (filter?: { blockIds?: string[] }) => {
@@ -119,8 +142,7 @@ function createProjectionBackedManager(scopedCard: FSRSCard, projectedCard: FSRS
         }]
         : []
     )),
-    readQueueProjectionSnapshot,
-    getQueueProjectionCardsBySnapshotIds,
+    readQueueProjection,
     commitReview: vi.fn(async ({ cardId, rating }: { cardId: string; rating: number }) => {
       const card = cardsById.get(cardId);
       if (!card) {
@@ -220,6 +242,24 @@ describe('UnifiedQueueStrategy static subset projection policy', () => {
       getQueue: vi.fn(() => queue),
       registerObserver: vi.fn(),
       unregisterObserver: vi.fn(),
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => ({
+          reviewSessionStart: vi.fn(async () => ({
+            sessionId: 'runtime-session',
+            queueType: QueueType.RetrievalPractice,
+            current: cards[0],
+            lookaheadCards: [cards[1]],
+            counters: createCounterSnapshot(cards),
+            projectionState: 'ready',
+            projectionGeneration: 1,
+            projectionPolicyHash: 'runtime-policy',
+          })),
+          reviewSessionCurrent: vi.fn(),
+          reviewSessionFeedback: vi.fn(),
+          reviewSessionSkip: vi.fn(),
+          reviewSessionUndo: vi.fn(),
+        }),
+      })),
       getQueueProjectionRolloutDiagnostics: vi.fn((queueType?: QueueType) => (
         queueType === QueueType.RetrievalPractice
           ? [{
@@ -249,13 +289,13 @@ describe('UnifiedQueueStrategy static subset projection policy', () => {
       size: 2,
       label: '2 due',
     });
-    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(queue.getCards).not.toHaveBeenCalled();
     expect(queue.getCounterSnapshot).not.toHaveBeenCalled();
 
     strategy.cleanup();
   });
 
-  it('keeps mutable filter-group review on the live filtered queue instead of stale projection rows', async () => {
+  it('uses projection-backed filter-group rows for mutable global review', async () => {
     const projectedItem = createCard('projected-item', 'projected-block', CardType.Item);
     const filteredConcept = createCard('filtered-concept', 'concept-block', CardType.Concept);
     const manager = createProjectionBackedManager(filteredConcept, projectedItem);
@@ -276,13 +316,11 @@ describe('UnifiedQueueStrategy static subset projection policy', () => {
 
     const next = await strategy.next();
 
-    expect(next?.id).toBe(filteredConcept.id);
-    expect(manager.getCards).toHaveBeenCalledWith(expect.objectContaining({
-      cardType: CardType.Concept,
-      includeSuspended: false,
-    }));
-    expect(manager.readQueueProjectionSnapshot).not.toHaveBeenCalled();
-    expect(manager.getQueueProjectionCardsBySnapshotIds).not.toHaveBeenCalled();
+    expect(next?.id).toBe(projectedItem.id);
+    expect(manager.readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType: QueueType.FilterGroup,
+    });
 
     strategy.cleanup();
   });
@@ -306,8 +344,7 @@ describe('UnifiedQueueStrategy static subset projection policy', () => {
 
     expect(queue.getType()).toBe(QueueType.FilterGroup);
     expect(next?.id).toBe(scopedCard.id);
-    expect(manager.readQueueProjectionSnapshot).not.toHaveBeenCalled();
-    expect(manager.getQueueProjectionCardsBySnapshotIds).not.toHaveBeenCalled();
+    expect(manager.readQueueProjection).not.toHaveBeenCalled();
 
     strategy.cleanup();
   });
@@ -341,9 +378,8 @@ describe('UnifiedQueueStrategy static subset projection policy', () => {
         queueType: QueueType.FilterGroup,
       }),
     }));
-    expect(getCardsBySnapshotIds).not.toHaveBeenCalled();
-    expect(manager.readQueueProjectionSnapshot).not.toHaveBeenCalled();
-    expect(manager.getQueueProjectionCardsBySnapshotIds).not.toHaveBeenCalled();
+    expect(getCardsBySnapshotIds).toHaveBeenCalledWith([scopedCard.id], true);
+    expect(manager.readQueueProjection).not.toHaveBeenCalled();
     expect(next).toBeNull();
 
     strategy.cleanup();

@@ -16,6 +16,7 @@ import type {
 import { createLogger } from '@/utils/logger';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 import { assertCommittedReviewFeedbackDurability } from '@/application/clients/reviewFeedbackDurability';
+import { mapReviewProjectionReceipt } from './ReviewProjectionReceipt';
 
 const logger = createLogger('ReviewCommitUseCase');
 const REVIEW_COMMIT_STEP_SLOW_MS = 500;
@@ -269,11 +270,16 @@ export class ReviewCommitUseCase {
     });
     const updatedCard = normalizeWorkerUpdatedCard(result.updatedCard, command.cardId);
     this.scheduleArenaReviewRecord(updatedCard, rating, context);
+    const projectionReceipt = mapReviewProjectionReceipt(
+      normalizeOptionalString(context.queueType),
+      result.queueImpact,
+    );
     return {
       card: updatedCard,
       updatedCard,
       committed: result.committed,
       queueImpact: result.queueImpact ?? null,
+      ...projectionReceipt,
     };
   }
 

@@ -174,7 +174,15 @@ import { FollowerCommandClient } from '@/application/clients/FollowerCommandClie
 import {
   createApplicationBackendRuntimeBundle,
   type ApplicationBackendRuntimeTransport,
+  type CreateApplicationBackendRuntimeBundleOptions,
 } from '@/application/factories/createApplicationBackendRuntimeBundle';
+import {
+  BrowserQueueRuntimeAccess,
+  IntegrationRuntimeAccess,
+  ProgressiveRuntimeAccess,
+  ReviewRuntimeAccess,
+  createBindOnceCallbackPort,
+} from '@/application/runtime-access';
 import { PrivateApiClient } from '@/application/clients/PrivateApiClient';
 import { SemanticActivationCommandClient } from '@/application/clients/SemanticActivationCommandClient';
 import { SemanticActivationBrowserReadClient } from '@/application/clients/SemanticActivationBrowserReadClient';
@@ -375,6 +383,11 @@ export class ApplicationContext {
   private readonly backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
   private readonly backendStartupError: string | null;
   private readonly autoCardKernelXiuyuanServiceBundle: AutoCardKernelXiuyuanServiceBundle;
+  private readonly reviewRuntimeAccess: ReviewRuntimeAccess;
+  private readonly browserQueueRuntimeAccess: BrowserQueueRuntimeAccess;
+  private readonly progressiveRuntimeAccess: ProgressiveRuntimeAccess;
+  private readonly integrationRuntimeAccess: IntegrationRuntimeAccess;
+  private readonly bootstrapCallbackPorts: Array<{ dispose(): void }>;
   
   // ========================================================================
   // 服务容器
@@ -458,6 +471,9 @@ export class ApplicationContext {
       kernelSidecarClient: KernelSidecarClient;
       backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
       backendStartupError?: string | null;
+      progressiveRuntimeAccess: ProgressiveRuntimeAccess;
+      integrationRuntimeAccess: IntegrationRuntimeAccess;
+      bootstrapCallbackPorts: Array<{ dispose(): void }>;
     }
   ) {
     this.config = config;
@@ -476,6 +492,28 @@ export class ApplicationContext {
     this.kernelSidecarClient = services.kernelSidecarClient;
     this.backendMigrationRuntimePolicy = services.backendMigrationRuntimePolicy;
     this.backendStartupError = services.backendStartupError ?? null;
+    this.progressiveRuntimeAccess = services.progressiveRuntimeAccess;
+    this.integrationRuntimeAccess = services.integrationRuntimeAccess;
+    this.bootstrapCallbackPorts = services.bootstrapCallbackPorts;
+    this.reviewRuntimeAccess = new ReviewRuntimeAccess({
+      reviewService: () => this.getService('reviewService'),
+      backendClient: () => this.srsBackendClient,
+      unifiedStorage: () => this.unifiedStorageManager,
+      unifiedDataSourceManager: () => this.unifiedDataSourceManager,
+      scheduler: () => this.schedulerRouter,
+      settingsService: () => this.getService('settingsService'),
+      frontendInstanceRuntime: () => this.frontendInstanceRuntime,
+      followerCommandClient: () => this.followerCommandClient,
+    });
+    this.browserQueueRuntimeAccess = new BrowserQueueRuntimeAccess({
+      browserService: () => this.getService('browserService'),
+      backendClient: () => this.srsBackendClient,
+      unifiedStorage: () => this.unifiedStorageManager,
+      unifiedDataSourceManager: () => this.unifiedDataSourceManager,
+      frontendInstanceRuntime: () => this.frontendInstanceRuntime,
+      followerCommandClient: () => this.followerCommandClient,
+      browserDeckReadPort: () => this.sqlPersistence?.unified ?? null,
+    });
     this.autoCardKernelXiuyuanServiceBundle = createAutoCardKernelXiuyuanServiceBundle({
       plugin: this.config.plugin,
       getUnifiedStorage: () => this.unifiedStorageManager,
@@ -629,28 +667,17 @@ export class ApplicationContext {
         },
       },
       browser: {
-        getUnifiedStorage: () => this.getUnifiedStorage(),
-        getUnifiedDataSourceManager: () => this.getUnifiedDataSourceManager(),
-        getSrsBackendClient: () => this.srsBackendClient,
-        getFrontendInstanceRuntime: () => this.frontendInstanceRuntime,
-        getFollowerCommandClient: () => this.followerCommandClient,
-        getBrowserDeckReadPort: () => this.sqlPersistence?.unified ?? null,
+        runtimeAccess: this.browserQueueRuntimeAccess,
         createBrowserAdvancedSqlQuerySource: () => new BrowserAdvancedSqlQuerySourceSiyuanAdapter(new QuerySiyuanAdapter()),
         createBrowserSiyuanPort: () => new BrowserSiyuanAdapter(),
         createBrowserQuerySiyuanPort: () => new QuerySiyuanAdapter(),
       },
       review: {
-        getUnifiedStorage: () => this.getUnifiedStorage(),
-        getUnifiedDataSourceManager: () => this.getUnifiedDataSourceManager(),
-        getScheduler: () => this.getScheduler(),
-        getSrsBackendClient: () => this.srsBackendClient,
-        getFrontendInstanceRuntime: () => this.frontendInstanceRuntime,
-        getFollowerCommandClient: () => this.followerCommandClient,
+        runtimeAccess: this.reviewRuntimeAccess,
         createReviewSiyuanPort: () => new ReviewSiyuanAdapter(),
       },
       cardEditor: {
-        getUnifiedDataSourceManager: () => this.getUnifiedDataSourceManager(),
-        getReviewService: () => this.getReviewService(),
+        runtimeAccess: this.reviewRuntimeAccess,
       },
       srsTransparency: {
         getScheduler: () => this.getScheduler(),
@@ -1501,65 +1528,57 @@ export class ApplicationContext {
     );
     const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
 
-    let contextRef: ApplicationContext | null = null;
+    type AutoCardHostCallback = CreateApplicationBackendRuntimeBundleOptions['executeAutoCard'];
+    type AutoCardBatchHostCallback = NonNullable<
+      CreateApplicationBackendRuntimeBundleOptions['executeAutoCardBatch']
+    >;
+    type ProgressiveHostCallback = NonNullable<
+      CreateApplicationBackendRuntimeBundleOptions['executeProgressiveCommand']
+    >;
+    type TopicDerivedHostCallback = NonNullable<
+      CreateApplicationBackendRuntimeBundleOptions['executeTopicDerivedCommand']
+    >;
+    const autoCardExecutePort = createBindOnceCallbackPort<
+      Parameters<AutoCardHostCallback>,
+      ReturnType<AutoCardHostCallback>
+    >('backend-host.autocard.execute');
+    const autoCardBatchExecutePort = createBindOnceCallbackPort<
+      Parameters<AutoCardBatchHostCallback>,
+      ReturnType<AutoCardBatchHostCallback>
+    >('backend-host.autocard.execute-batch');
+    const topicDerivedExecutePort = createBindOnceCallbackPort<
+      Parameters<TopicDerivedHostCallback>,
+      ReturnType<TopicDerivedHostCallback>
+    >('backend-host.topic-derived.execute');
+    const kernelTransactionIngestedPort = createBindOnceCallbackPort<[], void>(
+      'backend-host.kernel-transaction-ingested',
+    );
+    const openCreateTemplateCardDialogPort = createBindOnceCallbackPort<
+      Parameters<DialogManager['openCreateTemplateCardDialog']>,
+      ReturnType<DialogManager['openCreateTemplateCardDialog']>
+    >('integration.open-create-template-card-dialog');
+    const openNeuralRoamDialogPort = createBindOnceCallbackPort<
+      Parameters<DialogManager['openNeuralRoamDialog']>,
+      ReturnType<DialogManager['openNeuralRoamDialog']>
+    >('integration.open-neural-roam-dialog');
+    const progressiveRuntimeAccess = new ProgressiveRuntimeAccess<
+      Parameters<ProgressiveHostCallback>[0],
+      Awaited<ReturnType<ProgressiveHostCallback>>
+    >();
+    const integrationRuntimeAccess = new IntegrationRuntimeAccess();
     const backendRuntimeBundle = await createApplicationBackendRuntimeBundle({
       config,
       fileService,
       unifiedDataSourceManager,
-      executeAutoCard: async (request) => {
-        if (!contextRef) {
-          throw new Error('SrsBackendWorker autocard.execute unavailable: application context is not ready');
-        }
-        const autoCardHandler = contextRef.getAutoCardBackendExecutionHandler();
-        if (!autoCardHandler) {
-          throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
-        }
-        return contextRef.runAutoCardBackendExecution(() => autoCardHandler.executeEnvelopeFromBackend(request));
-      },
-      executeAutoCardBatch: async (request) => {
-        if (!contextRef) {
-          throw new Error('SrsBackendWorker autocard.executeBatch unavailable: application context is not ready');
-        }
-        const autoCardHandler = contextRef.getAutoCardBackendExecutionHandler();
-        if (!autoCardHandler) {
-          throw new Error('SrsBackendWorker autocard.executeBatch unavailable: auto-card handler is not active');
-        }
-        return contextRef.runAutoCardBackendExecution(() => autoCardHandler.executeBatchFromBackend(request));
-      },
-      executeProgressiveCommand: async (request) => {
-        if (!contextRef) {
-          throw new Error('SrsBackendWorker progressive.command.execute unavailable: application context is not ready');
-        }
-        return contextRef.getProgressiveReadingService().executeFromBackend(request);
-      },
-      executeTopicDerivedCommand: async (request) => {
-        if (!contextRef) {
-          throw new Error('SrsBackendWorker topic-derived.command.execute unavailable: application context is not ready');
-        }
-        return contextRef.getTopicDerivedItemService().executeFromBackend(request);
-      },
+      executeAutoCard: (...args) => autoCardExecutePort.invoke(...args),
+      executeAutoCardBatch: (...args) => autoCardBatchExecutePort.invoke(...args),
+      executeProgressiveCommand: async (request) => (
+        progressiveRuntimeAccess.executeProgressiveCommand(request)
+      ),
+      executeTopicDerivedCommand: (...args) => topicDerivedExecutePort.invoke(...args),
       executeWriterRelayCommand,
-      executeAgentTool: async (request) => {
-        if (!contextRef) {
-          return buildAgentValidationErrorResult('agent.tool.execute unavailable: application context is not ready');
-        }
-        const tool = request.tool;
-        if (!isAgentToolName(tool)) {
-          return buildAgentValidationErrorResult('agent.tool.execute requires supported SiYuanMemo tool');
-        }
-        const args = request.args && typeof request.args === 'object'
-          ? request.args as Record<string, unknown>
-          : {};
-        const source = request.source === 'frontend' || request.source === 'writer-relay' || request.source === 'test'
-          ? request.source
-          : 'mcp';
-        return contextRef.getAgentToolService().execute({
-          tool: tool as AgentToolName,
-          args,
-          source,
-        });
-      },
-      notifyKernelTransactionIngested: () => contextRef?.kernelTransactionActionPump?.notifyActivity('relay-ingest'),
+      executeAgentTool: async (request) => integrationRuntimeAccess.executeAgentTool(request),
+      notifyKernelTransactionIngested: () => kernelTransactionIngestedPort.invoke(),
       kernelSidecarClient: new KernelSidecarClient(new SiyuanKernelCompanionAdapter()),
       createBlockExistenceSiyuanPort: () => new QuerySiyuanAdapter(),
       createNeuralRoamGraphQuery: (deps) => new SiyuanNeuralRoamGraphQueryAdapter(deps),
@@ -1593,29 +1612,12 @@ export class ApplicationContext {
     const blockMenuHandler = new BlockMenuHandler({
       app: config.plugin.app,
       i18n: config.i18n,
-      dialogManager: undefined as unknown as DialogManager, // 将在 ApplicationContext 创建后设置
       cardCreationHelper: cardCreationHelper,  // ✅ 注入 CardCreationHelper
       siyuanApi: new ManagerSiyuanAdapter(),
       hostBlockQuery: new HostBlockQuerySiyuanAdapter(),
-      openCreateTemplateCardDialog: async (blockIds) => {
-        // 使用闭包延迟获取 DialogManager
-        if (contextRef) {
-          const dialogManager = contextRef.getDialogManager();
-          if (dialogManager) {
-            await dialogManager.openCreateTemplateCardDialog(blockIds);
-          }
-        }
-      },
-      openNeuralReviewDialog: async (options) => {
-        // 使用闭包延迟获取 DialogManager
-        if (contextRef) {
-          const dialogManager = contextRef.getDialogManager();
-          if (dialogManager) {
-            await dialogManager.openNeuralRoamDialog(options);
-          }
-        }
-      },
-      applicationContext: undefined as unknown as ApplicationContext, // 🆕 将在 ApplicationContext 创建后设置
+      openCreateTemplateCardDialog: (...args) => openCreateTemplateCardDialogPort.invoke(...args),
+      openNeuralReviewDialog: (...args) => openNeuralRoamDialogPort.invoke(...args),
+      runtimeAccess: integrationRuntimeAccess,
     });
     
     logger.info('[ApplicationContext] ✅ BlockMenuHandler initialized');
@@ -1638,22 +1640,79 @@ export class ApplicationContext {
       kernelSidecarClient,
       backendMigrationRuntimePolicy,
       backendStartupError,
+      progressiveRuntimeAccess,
+      integrationRuntimeAccess,
+      bootstrapCallbackPorts: [
+        autoCardExecutePort,
+        autoCardBatchExecutePort,
+        topicDerivedExecutePort,
+        kernelTransactionIngestedPort,
+        openCreateTemplateCardDialogPort,
+        openNeuralRoamDialogPort,
+      ],
     });
     
-    // 设置 context 引用（用于 blockMenuHandler 的闭包）
     context.serviceContainer.set('fileService', fileService);
     context.serviceContainer.set('reviewLogService', reviewLogService);
     context.serviceContainer.set('cardTypeDetectionService', cardTypeDetectionServiceTemp);
-    contextRef = context;
+    autoCardExecutePort.bind(async (request) => {
+      const autoCardHandler = context.getAutoCardBackendExecutionHandler();
+      if (!autoCardHandler) {
+        throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
+      }
+      return context.runAutoCardBackendExecution(
+        () => autoCardHandler.executeEnvelopeFromBackend(request),
+      );
+    });
+    autoCardBatchExecutePort.bind(async (request) => {
+      const autoCardHandler = context.getAutoCardBackendExecutionHandler();
+      if (!autoCardHandler) {
+        throw new Error('SrsBackendWorker autocard.executeBatch unavailable: auto-card handler is not active');
+      }
+      return context.runAutoCardBackendExecution(
+        () => autoCardHandler.executeBatchFromBackend(request),
+      );
+    });
+    progressiveRuntimeAccess.bindExecuteProgressiveCommand(
+      (request) => context.getProgressiveReadingService().executeFromBackend(request),
+    );
+    topicDerivedExecutePort.bind(
+      (request) => context.getTopicDerivedItemService().executeFromBackend(request),
+    );
+    integrationRuntimeAccess.bindExecuteAgentTool(async (request) => {
+      const tool = request.tool;
+      if (!isAgentToolName(tool)) {
+        return buildAgentValidationErrorResult(
+          'agent.tool.execute requires supported SiYuanMemo tool',
+        );
+      }
+      const args = request.args && typeof request.args === 'object'
+        ? request.args as Record<string, unknown>
+        : {};
+      const source = request.source === 'frontend'
+        || request.source === 'writer-relay'
+        || request.source === 'test'
+        ? request.source
+        : 'mcp';
+      return context.getAgentToolService().execute({
+        tool: tool as AgentToolName,
+        args,
+        source,
+      });
+    });
+    kernelTransactionIngestedPort.bind(
+      () => context.kernelTransactionActionPump?.notifyActivity('relay-ingest'),
+    );
+    openCreateTemplateCardDialogPort.bind(
+      (blockIds) => context.getDialogManager().openCreateTemplateCardDialog(blockIds),
+    );
+    openNeuralRoamDialogPort.bind(
+      (options) => context.getDialogManager().openNeuralRoamDialog(options),
+    );
     
     // ✅ 存储 deletionTracker 到 context（供 cardService 工厂复用）
     context.deletionTracker = deletionTracker;
     logger.info('[ApplicationContext] Stored deletionTracker to context');
-    
-    // 13. 设置 ApplicationContext 和 DialogManager 引用（解决循环依赖）
-    blockMenuHandler.setApplicationContext(context);
-    const blockMenuHandlerDeps = blockMenuHandler as unknown as { deps: { dialogManager: DialogManager } };
-    blockMenuHandlerDeps.deps.dialogManager = context.getDialogManager();
     
     // 13.5. 初始化 UnifiedDataSourceManager 的延迟依赖
     const settingsService = context.getSettingsService();
@@ -1661,6 +1720,20 @@ export class ApplicationContext {
     // 🔧 修复：初始化 SettingsService（加载配置文件）
     await measureRuntimePerformance('startup', 'settings-service.init', () => settingsService.init());
     logger.info('[ApplicationContext] ✅ SettingsService initialized');
+    integrationRuntimeAccess.bindRuntime({
+      plugin: context.getPlugin(),
+      storage: context.getStorage(),
+      cardService: context.getCardService(),
+      unifiedDataSourceManager: context.getUnifiedDataSourceManager(),
+      neuralRoamEntryActionService: context.getNeuralRoamEntryActionService(),
+      xiuyuanApplicationService: context.getXiuyuanApplicationService(),
+      reviewService: context.getReviewService(),
+      docTreeReviewScopeService: context.getDocTreeReviewScopeService(),
+      selectionExcerptService: context.getSelectionExcerptService(),
+      selectionTopicContinuationService: context.getSelectionTopicContinuationService(),
+      settingsService,
+      dialogManager: context.getDialogManager(),
+    });
 
     const startupConflictStrategy = settingsService.getSettings().storageConflictResolution;
     unifiedStorageManager.setConflictResolutionStrategy(startupConflictStrategy);
@@ -2171,6 +2244,11 @@ export class ApplicationContext {
   getBrowserService(): BrowserApplicationService {
     return this.getService('browserService');
   }
+
+  getBrowserQueueRuntimeAccess(): BrowserQueueRuntimeAccess {
+    this.ensureNotDisposed();
+    return this.browserQueueRuntimeAccess;
+  }
   
   /**
    * 获取复习应用服务
@@ -2179,6 +2257,21 @@ export class ApplicationContext {
    */
   getReviewService(): ReviewApplicationService {
     return this.getService('reviewService');
+  }
+
+  getReviewRuntimeAccess(): ReviewRuntimeAccess {
+    this.ensureNotDisposed();
+    return this.reviewRuntimeAccess;
+  }
+
+  getProgressiveRuntimeAccess(): ProgressiveRuntimeAccess {
+    this.ensureNotDisposed();
+    return this.progressiveRuntimeAccess;
+  }
+
+  getIntegrationRuntimeAccess(): IntegrationRuntimeAccess {
+    this.ensureNotDisposed();
+    return this.integrationRuntimeAccess;
   }
 
   getAgentToolService(): AgentToolService {
@@ -2735,6 +2828,14 @@ export class ApplicationContext {
       
       // 4. 销毁所有已创建的服务（按创建顺序的逆序）
       await this.disposeServices(errors);
+
+      this.reviewRuntimeAccess.dispose();
+      this.browserQueueRuntimeAccess.dispose();
+      this.progressiveRuntimeAccess.dispose();
+      this.integrationRuntimeAccess.dispose();
+      for (const callbackPort of this.bootstrapCallbackPorts) {
+        callbackPort.dispose();
+      }
       
       // 5. Save storage data only when explicitly allowed
       if (shouldPersistStorage) {

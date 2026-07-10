@@ -101,6 +101,40 @@ function createProjectionCounters(total: number) {
   };
 }
 
+async function readProjectionReadiness(
+  manager: UnifiedDataSourceManager,
+  request: Parameters<UnifiedDataSourceManager['readQueueProjection']>[0] & { type: 'readiness' },
+) {
+  const result = await manager.readQueueProjection(request);
+  if (result.type !== 'readiness') {
+    throw new Error(`expected readiness result, received ${result.type}`);
+  }
+  return result.readiness;
+}
+
+async function readProjectionSnapshot(
+  manager: UnifiedDataSourceManager,
+  queueType: QueueType,
+) {
+  const result = await manager.readQueueProjection({ type: 'snapshot', queueType });
+  if (result.type !== 'snapshot') {
+    throw new Error(`expected snapshot result, received ${result.type}`);
+  }
+  return result.snapshot;
+}
+
+async function readProjectionCards(
+  manager: UnifiedDataSourceManager,
+  queueType: QueueType,
+  ids: string[],
+) {
+  const result = await manager.readQueueProjection({ type: 'rows-by-id', queueType, ids });
+  if (result.type !== 'rows-by-id') {
+    throw new Error(`expected rows-by-id result, received ${result.type}`);
+  }
+  return result.cards;
+}
+
 describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => {
   beforeEach(() => {
     UnifiedDataSourceManager.resetInstance();
@@ -352,9 +386,12 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     };
     manager.setAdvancedRouter(createRouterWithBackend(backend));
 
-    await expect(manager.ensureQueueProjectionReady({
-      queueType: QueueType.RetrievalPractice,
-      source: 'browser',
+    await expect(readProjectionReadiness(manager, {
+      type: 'readiness',
+      request: {
+        queueType: QueueType.RetrievalPractice,
+        source: 'browser',
+      },
     })).resolves.toEqual({
       status: 'ready',
       queueId: QueueType.RetrievalPractice,
@@ -387,9 +424,18 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       getCards: vi.fn(async () => [createCard()]),
     } as unknown as IDataRouter);
 
-    await expect(manager.ensureQueueProjectionReady({
+    void manager.repairQueueProjection({
+      type: 'materialize',
       queueType: QueueType.FilterGroup,
-      source: 'browser',
+      reason: 'test-in-flight',
+    });
+
+    await expect(readProjectionReadiness(manager, {
+      type: 'readiness',
+      request: {
+        queueType: QueueType.FilterGroup,
+        source: 'browser',
+      },
     })).resolves.toMatchObject({
       status: 'refreshing',
       queueId: QueueType.FilterGroup,
@@ -411,7 +457,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       rolloutState: (queueType) => queueType === QueueType.FilterGroup ? 'existing-queue-strategy' : null,
     }));
 
-    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+    await expect(readProjectionSnapshot(manager, QueueType.FilterGroup)).resolves.toBeNull();
 
     expect(backend.queueProjectionSnapshot).not.toHaveBeenCalled();
     expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
@@ -438,7 +484,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     const manager = UnifiedDataSourceManager.getInstance();
     manager.setAdvancedRouter(createRouterWithBackend(backend));
 
-    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toMatchObject({
+    await expect(readProjectionSnapshot(manager, QueueType.FilterGroup)).resolves.toMatchObject({
       queueType: QueueType.FilterGroup,
       policyHash: 'filter-policy',
       generation: 2,
@@ -487,7 +533,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
 
     await manager.onCardsDeleted([deletedCard.id], [deletedCard.blockId]);
 
-    const snapshot = await manager.readQueueProjectionSnapshot(QueueType.RetrievalPractice);
+    const snapshot = await readProjectionSnapshot(manager, QueueType.RetrievalPractice);
     expect(snapshot?.rows.map((row) => row.fsrsCardId)).toEqual([activeCard.id]);
     expect(snapshot?.counters).toMatchObject({
       total: 1,
@@ -497,7 +543,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     });
   });
 
-  it('fails closed when backend projection snapshot read throws', async () => {
+  it('returns typed unavailable when backend projection snapshot read throws', async () => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => {
         throw new Error('projection rpc down');
@@ -506,8 +552,18 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     const manager = UnifiedDataSourceManager.getInstance();
     manager.setAdvancedRouter(createRouterWithBackend(backend));
 
-    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup))
-      .rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+    await expect(manager.readQueueProjection({
+      type: 'snapshot',
+      queueType: QueueType.FilterGroup,
+    })).resolves.toMatchObject({
+      type: 'snapshot',
+      status: 'unavailable',
+      snapshot: null,
+      readiness: {
+        status: 'unavailable',
+        cause: 'backend_unavailable',
+      },
+    });
 
     expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
       expect.objectContaining({
@@ -515,14 +571,22 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
         projectionBacked: true,
         state: 'projection-unavailable',
         readPath: 'backend-projection',
-        reason: 'projection-unavailable',
-        unavailableReason: 'projection rpc down',
+        reason: 'refresh-required',
+        unavailableReason: 'backend_unavailable',
       }),
     ]);
   });
 
-  it('fails closed when backend projection row hydration throws', async () => {
+  it('returns typed unavailable when backend projection row hydration throws', async () => {
     const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'ready',
+        rows: [],
+        counters: null,
+        policyHash: 'filter-policy',
+        generation: 2,
+      })),
       queueProjectionRowsByIds: vi.fn(async () => {
         throw new Error('row hydration down');
       }),
@@ -530,8 +594,11 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     const manager = UnifiedDataSourceManager.getInstance();
     manager.setAdvancedRouter(createRouterWithBackend(backend));
 
-    await expect(manager.getQueueProjectionCardsBySnapshotIds(QueueType.FilterGroup, ['row-a']))
-      .rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+    await expect(manager.readQueueProjection({
+      type: 'rows-by-id',
+      queueType: QueueType.FilterGroup,
+      ids: ['row-a'],
+    })).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
 
     expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
       expect.objectContaining({
@@ -549,7 +616,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     const manager = UnifiedDataSourceManager.getInstance();
     manager.setAdvancedRouter(createRouterWithBackend(null));
 
-    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+    await expect(readProjectionSnapshot(manager, QueueType.FilterGroup)).resolves.toBeNull();
 
     expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
       expect.objectContaining({
@@ -557,15 +624,15 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
         projectionBacked: true,
         state: 'projection-unavailable',
         readPath: 'backend-projection',
-        reason: 'backend-unavailable',
-        unavailableReason: 'backend-unavailable',
+        reason: 'refresh-required',
+        unavailableReason: 'backend_unavailable',
       }),
     ]);
   });
 
   it.each([
-    ['missing policy hash', { status: 'ready', policyHash: null, generation: 2 }, 'refresh-required'],
-    ['missing generation', { status: 'ready', policyHash: 'filter-policy', generation: null }, 'refresh-required'],
+    ['missing policy hash', { status: 'ready', policyHash: null, generation: 2 }, 'materialization_in_progress'],
+    ['missing generation', { status: 'ready', policyHash: 'filter-policy', generation: null }, 'materialization_in_progress'],
     ['invalidated status', { status: 'invalidated', policyHash: 'filter-policy', generation: 2 }, 'materialization_in_progress'],
   ])('reports projection refresh diagnostics for a promoted deferred queue with %s', async (_name, result, unavailableReason) => {
     const backend = {
@@ -578,7 +645,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     const manager = UnifiedDataSourceManager.getInstance();
     manager.setAdvancedRouter(createRouterWithBackend(backend));
 
-    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+    await expect(readProjectionSnapshot(manager, QueueType.FilterGroup)).resolves.toBeNull();
 
     expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
       expect.objectContaining({
@@ -625,9 +692,12 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       getCards: vi.fn(async () => [createCard()]),
     } as unknown as IDataRouter);
 
-    await expect(manager.ensureQueueProjectionReady({
-      queueType: QueueType.FilterGroup,
-      source: 'browser',
+    await expect(readProjectionReadiness(manager, {
+      type: 'readiness',
+      request: {
+        queueType: QueueType.FilterGroup,
+        source: 'browser',
+      },
     })).resolves.toMatchObject({
       status: 'refreshing',
       queueId: QueueType.FilterGroup,
@@ -737,7 +807,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     });
     manager.setAdvancedRouter(createRouterWithBackend(backend) as unknown as IDataRouter);
 
-    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+    await expect(readProjectionSnapshot(manager, QueueType.FilterGroup)).resolves.toBeNull();
 
     expect(backend.queueProjectionSnapshot).toHaveBeenCalledTimes(1);
     expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
@@ -782,7 +852,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       }),
     } as unknown as IDataRouter);
 
-    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+    await expect(readProjectionSnapshot(manager, QueueType.FilterGroup)).resolves.toBeNull();
 
     expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
   });
@@ -825,18 +895,23 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       }),
     } as unknown as IDataRouter);
 
-    const snapshot = await manager.readQueueProjectionSnapshot(QueueType.FilterGroup);
+    const snapshot = await readProjectionSnapshot(manager, QueueType.FilterGroup);
     expect(snapshot).toBeNull();
-    await expect(manager.getQueueProjectionCardsBySnapshotIds(QueueType.FilterGroup, ['follower-echo-card']))
+    await expect(readProjectionCards(manager, QueueType.FilterGroup, ['follower-echo-card']))
       .resolves.toEqual([]);
-    expect(backend.queueProjectionRowsByIds).toHaveBeenCalledWith({
-      queueType: QueueType.FilterGroup,
-      ids: ['follower-echo-card'],
-    });
+    expect(backend.queueProjectionRowsByIds).not.toHaveBeenCalled();
   });
 
-  it('repairs stale row hydration through explicit backend materialization', async () => {
+  it('keeps stale row hydration passive until explicit backend materialization', async () => {
     const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'ready',
+        rows: [],
+        counters: null,
+        policyHash: 'filter-policy',
+        generation: 2,
+      })),
       queueProjectionRowsByIds: vi.fn(async () => ({
         queueType: QueueType.FilterGroup,
         status: 'invalidated',
@@ -875,7 +950,8 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       ...createRouterWithBackend(backend),
     } as unknown as IDataRouter);
 
-    await expect(manager.getQueueProjectionCardsBySnapshotIds(
+    await expect(readProjectionCards(
+      manager,
       QueueType.FilterGroup,
       ['stale-row-card'],
     )).resolves.toEqual([]);
@@ -883,18 +959,35 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       queueType: QueueType.FilterGroup,
       ids: ['stale-row-card'],
     }));
-    expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
+
+    await expect(manager.repairQueueProjection({
+      type: 'refresh',
+      queueType: QueueType.FilterGroup,
+      reason: 'row-hydration-refresh',
+    })).resolves.toMatchObject({
+      status: 'ready',
       queueType: QueueType.FilterGroup,
       policyHash: 'filter-policy',
       generation: 3,
+    });
+    expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'filter-group:materialized:v1',
+      generation: 1,
       reason: 'row-hydration-refresh',
     }));
     expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
       expect.objectContaining({
         queueType: QueueType.FilterGroup,
         projectionBacked: true,
-        state: 'backend-projection',
+        state: 'projection-unavailable',
         readPath: 'backend-projection',
+        reason: 'refresh-required',
+        unavailableReason: 'materialization_in_progress',
+        backendStatus: 'invalidated',
+        policyHash: 'filter-policy',
+        generation: 2,
       }),
     ]);
   });
@@ -913,11 +1006,14 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     const manager = UnifiedDataSourceManager.getInstance();
     manager.setAdvancedRouter(createRouterWithBackend(backend));
     const events: unknown[] = [];
-    const unsubscribe = manager.subscribeQueueProjectionLiveIdentityEvents((event) => events.push(event));
+    const unsubscribe = manager.observeQueueProjection((event) => events.push(event));
 
-    await manager.ensureQueueProjectionReady({
-      queueType: QueueType.FilterGroup,
-      source: 'browser',
+    await readProjectionReadiness(manager, {
+      type: 'readiness',
+      request: {
+        queueType: QueueType.FilterGroup,
+        source: 'browser',
+      },
     });
     unsubscribe();
     manager.invalidateQueue(QueueType.FilterGroup);

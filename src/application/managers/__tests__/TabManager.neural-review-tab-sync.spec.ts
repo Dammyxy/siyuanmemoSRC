@@ -72,6 +72,28 @@ function createManager() {
       subscribe: vi.fn(),
     })),
     getSchedulerRouter: vi.fn(),
+    getReviewAdmissionModule: vi.fn(() => ({
+      admitReviewSession: vi.fn(async ({ target }: {
+        target: { kind: string; queueType: QueueType; entrySurface: string };
+      }) => ({
+        queueType: target.queueType,
+        entrySurface: target.entrySurface,
+        entryTargetIdentity: `${target.kind}:${target.queueType}:${target.entrySurface}`,
+        projectionPolicyHash: `${target.queueType}:test-policy`,
+        projectionGeneration: 1,
+        readinessRequest: {
+          queueType: target.queueType,
+          preset: 'all',
+          searchText: null,
+          docId: null,
+          scopeDocIds: [],
+          cardType: 'all',
+          source: 'browser',
+        },
+        admittedAt: 1,
+        source: 'ready-projection',
+      })),
+    })),
   };
 
   const plugin: Plugin = {
@@ -104,6 +126,23 @@ function createRuntime(customId: string, queueType: QueueType) {
       providerId: 'queue-based',
       title: `Review ${customId}`,
       queueType,
+      entryTarget: queueType === QueueType.NeuralRoam
+        ? {
+            kind: 'neural-roam',
+            queueType: QueueType.NeuralRoam,
+            entrySurface: 'test:serialized-neural-review-tab',
+            launch: {
+              startFromFocus: null,
+              semanticPinnedSessionId: null,
+            },
+            admission: { kind: 'not-required' },
+          }
+        : {
+            kind: 'projection-queue',
+            queueType: QueueType.RetrievalPractice,
+            entrySurface: 'test:serialized-retrieval-review-tab',
+            admission: { kind: 'required' },
+          },
       headerVariant: queueType === QueueType.NeuralRoam ? 'neural-roam' : 'retrieval-practice',
     },
     tab: {
@@ -264,11 +303,20 @@ describe('TabManager neural review tab sync', () => {
     tabManager.openReviewTabInNewTab({
       title: '神经漫游',
       queue: { getType: () => QueueType.NeuralRoam },
-      neuralRoamStartFromFocus: {
-        blockId: 'focus-block',
-        includeFocusAsFirst: true,
-        resetHistory: false,
-        startNewSession: true,
+      entryTarget: {
+        kind: 'neural-roam',
+        queueType: QueueType.NeuralRoam,
+        entrySurface: 'test:open-neural-review-tab',
+        launch: {
+          startFromFocus: {
+            blockId: 'focus-block',
+            includeFocusAsFirst: true,
+            resetHistory: false,
+            startNewSession: true,
+          },
+          semanticPinnedSessionId: null,
+        },
+        admission: { kind: 'not-required' },
       },
     });
     await Promise.resolve();
@@ -284,12 +332,21 @@ describe('TabManager neural review tab sync', () => {
     const runtime = createRuntime('review-neural-temp', QueueType.NeuralRoam);
     runtime.data = {
       ...runtime.data,
-      neuralRoamStartFromFocus: {
-        blockId: 'focus-block',
-        previousEngineMode: 'hyperspace',
-        includeFocusAsFirst: true,
-        startNewSession: true,
-        entrySessionKind: 'temporary-current-block',
+      entryTarget: {
+        kind: 'neural-roam',
+        queueType: QueueType.NeuralRoam,
+        entrySurface: 'test:temporary-neural-review-tab',
+        launch: {
+          startFromFocus: {
+            blockId: 'focus-block',
+            previousEngineMode: 'hyperspace',
+            includeFocusAsFirst: true,
+            startNewSession: true,
+            entrySessionKind: 'temporary-current-block',
+          },
+          semanticPinnedSessionId: null,
+        },
+        admission: { kind: 'not-required' },
       },
     };
 
@@ -312,12 +369,21 @@ describe('TabManager neural review tab sync', () => {
     const runtime = createRuntime('review-neural-temp-touched', QueueType.NeuralRoam);
     runtime.data = {
       ...runtime.data,
-      neuralRoamStartFromFocus: {
-        blockId: 'focus-block',
-        previousEngineMode: 'hyperspace',
-        includeFocusAsFirst: true,
-        startNewSession: true,
-        entrySessionKind: 'temporary-current-block',
+      entryTarget: {
+        kind: 'neural-roam',
+        queueType: QueueType.NeuralRoam,
+        entrySurface: 'test:temporary-neural-review-tab',
+        launch: {
+          startFromFocus: {
+            blockId: 'focus-block',
+            previousEngineMode: 'hyperspace',
+            includeFocusAsFirst: true,
+            startNewSession: true,
+            entrySessionKind: 'temporary-current-block',
+          },
+          semanticPinnedSessionId: null,
+        },
+        admission: { kind: 'not-required' },
       },
     };
 

@@ -14,9 +14,9 @@ export type TopBarRuntimePlugin = {
     }) => HTMLElement;
     getContext: () => {
         getDialogManager: () => {
-            openReviewDialog: () => void;
+            openReviewDialog: (options?: { entrySurface?: string | null }) => void;
             openFinalDrillDialog: () => void;
-            openNeuralRoamDialog: () => void;
+            openNeuralRoamDialog: (options?: { entrySurface?: string }) => void;
             openFilterGroupPracticeDialog: () => void;
         };
         getCardService: () => {
@@ -119,7 +119,7 @@ export class TopBarManager {
             label: this.plugin.i18n?.startReview || 'Start Retrieval Practice',
             accelerator: 'Alt+R',
             click: () => {
-                dialogManager.openReviewDialog();
+                dialogManager.openReviewDialog({ entrySurface: 'topbar:start-review' });
             },
         });
 
@@ -147,7 +147,7 @@ export class TopBarManager {
             label: this.plugin.i18n?.startNeuralReview || 'Start Neural Roam',
             accelerator: 'Alt+N',
             click: () => {
-                dialogManager.openNeuralRoamDialog();
+                dialogManager.openNeuralRoamDialog({ entrySurface: 'topbar:start-neural-roam' });
             },
         });
 

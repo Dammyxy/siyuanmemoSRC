@@ -45,7 +45,7 @@ import {
 } from './rpc/BackendRpcRegistry';
 import { BackendTopicDerivedCommandRuntime } from './rpc/BackendTopicDerivedRpcAdapter';
 import { WorkerReviewSessionRuntime } from '../review/WorkerReviewSessionRuntime';
-import { WorkerSrsReviewKernelAdapter, type SrsReviewKernel } from '../review/SrsReviewKernel';
+import { WorkerSrsReviewKernel, type SrsReviewKernel } from '../review/SrsReviewKernel';
 
 const logger = createLogger('BackendKernel');
 const REVIEW_FEEDBACK_KERNEL_STEP_SLOW_MS = 120;
@@ -185,7 +185,7 @@ export class BackendKernel {
       },
       undoJournal: this.deps.database.createReviewTransactionUndoJournal(),
     });
-    this.reviewKernel = new WorkerSrsReviewKernelAdapter(this.reviewSessionRuntime);
+    this.reviewKernel = new WorkerSrsReviewKernel(this.reviewSessionRuntime);
     this.reviewRuntime = new BackendReviewRpcRuntime({
       database: this.deps.database,
       truthFileStore: this.deps.truthFileStore,

@@ -88,6 +88,24 @@ export interface SrsCardRenderContractResolverInput {
   sourceContent?: string | null;
 }
 
+export interface SrsCardRenderContractTarget {
+  renderIntent: {
+    policy: {
+      renderContract?: SrsCardRenderContract;
+    };
+  };
+}
+
+export function resolveSrsCardRenderContractFromTarget(
+  target: SrsCardRenderContractTarget,
+): SrsCardRenderContract {
+  const contract = target.renderIntent.policy.renderContract;
+  if (!contract) {
+    throw new Error('SRS_CARD_RENDER_CONTRACT_UNAVAILABLE');
+  }
+  return contract;
+}
+
 export function resolveSrsCardRenderContract(
   input: SrsCardRenderContractResolverInput,
 ): SrsCardRenderContract {

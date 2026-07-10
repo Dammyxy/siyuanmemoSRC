@@ -106,6 +106,27 @@ describe('reviewCardActionCommands', () => {
     expect(showMessage).toHaveBeenLastCalledWith('优先级已更新', 3000, 'info');
   });
 
+  it('uses typed content target identity before legacy card metadata', async () => {
+    const deleteCard = vi.fn(async () => ({ ok: true }));
+    const advance = vi.fn();
+    const runtime = createRuntime({
+      getCurrentContentTargetIdentity: () => ({
+        cardId: 'target-card',
+        blockId: 'target-block',
+      }),
+      getCardService: () => ({ deleteCard } as never),
+      advanceCurrentReviewCardByReference: advance,
+    });
+
+    await runtime.handleDeleteCurrentCard();
+
+    expect(deleteCard).toHaveBeenCalledWith({ cardId: 'target-card' });
+    expect(advance).toHaveBeenCalledWith({
+      cardId: 'target-card',
+      blockId: 'target-block',
+    });
+  });
+
   it('deletes current card only after confirmation and advances review', async () => {
     const deleteCard = vi.fn(async () => ({ ok: true }));
     const advance = vi.fn();

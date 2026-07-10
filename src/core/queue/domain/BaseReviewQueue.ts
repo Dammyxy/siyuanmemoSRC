@@ -524,16 +524,20 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             return null;
         }
 
-        const reader = this.manager.readQueueProjectionSnapshot;
+        const reader = this.manager.readQueueProjection;
         if (typeof reader !== 'function') {
             return null;
         }
 
         try {
-            const snapshot = await reader.call(this.manager, this.type, { forceRefresh });
-            if (!snapshot) {
+            const result = await reader.call(this.manager, {
+                type: 'snapshot',
+                queueType: this.type,
+            });
+            if (result.type !== 'snapshot' || result.status !== 'ready' || !result.snapshot) {
                 return null;
             }
+            const snapshot = result.snapshot;
             this.snapshotRows = this.cloneSnapshotRows(snapshot.rows);
             this.snapshotRowsTrusted = true;
             this.projectionSnapshotTrusted = true;
@@ -568,14 +572,21 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         if (!this.projectionSnapshotTrusted) {
             return [];
         }
-        const reader = this.manager.getQueueProjectionCardsBySnapshotIds;
+        const reader = this.manager.readQueueProjection;
         if (typeof reader !== 'function') {
             return [];
         }
 
         try {
-            const cards = await reader.call(this.manager, this.type, ids, { forceRefresh });
-            return normalizeToFSRSCard(cards).map((card) => ({ ...card }));
+            const result = await reader.call(this.manager, {
+                type: 'rows-by-id',
+                queueType: this.type,
+                ids,
+            });
+            if (result.type !== 'rows-by-id' || result.status !== 'ready') {
+                return [];
+            }
+            return normalizeToFSRSCard(result.cards).map((card) => ({ ...card }));
         } catch (error) {
             logger.warn(`[${this.type}] Failed to hydrate queue projection snapshot ids:`, error);
             throw this.createProjectionUnavailableError('snapshot row hydration', error);

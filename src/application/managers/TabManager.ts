@@ -36,10 +36,14 @@ import { createLogger } from '@/utils/logger';
 import type { BrowserOpenState } from '@/types/browser';
 import type { BackendNeuralRoamStartFromFocusRequest } from '../../../packages/contracts/src/backend-rpc';
 import {
-  isReviewAdmissionQueueType,
   isValidReviewAdmissionTicket,
   type ReviewAdmissionTicket,
 } from '@/application/services/ReviewAdmissionModule';
+import {
+  requireResolvedReviewEntryTarget,
+  ReviewEntryTargetResolver,
+  type ReviewEntryTarget,
+} from '@/application/services/ReviewEntryTargetResolver';
 import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
@@ -71,17 +75,21 @@ type CdfLiveRelationReviewOpenRefresher = {
 interface ReviewTabData {
   providerId: string;
   title: string;
-  queueType: QueueType | null;
+  entryTarget: ReviewEntryTarget;
   headerVariant: ReviewHeaderVariant;
   sharedReviewSessionId?: string | null;
   transferState?: ReviewTabTransferState | null;
   reviewState?: ReviewTabRuntimeState | null;
   suppressSnapshotRecovery?: boolean;
-  neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
   neuralRoamTemporaryEngineModeTouched?: boolean;
-  initialSemanticPinnedSessionId?: string | null;
   reviewAdmissionTicket?: ReviewAdmissionTicket | null;
 }
+
+type LegacyReviewTabData = Partial<ReviewTabData> & {
+  queueType?: QueueType | null;
+  neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
+  initialSemanticPinnedSessionId?: string | null;
+};
 
 interface BrowserTabData {
   initialState?: BrowserOpenState | null;
@@ -598,8 +606,7 @@ export interface ReviewTabOptions {
   transferState?: ReviewTabTransferState;
   reviewState?: ReviewTabRuntimeState | null;
   suppressSnapshotRecovery?: boolean;
-  neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
-  initialSemanticPinnedSessionId?: string | null;
+  entryTarget?: ReviewEntryTarget;
   reviewAdmissionTicket?: ReviewAdmissionTicket | null;
 }
 
@@ -711,12 +718,10 @@ export class TabManager {
       ...data,
       reviewAdmissionTicket: null,
     };
-    data = await this.admitReviewTabData(data, {
-      entrySurface: 'tab-manager:init-review-tab',
-    });
+    data = await this.admitReviewTabData(data);
     logger.info('Restoring review tab', {
       providerId: data.providerId,
-      queueType: data.queueType,
+      queueType: data.entryTarget.queueType,
       headerVariant: data.headerVariant,
       title: data.title,
       admissionGeneration: data.reviewAdmissionTicket?.projectionGeneration ?? null,
@@ -750,7 +755,9 @@ export class TabManager {
       initialCurrentItem: data.reviewState?.queueSnapshot?.currentItem ?? null,
       initialCurrentCardId: data.reviewState?.currentCardId ?? '',
       initialShowAnswer: data.reviewState?.showAnswer === true,
-      initialSemanticPinnedSessionId: data.initialSemanticPinnedSessionId ?? null,
+      initialSemanticPinnedSessionId: data.entryTarget.kind === 'neural-roam'
+        ? data.entryTarget.launch.semanticPinnedSessionId
+        : null,
       onNeuralRoamEngineModeTouched: () => {
         this.markNeuralRoamTemporaryEngineModeTouched(runtime, data);
       },
@@ -828,6 +835,10 @@ export class TabManager {
 
     void this.openReviewTabInternal({
       queue: this.context.getUnifiedDataSourceManager().getQueue(queueType),
+      entryTarget: requireResolvedReviewEntryTarget(new ReviewEntryTargetResolver().resolveCompatibility({
+        queueType,
+        entrySurface: 'tab-manager:replace-standard-review-tab',
+      })),
       title: preset.title,
       headerVariant: preset.headerVariant,
     }, {
@@ -1049,7 +1060,7 @@ export class TabManager {
     if (!customId) {
       logger.warn('Skip review tab runtime registration because runtime id is empty', {
         title: data.title,
-        queueType: data.queueType,
+        queueType: data.entryTarget.queueType,
       });
       return;
     }
@@ -1085,7 +1096,7 @@ export class TabManager {
 
     this.reviewTabRuntimes.set(customId, {
       customId,
-      queueType: data.queueType,
+      queueType: data.entryTarget.queueType,
       title: data.title,
       custom: runtime,
       bridge,
@@ -1141,7 +1152,9 @@ export class TabManager {
   }
 
   private restoreTemporaryNeuralRoamEngineModeIfNeeded(data: ReviewTabData | null): void {
-    const start = data?.neuralRoamStartFromFocus;
+    const start = data?.entryTarget.kind === 'neural-roam'
+      ? data.entryTarget.launch.startFromFocus
+      : null;
     const isTemporary = typeof start?.entrySessionKind === 'string'
       && start.entrySessionKind.startsWith('temporary-');
     const previousMode = start?.previousEngineMode;
@@ -1202,10 +1215,10 @@ export class TabManager {
     });
   }
 
-  private buildReviewTabSurfaceSnapshotKey(data: Pick<ReviewTabData, 'providerId' | 'queueType' | 'title' | 'headerVariant' | 'sharedReviewSessionId' | 'transferState'>): string {
+  private buildReviewTabSurfaceSnapshotKey(data: Pick<ReviewTabData, 'providerId' | 'entryTarget' | 'title' | 'headerVariant' | 'sharedReviewSessionId' | 'transferState'>): string {
     const presentationKeyParts = buildReviewPresentationSnapshotKeyParts({
       surfaceKind: 'tab',
-      queueType: data.queueType,
+      queueType: data.entryTarget.queueType,
       headerVariant: data.headerVariant,
       title: data.title,
       scopeFingerprint: this.buildReviewTabTransferStateKey(data.transferState),
@@ -1298,7 +1311,7 @@ export class TabManager {
     }
 
     logger.warn('Dropping stale review tab state because it does not match the static subset transfer scope', {
-      queueType: data.queueType,
+      queueType: data.entryTarget.queueType,
       headerVariant: data.headerVariant,
       title: data.title,
       transferCardCount: data.transferState.cardIds?.length ?? 0,
@@ -1327,7 +1340,7 @@ export class TabManager {
     this.reviewTabSurfaceSnapshots.set(snapshotKey, {
       customId: String(customId || '').trim(),
       providerId: data.providerId,
-      queueType: data.queueType,
+      queueType: data.entryTarget.queueType,
       title: data.title,
       headerVariant: data.headerVariant,
       sharedReviewSessionId: data.sharedReviewSessionId ?? null,
@@ -1492,25 +1505,35 @@ export class TabManager {
   private resolveReviewTabData(options: ReviewTabOptions): ReviewTabData {
     const queueType = this.normalizeQueueType(options.queue?.getType?.(), options.provider?.id);
     const reviewState = normalizeReviewTabRuntimeState(options.reviewState);
+    const transferState = normalizeReviewTabTransferState(options.transferState);
+    const resolver = new ReviewEntryTargetResolver();
+    const entryTarget = options.entryTarget
+      ? requireResolvedReviewEntryTarget(resolver.resolveExisting(options.entryTarget))
+      : requireResolvedReviewEntryTarget(resolver.resolveCompatibility({
+        queueType,
+        entrySurface: 'compatibility:tab-manager:review-tab-options',
+        transferState,
+      }));
+    const neuralStart = entryTarget.kind === 'neural-roam'
+      ? entryTarget.launch.startFromFocus
+      : null;
     return {
       providerId: this.resolveProviderId(options),
       title: String(options.title || this.getDefaultReviewTitle()),
-      queueType,
-      headerVariant: options.headerVariant || resolveReviewPresentationHeaderVariant(queueType),
+      entryTarget,
+      headerVariant: options.headerVariant || resolveReviewPresentationHeaderVariant(entryTarget.queueType),
       sharedReviewSessionId: normalizeSharedReviewSessionId(
         options.sharedReviewSessionId ?? reviewState?.sharedReviewSessionId,
       ),
-      transferState: normalizeReviewTabTransferState(options.transferState),
+      transferState,
       reviewState,
       suppressSnapshotRecovery: options.suppressSnapshotRecovery === true,
-      neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(options.neuralRoamStartFromFocus),
-      neuralRoamTemporaryEngineModeTouched: options.neuralRoamStartFromFocus?.previousEngineMode
+      neuralRoamTemporaryEngineModeTouched: neuralStart?.previousEngineMode
         ? false
-        : options.neuralRoamStartFromFocus?.entrySessionKind?.startsWith('temporary-') === true
+        : neuralStart?.entrySessionKind?.startsWith('temporary-') === true
           ? false
           : undefined,
-      initialSemanticPinnedSessionId: normalizeOptionalId(options.initialSemanticPinnedSessionId),
-      reviewAdmissionTicket: isValidReviewAdmissionTicket(options.reviewAdmissionTicket, queueType)
+      reviewAdmissionTicket: isValidReviewAdmissionTicket(options.reviewAdmissionTicket, entryTarget)
         ? options.reviewAdmissionTicket
         : null,
     };
@@ -1543,32 +1566,49 @@ export class TabManager {
     }
   }
 
-  private normalizeReviewTabData(data: Partial<ReviewTabData> | undefined): ReviewTabData {
+  private normalizeReviewTabData(data: LegacyReviewTabData | undefined): ReviewTabData {
     const providerId = typeof data?.providerId === 'string' && data.providerId
       ? data.providerId
       : 'retrieval';
-    const queueType = this.normalizeQueueType(data?.queueType, providerId);
+    const compatibilityQueueType = this.normalizeQueueType(
+      data?.entryTarget?.queueType ?? data?.queueType,
+      providerId,
+    );
     const title = typeof data?.title === 'string' && data.title.trim()
       ? data.title
       : this.getDefaultReviewTitle();
     const reviewState = normalizeReviewTabRuntimeState(data?.reviewState);
+    const transferState = normalizeReviewTabTransferState(data?.transferState);
+    const resolver = new ReviewEntryTargetResolver();
+    let entryTarget: ReviewEntryTarget;
+    try {
+      entryTarget = data?.entryTarget
+        ? requireResolvedReviewEntryTarget(resolver.resolveExisting(data.entryTarget))
+        : requireResolvedReviewEntryTarget(resolver.resolveCompatibility({
+          queueType: compatibilityQueueType,
+          entrySurface: 'compatibility:tab-manager:serialized-review-tab',
+          transferState,
+          neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(data?.neuralRoamStartFromFocus),
+          initialSemanticPinnedSessionId: normalizeOptionalId(data?.initialSemanticPinnedSessionId),
+        }));
+    } catch (error) {
+      throw new Error(`REVIEW_ENTRY_TARGET_UNAVAILABLE: failed to normalize review tab entry: ${String(error)}`);
+    }
 
     return {
       providerId,
       title,
-      queueType,
+      entryTarget,
       headerVariant: typeof data?.headerVariant === 'string'
         ? data.headerVariant
-        : resolveReviewPresentationHeaderVariant(queueType),
+        : resolveReviewPresentationHeaderVariant(entryTarget.queueType),
       sharedReviewSessionId: normalizeSharedReviewSessionId(
         data?.sharedReviewSessionId ?? reviewState?.sharedReviewSessionId,
       ),
-      transferState: normalizeReviewTabTransferState(data?.transferState),
+      transferState,
       reviewState,
       suppressSnapshotRecovery: data?.suppressSnapshotRecovery === true,
-      neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(data?.neuralRoamStartFromFocus),
       neuralRoamTemporaryEngineModeTouched: data?.neuralRoamTemporaryEngineModeTouched === true,
-      initialSemanticPinnedSessionId: normalizeOptionalId(data?.initialSemanticPinnedSessionId),
       reviewAdmissionTicket: null,
     };
   }
@@ -1611,16 +1651,20 @@ export class TabManager {
   private buildReviewQueueFromTabData(data: ReviewTabData): UnifiedQueueStrategy {
     const transferredQueue = this.buildTransferredReviewQueue(data.transferState);
     const strategy = new UnifiedQueueStrategy(
-      transferredQueue ?? data.queueType,
+      transferredQueue ?? data.entryTarget.queueType,
       this.context.getUnifiedDataSourceManager(),
       this.context.getEventBus(),
       this.context.getSchedulerRouter() as unknown as ISchedulerRouter,
       this.createCdfLiveRelationReviewOpenRefresher(),
-      data.reviewAdmissionTicket?.entrySurface ?? 'tab-manager:review-tab',
+      data.entryTarget,
       transferredQueue ? null : data.reviewAdmissionTicket ?? null,
     );
     strategy.restoreSessionSnapshot?.(data.reviewState?.queueSnapshot);
-    strategy.startNeuralRoamFromFocusOnNextAdvance?.(data.neuralRoamStartFromFocus);
+    strategy.startNeuralRoamFromFocusOnNextAdvance?.(
+      data.entryTarget.kind === 'neural-roam'
+        ? data.entryTarget.launch.startFromFocus
+        : null,
+    );
     return strategy;
   }
 
@@ -1699,9 +1743,9 @@ export class TabManager {
   ): Promise<void> {
     try {
       let tabData = this.resolveReviewTabData(options);
-      if (tabData.queueType === QueueType.NeuralRoam && tabOpenOptions.removeCurrentTab !== true) {
+      if (tabData.entryTarget.kind === 'neural-roam' && tabOpenOptions.removeCurrentTab !== true) {
         const reused = await this.reuseExistingNeuralReviewSurface({
-          fallbackNodeId: tabData.neuralRoamStartFromFocus?.blockId ?? null,
+          fallbackNodeId: tabData.entryTarget.launch.startFromFocus?.blockId ?? null,
         });
         if (reused !== 'missing') {
           return;
@@ -1709,13 +1753,12 @@ export class TabManager {
       }
       const reviewModelType = this.buildCustomModelType(this.REVIEW_TAB_TYPE);
       const position = tabOpenOptions.position ?? options.position;
-      const prepare = this.prepareQueueBeforeOpen(tabData.queueType);
+      const prepare = this.prepareQueueBeforeOpen(tabData.entryTarget.queueType);
       if (prepare) {
         await prepare;
       }
       tabData = await this.admitReviewTabData(tabData, {
         queue: options.queue,
-        entrySurface: 'tab-manager:open-review-tab',
       });
 
       openTab({
@@ -1745,22 +1788,21 @@ export class TabManager {
         throw new Error('ipcRenderer is unavailable');
       }
       let tabData = this.resolveReviewTabData(options);
-      if (tabData.queueType === QueueType.NeuralRoam) {
+      if (tabData.entryTarget.kind === 'neural-roam') {
         const reused = await this.reuseExistingNeuralReviewSurface({
-          fallbackNodeId: tabData.neuralRoamStartFromFocus?.blockId ?? null,
+          fallbackNodeId: tabData.entryTarget.launch.startFromFocus?.blockId ?? null,
         });
         if (reused !== 'missing') {
           return;
         }
       }
       const reviewModelType = this.buildCustomModelType(this.REVIEW_TAB_TYPE);
-      const prepare = this.prepareQueueBeforeOpen(tabData.queueType);
+      const prepare = this.prepareQueueBeforeOpen(tabData.entryTarget.queueType);
       if (prepare) {
         await prepare;
       }
       tabData = await this.admitReviewTabData(tabData, {
         queue: options.queue,
-        entrySurface: 'tab-manager:open-review-new-window',
       });
 
       const json = [
@@ -1781,7 +1823,7 @@ export class TabManager {
       });
 
       logger.info('Opened review in new window', {
-        queueType: tabData.queueType,
+        queueType: tabData.entryTarget.queueType,
         providerId: tabData.providerId,
         admissionGeneration: tabData.reviewAdmissionTicket?.projectionGeneration ?? null,
       });
@@ -1795,26 +1837,27 @@ export class TabManager {
     data: ReviewTabData,
     options: {
       queue?: ReviewQueueRef | null;
-      entrySurface?: string | null;
     } = {},
   ): Promise<ReviewTabData> {
-    if (!isReviewAdmissionQueueType(data.queueType)) {
+    if (data.entryTarget.admission.kind !== 'required') {
       return data;
     }
-    if (isValidReviewAdmissionTicket(data.reviewAdmissionTicket, data.queueType)) {
+    if (data.reviewAdmissionTicket && isValidReviewAdmissionTicket(data.reviewAdmissionTicket, data.entryTarget)) {
       return data;
+    }
+    if (data.reviewAdmissionTicket) {
+      throw new Error(`REVIEW_ADMISSION_STALE: ${data.entryTarget.queueType} admission does not match resolved Review Entry Target`);
     }
 
     const admission = this.context.getReviewAdmissionModule?.();
     if (!admission || typeof admission.admitReviewSession !== 'function') {
-      throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${data.queueType} review admission module is unavailable`);
+      throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${data.entryTarget.queueType} review admission module is unavailable`);
     }
     const ticket = await admission.admitReviewSession({
-      queueType: data.queueType,
-      entrySurface: options.entrySurface,
+      target: data.entryTarget,
       queueInstance: isReviewQueueForAdmission(options.queue)
         ? options.queue
-        : this.context.getUnifiedDataSourceManager().getQueue(data.queueType),
+        : this.context.getUnifiedDataSourceManager().getQueue(data.entryTarget.queueType),
     });
     return {
       ...data,

@@ -68,13 +68,13 @@ const runtimePaths = [
       },
       {
         file: 'src/application/services/UnifiedDataSourceManager.ts',
-        tokens: ['public async readQueueProjectionSnapshot', 'public async getQueueProjectionCardsBySnapshotIds', 'public async materializeQueueProjection'],
-        reason: 'queue projection must be exposed as the application manager port',
+        tokens: ['public readQueueProjection', 'public repairQueueProjection', 'public observeQueueProjection'],
+        reason: 'queue projection lifecycle read, repair, and observe must be exposed through the application manager port',
       },
       {
         file: 'src/core/queue/domain/BaseReviewQueue.ts',
-        tokens: ['readQueueProjectionSnapshot', 'getQueueProjectionCardsBySnapshotIds', 'QUEUE_PROJECTION_UNAVAILABLE'],
-        reason: 'review queues must read backend projection or fail explicitly',
+        tokens: ['this.manager.readQueueProjection', 'type: \'snapshot\'', 'type: \'rows-by-id\'', 'QUEUE_PROJECTION_UNAVAILABLE'],
+        reason: 'review queues must use passive lifecycle reads for backend projection or fail explicitly',
       },
     ],
   },

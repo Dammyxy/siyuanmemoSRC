@@ -6,7 +6,11 @@ import type {
   BackendReviewSessionState,
   BackendReviewSessionUndoResult,
 } from '../../../../packages/contracts/src/backend-rpc';
-import type { ReviewAdmissionTicket } from '@/application/services/ReviewAdmissionModule';
+import {
+  isValidReviewAdmissionTicket,
+  type ReviewAdmissionTicket,
+} from '@/application/services/ReviewAdmissionModule';
+import type { ProjectionQueueEntryTarget } from '@/application/services/ReviewEntryTargetResolver';
 import type { FSRSCard } from '@/types/card';
 import {
   QueueType,
@@ -55,21 +59,20 @@ export interface WorkerReviewSessionBackendClient {
 }
 
 export interface WorkerReviewSessionQueueRuntimeOptions {
-  queueType: QueueType;
+  entryTarget: ProjectionQueueEntryTarget;
   backend: WorkerReviewSessionBackendClient;
   sessionId?: string | null;
   limit?: number | null;
-  entrySurface?: string | null;
   reviewAdmissionTicket?: ReviewAdmissionTicket | null;
   now?: () => number;
 }
 
 export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntime {
+  private readonly entryTarget: ProjectionQueueEntryTarget;
   private readonly queueType: QueueType;
   private readonly backend: WorkerReviewSessionBackendClient;
   private readonly configuredSessionId: string | null;
   private readonly limit: number | null;
-  private readonly entrySurface: string | null;
   private readonly reviewAdmissionTicket: ReviewAdmissionTicket | null;
   private readonly now: () => number;
   private sessionId: string | null = null;
@@ -80,11 +83,17 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
   private readonly locallyDiscardedCurrentCardIds = new Set<string>();
 
   constructor(options: WorkerReviewSessionQueueRuntimeOptions) {
-    this.queueType = options.queueType;
+    if (
+      options.reviewAdmissionTicket
+      && !isValidReviewAdmissionTicket(options.reviewAdmissionTicket, options.entryTarget)
+    ) {
+      throw new Error(`REVIEW_ADMISSION_STALE: ${options.entryTarget.queueType} admission does not match resolved Review Entry Target`);
+    }
+    this.entryTarget = options.entryTarget;
+    this.queueType = options.entryTarget.queueType;
     this.backend = options.backend;
     this.configuredSessionId = normalizeString(options.sessionId);
     this.limit = normalizeLimit(options.limit);
-    this.entrySurface = normalizeString(options.entrySurface);
     this.reviewAdmissionTicket = options.reviewAdmissionTicket ?? null;
     this.now = options.now ?? (() => Date.now());
   }
@@ -94,7 +103,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
       ? await this.backend.reviewSessionCurrent({ sessionId: this.sessionId })
       : await this.backend.reviewSessionStart(this.buildStartRequest());
     if (!this.sessionId) {
-      logReviewSessionStartReturned(this.entrySurface, this.queueType, state);
+      logReviewSessionStartReturned(this.entryTarget.entrySurface, this.queueType, state);
     }
     this.applyState(state);
     if (this.currentCard && this.locallyDiscardedCurrentCardIds.has(this.currentCard.id)) {
@@ -141,15 +150,17 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
         repairGate: input.feedback.repairGate as BackendReviewSessionRepairGateEvidence | null | undefined,
       });
       this.applyState(result);
-      this.lastUndoToken = normalizeString(result.undoToken);
+      this.lastUndoToken = normalizeString(result.receipt.undo.token);
       return {
         ...this.withQueueImpactEvidence(
           this.buildResult(this.currentCard ? 'advanced' : 'exhausted', this.currentCard, this.lastUndoToken),
           previousCounterSnapshot,
-          result.feedback.queueImpact ?? null,
+          result.receipt.queueImpact,
         ),
         commitStatus: 'applied',
-        commitIdempotencyKey: result.feedback.idempotencyKey ?? input.feedback.commitIdempotencyKey,
+        commitIdempotencyKey: result.receipt.factIdentity.kind === 'idempotency-key'
+          ? result.receipt.factIdentity.idempotencyKey
+          : input.feedback.commitIdempotencyKey,
       };
     } catch (error) {
       return this.unavailableResult(input, error instanceof Error ? error.message : String(error));
@@ -275,7 +286,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
       return;
     }
     const state = await this.backend.reviewSessionStart(this.buildStartRequest());
-    logReviewSessionStartReturned(this.entrySurface, this.queueType, state);
+    logReviewSessionStartReturned(this.entryTarget.entrySurface, this.queueType, state);
     this.applyState(state);
   }
 
@@ -289,9 +300,9 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
   } {
     return {
       sessionId: this.configuredSessionId,
-      queueType: this.queueType,
+      queueType: this.entryTarget.queueType,
       limit: this.limit,
-      entrySurface: this.entrySurface,
+      entrySurface: this.entryTarget.entrySurface,
       projectionPolicyHash: this.reviewAdmissionTicket?.projectionPolicyHash ?? null,
       projectionGeneration: this.reviewAdmissionTicket?.projectionGeneration ?? null,
     };

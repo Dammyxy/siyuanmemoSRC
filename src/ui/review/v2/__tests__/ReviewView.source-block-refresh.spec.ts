@@ -3,6 +3,8 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolveLegacyReviewContentTarget } from '@/application/adapters/LegacyReviewContentTargetAdapter';
+import { buildReviewRenderableContext } from '@/application/adapters/reviewRenderableContext';
 import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
 
@@ -86,38 +88,60 @@ function createQueue(initialCard: ReturnType<typeof buildCard>) {
 
 function createAdapter() {
   return {
-    toUIState: vi.fn(async (_queue: unknown, item: ReturnType<typeof buildCard> | null, context: { showAnswer?: boolean }) => ({
-      ...createEmptyReviewUIState(),
-      header: {
-        ...createEmptyReviewUIState().header,
-        stats: {
-          current: 1,
-          total: 1,
-          label: '1 due',
-          queueName: 'Review',
+    toUIState: vi.fn(async (
+      _queue: unknown,
+      item: ReturnType<typeof buildCard> | null,
+      context: { showAnswer?: boolean },
+    ) => {
+      const emptyState = createEmptyReviewUIState();
+      const renderContext = item
+        ? buildReviewRenderableContext(resolveLegacyReviewContentTarget({
+            card: item as never,
+            queueType: 'retrieval-practice',
+            showAnswer: context.showAnswer === true,
+            contentBlockId: item.blockId,
+            answerBlockId: 'answer-block',
+            rendererSupported: true,
+          }))
+        : undefined;
+
+      return {
+        ...emptyState,
+        header: {
+          ...emptyState.header,
+          stats: {
+            current: 1,
+            total: 1,
+            label: '1 due',
+            queueName: 'Review',
+          },
         },
-      },
-      content: {
-        type: 'protyle' as const,
-        data: item?.blockId ?? '',
-        id: item?.blockId ?? '',
-        answerBlockID: 'answer-block',
-        card: item as never,
-      },
-      actions: {
-        ...createEmptyReviewUIState().actions,
-        showAnswer: !context.showAnswer,
-        cardMeta: item
-          ? {
-              cardID: item.id,
-              blockID: item.blockId,
-              deckID: item.deckId,
-              type: item.type,
-              cardType: item.type,
-            }
-          : undefined,
-      },
-    })),
+        content: {
+          type: 'protyle' as const,
+          data: item?.blockId ?? '',
+          id: item?.blockId ?? '',
+          answerBlockID: 'answer-block',
+          card: item as never,
+        },
+        actions: {
+          ...emptyState.actions,
+          showAnswer: !context.showAnswer,
+          cardMeta: item
+            ? {
+                cardID: item.id,
+                blockID: item.blockId,
+                deckID: item.deckId,
+                type: item.type,
+                cardType: item.type,
+              }
+            : undefined,
+        },
+        meta: {
+          ...emptyState.meta,
+          ...(renderContext ? { renderContext } : {}),
+        },
+      };
+    }),
     cleanup: vi.fn(),
   };
 }

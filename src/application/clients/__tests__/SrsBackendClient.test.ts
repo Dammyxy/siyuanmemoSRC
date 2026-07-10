@@ -176,9 +176,35 @@ describe('SrsBackendClient', () => {
                 projectionState: 'not-used',
                 projectionGeneration: null,
                 projectionPolicyHash: null,
-                answeredCardId: 'card-review-truth-flush',
-                feedback: thresholdFeedback,
-                undoToken: 'undo-a',
+                receipt: {
+                  answeredCardId: 'card-review-truth-flush',
+                  reviewedAt: thresholdFeedback.reviewedAt,
+                  queueType: thresholdFeedback.queueType,
+                  commit: {
+                    outcome: 'committed',
+                    updatedCard: thresholdFeedback.updatedCard,
+                    duplicate: false,
+                  },
+                  factIdentity: {
+                    kind: 'idempotency-key',
+                    idempotencyKey: 'truth-flush-key',
+                  },
+                  durability: {
+                    status: 'durable',
+                    evidence: 'storage-summary',
+                  },
+                  undo: {
+                    token: 'undo-a',
+                    evidence: 'transaction-journal',
+                  },
+                  queueImpact: thresholdFeedback.queueImpact ?? null,
+                  storage: thresholdFeedback.storage ?? null,
+                  diagnostics: {
+                    authority: 'worker-review-session',
+                    projectionState: 'not-used',
+                    storageSummaryAvailable: true,
+                  },
+                },
               },
             };
           }
@@ -221,9 +247,11 @@ describe('SrsBackendClient', () => {
         rating: 3,
         idempotencyKey: 'truth-flush-key',
       })).resolves.toMatchObject({
-        answeredCardId: 'card-review-truth-flush',
-        feedback: {
-          committed: true,
+        receipt: {
+          answeredCardId: 'card-review-truth-flush',
+          commit: {
+            outcome: 'committed',
+          },
           storage: {
             truthFlush: {
               status: 'pending',

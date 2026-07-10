@@ -1,5 +1,9 @@
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import type { ReviewRenderableRenderPolicy } from '@/application/adapters/reviewRenderableRenderPolicy';
+import {
+  resolveSrsCardRenderContractFromTarget,
+  type SrsCardRenderContract,
+} from '@/core/card/render-contract';
 import type {
   PreparedReviewPresentation,
   PreparedReviewRendererKind,
@@ -9,7 +13,7 @@ import type {
 type QuickSide = 'front' | 'back';
 
 function resolveQuickSide(state: ReviewUIState): QuickSide {
-  const frontBackContract = resolveRenderPolicy(state)?.renderContract?.frontBackContract;
+  const frontBackContract = resolveRenderContract(state)?.frontBackContract;
   if (frontBackContract?.mode === 'quick-side') {
     return state.actions.showAnswer
       ? frontBackContract.beforeReveal
@@ -19,11 +23,23 @@ function resolveQuickSide(state: ReviewUIState): QuickSide {
 }
 
 function resolveQuickCardId(state: ReviewUIState): string {
-  return String(state.content.card?.id || state.content.id || '');
+  return state.meta.renderContext?.targetIdentity.cardId ?? '';
 }
 
 function resolveRenderPolicy(state: ReviewUIState): ReviewRenderableRenderPolicy | null {
   return state.meta.renderContext?.renderPolicy ?? null;
+}
+
+function resolveRenderContract(state: ReviewUIState): SrsCardRenderContract | null {
+  const target = state.meta.renderContext?.contentTarget;
+  if (!target) {
+    return null;
+  }
+  try {
+    return resolveSrsCardRenderContractFromTarget(target);
+  } catch {
+    return null;
+  }
 }
 
 function toPreparedRendererKind(
@@ -48,6 +64,7 @@ export function buildPreparedReviewPresentationIdentity(
   const content = state.content;
   const card = content.card;
   const policy = resolveRenderPolicy(state);
+  const renderContract = resolveRenderContract(state);
   if (policy) {
     return [
       rendererKind,
@@ -59,8 +76,8 @@ export function buildPreparedReviewPresentationIdentity(
       policy.cacheTokens.updatedAt,
       policy.profile || '',
       policy.specialRendererKind || '',
-      policy.renderContract?.renderFamily || '',
-      policy.renderContract?.frontBackContract.mode || '',
+      renderContract?.renderFamily || '',
+      renderContract?.frontBackContract.mode || '',
       policy.forceProtyleRender ? 'fp1' : 'fp0',
       policy.forceQuickRender ? 'fq1' : 'fq0',
     ].join('|');
@@ -76,9 +93,10 @@ function resolvePreparedRendererKind(state: ReviewUIState): PreparedReviewRender
   }
 
   const policy = state.meta.renderContext?.renderPolicy ?? null;
-  const policyRendererKind = policy?.renderContract?.rendererKind === 'protyle'
+  const renderContract = resolveRenderContract(state);
+  const policyRendererKind = renderContract?.rendererKind === 'protyle'
     ? null
-    : policy?.renderContract?.rendererKind ?? policy?.specialRendererKind ?? null;
+    : renderContract?.rendererKind ?? policy?.specialRendererKind ?? null;
   if (policyRendererKind === 'image-occlusion') {
     return null;
   }
@@ -152,11 +170,12 @@ export async function prepareReviewPresentation(
   }
 
   const policy = resolveRenderPolicy(state);
+  const renderContract = resolveRenderContract(state);
   return attachPreparedPresentation(state, {
     rendererKind,
     identityKey,
     viewModel,
-    ...(policy?.renderContract ? { renderContract: policy.renderContract } : {}),
+    ...(renderContract ? { renderContract } : {}),
     diagnostics: policy?.diagnostics ?? [],
   });
 }

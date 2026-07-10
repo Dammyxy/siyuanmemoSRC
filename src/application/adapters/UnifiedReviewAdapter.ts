@@ -21,12 +21,13 @@ import type { QueueCounterSnapshot } from '@/types/unified-data-source/queue-cor
 import type { BackendNeuralRoamViewState } from '../../../packages/contracts/src/backend-rpc';
 import {
   buildReviewRenderableContext,
-  normalizeReviewProgressiveRenderMetadata,
 } from '@/application/adapters/reviewRenderableContext';
 import {
-  buildReviewRenderableRenderPolicy,
-  type ReviewRenderableRenderPolicy,
-} from '@/application/adapters/reviewRenderableRenderPolicy';
+  resolveLegacyReviewContentRenderPolicy,
+  resolveLegacyReviewContentTarget,
+} from '@/application/adapters/LegacyReviewContentTargetAdapter';
+import { unavailableReviewContentTarget } from '@/application/adapters/reviewContentTarget';
+import type { ReviewRenderableRenderPolicy } from '@/application/adapters/reviewRenderableRenderPolicy';
 import {
   type AdapterContext,
   type IAdapter,
@@ -472,14 +473,7 @@ function isOrdinaryMultiClozeMeta(meta: Record<string, unknown>): boolean {
   return meta.templateID === 'builtin-multi-cloze' && !isInlineFormulaClozeMeta(meta);
 }
 
-function isProgressiveDerivedItemMeta(meta: Record<string, unknown>): boolean {
-  const progressive = meta.progressive;
-  return progressive !== null
-    && typeof progressive === 'object'
-    && (progressive as Record<string, unknown>).kind === 'derived-item';
-}
-
-function isNativeInlineHiddenCard(card: UnifiedReviewItem): boolean {
+function isLegacyNativeInlineHiddenCard(card: UnifiedReviewItem): boolean {
   if (normalizeCardType(card.type) !== 'item') {
     return false;
   }
@@ -496,7 +490,7 @@ function isNativeInlineHiddenCard(card: UnifiedReviewItem): boolean {
     }
   }
 
-  return isProgressiveDerivedItemMeta(meta) || meta.cardSource === 'topic-derived';
+  return false;
 }
 
 function normalizeStats(stats: QueueStats | undefined): { size: number; label: string } {
@@ -722,14 +716,10 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     toolbar = toolbarWithFilterScope(toolbar);
 
     if (!item) {
-      const renderContext = buildReviewRenderableContext({
-        card: null,
-        queueType,
-        showAnswer: context.showAnswer,
-        contentBlockId: '',
-        answerBlockId: '',
-        diagnostics: ['empty-review-target'],
-      });
+      const renderContext = buildReviewRenderableContext(unavailableReviewContentTarget(
+        'empty-target',
+        ['empty-review-target'],
+      ));
       return {
         header: {
           title: resolveReviewSurfaceTitle({ i18n: this.i18n, queueType, headerVariant }),
@@ -768,7 +758,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const cardId = resolveCardId(item);
     const cardType = resolveEffectiveCardType(item, queueType);
     const isTopicDocument = isTopicDocumentCard(item, cardType);
-    const initialRenderPolicy = buildReviewRenderableRenderPolicy(item);
+    const initialRenderPolicy = resolveLegacyReviewContentRenderPolicy(item);
     const contentBlockId = isTopicDocument
       ? blockId
       : resolveContentBlockId(item, blockId, initialRenderPolicy);
@@ -776,21 +766,25 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const answerBlockID = isTopicDocument || isTopicLike
       ? ''
       : resolveAnswerBlockId(item, blockId, initialRenderPolicy);
-    const renderPolicy = buildReviewRenderableRenderPolicy(item, {
+    const renderPolicy = resolveLegacyReviewContentRenderPolicy(item, {
       contentBlockId,
       answerBlockId: answerBlockID,
     });
-    const hasInlineHiddenContent = isNativeInlineHiddenCard(item);
-    const renderContext = buildReviewRenderableContext({
+    const contentTargetResolution = resolveLegacyReviewContentTarget({
       card: item,
       queueType,
       showAnswer: context.showAnswer,
       contentBlockId,
       answerBlockId: answerBlockID,
-      progressive: normalizeReviewProgressiveRenderMetadata(item),
       diagnostics: contentBlockId ? [] : ['unsupported-content-type'],
       renderPolicy,
+      rendererSupported: Boolean(contentBlockId),
     });
+    const renderContext = buildReviewRenderableContext(contentTargetResolution);
+    const hasInlineHiddenContent = (
+      contentTargetResolution.status === 'ready'
+      && contentTargetResolution.target.kind === 'topic-derived-item'
+    ) || isLegacyNativeInlineHiddenCard(item);
 
     if (shouldLogBidirectionalTemplateDiagnostic(item)) {
       logger.warn('[SiYuanMemo][BidirectionalTemplateDiagnostic] adapter mapped review content', {

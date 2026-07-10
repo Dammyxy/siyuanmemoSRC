@@ -189,27 +189,7 @@ describe('BaseReviewQueue snapshot rows', () => {
         blockType: 'paragraph',
       },
     ];
-    const readProjectionSnapshot = vi.fn(async () => ({
-      queueType: QueueType.RetrievalPractice,
-      policyHash: 'policy-a',
-      generation: 5,
-      rows: projectionRows,
-      counters: {
-        version: 5,
-        remaining: 2,
-        due: 2,
-        total: 2,
-        buckets: {
-          all: 2,
-          item: 2,
-          descriptor: 0,
-          topic: 0,
-          concept: 0,
-        },
-        source: 'reconciled' as const,
-      },
-    }));
-    const getProjectionCardsBySnapshotIds = vi.fn(async (_queueType: QueueType, ids: string[]) => {
+    const getProjectionCardsBySnapshotIds = vi.fn(async (ids: string[]) => {
       const cardById = new Map([
         ['row-a', cardA],
         ['card-a', cardA],
@@ -218,9 +198,53 @@ describe('BaseReviewQueue snapshot rows', () => {
       ]);
       return ids.map((id) => cardById.get(id)).filter(Boolean);
     });
+    const readQueueProjection = vi.fn(async (request: { type: string; ids?: string[] }) => {
+      if (request.type === 'snapshot') {
+        return {
+          type: 'snapshot' as const,
+          status: 'ready' as const,
+          readiness: {
+            status: 'ready' as const,
+            queueId: QueueType.RetrievalPractice,
+            policyId: 'policy-a',
+            generation: 5,
+          },
+          snapshot: {
+            queueType: QueueType.RetrievalPractice,
+            policyHash: 'policy-a',
+            generation: 5,
+            rows: projectionRows,
+            counters: {
+              version: 5,
+              remaining: 2,
+              due: 2,
+              total: 2,
+              buckets: {
+                all: 2,
+                item: 2,
+                descriptor: 0,
+                topic: 0,
+                concept: 0,
+              },
+              source: 'reconciled' as const,
+            },
+          },
+        };
+      }
+      return {
+        type: 'rows-by-id' as const,
+        status: 'ready' as const,
+        readiness: {
+          status: 'ready' as const,
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-a',
+          generation: 5,
+        },
+        cards: await getProjectionCardsBySnapshotIds(request.ids ?? []),
+      };
+    });
     const queue = new TestQueue([cardA, cardB], {
-      readQueueProjectionSnapshot: readProjectionSnapshot,
-      getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+      readQueueProjection,
     });
     const getCardsSpy = vi.spyOn(queue, 'getCards');
 
@@ -231,14 +255,15 @@ describe('BaseReviewQueue snapshot rows', () => {
     expect(rows.map((row) => row.fsrsCardId)).toEqual(['card-b', 'card-a']);
     expect(cards.map((card) => card.id)).toEqual(['card-a', 'card-b']);
     expect(counters).toMatchObject({ version: 5, remaining: 2, due: 2, total: 2 });
-    expect(readProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, {
-      forceRefresh: false,
+    expect(readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType: QueueType.RetrievalPractice,
     });
-    expect(getProjectionCardsBySnapshotIds).toHaveBeenCalledWith(
-      QueueType.RetrievalPractice,
-      ['row-a', 'row-b'],
-      { forceRefresh: false },
-    );
+    expect(readQueueProjection).toHaveBeenCalledWith({
+      type: 'rows-by-id',
+      queueType: QueueType.RetrievalPractice,
+      ids: ['row-a', 'row-b'],
+    });
     expect(getCardsSpy).not.toHaveBeenCalled();
   });
 
@@ -250,11 +275,21 @@ describe('BaseReviewQueue snapshot rows', () => {
   ])('keeps %s on existing strategy snapshot reads only for explicit rollback diagnostics', async (queueType) => {
     const cardA = buildCard('card-a', { riffCardId: 'riff-a' });
     const cardB = buildCard('card-b');
-    const readProjectionSnapshot = vi.fn(async () => null);
-    const getProjectionCardsBySnapshotIds = vi.fn(async () => []);
+    const readQueueProjection = vi.fn(async () => ({
+      type: 'snapshot' as const,
+      status: 'unavailable' as const,
+      readiness: {
+        status: 'unavailable' as const,
+        queueId: queueType,
+        policyId: '',
+        cause: 'projection_missing' as const,
+        reason: 'projection intentionally unavailable for local compatibility mode',
+        recoverable: false,
+      },
+      snapshot: null,
+    }));
     const queue = new TestQueue([cardA, cardB], {
-      readQueueProjectionSnapshot: readProjectionSnapshot,
-      getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+      readQueueProjection,
       getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRolloutDiagnostic(queueType, false)),
     }, queueType);
     const getCardsSpy = vi.spyOn(queue, 'getCards');
@@ -264,8 +299,10 @@ describe('BaseReviewQueue snapshot rows', () => {
 
     expect(rows.map((row) => row.id)).toEqual(['riff-a', 'card-b']);
     expect(cards.map((card) => card.id)).toEqual(['card-b', 'card-a']);
-    expect(readProjectionSnapshot).toHaveBeenCalledWith(queueType, { forceRefresh: false });
-    expect(getProjectionCardsBySnapshotIds).not.toHaveBeenCalled();
+    expect(readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType,
+    });
     expect(getCardsSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -278,9 +315,21 @@ describe('BaseReviewQueue snapshot rows', () => {
     QueueType.NeuralRoam,
   ])('fails closed for %s when backend projection snapshot is unavailable', async (queueType) => {
     const cardA = buildCard('card-a', { riffCardId: 'riff-a' });
-    const readProjectionSnapshot = vi.fn(async () => null);
+    const readQueueProjection = vi.fn(async () => ({
+      type: 'snapshot' as const,
+      status: 'unavailable' as const,
+      readiness: {
+        status: 'unavailable' as const,
+        queueId: queueType,
+        policyId: '',
+        cause: 'backend_unavailable' as const,
+        reason: 'backend unavailable',
+        recoverable: true,
+      },
+      snapshot: null,
+    }));
     const queue = new TestQueue([cardA], {
-      readQueueProjectionSnapshot: readProjectionSnapshot,
+      readQueueProjection,
       getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRolloutDiagnostic(queueType, true)),
     }, queueType);
     const getCardsSpy = vi.spyOn(queue, 'getCards');
@@ -288,65 +337,108 @@ describe('BaseReviewQueue snapshot rows', () => {
     await expect(queue.getSnapshotRows()).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
     await expect(queue.getCounterSnapshot()).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
 
-    expect(readProjectionSnapshot).toHaveBeenCalledWith(queueType, { forceRefresh: false });
+    expect(readQueueProjection).toHaveBeenCalledWith({
+      type: 'snapshot',
+      queueType,
+    });
     expect(getCardsSpy).not.toHaveBeenCalled();
   });
 
   it('fails closed when projection row hydration is incomplete', async () => {
     const cardA = buildCard('card-a', { riffCardId: 'row-a' });
     const row = buildQueueSnapshotRow(cardA, { queueIndex: 1 });
-    const readProjectionSnapshot = vi.fn(async () => ({
-      queueType: QueueType.FilterGroup,
-      policyHash: 'policy-a',
-      generation: 7,
-      rows: [row],
-      counters: {
-        version: 7,
-        remaining: 1,
-        due: 1,
-        total: 1,
-        buckets: {
-          all: 1,
-          item: 1,
-          descriptor: 0,
-          topic: 0,
-          concept: 0,
+    const readQueueProjection = vi.fn(async (request: { type: string }) => request.type === 'snapshot'
+      ? {
+        type: 'snapshot' as const,
+        status: 'ready' as const,
+        readiness: {
+          status: 'ready' as const,
+          queueId: QueueType.FilterGroup,
+          policyId: 'policy-a',
+          generation: 7,
         },
-        source: 'reconciled' as const,
-      },
-    }));
-    const getProjectionCardsBySnapshotIds = vi.fn(async () => []);
+        snapshot: {
+          queueType: QueueType.FilterGroup,
+          policyHash: 'policy-a',
+          generation: 7,
+          rows: [row],
+          counters: {
+            version: 7,
+            remaining: 1,
+            due: 1,
+            total: 1,
+            buckets: {
+              all: 1,
+              item: 1,
+              descriptor: 0,
+              topic: 0,
+              concept: 0,
+            },
+            source: 'reconciled' as const,
+          },
+        },
+      }
+      : {
+        type: 'rows-by-id' as const,
+        status: 'ready' as const,
+        readiness: {
+          status: 'ready' as const,
+          queueId: QueueType.FilterGroup,
+          policyId: 'policy-a',
+          generation: 7,
+        },
+        cards: [],
+      });
     const queue = new TestQueue([cardA], {
-      readQueueProjectionSnapshot: readProjectionSnapshot,
-      getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+      readQueueProjection,
       getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRolloutDiagnostic(QueueType.FilterGroup, true)),
     }, QueueType.FilterGroup);
     const getCardsSpy = vi.spyOn(queue, 'getCards');
 
     await expect(queue.getCardsBySnapshotIds([row.id])).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
 
-    expect(getProjectionCardsBySnapshotIds).toHaveBeenCalledWith(
-      QueueType.FilterGroup,
-      [row.id],
-      { forceRefresh: false },
-    );
+    expect(readQueueProjection).toHaveBeenCalledWith({
+      type: 'rows-by-id',
+      queueType: QueueType.FilterGroup,
+      ids: [row.id],
+    });
     expect(getCardsSpy).not.toHaveBeenCalled();
   });
 
   it('marks refresh-required projection hydration as transient not-ready', async () => {
     const cardA = buildCard('card-a', { riffCardId: 'row-a' });
     const row = buildQueueSnapshotRow(cardA, { queueIndex: 1 });
-    const readProjectionSnapshot = vi.fn(async () => ({
-      queueType: QueueType.IncrementalLearning,
-      policyHash: 'policy-a',
-      generation: 7,
-      rows: [row],
-      counters: null,
-    }));
-    const getProjectionCardsBySnapshotIds = vi.fn(async () => []);
+    const readQueueProjection = vi.fn(async (request: { type: string }) => request.type === 'snapshot'
+      ? {
+        type: 'snapshot' as const,
+        status: 'ready' as const,
+        readiness: {
+          status: 'ready' as const,
+          queueId: QueueType.IncrementalLearning,
+          policyId: 'policy-a',
+          generation: 7,
+        },
+        snapshot: {
+          queueType: QueueType.IncrementalLearning,
+          policyHash: 'policy-a',
+          generation: 7,
+          rows: [row],
+          counters: null,
+        },
+      }
+      : {
+        type: 'rows-by-id' as const,
+        status: 'ready' as const,
+        readiness: {
+          status: 'ready' as const,
+          queueId: QueueType.IncrementalLearning,
+          policyId: 'policy-a',
+          generation: 7,
+        },
+        cards: [],
+      });
     const queue = new TestQueue([cardA], {
-      readQueueProjectionSnapshot: readProjectionSnapshot,
-      getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+      readQueueProjection,
       getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRefreshRequiredDiagnostic(QueueType.IncrementalLearning)),
     }, QueueType.IncrementalLearning);
 
@@ -358,11 +450,11 @@ describe('BaseReviewQueue snapshot rows', () => {
 
   it('fails closed when projection snapshot dependency throws', async () => {
     const cardA = buildCard('card-a', { riffCardId: 'row-a' });
-    const readProjectionSnapshot = vi.fn(async () => {
+    const readQueueProjection = vi.fn(async () => {
       throw new Error('projection read failed');
     });
     const queue = new TestQueue([cardA], {
-      readQueueProjectionSnapshot: readProjectionSnapshot,
+      readQueueProjection,
       getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRolloutDiagnostic(QueueType.FilterGroup, true)),
     }, QueueType.FilterGroup);
     const getCardsSpy = vi.spyOn(queue, 'getCards');
@@ -375,19 +467,30 @@ describe('BaseReviewQueue snapshot rows', () => {
   it('fails closed when projection hydration dependency throws', async () => {
     const cardA = buildCard('card-a', { riffCardId: 'row-a' });
     const row = buildQueueSnapshotRow(cardA, { queueIndex: 1 });
-    const readProjectionSnapshot = vi.fn(async () => ({
-      queueType: QueueType.FilterGroup,
-      policyHash: 'policy-a',
-      generation: 7,
-      rows: [row],
-      counters: null,
-    }));
-    const getProjectionCardsBySnapshotIds = vi.fn(async () => {
+    const readQueueProjection = vi.fn(async (request: { type: string }) => {
+      if (request.type === 'snapshot') {
+        return {
+          type: 'snapshot' as const,
+          status: 'ready' as const,
+          readiness: {
+            status: 'ready' as const,
+            queueId: QueueType.FilterGroup,
+            policyId: 'policy-a',
+            generation: 7,
+          },
+          snapshot: {
+            queueType: QueueType.FilterGroup,
+            policyHash: 'policy-a',
+            generation: 7,
+            rows: [row],
+            counters: null,
+          },
+        };
+      }
       throw new Error('hydration failed');
     });
     const queue = new TestQueue([cardA], {
-      readQueueProjectionSnapshot: readProjectionSnapshot,
-      getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+      readQueueProjection,
       getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRolloutDiagnostic(QueueType.FilterGroup, true)),
     }, QueueType.FilterGroup);
 
