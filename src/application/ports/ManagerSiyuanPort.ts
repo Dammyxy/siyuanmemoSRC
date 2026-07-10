@@ -26,5 +26,4 @@ export interface ManagerSiyuanPort {
   ): Promise<void>;
 
   getCardBlockIds(filter: ManagerCardBlockIdFilter): Promise<string[]>;
-  addRiffCards(deckID: string, blockIDs: string[]): Promise<{ name: string; size: number }>;
 }

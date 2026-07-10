@@ -11,7 +11,7 @@ import {
   setBlockAttrs,
   sql,
 } from './api';
-import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
+import { BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import { ATTR_CARD_ID, getCardBlockIds, getBlockText, markBlockAsCard } from '@/core/siyuan/block';
 
 function toBlockCardType(cardType?: ManagerCardType): 'topic' | 'item' | 'concept' | 'descriptor' | undefined {
@@ -64,9 +64,5 @@ export class ManagerSiyuanAdapter implements ManagerSiyuanPort {
 
   async getCardBlockIds(filter: ManagerCardBlockIdFilter): Promise<string[]> {
     return getCardBlockIds(filter);
-  }
-
-  async addRiffCards(deckID: string, blockIDs: string[]): Promise<{ name: string; size: number }> {
-    return addRiffCards(deckID, blockIDs);
   }
 }

@@ -1,10 +1,5 @@
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
-import type { NativeRiffCompatibilityPort } from '@/application/ports/NativeRiffCompatibilityPort';
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
-import {
-  resolveNativeRiffCompatibilityDecision,
-  type NativeRiffSrsAction,
-} from '@/application/policies/NativeRiffCompatibilityPolicy';
 import type {
   BackendTopicDerivedCommandExecuteRequest,
   BackendTopicDerivedCommandExecuteResult,
@@ -145,7 +140,6 @@ export class TopicDerivedItemService {
   constructor(
     private readonly cardService: CardApplicationService,
     private readonly progressiveReadingService: ProgressiveReadingService,
-    private readonly nativeRiffApi: NativeRiffCompatibilityPort | undefined,
     private readonly settingsProvider: TopicDerivationSettingsProvider,
     private readonly ownershipBoundaryClient?: TopicDerivedOwnershipBoundaryClient,
     private readonly backendClient?: TopicDerivedBackendCommandClient,
@@ -604,22 +598,7 @@ export class TopicDerivedItemService {
       throw result.error;
     }
 
-    await this.registerNativeRiffCompatibility(input.derivedBlockId);
-
     return result.value.getId().getValue();
-  }
-
-  private async registerNativeRiffCompatibility(
-    blockId: string,
-    action?: NativeRiffSrsAction,
-  ): Promise<void> {
-    if (!resolveNativeRiffCompatibilityDecision({ action }).enabled) {
-      return;
-    }
-    if (!this.nativeRiffApi) {
-      throw new Error('NATIVE_RIFF_COMPATIBILITY_UNAVAILABLE');
-    }
-    await this.nativeRiffApi.addRiffCards(this.nativeRiffApi.BUILTIN_DECK_ID, [blockId]);
   }
 
   private async rollbackDerivedDoc(docId: string, context: Record<string, unknown>): Promise<void> {

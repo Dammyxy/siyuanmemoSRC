@@ -172,10 +172,6 @@ export async function renameRiffDeck(deckID: string, name: string): Promise<void
 // ==================== 卡片管理 ====================
 
 /** 将块添加到卡包 */
-export async function addRiffCards(deckID: string, blockIDs: string[]): Promise<{ name: string; size: number }> {
-    return request('/riff/addRiffCards', { deckID, blockIDs });
-}
-
 /** 从卡包移除卡片 */
 export async function removeRiffCards(deckID: string, blockIDs: string[]): Promise<{ name: string; size: number }> {
     return request('/riff/removeRiffCards', { deckID, blockIDs });

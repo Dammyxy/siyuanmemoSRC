@@ -12,7 +12,6 @@ import {
   ATTR_PROGRESSIVE_STORAGE_MODE,
 } from '@/application/services/ProgressiveAttrContract';
 import type { CardApplicationService } from '../CardApplicationService';
-import type { NativeRiffCompatibilityPort } from '@/application/ports/NativeRiffCompatibilityPort';
 import type { ProgressiveReadingService } from '../ProgressiveReadingService';
 import { TopicDerivedItemService } from '../TopicDerivedItemService';
 
@@ -64,9 +63,14 @@ function createProgressiveReadingServiceMock() {
   };
 }
 
+type RetiredNativeRiffPortTestDouble = {
+  BUILTIN_DECK_ID: string;
+  addRiffCards: ReturnType<typeof vi.fn>;
+};
+
 function createNativeRiffPortMock(
-  overrides: Partial<NativeRiffCompatibilityPort> = {},
-): NativeRiffCompatibilityPort {
+  overrides: Partial<RetiredNativeRiffPortTestDouble> = {},
+): RetiredNativeRiffPortTestDouble {
   return {
     BUILTIN_DECK_ID: 'builtin-deck',
     addRiffCards: vi.fn(async () => ({
@@ -131,7 +135,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider(),
       ownershipBoundaryClient,
     );
@@ -203,7 +206,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider(),
       undefined,
       backendClient,
@@ -271,7 +273,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider(),
       undefined,
       backendClient,
@@ -315,7 +316,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider(),
     );
 
@@ -391,7 +391,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider('workbench'),
     );
 
@@ -438,7 +437,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider('workbench'),
     );
 
@@ -482,7 +480,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider('workbench'),
     );
 
@@ -538,7 +535,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider(),
     );
 
@@ -575,7 +571,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createFailingSettingsProvider(),
     );
 
@@ -599,7 +594,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider('workbench'),
     );
 
@@ -652,7 +646,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider(),
     );
 
@@ -685,7 +678,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider(),
     );
 
@@ -711,7 +703,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      undefined,
       createSettingsProvider(),
     );
 
@@ -735,7 +726,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider(),
     );
 
@@ -792,7 +782,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider(),
     );
 
@@ -838,7 +827,6 @@ describe('TopicDerivedItemService', () => {
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
-      nativeRiffApi,
       createSettingsProvider(),
     );
 

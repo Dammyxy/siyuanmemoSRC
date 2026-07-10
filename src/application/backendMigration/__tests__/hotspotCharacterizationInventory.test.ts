@@ -23,9 +23,9 @@ const HOTSPOT_COVERAGE: Record<string, CoveragePattern[]> = {
   ],
   'incremental reading': [
     {
-      label: 'happy path creates nested excerpt topic with native Riff sync',
+      label: 'happy path creates nested excerpt topic with local card ownership',
       file: 'src/application/services/__tests__/ProgressiveReadingService.test.ts',
-      pattern: /creates nested excerpt topics inside excerpt docs with parent lineage and native Riff sync/,
+      pattern: /creates nested excerpt topics inside excerpt docs with parent lineage and local card ownership/,
     },
     {
       label: 'native Riff unavailable keeps local excerpt artifacts',

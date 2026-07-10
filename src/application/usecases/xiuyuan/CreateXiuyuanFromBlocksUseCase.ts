@@ -20,9 +20,8 @@
  * 1. 楠岃瘉妯℃澘鏄惁瀛樺湪
  * 2. 鏋勫缓 CardFace锛堜粠 fieldMapping锛?
  * 3. 鍒涘缓 Xiuyuan 鑱氬悎鏍?
- * 4. 娣诲姞鍒?Riff锛堝彲閫夛級
- * 5. 閫氳繃 Repository 鎸佷箙鍖?
- * 6. 杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗?
+ * 4. 閫氳繃 Repository 鎸佷箙鍖?
+ * 5. 杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗?
  */
 
 import { Result, err, isErr, ok } from '@/types/result';
@@ -102,12 +101,6 @@ type PreparedXiuyuanCreation = {
   kind: 'new';
   xiuyuan: Xiuyuan;
   source?: string;
-  riff: {
-    deckId?: string;
-    blockIds: string[];
-    source: string;
-    context?: Record<string, unknown>;
-  };
 } | {
   kind: 'existing';
   payload: XiuyuanCreationPayload;
@@ -153,15 +146,14 @@ export class CreateXiuyuanFromBlocksUseCase {
       if (prepared.kind === 'existing') {
         return ok(prepared.payload);
       }
-      const { xiuyuan, riff } = prepared;
+      const { xiuyuan, source } = prepared;
 
       return finalizeXiuyuanCreation({
         xiuyuan,
         xiuyuanRepository: this.xiuyuanRepository,
         eventBus: this.eventBus,
         logger,
-        siyuanApi: this.siyuanApi,
-        riff,
+        source,
       });
     } catch (error) {
       logger.error('Failed:', error);
@@ -198,7 +190,6 @@ export class CreateXiuyuanFromBlocksUseCase {
         xiuyuanRepository: this.xiuyuanRepository,
         eventBus: this.eventBus,
         logger,
-        siyuanApi: this.siyuanApi,
       });
       if (isErr(finalizedNewItems)) {
         return finalizedNewItems;
@@ -509,24 +500,10 @@ export class CreateXiuyuanFromBlocksUseCase {
 
       const xiuyuan = xiuyuanResult.value;
 
-      let blockIdToAddToRiff = representativeBlockId;
-      if (descriptorTemplate && command.blockIds.length >= 2) {
-        blockIdToAddToRiff = command.blockIds[1];
-        logger.debug('Concept-descriptor template, adding descriptor block to Riff:', blockIdToAddToRiff);
-      }
-
       return ok({
         kind: 'new',
         xiuyuan,
         source: command.source,
-        riff: {
-          deckId: command.deckId,
-          blockIds: [blockIdToAddToRiff],
-          source: 'template-creation',
-          context: {
-            blockId: blockIdToAddToRiff,
-          },
-        },
       });
   }
 

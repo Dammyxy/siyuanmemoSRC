@@ -1,11 +1,6 @@
 import type { ProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { ProgressiveBlockRow, ProgressiveDocInfo, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
-import type { NativeRiffCompatibilityPort } from '@/application/ports/NativeRiffCompatibilityPort';
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
-import {
-  resolveNativeRiffCompatibilityDecision,
-  type NativeRiffSrsAction,
-} from '@/application/policies/NativeRiffCompatibilityPolicy';
 import type {
   BackendProgressiveCommandExecuteRequest,
   BackendProgressiveCommandExecuteResult,
@@ -407,7 +402,6 @@ export class ProgressiveReadingService {
 
   constructor(
     private readonly siyuanApi: ProgressiveSiyuanPort,
-    private readonly nativeRiffApi: NativeRiffCompatibilityPort | undefined,
     private readonly fileService: IFileService,
     private readonly cardService: CardApplicationService,
     private readonly settingsProvider: ProgressiveReadingSettingsProvider,
@@ -1708,7 +1702,6 @@ export class ProgressiveReadingService {
   }): Promise<EnsureTopicCardResult> {
     const existing = this.cardService.getCardByBlockId(input.pieceDocId);
     if (existing) {
-      await this.ensureNativeRiffRegistration(input.pieceDocId);
       return {
         cardId: existing.id,
         created: false,
@@ -1740,7 +1733,6 @@ export class ProgressiveReadingService {
     if (!created) {
       throw new Error('Piece topic card created but could not be reloaded from storage');
     }
-    await this.ensureNativeRiffRegistration(input.pieceDocId);
     return {
       cardId: created.id,
       created: true,
@@ -2459,19 +2451,6 @@ export class ProgressiveReadingService {
       Object.entries(attrs).map(([key, value]) => [key, toAttrValue(value)])
     );
     await this.siyuanApi.setBlockAttrs(blockId, normalized);
-  }
-
-  private async ensureNativeRiffRegistration(
-    blockId: string,
-    action?: NativeRiffSrsAction,
-  ): Promise<void> {
-    if (!resolveNativeRiffCompatibilityDecision({ action }).enabled) {
-      return;
-    }
-    if (!this.nativeRiffApi) {
-      throw new Error('NATIVE_RIFF_COMPATIBILITY_UNAVAILABLE');
-    }
-    await this.nativeRiffApi.addRiffCards(this.nativeRiffApi.BUILTIN_DECK_ID, [blockId]);
   }
 
   private async rollbackExcerptArtifact(

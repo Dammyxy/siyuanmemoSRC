@@ -704,7 +704,6 @@ export class ApplicationContext {
     this.registerServiceFactory('progressiveReadingService', (context) => {
       return new ProgressiveReadingService(
         new ProgressiveSiyuanAdapter(),
-        undefined,
         context.getFileService(),
         context.getCardService(),
         context.getSettingsService(),
@@ -746,7 +745,6 @@ export class ApplicationContext {
       return new TopicDerivedItemService(
         context.getCardService(),
         context.getProgressiveReadingService(),
-        undefined,
         context.getSettingsService(),
         undefined,
         context.srsBackendClient || undefined,

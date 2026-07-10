@@ -315,20 +315,7 @@ export class CreateListTemplateCardsUseCase {
         xiuyuanRepository: this.xiuyuanRepository,
         eventBus: this.eventBus,
         logger,
-        siyuanApi: this.siyuanApi,
-        riff: {
-            deckId: command.deckId,
-            blockIds: [childData.paragraphId],
-            source: 'list-template-creation',
-            context: {
-              blockId: childData.paragraphId,
-              representativeBlockId: childData.paragraphId,
-              parentBlockId: command.parentBlockId,
-              parentParagraphId,
-              currentIndex: childData.index,
-            mode: 'split-v2',
-          },
-        },
+        source: 'list-template-creation',
       });
 
       if (isErr(creationResult)) {
@@ -536,19 +523,7 @@ export class CreateListTemplateCardsUseCase {
       xiuyuanRepository: this.xiuyuanRepository,
       eventBus: this.eventBus,
       logger,
-      siyuanApi: this.siyuanApi,
-      riff: {
-        deckId: command.deckId,
-        blockIds: [summaryAnswerBlockId],
-        source: 'list-template-creation',
-        context: {
-          blockId: summaryAnswerBlockId,
-          representativeBlockId: summaryAnswerBlockId,
-          parentBlockId: command.parentBlockId,
-          parentParagraphId,
-          mode: 'summary-v1',
-        },
-      },
+      source: 'list-template-creation',
     });
 
     if (isErr(creationResult)) {

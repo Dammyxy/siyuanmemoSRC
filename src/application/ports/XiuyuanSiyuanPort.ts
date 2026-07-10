@@ -7,5 +7,4 @@ export interface XiuyuanSiyuanPort {
   getBlockAttrs(blockId: string): Promise<XiuyuanBlockAttrs>;
   getBlockKramdown(blockId: string): Promise<{ kramdown: string }>;
   getBlockText(blockId: string): Promise<string>;
-  addRiffCards(deckID: string, blockIDs: string[]): Promise<{ name: string; size: number }>;
 }

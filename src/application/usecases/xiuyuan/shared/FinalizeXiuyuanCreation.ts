@@ -1,5 +1,4 @@
 import { Result, ok, err, isErr } from '@/types/result';
-import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
@@ -8,10 +7,6 @@ import {
   incrementRuntimePerformanceCounter,
   measureRuntimePerformance,
 } from '@/utils/runtimePerformanceDiagnostics';
-import {
-  resolveNativeRiffCompatibilityDecision,
-  type NativeRiffSrsAction,
-} from '@/application/policies/NativeRiffCompatibilityPolicy';
 
 interface FinalizerLogger {
   info(...args: unknown[]): void;
@@ -32,27 +27,17 @@ export interface XiuyuanCreationPayload {
   }>;
 }
 
-interface FinalizeRiffOptions {
-  deckId?: string;
-  blockIds: string[];
-  source: string;
-  context?: Record<string, unknown>;
-  action?: NativeRiffSrsAction;
-}
-
 export interface FinalizeXiuyuanCreationOptions {
   xiuyuan: Xiuyuan;
   xiuyuanRepository: IXiuyuanRepository;
   eventBus: EventBus;
   logger: FinalizerLogger;
-  siyuanApi: XiuyuanSiyuanPort;
-  riff?: FinalizeRiffOptions;
+  source?: string;
 }
 
 export interface FinalizeXiuyuanCreationBatchItem {
   xiuyuan: Xiuyuan;
   source?: string;
-  riff?: FinalizeRiffOptions;
 }
 
 export interface FinalizeXiuyuanCreationBatchOptions {
@@ -60,7 +45,6 @@ export interface FinalizeXiuyuanCreationBatchOptions {
   xiuyuanRepository: IXiuyuanRepository;
   eventBus: EventBus;
   logger: FinalizerLogger;
-  siyuanApi: XiuyuanSiyuanPort;
 }
 
 export function toXiuyuanCreationPayload(xiuyuan: Xiuyuan): XiuyuanCreationPayload {
@@ -76,55 +60,6 @@ export function toXiuyuanCreationPayload(xiuyuan: Xiuyuan): XiuyuanCreationPaylo
       faceIndex: card.getFaceIndex(),
     })),
   };
-}
-
-async function addRiffCardsForCreation(
-  options: {
-    siyuanApi: XiuyuanSiyuanPort;
-    logger: FinalizerLogger;
-    riff: FinalizeRiffOptions;
-    xiuyuanId?: string;
-    batchCount?: number;
-  }
-): Promise<void> {
-  const { logger, riff, siyuanApi } = options;
-  const deckId = riff.deckId || siyuanApi.BUILTIN_DECK_ID;
-  const isBatch = typeof options.batchCount === 'number';
-  try {
-    const operation = isBatch
-      ? 'riff.add-cards-batch'
-      : 'riff.add-cards-single';
-    await measureRuntimePerformance(
-      'autocard',
-      operation,
-      () => siyuanApi.addRiffCards(deckId, riff.blockIds),
-      {
-        blockCount: riff.blockIds.length,
-        deckId,
-        source: riff.source,
-      },
-    );
-    if (isBatch) {
-      logger.info('Created Xiuyuans and added to Riff:', {
-        deckId,
-        blockIds: riff.blockIds,
-        count: riff.blockIds.length,
-        source: 'batch',
-      });
-      return;
-    }
-
-    logger.info('Created Xiuyuan and added to Riff:', {
-      xiuyuanId: options.xiuyuanId,
-      blockIds: riff.blockIds,
-      source: riff.source,
-      ...(riff.context || {}),
-    });
-  } catch (error) {
-    logger.warn(isBatch
-      ? 'Failed to add batch to Riff:'
-      : 'Failed to add to Riff:', error);
-  }
 }
 
 function createCardsForXiuyuan(
@@ -146,7 +81,7 @@ function createCardsForXiuyuan(
 export async function finalizeXiuyuanCreation(
   options: FinalizeXiuyuanCreationOptions
 ): Promise<Result<XiuyuanCreationPayload>> {
-  const { xiuyuan, xiuyuanRepository, eventBus, logger, riff, siyuanApi } = options;
+  const { xiuyuan, xiuyuanRepository, eventBus, logger, source } = options;
 
   const createCardsResult = createCardsForXiuyuan(xiuyuan, logger);
   if (isErr(createCardsResult)) {
@@ -159,7 +94,7 @@ export async function finalizeXiuyuanCreation(
     () => xiuyuanRepository.save(xiuyuan),
     {
       xiuyuanId: xiuyuan.getId().getValue(),
-      source: riff?.source,
+      source,
     },
   );
   if (!saveResult.ok) {
@@ -167,21 +102,6 @@ export async function finalizeXiuyuanCreation(
   }
   incrementRuntimePerformanceCounter('autocard', 'storage-save-one-calls', 1);
   incrementRuntimePerformanceCounter('autocard', 'storage-save-one-items', 1);
-
-  if (
-    riff
-    && riff.blockIds.length > 0
-    && resolveNativeRiffCompatibilityDecision({ action: riff.action }).enabled
-  ) {
-    incrementRuntimePerformanceCounter('autocard', 'riff-single-calls', 1);
-    incrementRuntimePerformanceCounter('autocard', 'riff-single-blocks', riff.blockIds.length);
-    await addRiffCardsForCreation({
-      siyuanApi,
-      logger,
-      riff,
-      xiuyuanId: xiuyuan.getId().getValue(),
-    });
-  }
 
   incrementRuntimePerformanceCounter('autocard', 'event-single-notifications', 1);
   await eventBus.publishAll(xiuyuan.getDomainEvents());
@@ -193,7 +113,7 @@ export async function finalizeXiuyuanCreation(
 export async function finalizeXiuyuanCreationBatch(
   options: FinalizeXiuyuanCreationBatchOptions
 ): Promise<Result<XiuyuanCreationPayload[]>> {
-  const { items, xiuyuanRepository, eventBus, logger, siyuanApi } = options;
+  const { items, xiuyuanRepository, eventBus, logger } = options;
   if (items.length === 0) {
     return ok([]);
   }
@@ -203,22 +123,6 @@ export async function finalizeXiuyuanCreationBatch(
     if (isErr(createCardsResult)) {
       return createCardsResult as Result<XiuyuanCreationPayload[]>;
     }
-  }
-
-  const riffBlockIdsByDeck = new Map<string, string[]>();
-  for (const item of items) {
-    const riff = item.riff;
-    if (
-      !riff
-      || riff.blockIds.length === 0
-      || !resolveNativeRiffCompatibilityDecision({ action: riff.action }).enabled
-    ) {
-      continue;
-    }
-    const deckId = riff.deckId || siyuanApi.BUILTIN_DECK_ID;
-    const blockIds = riffBlockIdsByDeck.get(deckId) ?? [];
-    blockIds.push(...riff.blockIds);
-    riffBlockIdsByDeck.set(deckId, blockIds);
   }
 
   const xiuyuans = items.map((item) => item.xiuyuan);
@@ -234,21 +138,6 @@ export async function finalizeXiuyuanCreationBatch(
   );
   if (!saveResult.ok) {
     return saveResult as Result<XiuyuanCreationPayload[]>;
-  }
-
-  for (const [deckId, blockIds] of riffBlockIdsByDeck.entries()) {
-    incrementRuntimePerformanceCounter('autocard', 'riff-batch-calls', 1);
-    incrementRuntimePerformanceCounter('autocard', 'riff-batch-blocks', blockIds.length);
-    await addRiffCardsForCreation({
-      siyuanApi,
-      logger,
-      riff: {
-        deckId,
-        blockIds,
-        source: 'batch',
-      },
-      batchCount: items.length,
-    });
   }
 
   const batchEvent = new CardsCreatedEvent(

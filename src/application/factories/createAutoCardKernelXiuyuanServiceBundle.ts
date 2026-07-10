@@ -9,7 +9,6 @@ import { HostBlockQuerySiyuanAdapter } from '@/infrastructure/siyuan/HostBlockQu
 import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import { AutoCardSiyuanAdapter } from '@/infrastructure/siyuan/AutoCardSiyuanAdapter';
-import { NativeRiffCompatibilityAdapter } from '@/infrastructure/siyuan/NativeRiffCompatibilityAdapter';
 import type { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTypeDetectionService';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
 import { XiuyuanRepository } from '@/core/xiuyuan/infrastructure/XiuyuanRepository';
@@ -89,7 +88,6 @@ export function createAutoCardKernelXiuyuanServiceBundle(
       const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
       return new AutoCardHandler(deps.plugin as unknown as SiyuanMemoPlugin, {
         siyuanApi: new AutoCardSiyuanAdapter(),
-        riffApi: new NativeRiffCompatibilityAdapter(),
         hostBlockQuery: new HostBlockQuerySiyuanAdapter(),
       });
     },

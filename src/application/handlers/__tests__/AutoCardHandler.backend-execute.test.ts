@@ -5,6 +5,7 @@ import {
   getRuntimePerformanceDiagnosticsReport,
   installRuntimePerformanceDiagnosticsGlobal,
 } from '@/utils/runtimePerformanceDiagnostics';
+import { BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 
 const autoCardPolicyLoggerMocks = vi.hoisted(() => ({
   info: vi.fn(),
@@ -155,10 +156,6 @@ function createHandler(input?: {
       pushErrMsg: vi.fn(async () => undefined),
       setBlockAttrs: vi.fn(async () => undefined),
       markBlockAsCard: vi.fn(async () => undefined),
-    } as never,
-    riffApi: {
-      BUILTIN_DECK_ID: 'builtin-deck',
-      addRiffCards: vi.fn(async () => ({ name: 'builtin-deck', size: 0 })),
     } as never,
     hostBlockQuery: input?.hostBlockQuery as never,
   });
@@ -754,7 +751,7 @@ describe('AutoCardHandler backend execute routing', () => {
         blockIds: ['block-1'],
         templateId: 'builtin-quick-card',
         fieldMapping: { content: 'block-1' },
-        deckId: 'builtin-deck',
+        deckId: BUILTIN_DECK_ID,
         cardType: 'item',
         source: 'doc-oneclick-scan',
         duplicatePolicy: 'error',
@@ -765,7 +762,7 @@ describe('AutoCardHandler backend execute routing', () => {
         blockIds: ['block-2'],
         templateId: 'builtin-quick-card',
         fieldMapping: { content: 'block-2' },
-        deckId: 'builtin-deck',
+        deckId: BUILTIN_DECK_ID,
         cardType: 'topic',
         source: 'doc-oneclick-scan',
         duplicatePolicy: 'error',

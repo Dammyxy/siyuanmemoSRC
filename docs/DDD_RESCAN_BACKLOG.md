@@ -1,17 +1,27 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 693)
+Last update: 2026-07-10 (Round 694)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Remove Native Riff add-card paths
+
+- Task: Apply `retire-native-riff-continuous-sync` task 5.1 after continuous-sync settings removal.
+- Touched slice: AutoCard, Progressive, Topic-derived item, ordinary Xiuyuan creation, Siyuan ports/adapters, composition wiring, focused tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: Card creation no longer injects a Native Riff compatibility write port or calls `/riff/addRiffCards`. `FinalizeXiuyuanCreation` now owns only local persistence and domain-event publication; AutoCard uses the local built-in deck identifier; Progressive and Topic-derived creation keep local artifacts without Native Riff registration.
+- Debt deferred: Native Riff remove/delete-sync routing, Review rating feedback, `XiuyuanSyncService` and helper runtimes, worker RPC/checkpoint code, and retired compatibility persistence remain in tasks 5.2-5.6.
+- Why deferred: Delete, rating, sync-runtime, worker, and persistence retirement have distinct callers and failure contracts; removing them in separate slices keeps each public behavior testable.
+- Next safe step: Remove Native Riff remove-card/delete-sync event routing and hard-delete compatibility behavior under task 5.2.
+- Validation: 95 focused Vitest tests passed across finalization, Progressive, Topic-derived, AutoCard, Xiuyuan creation, factory, hotspot inventory, and Siyuan adapter paths; production scan found no add-card endpoint or compatibility port/policy/adapter references; boundary, hidden-fallback, OpenSpec strict, whitespace, and build checks run before commit.
 
 ### 2026-07-10 - Retire Native Riff continuous-sync settings
 
 - Task: Apply `retire-native-riff-continuous-sync` task 4.5 after passive lifecycle and transaction routing removal.
 - Touched slice: Settings UI/application save boundary in `SettingsPanel.vue`, `settingsLoadState.ts`, `settingsLoadSaveCommands.ts`, `settingsSavePayload.ts`, `DialogManager.ts`, focused tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
 - Debt fixed now: Settings no longer load, project, edit, or emit Native Riff incremental/full sync or trigger state. The panel exposes only storage conflict resolution, Browser maintenance remains the explicit import/adoption owner, and DialogManager settings save hard-disables incremental/full sync without calling `updateHybridSyncConfig()`.
-- Debt deferred: Native Riff add/remove/rating bridges, delete-sync compatibility fields, Xiuyuan sync implementation, worker RPC/catalog action types, checkpoint persistence, and legacy blacklist/checkpoint settings remain in tasks 5.1-5.6.
-- Why deferred: Add, delete, feedback, runtime deletion, worker RPC removal, and persistence migration have separate ownership and validation slices; delete-sync state stays readable until task 5.2 removes its event path and task 5.6 removes compatibility storage.
-- Next safe step: Remove Native Riff add-card dependencies from AutoCard, Progressive, Topic-derived, and ordinary card creation paths under task 5.1.
+- Debt deferred: Native Riff remove/rating bridges, delete-sync compatibility fields, Xiuyuan sync implementation, worker RPC/catalog action types, checkpoint persistence, and legacy blacklist/checkpoint settings remain in tasks 5.2-5.6. Add-card dependencies were removed in the follow-up task above.
+- Why deferred: Delete, feedback, runtime deletion, worker RPC removal, and persistence migration have separate ownership and validation slices; delete-sync state stays readable until task 5.2 removes its event path and task 5.6 removes compatibility storage.
+- Next safe step: Remove Native Riff remove-card/delete-sync event routing and hard-delete compatibility behavior under task 5.2.
 - Validation: 22 focused SettingsPanel/settings-state/DialogManager tests passed; boundary and hidden-fallback checks passed; OpenSpec strict validation passed; `git diff --check` passed with CRLF working-copy warnings only; `pnpm build` passed with existing non-blocking i18n and Sass warnings.
 
 ### 2026-07-10 - Retire Native Riff transaction routing

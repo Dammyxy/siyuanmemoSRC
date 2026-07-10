@@ -4,7 +4,6 @@ import { ok } from '@/types/result';
 import type { CardApplicationService } from '../CardApplicationService';
 import { EXCERPT_RECORD_STORAGE_KEY, type ExcerptRecord, ExcerptRecordService } from '../ExcerptRecordService';
 import { ProgressiveReadingService, ProgressiveSplitCancelledError } from '../ProgressiveReadingService';
-import type { NativeRiffCompatibilityPort } from '@/application/ports/NativeRiffCompatibilityPort';
 import type { ProgressiveBlockRow, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import type { PluginSettings } from '@/types/settings';
@@ -108,9 +107,14 @@ function createSettingsProviderMock(
   };
 }
 
+type RetiredNativeRiffPortTestDouble = {
+  BUILTIN_DECK_ID: string;
+  addRiffCards: ReturnType<typeof vi.fn>;
+};
+
 function createNativeRiffCompatibilityPortMock(
-  overrides: Partial<NativeRiffCompatibilityPort> = {},
-): NativeRiffCompatibilityPort {
+  overrides: Partial<RetiredNativeRiffPortTestDouble> = {},
+): RetiredNativeRiffPortTestDouble {
   return {
     BUILTIN_DECK_ID: 'builtin-deck',
     addRiffCards: vi.fn(async () => ({
@@ -152,7 +156,7 @@ function createServiceUnderTest(
     };
   },
   configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock(),
-  nativeRiffApi: NativeRiffCompatibilityPort | undefined = createNativeRiffCompatibilityPortMock(),
+  nativeRiffApi: RetiredNativeRiffPortTestDouble | undefined = createNativeRiffCompatibilityPortMock(),
   ownershipBoundaryClient?: {
     p6OwnershipQuery?: ReturnType<typeof vi.fn>;
   },
@@ -185,7 +189,6 @@ function createServiceUnderTest(
   const excerptRecordService = new ExcerptRecordService(fileService);
   return new ProgressiveReadingService(
     port,
-    nativeRiffApi,
     fileService,
     cardService,
     settingsProvider,
@@ -3197,7 +3200,7 @@ describe('ProgressiveReadingService', () => {
     expect(port.appendDomBlock).not.toHaveBeenCalled();
   });
 
-  it('creates nested excerpt topics inside excerpt docs with parent lineage and native Riff sync', async () => {
+  it('creates nested excerpt topics inside excerpt docs with parent lineage and local card ownership', async () => {
     const fileService = createFileServiceMock();
     const port = createProgressiveSiyuanPortMock({
       getDocInfo: vi.fn(async (docId: string) => {
