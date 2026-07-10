@@ -1,13 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { StorageManager } from '../manager';
-import { removeRiffCards } from '@/core/siyuan/riff';
 import { unmarkBlockAsCard } from '@/core/siyuan/block';
-
-vi.mock('@/core/siyuan/riff', () => ({
-  BUILTIN_DECK_ID: 'builtin-deck',
-  removeRiffCards: vi.fn(async () => ({ name: 'builtin', size: 0 })),
-}));
 
 vi.mock('@/core/siyuan/block', () => ({
   unmarkBlockAsCard: vi.fn(async () => undefined),
@@ -70,7 +64,6 @@ describe('StorageManager legacy deleteCards', () => {
     manager.cardsCache = new Map([[card.id, card]]);
     manager.isDirty = false;
     manager.saveCards = vi.fn(async () => undefined);
-    vi.mocked(removeRiffCards).mockClear();
     vi.mocked(unmarkBlockAsCard).mockClear();
 
     await manager.deleteCards([card.blockId]);
@@ -78,6 +71,5 @@ describe('StorageManager legacy deleteCards', () => {
     expect(manager.cardsCache.has(card.id)).toBe(false);
     expect(manager.saveCards).toHaveBeenCalledTimes(1);
     expect(unmarkBlockAsCard).toHaveBeenCalledWith(card.blockId);
-    expect(removeRiffCards).not.toHaveBeenCalled();
   });
 });

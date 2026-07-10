@@ -55,10 +55,6 @@ import { hasFormulaClozeMarkerTargets } from '@/utils/formula-cloze-parser';
 import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
 import { normalizeBlockId } from '@/core/siyuan/riff/normalizers';
 import {
-    hasNativeHardDeleteAuthorization,
-    type CardDeleteIntentOptions,
-} from '@/core/xiuyuan/domain/events/CardDeleteIntent';
-import {
     QuickCardPostCreationPlanner,
     type PostCreationPlan,
 } from '@/core/card/post-creation/QuickCardPostCreationPlanner';
@@ -68,7 +64,6 @@ import {
     chooseCanonicalXiuyuan,
     inferXiuyuanOwnership,
 } from '@/core/xiuyuan/domain/services/XiuyuanOwnershipPolicy';
-import { XiuyuanNativeRiffRemoveRuntime } from './XiuyuanNativeRiffRemoveRuntime';
 import { XiuyuanRiffBlacklistRuntime } from './XiuyuanRiffBlacklistRuntime';
 import { XiuyuanRiffInputRuntime } from './XiuyuanRiffInputRuntime';
 import { XiuyuanStartupSyncLifecycle } from './XiuyuanStartupSyncLifecycle';
@@ -84,7 +79,6 @@ import {
 } from '@/application/backgroundWork/KernelCompanionBackgroundWorkRegistry';
 
 export type XiuyuanSyncBackendClient = Pick<BackendIntegrationClientFacet, 'executeXiuyuanSync'>;
-export type NativeRiffHardDeleteOptions = CardDeleteIntentOptions;
 export type XiuyuanStartupSyncType = Extract<SyncType, 'full' | 'incremental'>;
 
 type NativeRiffDeletionTombstoneCandidate = {
@@ -226,7 +220,6 @@ export class XiuyuanSyncService {
     private readonly postCreationPlanner = new QuickCardPostCreationPlanner();
     private readonly riffInputRuntime: XiuyuanRiffInputRuntime;
     private readonly riffBlacklistRuntime: XiuyuanRiffBlacklistRuntime<RiffBlock>;
-    private readonly nativeRiffRemoveRuntime: XiuyuanNativeRiffRemoveRuntime<Xiuyuan>;
     private readonly syncApplyRuntime: XiuyuanSyncApplyRuntime;
     private readonly changeSetPlanner: XiuyuanSyncChangeSetPlanner;
     private readonly startupSyncLifecycle: XiuyuanStartupSyncLifecycle;
@@ -269,11 +262,6 @@ export class XiuyuanSyncService {
         this.riffBlacklistRuntime = new XiuyuanRiffBlacklistRuntime<RiffBlock>({
             filterBlacklist: (cards) => this.riffBlacklistService.filterBlacklist(cards),
             getBlacklist: () => this.riffBlacklistService.getBlacklist(),
-        });
-        this.nativeRiffRemoveRuntime = new XiuyuanNativeRiffRemoveRuntime<Xiuyuan>({
-            findByBlockId: (blockId) => this.xiuyuanRepository.findByBlockId(blockId),
-            isManagedRiffXiuyuan: (xiuyuan) => this.isManagedRiffXiuyuan(xiuyuan),
-            warn: (message, payload) => logger.warn(message, payload),
         });
         this.syncApplyRuntime = new XiuyuanSyncApplyRuntime({
             applySyncChangeSet: (changeSet) => this.xiuyuanRepository.applySyncChangeSet(changeSet),
@@ -1348,7 +1336,7 @@ export class XiuyuanSyncService {
             stage: 'incremental',
         });
 
-        logger.info('Incremental reconcile only handles native riff upsert/metadata sync; native riff removals use direct delete routing and full sync remains the deletion fallback');
+        logger.info('Incremental reconcile only handles native riff upsert/metadata sync');
         changeSet.checkpointAdvance = {
             lastSuccessfulIncrementalAt: startTime,
             lastSuccessfulIncrementalCursor: `timestamp:${startTime}`,
@@ -1409,15 +1397,6 @@ export class XiuyuanSyncService {
             lastSuccessfulFullAt: startTime,
         };
 
-        return changeSet;
-    }
-
-    private async buildNativeRiffRemoveChangeSet(blockIds: string[]): Promise<SyncChangeSet> {
-        const changeSet = this.changeSetPlanner.createEmptyChangeSet('delete');
-        const removalPlan = await this.nativeRiffRemoveRuntime.planRemovals(blockIds);
-        changeSet.deletes.push(...removalPlan.deletes);
-        changeSet.stats.skippedCount += removalPlan.skippedCount;
-        changeSet.stats.deletedCount = changeSet.deletes.length;
         return changeSet;
     }
 
@@ -1541,42 +1520,6 @@ export class XiuyuanSyncService {
         });
     }
 
-    async handleNativeRiffRemove(blockIds: string[]): Promise<SyncResult> {
-        return this.runSyncExclusive('delete', async () => {
-            const startTime = this.beginSync('delete');
-
-            try {
-                const changeSet = await this.buildNativeRiffRemoveChangeSet(blockIds);
-                if (changeSet.deletes.length === 0) {
-                    const result: SyncResult = {
-                        success: true,
-                        addedCount: 0,
-                        updatedCount: 0,
-                        deletedCount: 0,
-                        skippedCount: changeSet.stats.skippedCount,
-                    };
-
-                    return this.completeSync(
-                        'delete',
-                        startTime,
-                        result,
-                        `Native riff remove completed without local deletions: deleted 0, skipped ${result.skippedCount}`
-                    );
-                }
-
-                const result = await this.applyPlannedSync(changeSet, undefined);
-                return this.completeSync(
-                    'delete',
-                    startTime,
-                    result,
-                    `Native riff remove completed: deleted ${result.deletedCount}, skipped ${result.skippedCount}`
-                );
-            } catch (error) {
-                return this.failSync('delete', error);
-            }
-        });
-    }
-    
     /**
      * 全量同步
      * 
@@ -1735,165 +1678,6 @@ export class XiuyuanSyncService {
         };
     }
     
-    /**
-     * 删除同步（单个卡片）
-     *
-     * 尝试从 Riff 删除卡片，失败时由调用方决定后续处理。
-     */
-        async deleteSync(blockID: string, options: NativeRiffHardDeleteOptions = {}): Promise<boolean> {
-            if (!this.config.deleteSync.enabled) {
-                logger.info('Delete sync disabled');
-                return true;
-            }
-
-            const normalizedBlockId = typeof blockID === 'string'
-                ? blockID.trim()
-                : normalizeBlockId(blockID);
-            if (!normalizedBlockId) {
-                logger.warn('Skip delete sync because blockId is invalid', { blockID });
-                return false;
-            }
-
-            const authorization = this.resolveNativeHardDeleteAuthorization(options);
-            if (!authorization) {
-                logger.warn('[XiuyuanSyncService] Reject native Riff hard-delete without confirmation or ownership proof', {
-                    blockID: normalizedBlockId,
-                    deleteIntent: options.deleteIntent,
-                    requestedBy: options.requestedBy,
-                });
-                return false;
-            }
-
-            this.recordNativeHardDeleteOperation([normalizedBlockId], options, authorization);
-            logger.info(`Syncing delete for block: ${normalizedBlockId}`);
-
-            return this.deleteSyncSingle(normalizedBlockId);
-        }
-
-    /**
-     * 批量删除同步
-     *
-     * 批量从 Riff 删除多张卡片，使用并发处理提升性能。
-     * 失败的卡片会加入黑名单（如果启用）。
-     *
-     * @param blockIDs - 块 ID 列表
-     * @returns 成功删除的数量
-     */
-    async deleteSyncBatch(blockIDs: string[], options: NativeRiffHardDeleteOptions = {}): Promise<number> {
-        if (!this.config.deleteSync.enabled) {
-            logger.info('Delete sync disabled');
-            return 0;
-        }
-
-        const normalizedBlockIds = Array.from(new Set(
-            blockIDs
-                .map(blockId => (typeof blockId === 'string' ? blockId.trim() : normalizeBlockId(blockId)))
-                .filter((blockId): blockId is string => typeof blockId === 'string' && blockId.length > 0)
-        ));
-
-        if (normalizedBlockIds.length === 0) {
-            return 0;
-        }
-
-        const authorization = this.resolveNativeHardDeleteAuthorization(options);
-        if (!authorization) {
-            logger.warn('[XiuyuanSyncService] Reject native Riff batch hard-delete without confirmation or ownership proof', {
-                blockIDs: normalizedBlockIds,
-                deleteIntent: options.deleteIntent,
-                requestedBy: options.requestedBy,
-            });
-            return 0;
-        }
-
-        this.recordNativeHardDeleteOperation(normalizedBlockIds, options, authorization);
-        logger.info(`Batch syncing delete for ${normalizedBlockIds.length} blocks`);
-
-        // 使用 Promise.allSettled 并发处理，避免单个失败影响整体
-        const results = await Promise.allSettled(
-            normalizedBlockIds.map(blockID => this.deleteSyncSingle(blockID))
-        );
-
-        // 统计结果
-        let successCount = 0;
-        let failedCount = 0;
-        const failedBlockIds: string[] = [];
-
-        results.forEach((result, index) => {
-            if (result.status === 'fulfilled' && result.value) {
-                successCount++;
-            } else {
-                failedCount++;
-                failedBlockIds.push(normalizedBlockIds[index]);
-            }
-        });
-
-        logger.info(`Batch delete sync completed: ${successCount} success, ${failedCount} failed`);
-
-        if (failedBlockIds.length > 0) {
-            logger.warn('Failed block IDs:', failedBlockIds);
-        }
-
-        return successCount;
-    }
-
-    private resolveNativeHardDeleteAuthorization(
-        options: NativeRiffHardDeleteOptions | undefined
-    ): 'dangerous-confirmation' | 'ownership-proof' | null {
-        if (!hasNativeHardDeleteAuthorization(options)) {
-            return null;
-        }
-
-        return options?.ownershipProof === 'siyuanmemo-owned'
-            ? 'ownership-proof'
-            : 'dangerous-confirmation';
-    }
-
-    private recordNativeHardDeleteOperation(
-        blockIDs: string[],
-        options: NativeRiffHardDeleteOptions,
-        authorization: 'dangerous-confirmation' | 'ownership-proof'
-    ): void {
-        logger.warn('[XiuyuanSyncService] Native Riff hard-delete authorized', {
-            operation: 'native-hard-delete',
-            authorization,
-            requestedBy: options.requestedBy,
-            blockIDs,
-        });
-    }
-
-    /**
-     * 单个卡片删除同步（内部方法）
-     *
-     * 从 deleteSync 提取的核心逻辑，用于批量处理。
-     *
-     * @private
-     * @param blockID - 块 ID
-     * @returns 是否成功
-     */
-    private async deleteSyncSingle(blockID: string): Promise<boolean> {
-        try {
-            // 使用重试机制尝试从 Riff 删除
-            await this.withRetry('delete', async () => {
-                await this.siyuanApi.removeRiffCards(this.config.deckId, [blockID]);
-            });
-
-            logger.info(`Successfully removed block from Riff: ${blockID}`);
-            return true;
-        } catch (error) {
-            logger.error(`Failed to remove block from Riff after retries: ${blockID}`, error);
-
-            if (this.config.deleteSync.useBlacklistFallback) {
-                try {
-                    await this.riffBlacklistService.addToBlacklist(blockID);
-                    logger.warn(`Added block to persistent riff blacklist after delete sync failure: ${blockID}`);
-                } catch (blacklistError) {
-                    logger.error(`Failed to persist blacklist fallback for block: ${blockID}`, blacklistError);
-                }
-            }
-
-            return false;
-        }
-    }
     
     // ==================== 私有方法 ====================
     

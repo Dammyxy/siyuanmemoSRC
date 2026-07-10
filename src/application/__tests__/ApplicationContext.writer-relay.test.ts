@@ -3,7 +3,6 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ApplicationContext } from '../ApplicationContext';
 import { executeWriterRelayCommand } from '../commands/writerRelayCommandDispatcher';
-import { DEFAULT_SETTINGS, type RiffIntegrationConfig } from '@/types/settings';
 
 function readApplicationContextSource(): string {
   return readFileSync(resolve(process.cwd(), 'src/application/ApplicationContext.ts'), 'utf8');
@@ -66,38 +65,11 @@ describe('ApplicationContext writer relay command dispatch', () => {
     expect(source).not.toContain("'native-riff-remove', 'native-riff-upsert'");
   });
 
-  it('registers native Riff delete event sync only for explicit delete compatibility', () => {
-    const resolve = (ApplicationContext as unknown as {
-      shouldEnableNativeRiffDeleteCompatibilitySync: (input: {
-        riffIntegration?: RiffIntegrationConfig;
-        hybridSyncAvailable: boolean;
-      }) => boolean;
-    }).shouldEnableNativeRiffDeleteCompatibilitySync;
+  it('contains no Native Riff delete event bridge', () => {
+    const source = readApplicationContextSource();
 
-    expect(resolve({
-      riffIntegration: DEFAULT_SETTINGS.riffIntegration,
-      hybridSyncAvailable: true,
-    })).toBe(false);
-    expect(resolve({
-      riffIntegration: {
-        ...DEFAULT_SETTINGS.riffIntegration!,
-        deleteSync: {
-          ...DEFAULT_SETTINGS.riffIntegration!.deleteSync,
-          enabled: true,
-        },
-      },
-      hybridSyncAvailable: true,
-    })).toBe(true);
-    expect(resolve({
-      riffIntegration: {
-        ...DEFAULT_SETTINGS.riffIntegration!,
-        deleteSync: {
-          ...DEFAULT_SETTINGS.riffIntegration!.deleteSync,
-          enabled: true,
-        },
-      },
-      hybridSyncAvailable: false,
-    })).toBe(false);
+    expect(source).not.toContain('RiffSyncEventHandler');
+    expect(source).not.toContain('shouldEnableNativeRiffDeleteCompatibilitySync');
   });
 
   it('keeps the default writer lease TTL when no override env is configured', () => {

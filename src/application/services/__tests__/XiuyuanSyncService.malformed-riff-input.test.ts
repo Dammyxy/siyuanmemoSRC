@@ -83,7 +83,6 @@ function createSiyuanApiMock(): XiuyuanSyncSiyuanPort {
     getRiffCards: vi.fn(async () => []),
     getRiffNewCards: vi.fn(async () => []),
     getRiffCardsByBlockIDs: vi.fn(async () => []),
-    removeRiffCards: vi.fn(async () => undefined),
     setBlockAttrs: vi.fn(async () => undefined),
     getBlockAttrs: vi.fn(async () => ({})),
   };
@@ -463,49 +462,6 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     expect(changeSet?.creates[0]?.blockId).toBe(blockId);
   });
 
-  it('routes native riff remove to managed-only local deletions', async () => {
-    const { service, xiuyuanRepository } = createHarness();
-    const blockId = '20260302190500-abc1234';
-    const localXiuyuan = createLocalOwnedXiuyuan(blockId);
-    const managedXiuyuan = createManagedXiuyuan(blockId);
-
-    vi.mocked(xiuyuanRepository.findByBlockId).mockResolvedValue({
-      ok: true,
-      value: [localXiuyuan, managedXiuyuan],
-    });
-
-    const result = await service.handleNativeRiffRemove([blockId]);
-
-    expectSyncSuccess(result);
-    expect(result.deletedCount).toBe(1);
-    expect(result.skippedCount).toBe(0);
-    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
-    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
-    expect(changeSet?.creates).toHaveLength(0);
-    expect(changeSet?.metadataUpdates).toHaveLength(0);
-    expect(changeSet?.deletes).toHaveLength(1);
-    expect(changeSet?.deletes[0]?.blockId).toBe(blockId);
-    expect(changeSet?.deletes[0]?.xiuyuanEntity).toBe(managedXiuyuan);
-  });
-
-  it('treats native riff remove as a no-op when only local-owned cards remain', async () => {
-    const { service, xiuyuanRepository } = createHarness();
-    const blockId = '20260302191000-abc1234';
-    const localXiuyuan = createLocalOwnedXiuyuan(blockId);
-
-    vi.mocked(xiuyuanRepository.findByBlockId).mockResolvedValue({
-      ok: true,
-      value: [localXiuyuan],
-    });
-
-    const result = await service.handleNativeRiffRemove([blockId]);
-
-    expectSyncSuccess(result);
-    expect(result.deletedCount).toBe(0);
-    expect(result.skippedCount).toBe(1);
-    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).not.toHaveBeenCalled();
-  });
-
   it('skips malformed legacy migration cards during startup and still completes start()', async () => {
     const { service, siyuanApi } = createHarness({ incrementalEnabled: true });
 
@@ -520,8 +476,10 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
 
     await expect(service.start()).resolves.toBeUndefined();
 
+    await vi.waitFor(() => {
+      expect(vi.mocked(siyuanApi.getRiffNewCards)).toHaveBeenCalledTimes(1);
+    });
     expect(vi.mocked(siyuanApi.setBlockAttrs)).not.toHaveBeenCalled();
-    expect(vi.mocked(siyuanApi.getRiffNewCards)).toHaveBeenCalledTimes(1);
   });
 
   it('keeps startup alive when incremental sync sees blank-content riff records', async () => {
@@ -538,7 +496,9 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
 
     await expect(service.start()).resolves.toBeUndefined();
 
-    expect(vi.mocked(siyuanApi.getRiffNewCards)).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(vi.mocked(siyuanApi.getRiffNewCards)).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('skips malformed full-sync records but still processes valid cards and avoids destructive cleanup', async () => {

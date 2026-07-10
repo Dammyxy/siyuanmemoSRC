@@ -6,14 +6,5 @@ export { DomainEvent } from '@/core/shared/domain/events/DomainEvent';
 export { XiuyuanCreatedEvent } from './XiuyuanCreatedEvent';
 export { CardCreatedEvent } from './CardCreatedEvent';
 export { CardsCreatedEvent } from './CardsCreatedEvent';
-export {
-  CARD_DELETE_INTENTS,
-  hasNativeHardDeleteAuthorization,
-  normalizeCardDeleteIntent,
-  isNativeHardDeleteIntent,
-  type CardDeleteIntent,
-  type CardDeleteIntentOptions,
-  type NativeHardDeleteOwnershipProof,
-} from './CardDeleteIntent';
 export { CardDeletedEvent } from './CardDeletedEvent';
 export { CardReviewedEvent } from './CardReviewedEvent';

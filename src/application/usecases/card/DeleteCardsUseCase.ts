@@ -166,7 +166,7 @@ export class DeleteCardsUseCase {
       logger.info(`[DeleteCardsUseCase] 🔖 标记 ${blockIdsToClean.length} 个块为已删除`);
     }
 
-    // 5. 发布批量删除事件（一次性，用于 RiffSync）
+    // 5. 发布本地批量删除事件
     if (deletedCardIds.length > 0) {
       logger.info(`[DeleteCardsUseCase] 📢 发布批量删除事件: ${deletedCardIds.length} 张卡片`);
       await this.eventBus.publish(new CardsDeletedEvent('batch-delete', deletedCardIds, blockIdsToClean));
@@ -228,7 +228,7 @@ export class DeleteCardsUseCase {
       result.deletedCardIds.push(...item.deletedCardIds);
       this.mergeCleanupTargets(result.cleanupTargets, item.cleanupTargets);
 
-      // 批量删除统一通过 batch 事件向外同步，避免重复触发逐卡 Riff 删除。
+      // 批量删除统一发布一个领域事件，避免重复通知。
       item.xiuyuan.clearDomainEvents();
     }
   }
@@ -305,7 +305,7 @@ export class DeleteCardsUseCase {
         if (blockId) {
           this.addCleanupTarget(cleanupTargets, blockId, actualCardId.getValue());
         } else {
-          logger.warn(`[DeleteCardsUseCase] Deleted card has no resolved blockId; Riff delete sync will be skipped`, {
+          logger.warn(`[DeleteCardsUseCase] Deleted card has no resolved blockId; block attrs cannot be cleaned`, {
             cardId: actualCardId.getValue(),
             xiuyuanId: xiuyuan.getId().getValue(),
           });

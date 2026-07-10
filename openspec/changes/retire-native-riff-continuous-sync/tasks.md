@@ -34,7 +34,7 @@
 ## 5. Remove Native Riff Writes And Continuous-Sync Implementation
 
 - [x] 5.1 Remove Native Riff add-card dependencies from AutoCard, Progressive, Topic-derived, and ordinary card creation paths.
-- [ ] 5.2 Remove Native Riff remove-card/delete-sync event routing and hard-delete compatibility behavior.
+- [x] 5.2 Remove Native Riff remove-card/delete-sync event routing and hard-delete compatibility behavior.
 - [ ] 5.3 Remove Native Riff rating/feedback bridge behavior from SiYuanMemo Review paths.
 - [ ] 5.4 Remove `XiuyuanSyncService`, sync helper runtimes, blacklist Module, duplicate sync types, and obsolete application tests.
 - [ ] 5.5 Remove `xiuyuan.sync.execute` client/RPC catalogs, worker planner/runtime, SQLite checkpoint behavior, and obsolete worker tests.

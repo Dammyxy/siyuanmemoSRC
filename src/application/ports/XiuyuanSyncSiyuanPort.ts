@@ -30,7 +30,6 @@ export interface XiuyuanSyncSiyuanPort {
   ): Promise<XiuyuanSyncRiffBlock[]>;
   getRiffNewCards(deckID: string, since?: number): Promise<XiuyuanSyncRiffBlock[]>;
   getRiffCardsByBlockIDs?(blockIDs: string[]): Promise<XiuyuanSyncRiffBlock[]>;
-  removeRiffCards(deckID: string, blockIDs: string[]): Promise<void>;
   setBlockAttrs(blockID: string, attrs: Record<string, string>): Promise<void>;
   getBlockAttrs(blockID: string): Promise<Record<string, string>>;
 }

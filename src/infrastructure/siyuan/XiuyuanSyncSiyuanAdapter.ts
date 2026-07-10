@@ -10,7 +10,6 @@ import {
   getRiffCards,
   getRiffCardsByBlockIDs,
   getRiffNewCards,
-  removeRiffCards,
 } from '@/core/siyuan/riff';
 
 function normalizeXiuyuanSyncRiffBlock(block: XiuyuanSyncRiffBlock): XiuyuanSyncRiffBlock {
@@ -45,10 +44,6 @@ export class XiuyuanSyncSiyuanAdapter implements XiuyuanSyncSiyuanPort {
   async getRiffCardsByBlockIDs(blockIDs: string[]): Promise<XiuyuanSyncRiffBlock[]> {
     const blocks = await getRiffCardsByBlockIDs(blockIDs);
     return (blocks as XiuyuanSyncRiffBlock[]).map(normalizeXiuyuanSyncRiffBlock);
-  }
-
-  async removeRiffCards(deckID: string, blockIDs: string[]): Promise<void> {
-    await removeRiffCards(deckID, blockIDs);
   }
 
   async setBlockAttrs(blockID: string, attrs: Record<string, string>): Promise<void> {

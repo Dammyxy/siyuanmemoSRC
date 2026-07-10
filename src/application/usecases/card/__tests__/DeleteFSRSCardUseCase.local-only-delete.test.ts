@@ -39,11 +39,9 @@ function createBatchStorage(cards: FSRSCard[]): DeleteFSRSCardStoragePort {
 
 function createSiyuanPort(): CardDeletionSiyuanPort {
   return {
-    BUILTIN_DECK_ID: 'builtin-deck',
     getBlockAttrs: vi.fn(async () => ({})),
     setBlockAttrs: vi.fn(async () => undefined),
-    removeRiffCards: vi.fn(async () => ({ name: 'deck', size: 1 })),
-  };
+  } as CardDeletionSiyuanPort;
 }
 
 const card = {
@@ -52,37 +50,16 @@ const card = {
   blockId: 'block-1',
 } as unknown as FSRSCard;
 
-describe('DeleteFSRSCardUseCase native Riff delete gate', () => {
-  it('rejects legacy deleteFromRiff without native-hard-delete confirmation', async () => {
+describe('DeleteFSRSCardUseCase local-only deletion', () => {
+  it('returns only local deletion state', async () => {
     const storage = createStorage(card);
     const siyuanApi = createSiyuanPort();
     const useCase = new DeleteFSRSCardUseCase(storage, { siyuanApi });
 
-    const result = await useCase.execute({
-      cardId: 'card-1',
-      deleteFromRiff: true,
-    });
+    const result = await useCase.execute({ cardId: 'card-1' });
 
     expect(result.ok).toBe(true);
-    expect(result.ok ? result.value.deletedFromRiff : undefined).toBe(false);
-    expect(siyuanApi.removeRiffCards).not.toHaveBeenCalled();
-  });
-
-  it('hard-deletes native Riff only with explicit intent and dangerous confirmation', async () => {
-    const storage = createStorage(card);
-    const siyuanApi = createSiyuanPort();
-    const useCase = new DeleteFSRSCardUseCase(storage, { siyuanApi });
-
-    const result = await useCase.execute({
-      cardId: 'card-1',
-      deleteFromRiff: true,
-      deleteIntent: 'native-hard-delete',
-      confirmDangerousNativeDelete: true,
-    });
-
-    expect(result.ok).toBe(true);
-    expect(result.ok ? result.value.deletedFromRiff : undefined).toBe(true);
-    expect(siyuanApi.removeRiffCards).toHaveBeenCalledWith('builtin-deck', ['block-1']);
+    expect(result.ok ? result.value : undefined).toEqual({ deleted: true });
   });
 
   it('batch-deletes local FSRS cards without Xiuyuan index using one save and one attrs cleanup per block', async () => {
@@ -100,7 +77,6 @@ describe('DeleteFSRSCardUseCase native Riff delete gate', () => {
 
     const result = await useCase.executeBatch({
       cardIds: ['card-a', 'card-b'],
-      deleteFromRiff: false,
     });
 
     expect(result.ok).toBe(true);
@@ -125,6 +101,5 @@ describe('DeleteFSRSCardUseCase native Riff delete gate', () => {
     expect(storage.saveCards).toHaveBeenCalledTimes(1);
     expect(siyuanApi.getBlockAttrs).toHaveBeenCalledTimes(1);
     expect(siyuanApi.setBlockAttrs).toHaveBeenCalledTimes(1);
-    expect(siyuanApi.removeRiffCards).not.toHaveBeenCalled();
   });
 });

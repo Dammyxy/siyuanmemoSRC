@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { ok } from '@/types/result';
 import { DataAccessFacade } from '../DataAccessFacade';
 
-describe('DataAccessFacade deleteCard native Riff semantics', () => {
-  it('keeps default delete local even when native Riff delete sync is enabled', async () => {
+describe('DataAccessFacade local card deletion', () => {
+  it('delegates only the local card identity when retired delete-sync settings remain readable', async () => {
     const cardService = {
       deleteFSRSCard: vi.fn(async () => ok({ deleted: true })),
     };
@@ -42,7 +42,6 @@ describe('DataAccessFacade deleteCard native Riff semantics', () => {
 
     expect(cardService.deleteFSRSCard).toHaveBeenCalledWith({
       cardId: 'card-1',
-      deleteFromRiff: false,
     });
   });
 });

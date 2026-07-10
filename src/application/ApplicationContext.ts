@@ -1455,7 +1455,6 @@ export class ApplicationContext {
     const cardDeletionSiyuanApi = new CardDeletionSiyuanAdapter();
     
     // ⚠️ 注意：此时 context 还未创建，所以先创建一个临时的 EventBus
-    // 这个 EventBus 将被 DeleteCardUseCase 和 RiffSyncEventHandler 共享
     const sharedEventBus = new EventBus(false);
     
     // ✅ 创建 InMemoryDeletionTracker（在创建用例之前）
@@ -1775,22 +1774,6 @@ export class ApplicationContext {
       
       logger.info('[ApplicationContext] ✅ HybridSyncService initialized with XiuyuanRepository');
       
-      const nativeRiffDeleteSyncEnabled = ApplicationContext.shouldEnableNativeRiffDeleteCompatibilitySync({
-        riffIntegration: riffConfig,
-        hybridSyncAvailable: Boolean(hybridSyncService),
-      });
-      if (nativeRiffDeleteSyncEnabled) {
-        // 使用 sharedEventBus 而不是 context.getEventBus()，确保与 DeleteCardUseCase 使用同一个 EventBus
-        logger.info('[ApplicationContext] Importing RiffSyncEventHandler...');
-        const { RiffSyncEventHandler } = await import('@/infrastructure/events/RiffSyncEventHandler');
-        logger.info('[ApplicationContext] Creating RiffSyncEventHandler...');
-        new RiffSyncEventHandler(sharedEventBus, hybridSyncService);
-        logger.info('[ApplicationContext] ✅ RiffSyncEventHandler registered');
-        logger.info('[ApplicationContext] EventBus subscriber count for CardDeleted:', sharedEventBus.getSubscriberCount('CardDeleted'));
-      } else {
-        logger.info('[ApplicationContext] RiffSyncEventHandler skipped because native Riff delete compatibility is disabled');
-      }
-      
       logger.info('[ApplicationContext] Native Riff passive startup sync is retired');
     }
 
@@ -1861,14 +1844,6 @@ export class ApplicationContext {
   }): boolean {
     return input.kernelTransactionIngestAvailable
       && input.quickCardEnabled;
-  }
-
-  private static shouldEnableNativeRiffDeleteCompatibilitySync(input: {
-    riffIntegration?: RiffIntegrationConfig;
-    hybridSyncAvailable: boolean;
-  }): boolean {
-    return input.hybridSyncAvailable
-      && input.riffIntegration?.deleteSync?.enabled === true;
   }
 
   private static resolveKernelTransactionIngestActionTypes(input: {

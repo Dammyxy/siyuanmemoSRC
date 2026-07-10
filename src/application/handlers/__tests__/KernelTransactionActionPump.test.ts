@@ -39,8 +39,6 @@ describe('KernelTransactionActionPump', () => {
       }],
       remaining: 0,
     }));
-    const handleNativeRiffRemove = vi.fn(async () => ({ success: true }));
-
     const pump = new KernelTransactionActionPump(
       { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
       null,
@@ -54,8 +52,6 @@ describe('KernelTransactionActionPump', () => {
     await Promise.resolve();
 
     expect(dequeueKernelTransactions).toHaveBeenCalledWith({ maxActions: 4 });
-    expect(handleNativeRiffRemove).not.toHaveBeenCalled();
-
     await pump.dispose();
   });
 

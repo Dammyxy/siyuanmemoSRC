@@ -121,8 +121,7 @@ export class DeleteCardUseCase {
       }
     }
 
-    // 7. 发布领域事件（包括携带 blockId 的 CardDeletedEvent）
-    // RiffSyncEventHandler 会监听这个事件并同步到 Riff
+    // 7. 发布本地删除领域事件
     const events = xiuyuan.getDomainEvents();
     logger.info(`[DeleteCardUseCase] Publishing ${events.length} domain events...`);
     for (const event of events) {

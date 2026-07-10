@@ -61,7 +61,6 @@ function createDeletionApiMock(): CardDeletionSiyuanPort {
       'custom-fsrs-card-type': 'item',
     }),
     setBlockAttrs: vi.fn().mockResolvedValue(undefined),
-    removeRiffCards: vi.fn().mockResolvedValue({ name: 'deck', size: 0 }),
   };
 }
 

@@ -488,8 +488,7 @@ export class DataAccessFacade implements IDataRouter {
     async deleteCard(cardId: string): Promise<void> {
         // 通过 CardApplicationService 删除卡片
         const result = await this.cardService.deleteFSRSCard({
-            cardId,
-            deleteFromRiff: false
+            cardId
         });
         
         if (isErr(result)) {
@@ -512,7 +511,6 @@ export class DataAccessFacade implements IDataRouter {
 
         const result = await this.cardService.batchDeleteFSRSCards({
             cardIds: normalizedCardIds,
-            deleteFromRiff: false,
         });
         if (isErr(result)) {
             throw new Error(`Failed to batch delete cards: ${result.error}`);

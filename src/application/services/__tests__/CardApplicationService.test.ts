@@ -182,7 +182,6 @@ describe('CardApplicationService', () => {
     it('应该委托给 DeleteFSRSCardUseCase.executeBatch', async () => {
       const command = {
         cardIds: ['card-1', 'card-2'],
-        deleteFromRiff: false,
       };
 
       vi.mocked(mockDeleteFSRSCardUseCase.executeBatch).mockResolvedValue(ok({

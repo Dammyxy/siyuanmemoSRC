@@ -376,18 +376,14 @@ export class CardApplicationService {
    * @returns Result<DeleteFSRSCardCommandResult> - 成功返回删除结果，失败返回错误
    * 
    * @description
-   * 删除 FSRS 卡片。支持可选地同时删除 Riff 卡片。
+   * 删除 SiYuanMemo 本地 FSRS 卡片。
    * 
    * **使用场景**：
    * - 删除单个卡片
-   * - 删除卡片并从 Riff 系统中移除
    * 
    * @example
    * ```typescript
-   * const result = await cardService.deleteFSRSCard({
-   *   cardId: 'card-123',
-   *   deleteFromRiff: true
-   * });
+   * const result = await cardService.deleteFSRSCard({ cardId: 'card-123' });
    * 
    * if (result.ok) {
    *   if (result.value.deleted) {

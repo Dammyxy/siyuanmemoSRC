@@ -59,7 +59,6 @@ function createSiyuanApiMock(): XiuyuanSyncSiyuanPort {
     ATTR_CARD_TYPE: 'custom-fsrs-card-type',
     getRiffCards: vi.fn(async () => []),
     getRiffNewCards: vi.fn(async () => []),
-    removeRiffCards: vi.fn(async () => undefined),
     setBlockAttrs: vi.fn(async () => undefined),
     getBlockAttrs: vi.fn(async () => ({})),
   };

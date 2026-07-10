@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 694)
+Last update: 2026-07-10 (Round 695)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-10 - Remove Native Riff delete paths
+
+- Task: Apply `retire-native-riff-continuous-sync` task 5.2 after add-card write removal.
+- Touched slice: Card CRUD delete commands/use cases, DataAccess and Card application services, Xiuyuan delete events, Siyuan ports/adapters, ApplicationContext event wiring, legacy sync delete methods, focused tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: SiYuanMemo deletion is local-only. Card delete commands/results no longer expose Native Riff intent, confirmation, ownership proof, or `deletedFromRiff`; application ports/adapters no longer expose `removeRiffCards`; `RiffSyncEventHandler`, `CardDeleteIntent`, `NativeRiffSyncTriggerHandler`, Xiuyuan delete-sync methods, and their tests/wiring were removed. Legacy queued Native Riff transaction actions remain no-op consumers only.
+- Debt deferred: Review rating/feedback bridge removal remains task 5.3; dead `XiuyuanSyncService` helpers including `XiuyuanNativeRiffRemoveRuntime` remain task 5.4; worker RPC/catalog removal remains task 5.5; `deleteSync`, checkpoint, and blacklist persistence compatibility fields remain task 5.6.
+- Why deferred: Rating, sync implementation deletion, worker contracts, and persistence migration each have separate active callers or compatibility reads and need independent validation slices.
+- Next safe step: Remove Native Riff rating/feedback bridge behavior from SiYuanMemo Review paths under task 5.3.
+- Validation: 17 changed focused test files passed with 106 tests; `XiuyuanSyncService.malformed-riff-input.test.ts` passed separately with 16 tests after replacing two startup scheduling race assertions with `vi.waitFor`; production scan found no Native Riff remove endpoint, delete intent, hard-delete, or delete result path outside explicit negative capability tests. Boundary, hidden-fallback, OpenSpec strict, whitespace, and build gates run before commit.
 
 ### 2026-07-10 - Remove Native Riff add-card paths
 

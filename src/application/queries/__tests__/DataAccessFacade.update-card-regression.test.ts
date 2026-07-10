@@ -205,7 +205,6 @@ describe('DataAccessFacade updateCard regression', () => {
 
     expect(cardService.batchDeleteFSRSCards).toHaveBeenCalledWith({
       cardIds: [deleted.id],
-      deleteFromRiff: false,
     });
     expect(cardService.deleteCards).not.toHaveBeenCalled();
     expect(result).toEqual({

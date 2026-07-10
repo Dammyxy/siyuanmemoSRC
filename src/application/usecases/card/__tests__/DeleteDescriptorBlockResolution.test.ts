@@ -66,16 +66,13 @@ function createCardDeletionApiMock() {
     'custom-fsrs-card-type': 'descriptor',
   });
   const setBlockAttrsMock = vi.fn().mockResolvedValue(undefined);
-  const removeRiffCardsMock = vi.fn().mockResolvedValue({ name: 'deck', size: 1 });
 
   const siyuanApi: CardDeletionSiyuanPort = {
-    BUILTIN_DECK_ID: 'builtin-deck',
     getBlockAttrs: getBlockAttrsMock,
     setBlockAttrs: setBlockAttrsMock,
-    removeRiffCards: removeRiffCardsMock,
   };
 
-  return { siyuanApi, setBlockAttrsMock, removeRiffCardsMock };
+  return { siyuanApi, setBlockAttrsMock };
 }
 
 describe('Delete descriptor-template block resolution', () => {

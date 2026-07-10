@@ -89,10 +89,8 @@ describe('DeleteCardsUseCase cleanup aggregation', () => {
     });
     const setBlockAttrsMock = vi.fn().mockResolvedValue(undefined);
     const siyuanApi: CardDeletionSiyuanPort = {
-      BUILTIN_DECK_ID: 'builtin-deck',
       getBlockAttrs: getBlockAttrsMock,
       setBlockAttrs: setBlockAttrsMock,
-      removeRiffCards: vi.fn().mockResolvedValue({ name: 'deck', size: 1 }),
     };
 
     const deletionTracker: IDeletionTracker = {
