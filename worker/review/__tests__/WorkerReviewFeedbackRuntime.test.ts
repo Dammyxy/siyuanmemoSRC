@@ -103,7 +103,38 @@ function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDril
     touchSyncMetadata: vi.fn(),
   };
   const runtime = {
-    runTransaction: vi.fn(async (_name: string, task: () => unknown) => await task()),
+    runTransaction: vi.fn(async (
+      _name: string,
+      task: () => unknown,
+      options?: {
+        mutationEnvelope?: {
+          mutationId: string;
+          family: 'review';
+          affectedAggregates: unknown[];
+          requiredTruthOutputs: unknown[];
+        };
+        onDurabilityReceipt?: (receipt: unknown) => void;
+      },
+    ) => {
+      const result = await task();
+      if (options?.mutationEnvelope) {
+        options.onDurabilityReceipt?.({
+          version: 1,
+          mutationId: options.mutationEnvelope.mutationId,
+          family: options.mutationEnvelope.family,
+          stage: 'journaled',
+          journalSequence: 1,
+          affectedAggregates: options.mutationEnvelope.affectedAggregates,
+          requiredTruthOutputs: options.mutationEnvelope.requiredTruthOutputs,
+          truthGenerationId: null,
+          retry: { attemptCount: 0, nextAttemptAt: null, lastError: null },
+          diagnosticCode: null,
+          diagnosticMessage: null,
+          updatedAt: REVIEWED_AT,
+        });
+      }
+      return result;
+    }),
     run: vi.fn((sql: string, params?: unknown[]) => {
       if (sql.includes('INSERT OR REPLACE INTO review_events') && params) {
         const idempotencyKey = typeof params[5] === 'string' ? params[5] : null;
@@ -139,11 +170,16 @@ function createRuntimeFixture(cards: FSRSCard[], queueType = QueueType.FinalDril
       return idempotencyKey ? reviewEventsByIdempotencyKey.get(idempotencyKey) ?? null : null;
     }),
   };
-  const reviewRuntime = new WorkerReviewFeedbackRuntime({
+  const reviewRuntimeDeps = {
     repository,
     queueProjection,
     runtime,
-  });
+    storageIdentity: {
+      deviceId: 'device-test',
+      identityEpoch: 'epoch-test',
+    },
+  };
+  const reviewRuntime = new WorkerReviewFeedbackRuntime(reviewRuntimeDeps);
 
   return {
     reviewed,
@@ -270,10 +306,10 @@ describe('WorkerReviewFeedbackRuntime', () => {
     expect(runtime.runTransaction).toHaveBeenCalledWith(
       'review.feedback',
       expect.any(Function),
-      {
+      expect.objectContaining({
         persist: true,
         diagnosticRecorder: expect.any(Function),
-      },
+      }),
     );
     expect(undoJournalEntries.get('undo-token-inline')).toMatchObject({
       undoToken: 'undo-token-inline',
@@ -283,6 +319,39 @@ describe('WorkerReviewFeedbackRuntime', () => {
         id: reviewed.id,
         reps: reviewed.reps + 1,
       }),
+    });
+  });
+
+  it('uses the review idempotency key as one stable mutation envelope per transaction', async () => {
+    const reviewed = createCard({ id: 'card-mutation-envelope', blockId: 'block-mutation-envelope' });
+    const { reviewRuntime, runtime } = createRuntimeFixture([reviewed], QueueType.RetrievalPractice);
+
+    const result = await reviewRuntime.reviewFeedback({
+      cardId: reviewed.id,
+      rating: 3,
+      queueType: QueueType.RetrievalPractice,
+      reviewedAt: REVIEWED_AT,
+      idempotencyKey: 'review-mutation-1',
+    });
+
+    expect(runtime.runTransaction).toHaveBeenCalledWith(
+      'review.feedback',
+      expect.any(Function),
+      expect.objectContaining({
+        mutationEnvelope: expect.objectContaining({
+          version: 1,
+          mutationId: 'review-mutation-1',
+          family: 'review',
+          deviceId: 'device-test',
+          identityEpoch: 'epoch-test',
+          journalSequence: null,
+        }),
+      }),
+    );
+    expect(result.durabilityReceipt).toMatchObject({
+      mutationId: 'review-mutation-1',
+      stage: 'journaled',
+      journalSequence: 1,
     });
   });
 

@@ -73,7 +73,7 @@ NativeRiffAdoptionReadPort,
 NativeRiffAdoptionWritePort {
   constructor(
     private readonly storage: NativeRiffStoragePort,
-    private readonly exclusions: NativeRiffImportExclusionPort,
+    private readonly exclusions: Pick<NativeRiffImportExclusionPort, 'hasExclusion'>,
     private readonly blockQuery: HostBlockQueryPort,
     private readonly now: () => number = Date.now,
   ) {}

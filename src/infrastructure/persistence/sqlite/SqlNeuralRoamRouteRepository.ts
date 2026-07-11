@@ -98,29 +98,33 @@ export class SqlNeuralRoamRouteRepository {
   }
 
   async saveState(state: NeuralRoamRouteState): Promise<void> {
+    await this.database.write(() => {
+      this.saveStateInCurrentTransaction(state);
+    }, { label: 'neural-roam-route.save-state' });
+  }
+
+  saveStateInCurrentTransaction(state: NeuralRoamRouteState): void {
     const snapshot: NeuralRoamRouteState = {
       activeRouteId: state.activeRouteId,
       engineMode: state.engineMode === 'hyperspace' ? 'hyperspace' : 'orbit',
       routes: state.routes.map(cloneRouteSnapshot),
     };
-    await this.database.write(() => {
-      this.database.run('DELETE FROM neural_roam_route_active');
-      this.database.run('DELETE FROM neural_roam_route_session_snapshots');
-      this.database.run('DELETE FROM neural_roam_route_history_events');
-      this.database.run('DELETE FROM neural_roam_route_pool_entries');
-      this.database.run('DELETE FROM neural_roam_routes');
+    this.database.run('DELETE FROM neural_roam_route_active');
+    this.database.run('DELETE FROM neural_roam_route_session_snapshots');
+    this.database.run('DELETE FROM neural_roam_route_history_events');
+    this.database.run('DELETE FROM neural_roam_route_pool_entries');
+    this.database.run('DELETE FROM neural_roam_routes');
 
-      const now = Date.now();
-      this.database.run(
-        `INSERT INTO neural_roam_route_active (singleton_id, active_route_id, engine_mode, updated_at)
-         VALUES ('active', ?, ?, ?)`,
-        [snapshot.activeRouteId, snapshot.engineMode, now],
-      );
+    const now = Date.now();
+    this.database.run(
+      `INSERT INTO neural_roam_route_active (singleton_id, active_route_id, engine_mode, updated_at)
+       VALUES ('active', ?, ?, ?)`,
+      [snapshot.activeRouteId, snapshot.engineMode, now],
+    );
 
-      for (const route of snapshot.routes) {
-        this.writeRoute(route);
-      }
-    }, { label: 'neural-roam-route.save-state' });
+    for (const route of snapshot.routes) {
+      this.writeRoute(route);
+    }
   }
 
   readRoutePoolEntries(routeId: string, kind: 'seed' | 'anchor'): NeuralRoamRoutePoolEntry[] {

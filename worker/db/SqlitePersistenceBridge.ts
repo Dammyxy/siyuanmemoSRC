@@ -102,6 +102,10 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
         ...Array.from(binary.keys()),
       ].filter((path) => path.startsWith(prefix));
     },
+    async deleteFile(path: string): Promise<void> {
+      binary.delete(path);
+      json.delete(path);
+    },
   };
 
   return {

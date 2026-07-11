@@ -58,6 +58,17 @@ describe('check-no-runtime-msgpack', () => {
     expect(evaluate({ rootDir })).toEqual([]);
   });
 
+  it('allows the explicit legacy storage migration planner to read old msgpack sources', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/services/LegacyStorageMigrationSourcePlanner.ts', `
+      export async function plan(fileService: { readMsgpack: (path: string) => Promise<unknown> }) {
+        return fileService.readMsgpack('queues.msgpack');
+      }
+    `);
+
+    expect(evaluate({ rootDir })).toEqual([]);
+  });
+
   it('allows only the bounded MessagePack truth segment adapter in worker runtime', () => {
     const rootDir = createFixtureRoot();
     writeFile(rootDir, 'worker/truth/MessagePackTruthSegmentStore.ts', `

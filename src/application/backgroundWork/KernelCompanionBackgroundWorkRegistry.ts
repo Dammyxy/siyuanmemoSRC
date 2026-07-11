@@ -1,5 +1,6 @@
 export type KernelCompanionBackgroundWorkKind =
   | 'review-truth-backfill'
+  | 'truth-promotion'
   | 'kernel-transaction-action-polling';
 
 export type KernelCompanionBackgroundWorkState =
@@ -45,8 +46,25 @@ export interface KernelCompanionTransactionActionPollingDiagnostics {
   [key: string]: unknown;
 }
 
+export interface KernelCompanionTruthPromotionDiagnostics {
+  reason?: string;
+  available?: boolean;
+  active?: boolean;
+  shutdownStarted?: boolean;
+  pendingMutationCount?: number;
+  oldestPendingAgeMs?: number | null;
+  journalSequenceFrontier?: number;
+  truthCoverageFrontier?: number;
+  retryReason?: string | null;
+  lastSuccessfulPromotionAt?: number | null;
+  pollsAttempted?: number;
+  unavailable?: boolean;
+  [key: string]: unknown;
+}
+
 export type KernelCompanionBackgroundWorkDiagnostics =
   | KernelCompanionReviewTruthBackfillDiagnostics
+  | KernelCompanionTruthPromotionDiagnostics
   | KernelCompanionTransactionActionPollingDiagnostics
   | Record<string, unknown>;
 

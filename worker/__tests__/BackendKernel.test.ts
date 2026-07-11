@@ -46,6 +46,54 @@ describe('BackendKernel', () => {
           last: null,
         },
       });
+      expect(diagnostics.result.storage).toMatchObject({
+        identity: {
+          available: false,
+          deviceId: null,
+          identityEpoch: null,
+        },
+        receipts: {
+          stageCounts: {
+            failed: null,
+            journaled: 0,
+            'truth-committed': 0,
+          },
+        },
+        promotion: {
+          available: false,
+          pendingMutationCount: 0,
+        },
+        coverage: {
+          available: false,
+          truthCoverageFrontier: 0,
+          uncoveredMutationCount: 0,
+          lag: 0,
+        },
+        inventory: {
+          version: 1,
+          metrics: expect.arrayContaining([
+            expect.objectContaining({
+              family: 'sqlite-delta',
+              files: 0,
+              bytes: 0,
+            }),
+          ]),
+        },
+        budget: {
+          version: 1,
+          level: 'normal',
+        },
+        reconciliation: {
+          status: 'never-run',
+          projectionRebuilt: false,
+        },
+        disabledCapabilities: expect.arrayContaining([
+          'storage-mutations',
+          'truth-promotion',
+          'truth-compaction',
+          'truth-reconciliation',
+        ]),
+      });
     }
     expect(missing).toEqual({
       id: 'kernel-smoke-missing',

@@ -6,6 +6,7 @@ import type {
   QueueFeedbackImpactEvidence,
   QueueType,
 } from '@/types/unified-data-source';
+import type { StorageDurabilityReceipt } from '../../../../packages/contracts/src/backend-rpc';
 
 export type ReviewSessionId = string;
 export type ReviewSessionCardId = string;
@@ -86,6 +87,7 @@ export interface ReviewSessionUndoResult {
   restoredCurrentCard: FSRSCard | null;
   counterSnapshot: QueueCounterSnapshot | null;
   undoToken: ReviewSessionUndoToken;
+  durabilityReceipt?: StorageDurabilityReceipt | null;
 }
 
 export type ReviewSessionNextEntryRepairStatus =

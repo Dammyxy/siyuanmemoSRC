@@ -1,5 +1,6 @@
 import { BACKEND_AUTOCARD_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/autocard';
 import { BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/browser';
+import { BACKEND_CARD_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/card';
 import { BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/core';
 import { BACKEND_GRAPH_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/graph';
 import { BACKEND_HOTSPOT_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/hotspot';
@@ -8,6 +9,7 @@ import { BACKEND_NEURAL_ROAM_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc
 import { BACKEND_P6_OWNERSHIP_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/p6-ownership';
 import { BACKEND_PRIVATE_API_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/private-api';
 import { BACKEND_PROGRESSIVE_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/progressive';
+import { BACKEND_QUEUE_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/queue';
 import { BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/queue-projection';
 import { BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/review';
 import { BACKEND_SEMANTIC_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/semantic';
@@ -21,6 +23,44 @@ import type {
   MessagePackTruthFamily,
   SqlProjectionFamily,
 } from './backend-rpc/storage-policy-catalog';
+import type {
+  StorageInventoryRecord,
+  StoragePressureRecord,
+  StorageRecoveryState,
+} from './backend-rpc/storage-durability-contracts';
+
+export {
+  STORAGE_DURABILITY_RECEIPT_VERSION,
+  STORAGE_INVENTORY_RECORD_VERSION,
+  STORAGE_MUTATION_ENVELOPE_VERSION,
+  STORAGE_PRESSURE_RECORD_VERSION,
+  STORAGE_RECOVERY_STATE_VERSION,
+  TRUTH_COVERAGE_WATERMARK_VERSION,
+  TRUTH_DEVICE_IDENTITY_RECORD_VERSION,
+  TRUTH_GENERATION_RECORD_VERSION,
+} from './backend-rpc/storage-durability-contracts';
+export type {
+  StorageAggregateReference,
+  StorageDurabilityReceipt,
+  StorageDurabilityRetryState,
+  StorageDurabilityStage,
+  StorageInventoryCompactionStatus,
+  StorageInventoryMetric,
+  StorageInventoryRecord,
+  StorageMutationEnvelope,
+  StorageMutationFamily,
+  StorageMutationOperation,
+  StoragePressureLevel,
+  StoragePressureMetric,
+  StoragePressureRecord,
+  StorageRecoveryState,
+  StorageRecoveryStatus,
+  StorageRequiredTruthOutput,
+  TruthCoverageWatermark,
+  TruthDeviceIdentityRecordContract,
+  TruthGenerationFamilyPublication,
+  TruthGenerationRecord,
+} from './backend-rpc/storage-durability-contracts';
 
 export {
   MESSAGEPACK_TRUTH_SCHEMA_VERSION,
@@ -60,8 +100,10 @@ export const BACKEND_RPC_VERSION = '2.0';
 export const BACKEND_RPC_METHODS = [
   'system.health',
   'db.load',
-  'db.persist',
-  'sync.conflict.merge',
+  'db.reload',
+  'storage.maintenance.status',
+  'storage.maintenance.applyBatch',
+  'truth.reconciliation.run',
   'sync.reviewDivergence.audit',
   'sync.conflict.summarize',
   'sync.conflict.reload',
@@ -83,6 +125,11 @@ export const BACKEND_RPC_METHODS = [
   'browser.sourceExistence.summary',
   'browser.sourceExistence.applySweep',
   'browser.sourceExistence.applySweepHost',
+  'card.crud.batchMutate',
+  'card.schedule.batchUpdate',
+  'card.nativeRiffImportExclusion.find',
+  'queue.state.loadAll',
+  'queue.state.batchMutate',
   'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
@@ -136,6 +183,8 @@ export const BACKEND_RPC_FAMILIES = [
   'sync',
   'domain-sync',
   'browser',
+  'card',
+  'queue',
   'queue-projection',
   'neural-roam',
   'kernel-transaction',
@@ -160,6 +209,85 @@ export const BACKEND_RPC_CLIENT_EXPOSURES = [
 ] as const;
 
 export type BackendRpcClientExposure = typeof BACKEND_RPC_CLIENT_EXPOSURES[number];
+
+export type BackendCardScheduleWriteSource =
+  | 'review-commit'
+  | 'manual-reschedule'
+  | 'scheduler-migration'
+  | 'riff-import';
+
+export interface BackendCardScheduleBatchUpdateRequest {
+  mutationId: string;
+  schedulingWriteSource: BackendCardScheduleWriteSource;
+  cards: unknown[];
+}
+
+export interface BackendCardScheduleBatchUpdateResult {
+  updatedCardIds: string[];
+  durabilityReceipt: StorageDurabilityReceipt;
+}
+
+export interface BackendCardCrudBatchMutateRequest {
+  mutationId: string;
+  upsertCards: unknown[];
+  upsertXiuyuans: unknown[];
+  deleteCardIds: string[];
+  deleteXiuyuanIds: string[];
+}
+
+export interface BackendCardCrudBatchMutateResult {
+  upsertedCardIds: string[];
+  upsertedXiuyuanIds: string[];
+  deletedCardIds: string[];
+  deletedXiuyuanIds: string[];
+  durabilityReceipt: StorageDurabilityReceipt;
+}
+
+export interface BackendNativeRiffImportExclusionRecord {
+  version: 1;
+  blockId: string;
+  nativeCardId?: string;
+  deckId?: string;
+  excludedAt: number;
+  source: 'legacy-blacklist' | 'user';
+  reason?: string;
+}
+
+export interface BackendNativeRiffImportExclusionFindRequest {
+  blockId: string;
+}
+
+export interface BackendNativeRiffImportExclusionFindResult {
+  exclusion: BackendNativeRiffImportExclusionRecord | null;
+}
+
+export interface BackendQueueStateLoadAllRequest {}
+
+export interface BackendQueueStateLoadAllResult {
+  values: Record<string, unknown>;
+}
+
+export type BackendQueueStateMutation =
+  | {
+      operation: 'set';
+      key: string;
+      value: unknown;
+    }
+  | {
+      operation: 'delete';
+      key: string;
+    };
+
+export interface BackendQueueStateBatchMutateRequest {
+  mutationId: string;
+  mutations: BackendQueueStateMutation[];
+}
+
+export interface BackendQueueStateBatchMutateResult {
+  updatedKeys: string[];
+  deletedKeys: string[];
+  durabilityReceipt: StorageDurabilityReceipt;
+}
 
 export type BackendRpcMethodContract<
   TMethod extends BackendRpcMethod = BackendRpcMethod,
@@ -189,8 +317,10 @@ export interface BackendRpcClientMethodCatalogEntry<TMethod extends BackendRpcMe
 export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['system.health'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['db.load'],
-  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['db.persist'],
-  BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['sync.conflict.merge'],
+  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['db.reload'],
+  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['storage.maintenance.status'],
+  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['storage.maintenance.applyBatch'],
+  BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['truth.reconciliation.run'],
   BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['sync.reviewDivergence.audit'],
   BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['sync.conflict.summarize'],
   BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['sync.conflict.reload'],
@@ -212,6 +342,11 @@ export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.sourceExistence.summary'],
   BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.sourceExistence.applySweep'],
   BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.sourceExistence.applySweepHost'],
+  BACKEND_CARD_RPC_METHOD_CONTRACT_BY_METHOD['card.crud.batchMutate'],
+  BACKEND_CARD_RPC_METHOD_CONTRACT_BY_METHOD['card.schedule.batchUpdate'],
+  BACKEND_CARD_RPC_METHOD_CONTRACT_BY_METHOD['card.nativeRiffImportExclusion.find'],
+  BACKEND_QUEUE_RPC_METHOD_CONTRACT_BY_METHOD['queue.state.loadAll'],
+  BACKEND_QUEUE_RPC_METHOD_CONTRACT_BY_METHOD['queue.state.batchMutate'],
   BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD['storage.projection.rebuild'],
   BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD['queue.projection.snapshot'],
   BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD['queue.projection.rowsByIds'],
@@ -282,6 +417,8 @@ export const STORAGE_ERROR_CODES = [
   'TRUTH_VALIDATION_FAILED',
   'PROJECTION_REBUILD_FAILED',
   'SOURCE_READ_UNAVAILABLE',
+  'STORAGE_PRESSURE',
+  'STORAGE_RECOVERY_REQUIRED',
 ] as const;
 
 export type BackendStorageErrorCode = typeof STORAGE_ERROR_CODES[number];
@@ -374,24 +511,165 @@ export interface BackendHealthResult {
   initialized: boolean;
 }
 
+export interface BackendUnifiedStorageSnapshot {
+  version: number;
+  xiuyuans: Record<string, unknown>;
+  cards: Record<string, unknown>;
+  cardDTOs?: Record<string, unknown>;
+  deletedCardDTOs?: Record<string, unknown>;
+  deletedXiuyuans?: Record<string, unknown>;
+  syncMetadata?: {
+    revision: number;
+    contentHash: string;
+    lastModifiedAt: number;
+    lastModifiedBy: string;
+  };
+}
+
 export interface BackendDbLoadResult {
   ok: true;
   initialized: boolean;
   dbFile: string;
+  projectionSnapshot: BackendUnifiedStorageSnapshot;
 }
 
 export interface BackendDbLoadRequest {
   truthDeviceId?: string | null;
+  identityEpoch?: string | null;
   cardTruthGenerationId?: string | null;
   reviewTruthGenerationId?: string | null;
   truthSchemaVersion?: number | null;
   maxSegmentBytes?: number | null;
 }
 
-export interface BackendDbPersistResult {
+export interface BackendDbReloadResult {
   ok: true;
-  persisted: true;
+  reloaded: true;
   dbFile: string;
+}
+
+export type BackendLegacyUnifiedImportRecord =
+  | {
+      kind: 'card';
+      id: string;
+      card: unknown;
+      dto?: unknown;
+      tombstone?: unknown;
+    }
+  | {
+      kind: 'xiuyuan';
+      id: string;
+      value: unknown;
+    }
+  | {
+      kind: 'card-tombstone';
+      id: string;
+      value: unknown;
+      card?: unknown;
+      dto?: unknown;
+    }
+  | {
+      kind: 'xiuyuan-tombstone';
+      id: string;
+      value: unknown;
+    };
+
+export type BackendLegacyReviewImportRecord =
+  | { kind: 'review'; value: unknown }
+  | { kind: 'review-v2'; value: unknown }
+  | { kind: 'drill-v2'; value: unknown }
+  | { kind: 'reschedule'; value: unknown };
+
+export type BackendLegacyArenaImportRecord =
+  | { kind: 'match'; value: unknown }
+  | { kind: 'score'; value: unknown }
+  | { kind: 'attribution'; value: unknown };
+
+export type BackendStorageMaintenanceBatch =
+  | {
+      kind: 'legacy-storage-import-begin';
+      appliedAt: number;
+    }
+  | {
+      kind: 'legacy-unified-reset';
+    }
+  | {
+      kind: 'legacy-unified-records';
+      records: BackendLegacyUnifiedImportRecord[];
+    }
+  | {
+      kind: 'legacy-queue-records';
+      entries: Array<[string, unknown]>;
+    }
+  | {
+      kind: 'legacy-review-records';
+      records: BackendLegacyReviewImportRecord[];
+    }
+  | {
+      kind: 'legacy-arena-records';
+      records: BackendLegacyArenaImportRecord[];
+    }
+  | {
+      kind: 'legacy-unified-finalize';
+      version: number;
+      syncMetadata?: unknown;
+      appliedAt: number;
+    }
+  | {
+      kind: 'native-riff-retirement';
+      blockIds: string[];
+      appliedAt: number;
+      includeStoredBlacklist?: boolean;
+      dropLegacyTable?: boolean;
+    }
+  | {
+      kind: 'algorithm-card-state-backup';
+      fileName: string;
+      capturedAt: number;
+    }
+  | {
+      kind: 'algorithm-card-state-backfill';
+      appliedAt: number;
+    }
+  | {
+      kind: 'neural-roam-route-migration';
+      appliedAt: number;
+    };
+
+export interface BackendStorageMaintenanceApplyBatchRequest {
+  operationId: string;
+  migrationId: string;
+  batchIndex: number;
+  totalBatches: number;
+  batch: BackendStorageMaintenanceBatch;
+}
+
+export interface BackendStorageMaintenanceStatusRequest {
+  operationId: string;
+  migrationId: string;
+}
+
+export interface BackendStorageMaintenanceStatusResult {
+  operationId: string;
+  migrationId: string;
+  required: boolean;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  completedBatches: number;
+  totalBatches: number | null;
+  lastMutationId: string | null;
+  completedAt: number | null;
+  error: string | null;
+}
+
+export interface BackendStorageMaintenanceApplyBatchResult {
+  operationId: string;
+  migrationId: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  completedBatches: number;
+  totalBatches: number;
+  lastMutationId: string | null;
+  completedAt: number | null;
+  error: string | null;
 }
 
 export interface BackendSyncConflictMergeSource {
@@ -466,6 +744,39 @@ export interface BackendSyncConflictMergeResult {
     reason: string;
   }>;
   diagnostics: BackendSyncConflictMergeDiagnostics;
+}
+
+export interface BackendTruthReconciliationRunRequest {
+  reason?: string | null;
+}
+
+export interface BackendTruthReconciliationConflict {
+  aggregateType: 'card' | 'queue' | 'mutation';
+  aggregateId: string;
+  reason:
+    | 'duplicate-mutation-payload-mismatch'
+    | 'non-commutative-concurrent-mutations'
+    | 'disconnected-causal-history';
+  mutationIds: string[];
+  sourceIds: string[];
+  causalBaseRevision: string | null;
+}
+
+export interface BackendTruthReconciliationRunResult {
+  ok: true;
+  sourceCount: number;
+  acceptedMutationIds: string[];
+  duplicateMutationIds: string[];
+  blockedAggregateIds: string[];
+  conflicts: BackendTruthReconciliationConflict[];
+  mergeDecisionCount: number;
+  generationIds: {
+    card: string | null;
+    queue: string | null;
+    review: string;
+    domainSync: string;
+  };
+  projectionRebuilt: boolean;
 }
 
 export interface BackendSyncConflictDatabaseSummary {
@@ -691,6 +1002,62 @@ export interface BackendDomainSyncConflictSourceCleanupResult {
   status: 'cleaned' | 'partial' | 'duplicate' | 'invalid-request' | 'unavailable';
 }
 
+export interface BackendStorageIdentityDiagnostics {
+  available: boolean;
+  deviceId: string | null;
+  identityEpoch: string | null;
+}
+
+export interface BackendStorageReceiptStageDiagnostics {
+  stageCounts: {
+    failed: number | null;
+    journaled: number;
+    'truth-committed': number;
+  };
+  latestRetryReason: string | null;
+}
+
+export interface BackendTruthPromotionStatusDiagnostics {
+  available: boolean;
+  active: boolean;
+  shutdownStarted: boolean;
+  pendingMutationCount: number;
+  oldestPendingAgeMs: number | null;
+  journalSequenceFrontier: number;
+  truthCoverageFrontier: number;
+  retryReason: string | null;
+  lastSuccessfulPromotionAt: number | null;
+}
+
+export interface BackendTruthCoverageDiagnostics {
+  available: boolean;
+  journalSequenceFrontier: number;
+  truthCoverageFrontier: number;
+  uncoveredMutationCount: number;
+  lag: number;
+}
+
+export interface BackendTruthReconciliationDiagnostics {
+  status: 'never-run' | 'succeeded' | 'failed';
+  reason: string | null;
+  startedAt: number | null;
+  completedAt: number | null;
+  sourceCount: number;
+  acceptedMutationCount: number;
+  duplicateMutationCount: number;
+  blockedAggregateIds: string[];
+  conflictCount: number;
+  mergeDecisionCount: number;
+  generationIds: {
+    card: string | null;
+    queue: string | null;
+    review: string | null;
+    domainSync: string | null;
+  };
+  projectionRebuilt: boolean;
+  lastError: string | null;
+}
+
 export interface BackendDiagnosticsStatusResult {
   runtime: 'srs-backend-worker';
   initialized: boolean;
@@ -740,6 +1107,15 @@ export interface BackendDiagnosticsStatusResult {
   };
   storage?: {
     sqliteDelta?: BackendSqliteDeltaDiagnostics;
+    identity?: BackendStorageIdentityDiagnostics;
+    receipts?: BackendStorageReceiptStageDiagnostics;
+    promotion?: BackendTruthPromotionStatusDiagnostics;
+    coverage?: BackendTruthCoverageDiagnostics;
+    inventory?: StorageInventoryRecord;
+    budget?: StoragePressureRecord;
+    recovery?: StorageRecoveryState | null;
+    reconciliation?: BackendTruthReconciliationDiagnostics;
+    disabledCapabilities?: string[];
     diagnostics?: BackendStorageDiagnostic[];
   };
   ai?: {
@@ -773,10 +1149,21 @@ export interface BackendDiagnosticsStatusResult {
 
 export interface BackendReviewTruthDeviceDiagnostics {
   deviceId: string | null;
-  source: 'temp-local' | 'localStorage' | 'legacy-localStorage' | 'generated' | 'unavailable';
+  identityEpoch?: string | null;
+  source:
+    | 'authority-copies'
+    | 'indexeddb-repaired-localStorage'
+    | 'localStorage-repaired-indexeddb'
+    | 'identity-recovery-required'
+    | 'temp-local'
+    | 'localStorage'
+    | 'legacy-localStorage'
+    | 'generated'
+    | 'unavailable';
   localStatePath: string;
   persisted: boolean;
   cacheUpdated: boolean;
+  hostFingerprintMatch?: 'match' | 'changed' | 'unknown';
   error: string | null;
 }
 
@@ -1032,6 +1419,295 @@ export interface MessagePackCardMemoryFactTruthRecord {
   };
 }
 
+export interface MessagePackCardAggregateCardState {
+  id: string;
+  blockId: string;
+  xiuyuanId: string | null;
+  faceKey: {
+    ruleId: string;
+    faceIndex?: number | null;
+  } | null;
+  type: string;
+  priority: number;
+  tags: string[];
+  cardTypeMarker: string | null;
+  neuralRoamSeed: boolean;
+  skipped: boolean;
+  skipNote: string | null;
+  skipUntil: number | null;
+  sourceUrl: string | null;
+  extractedFrom: string | null;
+  createdAt: number;
+  updatedAt: number;
+  meta: Record<string, unknown> | null;
+}
+
+export interface MessagePackCardAggregateScheduleState {
+  schedulerType: string | null;
+  due: number;
+  stability: number;
+  difficulty: number;
+  reps: number;
+  lapses: number;
+  state: number;
+  lastReview: number;
+  elapsedDays: number;
+  scheduledDays: number;
+  learningStep: number | null;
+  leechCount: number;
+  isLeech: boolean;
+  aFactor: number | null;
+  riffCardId: string | null;
+  schedulerMeta: Record<string, unknown> | null;
+  postponeCount: number;
+  lastPostponeDate: number | null;
+  rescheduleHistory: Array<Record<string, unknown>>;
+}
+
+export interface MessagePackCardAggregateTombstoneMetadata {
+  deletedAt: number;
+  deletedByMutationId: string;
+  deletedByDeviceId: string;
+  identityEpoch: string;
+  reason: string | null;
+}
+
+interface MessagePackCardAggregateTruthRecordBase {
+  family: 'card-memory-facts';
+  schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+  idempotencyKey: string;
+  mutationId: string;
+  aggregateId: string;
+  causalBaseRevision: string | null;
+  revision: string;
+  journalSequence: number;
+  logicalTime: number;
+  recordedAt: number;
+}
+
+export interface MessagePackCardAggregateSnapshotTruthRecord
+  extends MessagePackCardAggregateTruthRecordBase {
+  type: 'card-aggregate.snapshot.v1';
+  card: MessagePackCardAggregateCardState;
+  schedule: MessagePackCardAggregateScheduleState;
+  tombstone: null;
+}
+
+export interface MessagePackCardAggregateChangesetTruthRecord
+  extends MessagePackCardAggregateTruthRecordBase {
+  type: 'card-aggregate.changeset.v1';
+  card: MessagePackCardAggregateCardState;
+  schedule: MessagePackCardAggregateScheduleState;
+  tombstone: null;
+}
+
+export interface MessagePackCardAggregateTombstoneTruthRecord
+  extends MessagePackCardAggregateTruthRecordBase {
+  type: 'card-aggregate.tombstone.v1';
+  card: null;
+  schedule: null;
+  tombstone: MessagePackCardAggregateTombstoneMetadata;
+}
+
+export type MessagePackCardAggregateTruthRecord =
+  | MessagePackCardAggregateSnapshotTruthRecord
+  | MessagePackCardAggregateChangesetTruthRecord
+  | MessagePackCardAggregateTombstoneTruthRecord;
+
+function isMessagePackRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function hasFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+export function isMessagePackCardAggregateTruthRecord(
+  value: unknown,
+): value is MessagePackCardAggregateTruthRecord {
+  if (
+    !isMessagePackRecord(value)
+    || value.family !== 'card-memory-facts'
+    || value.schemaVersion !== MESSAGEPACK_TRUTH_SCHEMA_VERSION
+    || !hasNonEmptyString(value.idempotencyKey)
+    || !hasNonEmptyString(value.mutationId)
+    || !hasNonEmptyString(value.aggregateId)
+    || !hasNonEmptyString(value.revision)
+    || !(value.causalBaseRevision === null || hasNonEmptyString(value.causalBaseRevision))
+    || !hasFiniteNumber(value.journalSequence)
+    || value.journalSequence < 1
+    || !hasFiniteNumber(value.logicalTime)
+    || !hasFiniteNumber(value.recordedAt)
+  ) {
+    return false;
+  }
+  if (
+    value.type === 'card-aggregate.snapshot.v1'
+    || value.type === 'card-aggregate.changeset.v1'
+  ) {
+    return isMessagePackRecord(value.card)
+      && value.card.id === value.aggregateId
+      && hasNonEmptyString(value.card.blockId)
+      && isMessagePackRecord(value.schedule)
+      && value.tombstone === null;
+  }
+  if (value.type === 'card-aggregate.tombstone.v1') {
+    return value.card === null
+      && value.schedule === null
+      && isMessagePackRecord(value.tombstone)
+      && hasFiniteNumber(value.tombstone.deletedAt)
+      && hasNonEmptyString(value.tombstone.deletedByMutationId)
+      && hasNonEmptyString(value.tombstone.deletedByDeviceId)
+      && hasNonEmptyString(value.tombstone.identityEpoch);
+  }
+  return false;
+}
+
+export interface MessagePackQueueMemberState {
+  cardId: string;
+  due: number;
+  priority: number;
+  state: number;
+  schedulerType: string | null;
+  membershipReason: string | null;
+  sortKey: string | null;
+}
+
+export interface MessagePackQueueMemberChange {
+  operation: 'upsert' | 'remove';
+  cardId: string;
+  member: MessagePackQueueMemberState | null;
+}
+
+interface MessagePackQueueTruthRecordBase {
+  family: 'queue-facts';
+  schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+  idempotencyKey: string;
+  mutationId: string;
+  queueFamily: string;
+  causalBaseRevision: string | null;
+  revision: string;
+  journalSequence: number;
+  logicalTime: number;
+  recordedAt: number;
+}
+
+export interface MessagePackQueueSnapshotTruthRecord
+  extends MessagePackQueueTruthRecordBase {
+  type: 'queue-family.snapshot.v1';
+  members: MessagePackQueueMemberState[];
+  changes: null;
+}
+
+export interface MessagePackQueueChangesetTruthRecord
+  extends MessagePackQueueTruthRecordBase {
+  type: 'queue-family.changeset.v1';
+  members: null;
+  changes: MessagePackQueueMemberChange[];
+}
+
+export interface MessagePackQueueStateChange {
+  operation: 'set' | 'delete';
+  key: string;
+  value: unknown | null;
+}
+
+export interface MessagePackQueueStateChangesetTruthRecord
+  extends MessagePackQueueTruthRecordBase {
+  type: 'queue-state.changeset.v1';
+  members: null;
+  changes: null;
+  stateChange: MessagePackQueueStateChange;
+}
+
+export type MessagePackQueueTruthRecord =
+  | MessagePackQueueSnapshotTruthRecord
+  | MessagePackQueueChangesetTruthRecord
+  | MessagePackQueueStateChangesetTruthRecord;
+
+function isMessagePackQueueMemberState(value: unknown): value is MessagePackQueueMemberState {
+  return isMessagePackRecord(value)
+    && hasNonEmptyString(value.cardId)
+    && hasFiniteNumber(value.due)
+    && hasFiniteNumber(value.priority)
+    && hasFiniteNumber(value.state)
+    && (value.schedulerType === null || typeof value.schedulerType === 'string')
+    && (value.membershipReason === null || typeof value.membershipReason === 'string')
+    && (value.sortKey === null || typeof value.sortKey === 'string');
+}
+
+function isMessagePackJsonValue(value: unknown): boolean {
+  if (
+    value === null
+    || typeof value === 'string'
+    || typeof value === 'boolean'
+  ) {
+    return true;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value);
+  }
+  if (Array.isArray(value)) {
+    return value.every(isMessagePackJsonValue);
+  }
+  return isMessagePackRecord(value)
+    && Object.values(value).every(isMessagePackJsonValue);
+}
+
+export function isMessagePackQueueTruthRecord(value: unknown): value is MessagePackQueueTruthRecord {
+  if (
+    !isMessagePackRecord(value)
+    || value.family !== 'queue-facts'
+    || value.schemaVersion !== MESSAGEPACK_TRUTH_SCHEMA_VERSION
+    || !hasNonEmptyString(value.idempotencyKey)
+    || !hasNonEmptyString(value.mutationId)
+    || !hasNonEmptyString(value.queueFamily)
+    || !hasNonEmptyString(value.revision)
+    || !(value.causalBaseRevision === null || hasNonEmptyString(value.causalBaseRevision))
+    || !hasFiniteNumber(value.journalSequence)
+    || value.journalSequence < 1
+    || !hasFiniteNumber(value.logicalTime)
+    || !hasFiniteNumber(value.recordedAt)
+  ) {
+    return false;
+  }
+  if (value.type === 'queue-family.snapshot.v1') {
+    return Array.isArray(value.members)
+      && value.members.every(isMessagePackQueueMemberState)
+      && value.changes === null;
+  }
+  if (value.type === 'queue-family.changeset.v1') {
+    return value.members === null
+      && Array.isArray(value.changes)
+      && value.changes.every((change) => (
+        isMessagePackRecord(change)
+        && (change.operation === 'upsert' || change.operation === 'remove')
+        && hasNonEmptyString(change.cardId)
+        && (
+          (change.operation === 'upsert' && isMessagePackQueueMemberState(change.member))
+          || (change.operation === 'remove' && change.member === null)
+        )
+      ));
+  }
+  if (value.type === 'queue-state.changeset.v1') {
+    return value.members === null
+      && value.changes === null
+      && isMessagePackRecord(value.stateChange)
+      && (value.stateChange.operation === 'set' || value.stateChange.operation === 'delete')
+      && hasNonEmptyString(value.stateChange.key)
+      && value.stateChange.key === value.queueFamily
+      && (
+        (value.stateChange.operation === 'set' && isMessagePackJsonValue(value.stateChange.value))
+        || (value.stateChange.operation === 'delete' && value.stateChange.value === null)
+      );
+  }
+  return false;
+}
+
 export interface MessagePackDomainSyncOperationTruthRecord {
   family: 'domain-sync-operations';
   schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
@@ -1092,6 +1768,8 @@ export interface MessagePackDiagnosticsTruthRecord {
 export type MessagePackTruthRecord =
   | MessagePackReviewEventTruthRecord
   | MessagePackCardMemoryFactTruthRecord
+  | MessagePackCardAggregateTruthRecord
+  | MessagePackQueueTruthRecord
   | MessagePackDomainSyncOperationTruthRecord
   | MessagePackAiSessionPayloadRefTruthRecord
   | MessagePackSemanticArenaPayloadRefTruthRecord
@@ -1163,10 +1841,23 @@ export interface BackendReviewTruthBackfillDiagnostics {
   lastError: string | null;
 }
 
+export interface BackendTruthPromotionDiagnostics {
+  available: boolean;
+  active: boolean;
+  shutdownStarted: boolean;
+  pendingMutationCount: number;
+  oldestPendingAgeMs: number | null;
+  journalSequenceFrontier: number;
+  truthCoverageFrontier: number;
+  retryReason: string | null;
+  lastSuccessfulPromotionAt: number | null;
+}
+
 export interface BackendReviewTruthMaintenanceStatusResult {
   family: 'review-events';
   journal: BackendReviewFeedbackJournalDiagnostics;
   truthBackfill: BackendReviewTruthBackfillDiagnostics;
+  truthPromotion: BackendTruthPromotionDiagnostics;
 }
 
 export type BackendUnavailableClass =
@@ -2598,6 +3289,7 @@ export interface BackendReviewFeedbackResult {
   duplicate?: boolean;
   undoJournalPersisted?: boolean;
   queueImpact?: BackendReviewFeedbackQueueImpact | null;
+  durabilityReceipt?: StorageDurabilityReceipt | null;
   storage?: BackendReviewFeedbackStorageState;
 }
 
@@ -2722,6 +3414,7 @@ export interface BackendReviewSessionUndoResult extends BackendReviewSessionStat
   restoredCardId: string | null;
   replayedCardId: string | null;
   undoToken: string;
+  durabilityReceipt?: StorageDurabilityReceipt | null;
 }
 
 export interface BackendPreRequestMergeDiagnostic {

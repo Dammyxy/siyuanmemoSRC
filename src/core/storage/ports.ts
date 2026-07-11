@@ -66,22 +66,23 @@ export interface CardTypeMarkerStoragePort extends CardReadPort, CardWritePort {
   queryInconsistentCardTypeMarkerIds?(): string[];
 }
 
-export interface DeleteFSRSCardStoragePort extends CardReadPort, CardWritePort {
+export interface DeleteFSRSCardStoragePort extends CardReadPort {
   runWriteTransaction?<T>(
     label: string,
     operation: (transaction: CardStorageWriteTransaction) => Promise<T> | T,
     transaction?: CardStorageWriteTransaction,
   ): Promise<T>;
-  deleteCard?(cardId: string, options?: CardStorageMutationOptions): unknown | Promise<unknown>;
+  deleteCard(cardId: string, options?: CardStorageMutationOptions): unknown | Promise<unknown>;
+  deleteCards(cardIds: readonly string[], options?: CardStorageMutationOptions): unknown | Promise<unknown>;
   removeCard?(cardId: string): boolean;
 }
 
-export interface UpdateFSRSCardStoragePort extends CardReadPort, CardWritePort {
-  updateCard?(card: FSRSCard, options?: CardStorageUpdateOptions): unknown | Promise<unknown>;
+export interface UpdateFSRSCardStoragePort extends CardReadPort {
+  updateCard(card: FSRSCard, options?: CardStorageUpdateOptions): unknown | Promise<unknown>;
+  batchUpdateCards(cards: FSRSCard[], options?: CardStorageUpdateOptions): unknown | Promise<unknown>;
 }
 
 export interface CardApplicationStoragePort extends UpdateFSRSCardStoragePort, DeleteFSRSCardStoragePort {
-  save?(): Promise<unknown>;
 }
 
 export interface ExtractMetaStoragePort extends Pick<CardReadPort, 'getCard'> {}

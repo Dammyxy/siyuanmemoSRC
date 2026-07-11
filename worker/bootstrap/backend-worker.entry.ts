@@ -46,6 +46,7 @@ type WorkerGlobalScopeLike = {
 const scope = self as unknown as WorkerGlobalScopeLike;
 
 let hostEffectSeq = 0;
+let shutdownPromise: Promise<void> | null = null;
 const pendingHostEffects = new Map<string, {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
@@ -245,6 +246,10 @@ const truthFileStore: MessagePackTruthSegmentFileStore = {
     kind: 'truth.listFiles',
     prefix,
   }),
+  deleteFile: (path) => requestHostEffect<void>({
+    kind: 'truth.deleteFile',
+    path,
+  }),
 };
 
 const database = new WorkerSqliteDatabaseService({
@@ -337,8 +342,16 @@ scope.onmessage = (event) => {
     return;
   }
   if (message.kind === 'shutdown') {
-    pendingHostEffects.clear();
-    scope.close?.();
+    shutdownPromise ??= database.shutdown()
+      .catch((error) => {
+        logger.error('[SiYuanMemo][BackendWorker] shutdown failed', {
+          error: toErrorMessage(error),
+        });
+      })
+      .finally(() => {
+        pendingHostEffects.clear();
+        scope.close?.();
+      });
     return;
   }
   if (message.kind === 'probe') {

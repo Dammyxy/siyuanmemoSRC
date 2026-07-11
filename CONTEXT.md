@@ -14,6 +14,34 @@ Arena is retired as a product surface. AI Arena behavior must stay no-op or unsu
 
 ## Language
 
+**Canonical Truth**:
+SiYuanMemo 可独立重建正式状态的持久证据。Review 使用 append-only facts；Card/Schedule 与 Queue 使用 compactable changeset、snapshot、tombstone 和 verified generation。临时 SQLite 不属于 Canonical Truth。
+_Avoid_: SQLite database truth, newest-file truth, sync-conflict database authority
+
+**Disposable SQLite Projection**:
+由 verified Canonical Truth 加 uncovered replayable delta 重建的本地 SQL 读写投影。它可删除、损坏后重建，不能反向覆盖 canonical frontier。
+_Avoid_: primary database, permanent database backup authority
+
+**Durability Receipt**:
+一个 business mutation 的版本化持久性结果。`journaled` 表示 SQL transaction 与完整 replayable delta 已验证；`truth-committed` 表示全部 required truth outputs 已验证并推进 coverage。
+_Avoid_: SQL committed means canonical, database saved
+
+**Truth Promotion**:
+Worker-owned single-writer Module，按 journal sequence 提升 `journaled` mutation 到 Canonical Truth，并维护有限 coverage state、retry 与 lag 诊断。
+_Avoid_: renderer truth flush authority, parallel manifest writers
+
+**Truth Device Identity**:
+由匹配 IndexedDB 与 localStorage authority copies 保存的 `pluginInstallationId + identityEpoch`。SiYuan `System.ID` 仅是 host fingerprint；旧 epoch namespace 永远只读参与 reconciliation。
+_Avoid_: temp-file device ID, synchronized identity authority, System.ID as truth owner
+
+**Storage Recovery State**:
+启动时基于 identity、verified generations、truth segments、delta coverage、checkpoints 与 Disposable SQLite Projection 计算的能力状态。无法证明 canonical continuity 时进入 read-only `STORAGE_RECOVERY_REQUIRED` 并显式禁用写能力。
+_Avoid_: best-effort startup, skip-corrupt-and-continue
+
+**Truth Reconciliation**:
+跨 device/identity epoch 按 mutation identity、aggregate identity 与 causal revision 合并 Canonical Truth 的领域过程。它先发布 verified generation，再重建 projection；SQLite conflict copies 与文件时间不参与裁决。
+_Avoid_: database merge, newest file wins, arbitrary manifest selection
+
 **Review Day**:
 A user-facing learning day bounded by the configured day rollover rather than by calendar midnight.
 _Avoid_: raw calendar day, wall-clock day
@@ -252,6 +280,11 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 
 ## Relationships
 
+- **Truth Device Identity** owns one writable truth namespace; prior namespaces remain read-only **Truth Reconciliation** inputs.
+- A formal Worker mutation returns a **Durability Receipt** at `journaled`; **Truth Promotion** advances it to `truth-committed`.
+- **Canonical Truth** plus uncovered replayable delta rebuilds the **Disposable SQLite Projection**.
+- **Storage Recovery State** gates formal writes, promotion, compaction, sync upload, and reconciliation without blocking verified read-only inspection.
+- **Truth Reconciliation** publishes verified **Canonical Truth** before any SQL or Queue projection switches.
 - A **Mixed SRS Queue** may contain **Learning Steps**, **Review Cards**, and new cards.
 - A **Retrieval Practice Queue** may contain **Current Learning Due** cards and **Today Review Due** cards.
 - **SM-style Review Availability** makes a **Learning Step** available only when it is **Current Learning Due**.

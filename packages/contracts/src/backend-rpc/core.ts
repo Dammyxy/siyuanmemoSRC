@@ -1,7 +1,11 @@
 import type {
   BackendDbLoadRequest,
   BackendDbLoadResult,
-  BackendDbPersistResult,
+  BackendDbReloadResult,
+  BackendStorageMaintenanceApplyBatchRequest,
+  BackendStorageMaintenanceApplyBatchResult,
+  BackendStorageMaintenanceStatusRequest,
+  BackendStorageMaintenanceStatusResult,
   BackendDiagnosticsStatusResult,
   BackendHealthResult,
   BackendRpcMethod,
@@ -11,7 +15,9 @@ import type {
 export const BACKEND_CORE_RPC_METHODS = [
   'system.health',
   'db.load',
-  'db.persist',
+  'db.reload',
+  'storage.maintenance.status',
+  'storage.maintenance.applyBatch',
   'diagnostics.status',
   'private.health',
   'private.diagnostics.status',
@@ -35,7 +41,17 @@ export interface BackendPrivateDiagnosticsStatusResult {
 export type BackendCoreRpcMethodContractMap = {
   readonly 'system.health': BackendRpcMethodContract<'system.health', void, BackendHealthResult>;
   readonly 'db.load': BackendRpcMethodContract<'db.load', BackendDbLoadRequest | void, BackendDbLoadResult>;
-  readonly 'db.persist': BackendRpcMethodContract<'db.persist', void, BackendDbPersistResult>;
+  readonly 'db.reload': BackendRpcMethodContract<'db.reload', BackendDbLoadRequest | void, BackendDbReloadResult>;
+  readonly 'storage.maintenance.status': BackendRpcMethodContract<
+    'storage.maintenance.status',
+    BackendStorageMaintenanceStatusRequest,
+    BackendStorageMaintenanceStatusResult
+  >;
+  readonly 'storage.maintenance.applyBatch': BackendRpcMethodContract<
+    'storage.maintenance.applyBatch',
+    BackendStorageMaintenanceApplyBatchRequest,
+    BackendStorageMaintenanceApplyBatchResult
+  >;
   readonly 'diagnostics.status': BackendRpcMethodContract<'diagnostics.status', void, BackendDiagnosticsStatusResult>;
   readonly 'private.health': BackendRpcMethodContract<'private.health', void, BackendPrivateHealthResult>;
   readonly 'private.diagnostics.status': BackendRpcMethodContract<
@@ -48,7 +64,9 @@ export type BackendCoreRpcMethodContractMap = {
 export const BACKEND_CORE_RPC_METHOD_FAMILY_CATALOG = [
   { method: 'system.health', family: 'core', clientExposure: 'facade' },
   { method: 'db.load', family: 'core', clientExposure: 'facade' },
-  { method: 'db.persist', family: 'core', clientExposure: 'facade' },
+  { method: 'db.reload', family: 'core', clientExposure: 'facade' },
+  { method: 'storage.maintenance.status', family: 'core', clientExposure: 'facade' },
+  { method: 'storage.maintenance.applyBatch', family: 'core', clientExposure: 'facade' },
   { method: 'diagnostics.status', family: 'core', clientExposure: 'facade' },
   { method: 'private.health', family: 'core', clientExposure: 'facade' },
   { method: 'private.diagnostics.status', family: 'core', clientExposure: 'facade' },

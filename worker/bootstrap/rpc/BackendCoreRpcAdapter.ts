@@ -1,11 +1,15 @@
 import type {
   BackendDbLoadResult,
   BackendDbLoadRequest,
-  BackendDbPersistResult,
+  BackendDbReloadResult,
   BackendDiagnosticsStatusResult,
   BackendHealthResult,
   BackendPrivateDiagnosticsStatusResult,
   BackendPrivateHealthResult,
+  BackendStorageMaintenanceApplyBatchRequest,
+  BackendStorageMaintenanceApplyBatchResult,
+  BackendStorageMaintenanceStatusRequest,
+  BackendStorageMaintenanceStatusResult,
   BackendRpcHandlerAdapter,
 } from '../../../packages/contracts/src/backend-rpc';
 import { BACKEND_CORE_RPC_METHODS, type BackendCoreRpcMethod } from '../../../packages/contracts/src/backend-rpc';
@@ -15,7 +19,13 @@ import type { BackendRpcHandlerRegistration } from './BackendRpcRegistry';
 export interface BackendCoreRpcDatabase {
   getStatus(): { initialized: boolean };
   load(request?: BackendDbLoadRequest): Promise<BackendDbLoadResult> | BackendDbLoadResult;
-  persist(): Promise<BackendDbPersistResult> | BackendDbPersistResult;
+  reloadFromDisk(request?: BackendDbLoadRequest): Promise<BackendDbReloadResult>;
+  getStorageMaintenanceStatus(
+    request: BackendStorageMaintenanceStatusRequest,
+  ): Promise<BackendStorageMaintenanceStatusResult>;
+  applyStorageMaintenanceBatch(
+    request: BackendStorageMaintenanceApplyBatchRequest,
+  ): Promise<BackendStorageMaintenanceApplyBatchResult>;
 }
 
 export interface BackendCoreRpcRuntime {
@@ -57,11 +67,35 @@ const BACKEND_CORE_RPC_HANDLER_ADAPTERS: {
       return context.core.database.load(readDbLoadRequest(params));
     },
   },
-  'db.persist': {
-    method: 'db.persist',
+  'db.reload': {
+    method: 'db.reload',
     family: 'core',
-    handle(_params, context): Promise<BackendDbPersistResult> | BackendDbPersistResult {
-      return context.core.database.persist();
+    handle(params, context): Promise<BackendDbReloadResult> {
+      return context.core.database.reloadFromDisk(readDbLoadRequest(params));
+    },
+  },
+  'storage.maintenance.status': {
+    method: 'storage.maintenance.status',
+    family: 'core',
+    handle(params, context): Promise<BackendStorageMaintenanceStatusResult> {
+      return context.core.database.getStorageMaintenanceStatus(
+        readRequiredNamedParams<BackendStorageMaintenanceStatusRequest>(
+          params,
+          'storage.maintenance.status requires named params',
+        ),
+      );
+    },
+  },
+  'storage.maintenance.applyBatch': {
+    method: 'storage.maintenance.applyBatch',
+    family: 'core',
+    handle(params, context): Promise<BackendStorageMaintenanceApplyBatchResult> {
+      return context.core.database.applyStorageMaintenanceBatch(
+        readRequiredNamedParams<BackendStorageMaintenanceApplyBatchRequest>(
+          params,
+          'storage.maintenance.applyBatch requires named params',
+        ),
+      );
     },
   },
   'diagnostics.status': {
@@ -101,6 +135,14 @@ function readDbLoadRequest(params: unknown): BackendDbLoadRequest | undefined {
     return undefined;
   }
   return params as BackendDbLoadRequest;
+}
+
+function readRequiredNamedParams<TParams extends object>(params: unknown, message: string): TParams {
+  const candidate = Array.isArray(params) ? params[0] : params;
+  if (!candidate || typeof candidate !== 'object') {
+    throw new Error(`INVALID_REQUEST: ${message}`);
+  }
+  return candidate as TParams;
 }
 
 export const BACKEND_CORE_RPC_HANDLER_REGISTRATIONS: readonly BackendCoreRpcHandlerRegistration[] =

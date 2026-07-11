@@ -26,11 +26,40 @@ describe('BackendCoreRpcAdapter', () => {
             ok: true,
             initialized: true,
             dbFile: 'siyuanmemo.db',
+            projectionSnapshot: {
+              version: 2,
+              xiuyuans: {},
+              cards: {},
+              cardDTOs: {},
+              deletedCardDTOs: {},
+              deletedXiuyuans: {},
+            },
           })),
-          persist: vi.fn(async () => ({
+          reloadFromDisk: vi.fn(async () => ({
             ok: true,
-            persisted: true,
+            reloaded: true,
             dbFile: 'siyuanmemo.db',
+          })),
+          getStorageMaintenanceStatus: vi.fn(async (request) => ({
+            operationId: request.operationId,
+            migrationId: request.migrationId,
+            required: false,
+            status: 'completed' as const,
+            completedBatches: 0,
+            totalBatches: null,
+            lastMutationId: null,
+            completedAt: 100,
+            error: null,
+          })),
+          applyStorageMaintenanceBatch: vi.fn(async (request) => ({
+            operationId: request.operationId,
+            migrationId: request.migrationId,
+            status: 'completed' as const,
+            completedBatches: request.totalBatches,
+            totalBatches: request.totalBatches,
+            lastMutationId: `maintenance:${request.operationId}:batch:${request.batchIndex}`,
+            completedAt: 100,
+            error: null,
           })),
         },
         readDiagnosticsStatus: vi.fn(async () => diagnostics),
@@ -53,8 +82,44 @@ describe('BackendCoreRpcAdapter', () => {
     await expect(dispatchCore(dispatcher, context, 'db.load')).resolves.toMatchObject({
       result: { ok: true, initialized: true, dbFile: 'siyuanmemo.db' },
     });
-    await expect(dispatchCore(dispatcher, context, 'db.persist')).resolves.toMatchObject({
-      result: { ok: true, persisted: true, dbFile: 'siyuanmemo.db' },
+    await expect(dispatchCore(dispatcher, context, 'db.reload')).resolves.toMatchObject({
+      result: { ok: true, reloaded: true, dbFile: 'siyuanmemo.db' },
+    });
+    await expect(dispatchCore(
+      dispatcher,
+      context,
+      'storage.maintenance.status',
+      {
+        operationId: 'test-maintenance',
+        migrationId: 'test-maintenance',
+      },
+    )).resolves.toMatchObject({
+      result: {
+        operationId: 'test-maintenance',
+        required: false,
+        status: 'completed',
+      },
+    });
+    await expect(dispatchCore(
+      dispatcher,
+      context,
+      'storage.maintenance.applyBatch',
+      {
+        operationId: 'test-maintenance',
+        migrationId: 'test-maintenance',
+        batchIndex: 0,
+        totalBatches: 1,
+        batch: {
+          kind: 'algorithm-card-state-backfill',
+          appliedAt: 100,
+        },
+      },
+    )).resolves.toMatchObject({
+      result: {
+        operationId: 'test-maintenance',
+        status: 'completed',
+        completedBatches: 1,
+      },
     });
     await expect(dispatchCore(dispatcher, context, 'diagnostics.status')).resolves.toMatchObject({
       result: diagnostics,
@@ -96,7 +161,7 @@ describe('BackendCoreRpcAdapter', () => {
     });
   });
 
-  it('loads, persists, and reports sqlite diagnostics through core family methods', async () => {
+  it('loads and reports sqlite diagnostics through core family methods', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     const kernel = new BackendKernel({ database });
@@ -107,29 +172,18 @@ describe('BackendCoreRpcAdapter', () => {
       method: 'db.load',
       params: [],
     });
-    expect(loadResponse).toEqual({
+    expect(loadResponse).toMatchObject({
       id: 'load',
       jsonrpc: '2.0',
       result: {
         ok: true,
         initialized: true,
         dbFile: 'siyuanmemo.db',
-      },
-    });
-
-    const persistResponse = await kernel.handle({
-      id: 'persist',
-      jsonrpc: '2.0',
-      method: 'db.persist',
-      params: [],
-    });
-    expect(persistResponse).toEqual({
-      id: 'persist',
-      jsonrpc: '2.0',
-      result: {
-        ok: true,
-        persisted: true,
-        dbFile: 'siyuanmemo.db',
+        projectionSnapshot: {
+          version: 2,
+          cards: {},
+          xiuyuans: {},
+        },
       },
     });
 
@@ -163,13 +217,6 @@ describe('BackendCoreRpcAdapter', () => {
           sqliteDelta: {
             fileName: SQLITE_DELTA_V2_MANIFEST,
             pendingCount: 0,
-            lastCheckpoint: {
-              ok: true,
-              cause: 'worker.persist',
-              initiator: 'db.persist',
-              projectionGeneration: null,
-              hotPath: false,
-            },
           },
         },
       });
@@ -181,11 +228,13 @@ function dispatchCore(
   dispatcher: BackendRpcDispatcher<BackendCoreRpcHandlerContext>,
   context: BackendCoreRpcHandlerContext,
   method: typeof BACKEND_CORE_RPC_HANDLER_REGISTRATIONS[number]['method'],
+  params?: unknown,
 ) {
   return dispatcher.dispatch({
     jsonrpc: BACKEND_RPC_VERSION,
     id: method,
     method,
+    params,
   }, context);
 }
 

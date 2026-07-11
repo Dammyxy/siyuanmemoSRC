@@ -1,27 +1,15 @@
 /**
- * QueuePersistenceService - 队列持久化服务
- * 
- * @module QueuePersistenceService
- * @description
- * 提供通用的键值存储接口，所有队列通过它持久化状态。
- * 采用方案 A - 通用键值存储服务，不需要知道队列的具体结构。
- * 
- * **职责**：
- * - 提供简单的 get/set/delete/keys 接口
- * - 支持任意 JSON 可序列化的数据类型
- * - 使用 Map 作为内存缓存
- * - 实现防抖机制（300ms）避免频繁写入
- * - 将所有队列数据持久化到 SQLite queue state repository
- * 
- * **设计原则**：
- * - 队列自治：每个队列领域对象自己管理状态和逻辑
- * - 通用存储：持久化服务不需要知道队列的具体结构
- * - 简单接口：只提供 get/set，队列自己决定数据格式
- * 
- * **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5**
+ * Worker-backed queue state persistence.
+ *
+ * Queue domain objects keep an in-memory read cache, while every formal
+ * mutation is acknowledged only after the Worker returns journal durability.
  */
 
-import type { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite';
+import type {
+  BackendQueueStateBatchMutateRequest,
+  BackendQueueStateBatchMutateResult,
+  BackendQueueStateLoadAllResult,
+} from '../../../packages/contracts/src/backend-rpc';
 import { stripTransientSchedulingPreviewFields } from '@/core/scheduler/schedulingStateCleanliness';
 import { createLogger } from '@/utils/logger';
 
@@ -32,13 +20,13 @@ function stableJson(value: unknown): string {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map(item => stableJson(item)).join(',')}]`;
+    return `[${value.map((item) => stableJson(item)).join(',')}]`;
   }
 
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
     .sort()
-    .map(key => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
     .join(',')}}`;
 }
 
@@ -46,79 +34,42 @@ function queueStateEquals(left: unknown, right: unknown): boolean {
   return stableJson(left) === stableJson(right);
 }
 
-/**
- * 队列持久化服务接口
- */
+export interface QueueStateWorkerExecutor {
+  loadAll(): Promise<BackendQueueStateLoadAllResult>;
+  batchMutate(
+    request: BackendQueueStateBatchMutateRequest,
+  ): Promise<BackendQueueStateBatchMutateResult>;
+}
+
 export interface IQueuePersistenceService {
-  /**
-   * 初始化服务（加载所有队列数据）
-   */
   init(): Promise<void>;
-  
-  /**
-   * 获取队列数据
-   * @param key 队列唯一键名（如 "retrievalPracticeQueue"）
-   * @returns 队列数据，如果不存在返回 null
-   */
   get<T>(key: string): T | null;
-  
-  /**
-   * 设置队列数据
-   * @param key 队列唯一键名
-   * @param value 队列数据（必须是 JSON 可序列化的）
-   */
   set(key: string, value: unknown): Promise<void>;
-  
-  /**
-   * 删除队列数据
-   * @param key 队列唯一键名
-   */
   delete(key: string): Promise<void>;
-  
-  /**
-   * 获取所有队列键名
-   */
   keys(): string[];
-  
-  /**
-   * 立即保存所有队列数据（绕过防抖）
-   */
   flush(): Promise<void>;
 }
 
-/**
- * 队列持久化错误
- */
 export class QueuePersistenceError extends Error {
   constructor(
     public readonly operation: string,
     public readonly key: string,
-    public readonly cause: Error
+    public readonly cause: Error,
   ) {
     super(`Queue persistence ${operation} failed for key "${key}": ${cause.message}`);
     this.name = 'QueuePersistenceError';
   }
 }
 
-/**
- * 队列持久化服务实现
- */
 export class QueuePersistenceService implements IQueuePersistenceService {
-  private static readonly DEBOUNCE_DELAY = 300; // 300ms 防抖延迟
-  
-  private cache: Map<string, unknown> = new Map();
-  private dirtyKeys: Set<string> = new Set();
-  private deletedKeys: Set<string> = new Set();
-  private saveTimer: NodeJS.Timeout | null = null;
+  private cache = new Map<string, unknown>();
   private initialized = false;
 
   constructor(
-    private readonly sqlRepository?: SqlQueueStateRepository | null,
+    private readonly executor?: QueueStateWorkerExecutor | null,
+    private readonly createMutationId: () => string = createQueueMutationId,
   ) {}
 
-  /**
-   * 初始化服务（加载所有队列数据）
-   */
   async init(): Promise<void> {
     if (this.initialized) {
       logger.warn('Already initialized, skipping');
@@ -126,28 +77,26 @@ export class QueuePersistenceService implements IQueuePersistenceService {
     }
 
     try {
-      if (!this.sqlRepository) {
-        throw new Error('SQLite queue repository unavailable');
+      if (!this.executor) {
+        throw new Error('BACKEND_UNAVAILABLE: Worker queue state executor unavailable');
       }
-      this.cache = new Map(Object.entries(this.sqlRepository.loadAll()).map(([key, value]) => [
+      const result = await this.executor.loadAll();
+      this.cache = new Map(Object.entries(result.values).map(([key, value]) => [
         key,
         stripTransientSchedulingPreviewFields(value).value,
       ]));
       this.initialized = true;
-      logger.info(`Loaded ${this.cache.size} queue(s) from SQLite`);
+      logger.info(`Loaded ${this.cache.size} queue(s) from Worker`);
     } catch (error) {
       logger.error('Failed to initialize:', error);
       throw new QueuePersistenceError(
         'init',
         'all',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
 
-  /**
-   * 获取队列数据
-   */
   get<T>(key: string): T | null {
     if (!this.initialized) {
       logger.warn('Service not initialized, returning null');
@@ -155,177 +104,125 @@ export class QueuePersistenceService implements IQueuePersistenceService {
     }
 
     const value = this.cache.get(key);
-    return value !== undefined ? (value as T) : null;
+    return value !== undefined ? value as T : null;
   }
 
-  /**
-   * 设置队列数据
-   */
   async set(key: string, value: unknown): Promise<void> {
-    if (!this.initialized) {
-      throw new QueuePersistenceError(
-        'set',
-        key,
-        new Error('Service not initialized')
-      );
-    }
+    this.assertInitialized('set', key);
+    const normalizedKey = normalizeQueueStateKey(key);
+    const cleanValue = stripTransientSchedulingPreviewFields(value).value;
 
     try {
-      const cleanValue = stripTransientSchedulingPreviewFields(value).value;
-      // 验证数据是 JSON 可序列化的
       JSON.stringify(cleanValue);
-
-      const currentValue = this.cache.get(key);
-      if (currentValue !== undefined && queueStateEquals(currentValue, cleanValue)) {
-        this.deletedKeys.delete(key);
-        return;
-      }
-      
-      // 更新内存缓存
-      this.cache.set(key, cleanValue);
-      this.dirtyKeys.add(key);
-      this.deletedKeys.delete(key);
-      
-      // 触发防抖保存
-      this.debouncedSave();
     } catch (error) {
-      if (error instanceof TypeError) {
-        logger.error(`Value for key "${key}" is not JSON-serializable:`, error);
-        throw new QueuePersistenceError(
-          'set',
-          key,
-          new Error(`Value is not JSON-serializable: ${error.message}`)
-        );
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * 删除队列数据
-   */
-  async delete(key: string): Promise<void> {
-    if (!this.initialized) {
       throw new QueuePersistenceError(
-        'delete',
-        key,
-        new Error('Service not initialized')
+        'set',
+        normalizedKey,
+        new Error(`Value is not JSON-serializable: ${error instanceof Error ? error.message : String(error)}`),
       );
     }
 
-    if (!this.cache.has(key)) {
-      this.dirtyKeys.delete(key);
+    const currentValue = this.cache.get(normalizedKey);
+    if (currentValue !== undefined && queueStateEquals(currentValue, cleanValue)) {
       return;
     }
 
-    this.cache.delete(key);
-    this.dirtyKeys.delete(key);
-    this.deletedKeys.add(key);
-    
-    // 触发防抖保存
-    this.debouncedSave();
+    const mutationId = this.createMutationId();
+    const result = await this.executor!.batchMutate({
+      mutationId,
+      mutations: [{
+        operation: 'set',
+        key: normalizedKey,
+        value: cleanValue,
+      }],
+    });
+    assertQueueDurabilityReceipt(result, mutationId, normalizedKey, 'set');
+    this.cache.set(normalizedKey, cleanValue);
   }
 
-  /**
-   * 获取所有队列键名
-   */
+  async delete(key: string): Promise<void> {
+    this.assertInitialized('delete', key);
+    const normalizedKey = normalizeQueueStateKey(key);
+    if (!this.cache.has(normalizedKey)) {
+      return;
+    }
+
+    const mutationId = this.createMutationId();
+    const result = await this.executor!.batchMutate({
+      mutationId,
+      mutations: [{
+        operation: 'delete',
+        key: normalizedKey,
+      }],
+    });
+    assertQueueDurabilityReceipt(result, mutationId, normalizedKey, 'delete');
+    this.cache.delete(normalizedKey);
+  }
+
   keys(): string[] {
     if (!this.initialized) {
       logger.warn('Service not initialized, returning empty array');
       return [];
     }
-
     return Array.from(this.cache.keys());
   }
 
-  /**
-   * 立即保存所有队列数据（绕过防抖）
-   */
   async flush(): Promise<void> {
-    if (!this.initialized) {
-      throw new QueuePersistenceError(
-        'flush',
-        'all',
-        new Error('Service not initialized')
-      );
-    }
-
-    // 取消待处理的防抖保存
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
-
-    // 立即保存
-    await this.save();
+    this.assertInitialized('flush', 'all');
   }
 
-  /**
-   * 防抖保存
-   * 在 300ms 内如果有新的修改，会重置计时器
-   */
-  private debouncedSave(): void {
-    // 取消之前的计时器
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-    }
-
-    // 设置新的计时器
-    this.saveTimer = setTimeout(() => {
-      this.save().catch(error => {
-        logger.error('Debounced save failed:', error);
-      });
-    }, QueuePersistenceService.DEBOUNCE_DELAY);
-  }
-
-  /**
-   * 保存所有队列数据到文件
-   */
-  private async save(): Promise<void> {
-    try {
-      if (!this.sqlRepository) {
-        throw new Error('SQLite queue repository unavailable');
-      }
-      const dirtyKeys = Array.from(this.dirtyKeys);
-      const deletedKeys = Array.from(this.deletedKeys);
-      if (dirtyKeys.length === 0 && deletedKeys.length === 0) {
-        return;
-      }
-      for (const key of deletedKeys) {
-        this.sqlRepository.delete(key);
-      }
-      for (const key of dirtyKeys) {
-        if (this.cache.has(key)) {
-          this.sqlRepository.set(key, stripTransientSchedulingPreviewFields(this.cache.get(key)).value);
-        }
-      }
-      await this.sqlRepository.persist();
-      this.dirtyKeys.clear();
-      this.deletedKeys.clear();
-      logger.info(`Saved ${dirtyKeys.length + deletedKeys.length} changed queue state(s) to SQLite`);
-    } catch (error) {
-      logger.error('Failed to save queue data:', error);
-      throw new QueuePersistenceError(
-        'save',
-        'all',
-        error instanceof Error ? error : new Error(String(error))
-      );
-    }
-  }
-
-  /**
-   * 生命周期结束时确保防抖数据落盘
-   */
   async dispose(): Promise<void> {
     if (!this.initialized) {
       return;
     }
+    await this.flush();
+    logger.info('QueuePersistenceService disposed');
+  }
 
-    try {
-      await this.flush();
-      logger.info('QueuePersistenceService disposed and flushed');
-    } catch (error) {
-      logger.error('Failed to flush queue persistence during dispose:', error);
+  private assertInitialized(operation: string, key: string): void {
+    if (!this.initialized || !this.executor) {
+      throw new QueuePersistenceError(
+        operation,
+        key,
+        new Error('Service not initialized'),
+      );
     }
   }
+}
+
+function assertQueueDurabilityReceipt(
+  result: BackendQueueStateBatchMutateResult,
+  mutationId: string,
+  key: string,
+  operation: 'set' | 'delete',
+): void {
+  const receipt = result.durabilityReceipt;
+  const resultKeys = operation === 'set' ? result.updatedKeys : result.deletedKeys;
+  if (
+    receipt.family !== 'queue'
+    || (receipt.stage !== 'journaled' && receipt.stage !== 'truth-committed')
+    || receipt.mutationId !== mutationId
+    || !resultKeys.includes(key)
+  ) {
+    throw new Error('STORAGE_JOURNAL_FAILED: Queue Worker mutation returned invalid durability receipt');
+  }
+}
+
+function normalizeQueueStateKey(key: string): string {
+  const normalized = String(key || '').trim();
+  if (!normalized) {
+    throw new Error('INVALID_REQUEST: Queue state key is required');
+  }
+  return normalized;
+}
+
+let fallbackMutationSequence = 0;
+
+function createQueueMutationId(): string {
+  const randomUUID = globalThis.crypto?.randomUUID?.();
+  if (randomUUID) {
+    return `queue:${randomUUID}`;
+  }
+  fallbackMutationSequence += 1;
+  return `queue:${Date.now()}:${fallbackMutationSequence}`;
 }

@@ -280,6 +280,49 @@ export async function executeWriterRelayCommand(
       command: Record<string, unknown>;
     });
   }
+  if (command.method === 'card.schedule.batchUpdate') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: card.schedule.batchUpdate relay requires params object');
+    }
+    return srsBackendClient.cardScheduleBatchUpdate(
+      command.params as Parameters<SrsBackendClient['cardScheduleBatchUpdate']>[0],
+    );
+  }
+  if (command.method === 'card.crud.batchMutate') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: card.crud.batchMutate relay requires params object');
+    }
+    return srsBackendClient.cardCrudBatchMutate(
+      command.params as Parameters<SrsBackendClient['cardCrudBatchMutate']>[0],
+    );
+  }
+  if (command.method === 'storage.maintenance.applyBatch') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: storage.maintenance.applyBatch relay requires params object');
+    }
+    return srsBackendClient.applyStorageMaintenanceBatch(
+      command.params as Parameters<SrsBackendClient['applyStorageMaintenanceBatch']>[0],
+    );
+  }
+  if (command.method === 'storage.maintenance.status') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: storage.maintenance.status relay requires params object');
+    }
+    return srsBackendClient.storageMaintenanceStatus(
+      command.params as Parameters<SrsBackendClient['storageMaintenanceStatus']>[0],
+    );
+  }
+  if (command.method === 'queue.state.loadAll') {
+    return srsBackendClient.queueStateLoadAll();
+  }
+  if (command.method === 'queue.state.batchMutate') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: queue.state.batchMutate relay requires params object');
+    }
+    return srsBackendClient.queueStateBatchMutate(
+      command.params as Parameters<SrsBackendClient['queueStateBatchMutate']>[0],
+    );
+  }
   if (command.method === 'agent.tool.execute') {
     if (!command.params || typeof command.params !== 'object') {
       throw new Error('INVALID_REQUEST: agent.tool.execute relay requires params object');

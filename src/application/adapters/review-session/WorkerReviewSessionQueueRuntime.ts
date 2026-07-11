@@ -226,6 +226,7 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
       restoredCurrentCard: cloneCard(this.currentCard),
       counterSnapshot: this.getCounterSnapshot(),
       undoToken: result.undoToken,
+      durabilityReceipt: result.durabilityReceipt ?? null,
     };
   }
 

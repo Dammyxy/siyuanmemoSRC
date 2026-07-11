@@ -3,6 +3,7 @@ export const MESSAGEPACK_TRUTH_SCHEMA_VERSION = 1;
 export type MessagePackTruthFamily =
   | 'review-events'
   | 'card-memory-facts'
+  | 'queue-facts'
   | 'domain-sync-operations'
   | 'ai-session-payload-refs'
   | 'semantic-arena-payload-refs'
@@ -42,6 +43,7 @@ export interface MessagePackTruthRetentionPolicy {
 export interface MessagePackTruthFamilyStoragePolicy {
   family: MessagePackTruthFamily;
   maxSegmentBytes: number;
+  maxSegmentRecords: number;
   compaction: MessagePackTruthCompactionPolicy;
   retention: MessagePackTruthRetentionPolicy;
 }
@@ -60,6 +62,13 @@ export const MESSAGEPACK_TRUTH_FAMILY_SCHEMAS = [
     payloadPolicy: 'entity-fact',
     sqlProjection: 'skinny-index-ref',
     sourceOwner: 'siyuan-source-plus-plugin-truth',
+  },
+  {
+    family: 'queue-facts',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    payloadPolicy: 'operation-fact',
+    sqlProjection: 'skinny-index-ref',
+    sourceOwner: 'plugin-truth',
   },
   {
     family: 'domain-sync-operations',
@@ -97,12 +106,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 function truthStoragePolicy(
   family: MessagePackTruthFamily,
   maxSegmentBytes: number,
+  maxSegmentRecords: number,
   retentionMode: MessagePackTruthRetentionMode = 'retain-truth-indefinitely',
   compactedInputRetainDays = 30,
 ): MessagePackTruthFamilyStoragePolicy {
   return {
     family,
     maxSegmentBytes,
+    maxSegmentRecords,
     compaction: {
       closedSegmentThreshold: 48,
       targetClosedSegments: 16,
@@ -117,12 +128,13 @@ function truthStoragePolicy(
 }
 
 export const MESSAGEPACK_TRUTH_FAMILY_STORAGE_POLICIES = [
-  truthStoragePolicy('review-events', ONE_MIB),
-  truthStoragePolicy('card-memory-facts', 2 * ONE_MIB),
-  truthStoragePolicy('domain-sync-operations', 2 * ONE_MIB),
-  truthStoragePolicy('ai-session-payload-refs', 4 * ONE_MIB),
-  truthStoragePolicy('semantic-arena-payload-refs', 4 * ONE_MIB),
-  truthStoragePolicy('diagnostics-records', ONE_MIB, 'ttl-after-compaction', 14),
+  truthStoragePolicy('review-events', ONE_MIB, 2_048),
+  truthStoragePolicy('card-memory-facts', 2 * ONE_MIB, 512),
+  truthStoragePolicy('queue-facts', 2 * ONE_MIB, 512),
+  truthStoragePolicy('domain-sync-operations', 2 * ONE_MIB, 1_024),
+  truthStoragePolicy('ai-session-payload-refs', 4 * ONE_MIB, 1_024),
+  truthStoragePolicy('semantic-arena-payload-refs', 4 * ONE_MIB, 1_024),
+  truthStoragePolicy('diagnostics-records', ONE_MIB, 2_048, 'ttl-after-compaction', 14),
 ] as const satisfies readonly MessagePackTruthFamilyStoragePolicy[];
 
 export function getMessagePackTruthFamilyStoragePolicy(
@@ -298,7 +310,7 @@ export const SQL_PROJECTION_FAMILY_SCHEMAS = [
       'queue_projection_invalidations',
       'queue_projection_rebuilds',
     ],
-    truthFamilies: ['review-events', 'card-memory-facts'],
+    truthFamilies: ['review-events', 'card-memory-facts', 'queue-facts'],
     sourceInputs: ['messagepack-truth', 'siyuan-source', 'local-projection'],
     columns: [
       projectionColumn('queue_projection_generations', 'queue_type', 'identity', 'local-projection'),

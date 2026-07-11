@@ -1,3 +1,4 @@
+import { decode, encode } from '@msgpack/msgpack';
 import { describe, expect, it } from 'vitest';
 import {
   buildMessagePackTruthLocalSegmentIndex,
@@ -64,6 +65,13 @@ function record(id: string, logicalTime: number, payloadSize = 72) {
   };
 }
 
+async function sha256(bytes: Uint8Array): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  return `sha256:${Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
 describe('MessagePackTruthSegmentStore', () => {
   it('writes bounded device-owned immutable segments and manifest metadata', async () => {
     const fileStore = new MemoryTruthSegmentFileStore();
@@ -100,6 +108,30 @@ describe('MessagePackTruthSegmentStore', () => {
         checksum: entry.checksum,
       });
     }
+  });
+
+  it('closes a segment when aggregate-count threshold is reached before byte threshold', async () => {
+    const fileStore = new MemoryTruthSegmentFileStore();
+    const store = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      generationId: 'card-snapshot-v1',
+      schemaVersion: 1,
+      maxSegmentBytes: 64 * 1024,
+      maxSegmentRecords: 2,
+    });
+
+    const result = await store.appendRecords([
+      record('a', 10, 8),
+      record('b', 20, 8),
+      record('c', 30, 8),
+      record('d', 40, 8),
+      record('e', 50, 8),
+    ]);
+
+    expect(result.segments.map((segment) => segment.recordCount)).toEqual([2, 2, 1]);
+    expect(result.segments.every((segment) => segment.byteSize < 64 * 1024)).toBe(true);
   });
 
   it('commits segment, checksum sidecar, then manifest and reports orphan segments without applying them', async () => {
@@ -264,6 +296,48 @@ describe('MessagePackTruthSegmentStore', () => {
     fileStore.jsonFiles.set(manifestPath, manifest);
     await expect(store.replayRecords()).rejects.toMatchObject({
       diagnostics: [expect.objectContaining({ reason: 'manifest-device-mismatch' })],
+    });
+  });
+
+  it('fails closed on a future manifest version', async () => {
+    const fileStore = new MemoryTruthSegmentFileStore();
+    const store = createStore(fileStore, 1024);
+    const append = await store.appendRecords([record('a', 10)]);
+    const manifest = structuredClone(fileStore.jsonFiles.get(append.manifest.path)) as Record<string, unknown>;
+    manifest.version = 2;
+    fileStore.jsonFiles.set(append.manifest.path, manifest);
+
+    await expect(store.replayRecords()).rejects.toMatchObject({
+      diagnostics: [expect.objectContaining({
+        reason: 'unsupported-manifest-version',
+        expected: 1,
+        actual: 2,
+      })],
+    });
+  });
+
+  it('fails closed on a future segment envelope version', async () => {
+    const fileStore = new MemoryTruthSegmentFileStore();
+    const store = createStore(fileStore, 1024);
+    const append = await store.appendRecords([record('a', 10)]);
+    const segmentPath = append.segments[0].path;
+    const envelope = decode(fileStore.binaryFiles.get(segmentPath)!) as Record<string, unknown>;
+    envelope.version = 2;
+    const futureBytes = encode(envelope);
+    fileStore.binaryFiles.set(segmentPath, futureBytes);
+    const manifest = structuredClone(fileStore.jsonFiles.get(append.manifest.path)) as {
+      segments: Array<Record<string, unknown>>;
+    };
+    manifest.segments[0].checksum = await sha256(futureBytes);
+    manifest.segments[0].byteSize = futureBytes.byteLength;
+    fileStore.jsonFiles.set(append.manifest.path, manifest);
+
+    await expect(store.replayRecords()).rejects.toMatchObject({
+      diagnostics: [expect.objectContaining({
+        reason: 'unsupported-segment-version',
+        expected: 1,
+        actual: 2,
+      })],
     });
   });
 

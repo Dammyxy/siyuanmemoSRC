@@ -25,6 +25,7 @@ export type BackendWorkerHostEffect =
   | ({ kind: 'truth.readJSON'; path: string } & BackendWorkerHostEffectAttribution)
   | ({ kind: 'truth.writeJSON'; path: string; value: unknown } & BackendWorkerHostEffectAttribution)
   | { kind: 'truth.listFiles'; prefix: string }
+  | { kind: 'truth.deleteFile'; path: string }
   | { kind: 'sqlite.readSyncConflictDatabaseSources' }
   | { kind: 'sqlite.cleanupSyncConflictDatabaseSources'; sourceIds: string[] }
   | { kind: 'siyuan.resolveExistingBlockIds'; blockIds: string[] }

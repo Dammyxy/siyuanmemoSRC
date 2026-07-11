@@ -8,10 +8,11 @@ vi.mock('@/infrastructure/persistence/sqlite', () => ({
   SqliteDatabaseService: class {
     init = sqliteInitMock;
   },
-  SqliteMigrationService: class {},
+  SqlNeuralRoamRouteRepository: class {},
   SqlQueueStateRepository: class {},
   SqlReviewLogRepository: class {},
   SqlUnifiedStorageRepository: class {},
+  SqlXiuyuanReadRepository: class {},
 }));
 
 import { ApplicationContext } from '@/application/ApplicationContext';
@@ -32,16 +33,17 @@ function createMockPlugin(): Plugin {
 }
 
 describe('ApplicationContext storage bootstrap fallback governance', () => {
-  it('fails closed when SQLite initialization fails without explicit operator rollback', async () => {
+  it('fails closed before renderer SQLite initialization when Worker maintenance is unavailable', async () => {
     const previousRollback = process.env[STORAGE_ROLLBACK_ENV];
     delete process.env[STORAGE_ROLLBACK_ENV];
-    sqliteInitMock.mockRejectedValueOnce(new Error('sqlite unavailable'));
+    sqliteInitMock.mockReset();
 
     try {
       await expect(ApplicationContext.create({
         plugin: createMockPlugin(),
         i18n: {},
-      })).rejects.toThrow('STORAGE_UNAVAILABLE: SQLite migration/init failed');
+      })).rejects.toThrow('BACKEND_UNAVAILABLE: storage maintenance requires backend Worker');
+      expect(sqliteInitMock).not.toHaveBeenCalled();
     } finally {
       if (previousRollback === undefined) {
         delete process.env[STORAGE_ROLLBACK_ENV];

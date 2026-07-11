@@ -118,19 +118,27 @@ export interface UnifiedStorageXiuyuanCardDelta {
   syncMetadata?: StorageSyncMetadata;
 }
 
+export interface UnifiedStorageCardCrudMutation {
+  upsertCards: FSRSCard[];
+  upsertXiuyuans: IXiuyuan[];
+  deleteCardIds: string[];
+  deleteXiuyuanIds: string[];
+}
+
 export interface UnifiedStorageDeltaPersistenceCallbacks {
   saveXiuyuanCardDelta?: (delta: UnifiedStorageXiuyuanCardDelta) => Promise<void>;
+  commitCardCrudBatch?: (mutation: UnifiedStorageCardCrudMutation) => Promise<void>;
 }
 
 export interface SaveXiuyuanCardDeltaOptions extends StorageSaveOptions {
   xiuyuanIds: string[];
   cardIds: string[];
-  fallbackReason?: string;
+  deleteCardIds?: string[];
+  deleteXiuyuanIds?: string[];
 }
 
 export interface StorageSaveOutcome {
-  mode: 'delta' | 'full-save';
-  fallbackReason?: string;
+  mode: 'worker' | 'delta' | 'full-save';
 }
 
 export type StorageLoadReason = 'startup-load' | 'pre-save-conflict-check' | 'unspecified';
@@ -905,6 +913,15 @@ export class UnifiedStorageManager {
     this.deltaPersistenceCallbacks = deltaPersistenceCallbacks;
   }
 
+  setReadPersistenceCallbacks(
+    load: (reason?: StorageLoadReason) => Promise<UnifiedCardStore>,
+    deltaPersistenceCallbacks: UnifiedStorageDeltaPersistenceCallbacks = {},
+  ): void {
+    this.saveCallback = null;
+    this.loadCallback = load;
+    this.deltaPersistenceCallbacks = deltaPersistenceCallbacks;
+  }
+
   setConflictResolutionStrategy(strategy: StorageConflictResolutionStrategy): void {
     this.conflictResolutionStrategy = strategy;
     logger.info('[UnifiedStorageManager] conflict resolution strategy updated:', strategy);
@@ -1037,106 +1054,99 @@ export class UnifiedStorageManager {
   ): Promise<Result<StorageSaveOutcome>> {
     return this.runWriteMutation('saveXiuyuanCardDelta', async (transaction) => {
       try {
-        const fallbackReason = this.getXiuyuanCardDeltaFallbackReason(options);
-        if (fallbackReason) {
-          return await this.saveXiuyuanCardDeltaViaFullSave(fallbackReason, transaction);
-        }
-
         const deltaStore = this.prepareDeltaStoreForPersist();
-        const delta = this.buildXiuyuanCardDelta(options, deltaStore);
-        if (!delta) {
-          return await this.saveXiuyuanCardDeltaViaFullSave('missing-affected-row', transaction);
+        const mutation = this.buildCardCrudMutation(options, deltaStore);
+        if (!mutation) {
+          return err(new Error(
+            'INVALID_REQUEST: card.crud.batchMutate requires at least one valid mutation',
+          ));
         }
 
-        const saveDelta = this.deltaPersistenceCallbacks.saveXiuyuanCardDelta;
-        if (!saveDelta) {
-          return await this.saveXiuyuanCardDeltaViaFullSave('delta-adapter-unavailable', transaction);
+        const commitCardCrudBatch = this.deltaPersistenceCallbacks.commitCardCrudBatch;
+        if (!commitCardCrudBatch) {
+          return err(new Error(
+            'BACKEND_UNAVAILABLE: card.crud.batchMutate requires backend Worker',
+          ));
         }
 
         await measureRuntimePerformance(
           'autocard',
-          'storage.delta-save-xiuyuan-card',
-          () => saveDelta(delta),
+          'storage.worker-card-crud',
+          () => commitCardCrudBatch(mutation),
           {
-            xiuyuanCount: Object.keys(delta.xiuyuans).length,
-            cardCount: Object.keys(delta.cardDTOs).length,
+            upsertXiuyuanCount: mutation.upsertXiuyuans.length,
+            upsertCardCount: mutation.upsertCards.length,
+            deleteXiuyuanCount: mutation.deleteXiuyuanIds.length,
+            deleteCardCount: mutation.deleteCardIds.length,
           },
         );
-        incrementRuntimePerformanceCounter('autocard', 'storage-delta-save-calls', 1);
-        incrementRuntimePerformanceCounter('autocard', 'storage-delta-save-xiuyuans', Object.keys(delta.xiuyuans).length);
-        incrementRuntimePerformanceCounter('autocard', 'storage-delta-save-cards', Object.keys(delta.cardDTOs).length);
+        incrementRuntimePerformanceCounter('autocard', 'storage-worker-card-crud-calls', 1);
+        incrementRuntimePerformanceCounter('autocard', 'storage-worker-card-crud-upsert-xiuyuans', mutation.upsertXiuyuans.length);
+        incrementRuntimePerformanceCounter('autocard', 'storage-worker-card-crud-upsert-cards', mutation.upsertCards.length);
+        incrementRuntimePerformanceCounter('autocard', 'storage-worker-card-crud-delete-xiuyuans', mutation.deleteXiuyuanIds.length);
+        incrementRuntimePerformanceCounter('autocard', 'storage-worker-card-crud-delete-cards', mutation.deleteCardIds.length);
         this.captureSnapshotFromCanonicalStore(deltaStore);
         this.dirty = false;
         this.clearSaveTimer();
-        return ok({ mode: 'delta' });
+        return ok({ mode: 'worker' });
       } catch (error) {
         return err(error instanceof Error ? error : new Error(String(error)));
       }
     }, options.transaction);
   }
 
-  private async saveXiuyuanCardDeltaViaFullSave(
-    fallbackReason: string,
-    transaction: StorageWriteTransaction,
-  ): Promise<Result<StorageSaveOutcome>> {
-    incrementRuntimePerformanceCounter('autocard', 'storage-delta-full-save-fallback-calls', 1);
-    const saveResult = await this.save({ transaction });
-    if (isErr(saveResult)) {
-      return saveResult as Result<StorageSaveOutcome>;
-    }
-    return ok({
-      mode: 'full-save',
-      fallbackReason,
-    });
-  }
-
-  private getXiuyuanCardDeltaFallbackReason(options: SaveXiuyuanCardDeltaOptions): string | null {
-    const explicitReason = String(options.fallbackReason || '').trim();
-    if (explicitReason) {
-      return explicitReason;
-    }
-    if (!Array.isArray(options.xiuyuanIds) || options.xiuyuanIds.length === 0) {
-      return 'missing-xiuyuan-ids';
-    }
-    if (!Array.isArray(options.cardIds) || options.cardIds.length === 0) {
-      return 'missing-card-ids';
-    }
-    return null;
-  }
-
-  private buildXiuyuanCardDelta(
-    options: Pick<SaveXiuyuanCardDeltaOptions, 'xiuyuanIds' | 'cardIds'>,
+  private buildCardCrudMutation(
+    options: Pick<
+      SaveXiuyuanCardDeltaOptions,
+      'xiuyuanIds' | 'cardIds' | 'deleteCardIds' | 'deleteXiuyuanIds'
+    >,
     store: UnifiedCardStore,
-  ): UnifiedStorageXiuyuanCardDelta | null {
-    const xiuyuans: Record<string, IXiuyuan> = {};
-    const cards: Record<string, FSRSCard> = {};
-    const cardDTOs: Record<string, CardPersistenceDTO> = {};
+  ): UnifiedStorageCardCrudMutation | null {
+    const upsertXiuyuans: IXiuyuan[] = [];
+    const upsertCards: FSRSCard[] = [];
+    const deleteCardIds = this.normalizeMutationIds(options.deleteCardIds);
+    const deleteXiuyuanIds = this.normalizeMutationIds(options.deleteXiuyuanIds);
 
-    for (const xiuyuanId of Array.from(new Set(options.xiuyuanIds.map((id) => String(id || '').trim()).filter(Boolean)))) {
+    for (const xiuyuanId of this.normalizeMutationIds(options.xiuyuanIds)) {
       const xiuyuan = store.xiuyuans[xiuyuanId];
       if (!xiuyuan) {
         return null;
       }
-      xiuyuans[xiuyuanId] = xiuyuan;
+      upsertXiuyuans.push(xiuyuan);
     }
 
-    for (const cardId of Array.from(new Set(options.cardIds.map((id) => String(id || '').trim()).filter(Boolean)))) {
+    for (const cardId of this.normalizeMutationIds(options.cardIds)) {
       const dto = store.cardDTOs?.[cardId];
       const card = store.cards?.[cardId];
       if (!dto) {
         return null;
       }
-      cardDTOs[cardId] = dto;
-      cards[cardId] = card ?? this.toDomainCard(dto);
+      upsertCards.push(card ?? this.toDomainCard(dto));
+    }
+
+    if (
+      upsertCards.length === 0
+      && upsertXiuyuans.length === 0
+      && deleteCardIds.length === 0
+      && deleteXiuyuanIds.length === 0
+    ) {
+      return null;
     }
 
     return {
-      version: CURRENT_UNIFIED_CARD_STORE_VERSION,
-      xiuyuans,
-      cards,
-      cardDTOs,
-      syncMetadata: store.syncMetadata,
+      upsertCards,
+      upsertXiuyuans,
+      deleteCardIds,
+      deleteXiuyuanIds,
     };
+  }
+
+  private normalizeMutationIds(ids: readonly string[] | undefined): string[] {
+    return Array.from(new Set(
+      (ids ?? [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean),
+    ));
   }
 
   private prepareDeltaStoreForPersist(): UnifiedCardStore {
@@ -2448,6 +2458,77 @@ export class UnifiedStorageManager {
       .map((cardId) => this.cardDTOs.get(cardId))
       .filter((dto): dto is CardPersistenceDTO => Boolean(dto))
       .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  getDeckCardsByIds(ids: string[]): FSRSCard[] {
+    const orderedIds = Array.from(new Set(
+      ids.map((id) => String(id || '').trim()).filter(Boolean),
+    ));
+    const exactById = new Map<string, FSRSCard>();
+    const byBlockId = new Map<string, FSRSCard>();
+    for (const card of this.getAllCards()) {
+      exactById.set(card.id, card);
+      if (card.blockId) {
+        byBlockId.set(card.blockId, card);
+      }
+    }
+    return orderedIds
+      .map((id) => exactById.get(id) ?? byBlockId.get(id))
+      .filter((card): card is FSRSCard => Boolean(card));
+  }
+
+  applyWorkerCommittedCardProjection(cards: FSRSCard[]): void {
+    if (cards.length === 0) {
+      return;
+    }
+    const store = this.getStoreData();
+    for (const card of cards) {
+      const cardId = String(card.id || '').trim();
+      if (!cardId) {
+        continue;
+      }
+      store.cards[cardId] = structuredClone(card);
+      store.cardDTOs![cardId] = CardMapper.toPersistence(card);
+      delete store.deletedCardDTOs?.[cardId];
+    }
+    this.applyStoreSnapshot(store);
+    this.dirty = false;
+    this.clearSaveTimer();
+  }
+
+  queryCardIdsByRootIds(
+    rootIds: string[],
+    options: { excludeKnownMissing?: boolean } = {},
+  ): string[] {
+    const normalizedRootIds = new Set(
+      rootIds.map((rootId) => String(rootId || '').trim()).filter(Boolean),
+    );
+    if (normalizedRootIds.size === 0) {
+      return [];
+    }
+    return Array.from(this.cardDTOs.values())
+      .filter((dto) => {
+        const rootId = String(dto.meta?.rootId || '').trim();
+        if (!normalizedRootIds.has(rootId)) {
+          return false;
+        }
+        return options.excludeKnownMissing === false || dto.meta?.sourceExists !== false;
+      })
+      .map((dto) => dto.id)
+      .sort();
+  }
+
+  queryRootlessCardBlockIds(limit = 5000): string[] {
+    const normalizedLimit = Math.max(1, Math.floor(Number(limit) || 5000));
+    return Array.from(this.cardDTOs.values())
+      .filter((dto) => (
+        !String(dto.meta?.rootId || '').trim()
+        && Boolean(String(dto.blockId || '').trim())
+        && dto.meta?.sourceExists !== false
+      ))
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .slice(0, normalizedLimit)
+      .map((dto) => dto.blockId);
   }
 
   /**

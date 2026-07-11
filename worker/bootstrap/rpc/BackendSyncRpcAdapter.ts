@@ -11,20 +11,20 @@ import type {
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
   BackendRpcHandlerAdapter,
-  BackendSyncConflictMergeRequest,
-  BackendSyncConflictMergeResult,
   BackendSyncConflictReloadResult,
   BackendSyncConflictSummarizeRequest,
   BackendSyncConflictSummarizeResult,
+  BackendTruthReconciliationRunRequest,
+  BackendTruthReconciliationRunResult,
 } from '../../../packages/contracts/src/backend-rpc';
 import { BACKEND_SYNC_RPC_METHODS, type BackendSyncRpcMethod } from '../../../packages/contracts/src/backend-rpc';
 import type { BackendRpcHandlerContext } from './BackendRpcHandlerContext';
 import type { BackendRpcHandlerRegistration } from './BackendRpcRegistry';
 
 export interface BackendSyncRpcDatabase {
-  mergeSyncConflictDatabases(
-    request: BackendSyncConflictMergeRequest,
-  ): Promise<BackendSyncConflictMergeResult> | BackendSyncConflictMergeResult;
+  reconcileCanonicalTruth(
+    request: BackendTruthReconciliationRunRequest,
+  ): Promise<BackendTruthReconciliationRunResult> | BackendTruthReconciliationRunResult;
   auditReviewSyncDivergence(
     request: BackendReviewSyncDivergenceAuditRequest,
   ): Promise<BackendReviewSyncDivergenceAuditResult> | BackendReviewSyncDivergenceAuditResult;
@@ -77,12 +77,12 @@ const BACKEND_SYNC_RPC_HANDLER_ADAPTERS: {
     BackendSyncRpcHandlerContext
   >;
 } = {
-  'sync.conflict.merge': {
-    method: 'sync.conflict.merge',
-    family: 'sync',
-    handle(params, context): Promise<BackendSyncConflictMergeResult> | BackendSyncConflictMergeResult {
-      return context.sync.database.mergeSyncConflictDatabases(
-        readRequiredNamedParams<BackendSyncConflictMergeRequest>(params, 'sync.conflict.merge requires named params'),
+  'truth.reconciliation.run': {
+    method: 'truth.reconciliation.run',
+    family: 'domain-sync',
+    handle(params, context): Promise<BackendTruthReconciliationRunResult> | BackendTruthReconciliationRunResult {
+      return context.sync.database.reconcileCanonicalTruth(
+        readNamedParams<BackendTruthReconciliationRunRequest>(params) ?? {},
       );
     },
   },

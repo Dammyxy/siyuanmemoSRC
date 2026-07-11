@@ -32,9 +32,11 @@ import { createLogger } from '@/utils/logger';
 import {
   type BackendBrowserRpcRuntime,
 } from './rpc/BackendBrowserRpcAdapter';
+import { BackendCardRpcRuntime } from './rpc/BackendCardRpcAdapter';
 import { BackendP6OwnershipRuntime } from './rpc/BackendP6OwnershipRpcAdapter';
 import { BackendPrivateApiRuntime } from './rpc/BackendPrivateApiRpcAdapter';
 import { BackendProgressiveCommandRuntime } from './rpc/BackendProgressiveRpcAdapter';
+import { BackendQueueRpcRuntime } from './rpc/BackendQueueRpcAdapter';
 import type { BackendQueueProjectionRpcRuntime } from './rpc/BackendQueueProjectionRpcAdapter';
 import { BackendReviewRpcRuntime } from './rpc/BackendReviewRpcAdapter';
 import { BackendRpcDispatcher, mapBackendRpcDispatchError } from './rpc/BackendRpcDispatcher';
@@ -81,7 +83,7 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'system.health',
   'diagnostics.status',
   'sync.reviewDivergence.audit',
-  'sync.conflict.merge',
+  'truth.reconciliation.run',
   'sync.conflict.summarize',
   'sync.conflict.reload',
   'review.truth.flush',
@@ -147,6 +149,8 @@ export class BackendKernel {
   private readonly reviewSessionRuntime: WorkerReviewSessionRuntime;
   private readonly reviewKernel: SrsReviewKernel;
   private readonly reviewRuntime: BackendReviewRpcRuntime;
+  private readonly cardRuntime: BackendCardRpcRuntime;
+  private readonly queueRuntime: BackendQueueRpcRuntime;
   private readonly rpcDispatcher: BackendRpcDispatcher<BackendKernelRpcHandlerContext>;
 
   constructor(private readonly deps: BackendKernelDependencies) {
@@ -191,6 +195,12 @@ export class BackendKernel {
       truthFileStore: this.deps.truthFileStore,
       reviewKernel: this.reviewKernel,
     });
+    this.cardRuntime = new BackendCardRpcRuntime({
+      database: this.deps.database,
+    });
+    this.queueRuntime = new BackendQueueRpcRuntime({
+      database: this.deps.database,
+    });
     this.rpcDispatcher = new BackendRpcDispatcher(
       createBackendRpcHandlerRegistry(BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS),
     );
@@ -233,6 +243,8 @@ export class BackendKernel {
         getPrivateAuditEventCount: () => this.privateApiRuntime.auditEventCount(),
       },
       browser: this.createBrowserRpcRuntime(),
+      card: this.cardRuntime,
+      queue: this.queueRuntime,
       sync: {
         database: this.deps.database,
       },
@@ -398,6 +410,7 @@ export class BackendKernel {
     const status = this.deps.database.getStatus();
     const reviewJournal = await this.deps.database.getReviewFeedbackJournalDiagnostics();
     const sqliteDelta = await this.deps.database.getSqliteDeltaDiagnostics();
+    const storage = await this.deps.database.getCombinedStorageDiagnostics();
     return {
       runtime: 'srs-backend-worker',
       initialized: status.initialized,
@@ -412,6 +425,7 @@ export class BackendKernel {
       },
       storage: {
         sqliteDelta,
+        ...storage,
         diagnostics: status.storageDiagnostics,
       },
       ai: status.ai,

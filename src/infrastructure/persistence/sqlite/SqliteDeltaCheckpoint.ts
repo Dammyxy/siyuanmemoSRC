@@ -1,5 +1,12 @@
 import type { Database, ParamsObject, SqlValue } from 'sql.js';
 import { decode, encode } from '@msgpack/msgpack';
+import {
+  STORAGE_DURABILITY_RECEIPT_VERSION,
+  STORAGE_MUTATION_ENVELOPE_VERSION,
+  type StorageDurabilityReceipt,
+  type StorageMutationEnvelope,
+  type StorageMutationOperation,
+} from '../../../../packages/contracts/src/backend-rpc';
 
 export const SQLITE_DELTA_LOG_DIR = 'sqlite-delta/v2';
 export const LEGACY_SQLITE_DELTA_LOG_FILE = 'sqlite-delta-log.v2.manifest.json';
@@ -79,7 +86,15 @@ export interface SqliteDeltaEntry {
   schemaFingerprints: Record<string, string>;
   tables: string[];
   changes: SqliteDeltaChange[];
+  mutationEnvelope?: StorageMutationEnvelope | null;
+  durabilityReceipt?: StorageDurabilityReceipt | null;
   byteEstimate: number;
+}
+
+export interface SqliteJournaledMutationEntry {
+  createdAt: number;
+  mutationEnvelope: StorageMutationEnvelope;
+  durabilityReceipt: StorageDurabilityReceipt;
 }
 
 export interface SqliteDeltaLogSnapshot {
@@ -110,11 +125,39 @@ export interface SqliteDeltaSegmentManifest {
   sealedSegments: SqliteDeltaSegmentManifestEntry[];
   updatedAt: number;
   nextSequence: number;
+  nextMutationSequence: number;
   checkpoint?: {
     clearedAt: number;
     coveredSegmentPaths: string[];
     reason: string;
   } | null;
+}
+
+export interface SqliteDeltaStorageInventory {
+  files: number;
+  sealedFiles: number;
+  openFiles: number;
+  entries: number;
+  bytes: number;
+  oldestCreatedAt: number | null;
+}
+
+export interface SqliteDeltaStartupEvidence {
+  files: number;
+  entries: number;
+  segmentPaths: string[];
+  checkpoint: SqliteDeltaSegmentManifest['checkpoint'];
+  truthCoverageFrontier: number | null;
+  uncoveredMutationCount: number | null;
+}
+
+export interface SqliteDeltaCompactionResult {
+  coveredJournalSequence: number;
+  candidateSegmentCount: number;
+  deletedSegmentPaths: string[];
+  relocatedEntryCount: number;
+  relocatedSegmentPaths: string[];
+  remainingSealedSegmentCount: number;
 }
 
 interface SqliteDeltaSegmentEnvelope {
@@ -303,6 +346,7 @@ function emptyManifest(updatedAt = 0): SqliteDeltaSegmentManifest {
     sealedSegments: [],
     updatedAt,
     nextSequence: 1,
+    nextMutationSequence: 1,
     checkpoint: null,
   };
 }
@@ -351,6 +395,7 @@ function normalizeManifest(value: unknown): SqliteDeltaSegmentManifest {
       : [],
     updatedAt: Math.max(0, Math.floor(Number(value.updatedAt || 0))),
     nextSequence: Math.max(1, Math.floor(Number(value.nextSequence || 1))),
+    nextMutationSequence: Math.max(1, Math.floor(Number(value.nextMutationSequence || 1))),
     checkpoint: isRecord(value.checkpoint)
       ? {
         clearedAt: Math.max(0, Math.floor(Number(value.checkpoint.clearedAt || 0))),
@@ -543,6 +588,20 @@ const ALGORITHM_CARD_STATE_COLUMNS: SqliteDeltaTableColumn[] = [
   toColumn('updated_at', 'INTEGER', true),
 ];
 
+const XIUYUANS_COLUMNS: SqliteDeltaTableColumn[] = [
+  toColumn('id', 'TEXT', false, 1),
+  toColumn('updated_at', 'INTEGER', false),
+  toColumn('payload_json', 'TEXT', true),
+];
+
+const TOMBSTONES_COLUMNS: SqliteDeltaTableColumn[] = [
+  toColumn('kind', 'TEXT', true, 1),
+  toColumn('id', 'TEXT', true, 2),
+  toColumn('deleted_at', 'INTEGER', true),
+  toColumn('deleted_by', 'TEXT', false),
+  toColumn('payload_json', 'TEXT', true),
+];
+
 const DOMAIN_SYNC_OPERATIONS_COLUMNS: SqliteDeltaTableColumn[] = [
   toColumn('operation_id', 'TEXT', false, 1),
   toColumn('source_id', 'TEXT', true),
@@ -593,6 +652,8 @@ const REVIEW_TRANSACTION_UNDO_JOURNAL_COLUMNS: SqliteDeltaTableColumn[] = [
 export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
   tableMetadata('cards', ['id'], CARDS_COLUMNS),
   tableMetadata('algorithm_card_state', ['card_id', 'algorithm_id'], ALGORITHM_CARD_STATE_COLUMNS),
+  tableMetadata('xiuyuans', ['id'], XIUYUANS_COLUMNS),
+  tableMetadata('tombstones', ['kind', 'id'], TOMBSTONES_COLUMNS),
   tableMetadata('domain_sync_operations', ['operation_id'], DOMAIN_SYNC_OPERATIONS_COLUMNS),
   tableMetadata('store_metadata', ['key'], STORE_METADATA_COLUMNS),
   tableMetadata('queue_state', ['key'], QUEUE_STATE_COLUMNS),
@@ -728,6 +789,8 @@ function normalizeEntry(value: unknown, index: number): SqliteDeltaEntry {
     throw new Error(`SQLite delta log corrupt: entry ${index} changes must be an array`);
   }
   const changes = value.changes.map((change, changeIndex) => normalizeChange(change, index, changeIndex));
+  const mutationEnvelope = normalizeMutationEnvelope(value.mutationEnvelope, changes, index);
+  const durabilityReceipt = normalizeDurabilityReceipt(value.durabilityReceipt, mutationEnvelope, index);
   return {
     id: normalizeString(value.id) || `sqlite-delta:${index}`,
     version: 1,
@@ -738,8 +801,175 @@ function normalizeEntry(value: unknown, index: number): SqliteDeltaEntry {
       : {},
     tables: uniqueStrings(Array.isArray(value.tables) ? value.tables : changes.map((change) => change.table)),
     changes,
+    mutationEnvelope,
+    durabilityReceipt,
     byteEstimate: Math.max(0, Math.floor(Number(value.byteEstimate || 0))),
   };
+}
+
+function normalizeDurabilityReceipt(
+  value: unknown,
+  mutationEnvelope: StorageMutationEnvelope | null,
+  entryIndex: number,
+): StorageDurabilityReceipt | null {
+  if (value === null || value === undefined) {
+    if (mutationEnvelope) {
+      throw new Error(`SQLite delta log corrupt: entry ${entryIndex} mutation receipt is missing`);
+    }
+    return null;
+  }
+  if (!mutationEnvelope
+    || !isRecord(value)
+    || value.version !== STORAGE_DURABILITY_RECEIPT_VERSION
+    || normalizeString(value.mutationId) !== mutationEnvelope.mutationId
+    || Math.floor(Number(value.journalSequence)) !== mutationEnvelope.journalSequence
+    || value.stage !== 'journaled') {
+    throw new Error(`SQLite delta log corrupt: entry ${entryIndex} mutation receipt is invalid`);
+  }
+  const retry = isRecord(value.retry) ? value.retry : {};
+  return {
+    version: STORAGE_DURABILITY_RECEIPT_VERSION,
+    mutationId: mutationEnvelope.mutationId,
+    family: mutationEnvelope.family,
+    stage: 'journaled',
+    journalSequence: mutationEnvelope.journalSequence,
+    affectedAggregates: mutationEnvelope.affectedAggregates,
+    requiredTruthOutputs: mutationEnvelope.requiredTruthOutputs,
+    truthGenerationId: value.truthGenerationId == null ? null : normalizeString(value.truthGenerationId),
+    retry: {
+      attemptCount: Math.max(0, Math.floor(Number(retry.attemptCount || 0))),
+      nextAttemptAt: retry.nextAttemptAt == null ? null : Math.max(0, Math.floor(Number(retry.nextAttemptAt))),
+      lastError: retry.lastError == null ? null : normalizeString(retry.lastError),
+    },
+    diagnosticCode: value.diagnosticCode == null ? null : normalizeString(value.diagnosticCode),
+    diagnosticMessage: value.diagnosticMessage == null ? null : normalizeString(value.diagnosticMessage),
+    updatedAt: Math.max(0, Math.floor(Number(value.updatedAt || 0))),
+  };
+}
+
+function normalizeMutationEnvelope(
+  value: unknown,
+  changes: SqliteDeltaChange[],
+  entryIndex: number,
+): StorageMutationEnvelope | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!isRecord(value) || value.version !== STORAGE_MUTATION_ENVELOPE_VERSION) {
+    throw new Error(`SQLite delta log corrupt: entry ${entryIndex} mutation envelope has unsupported version`);
+  }
+  const mutationId = normalizeString(value.mutationId);
+  const deviceId = normalizeString(value.deviceId);
+  const identityEpoch = normalizeString(value.identityEpoch);
+  const journalSequence = Math.floor(Number(value.journalSequence));
+  if (!mutationId || !deviceId || !identityEpoch || !Number.isFinite(journalSequence) || journalSequence < 1) {
+    throw new Error(`SQLite delta log corrupt: entry ${entryIndex} mutation envelope is incomplete`);
+  }
+  if (!Array.isArray(value.operations)
+    || !Array.isArray(value.affectedAggregates)
+    || !Array.isArray(value.requiredTruthOutputs)) {
+    throw new Error(`SQLite delta log corrupt: entry ${entryIndex} mutation envelope collections are invalid`);
+  }
+  const operations = value.operations.map((operation, operationIndex) => (
+    normalizeMutationOperation(operation, entryIndex, operationIndex)
+  ));
+  const expectedOperations = changes.map(toStorageMutationOperation);
+  if (JSON.stringify(operations) !== JSON.stringify(expectedOperations)) {
+    throw new Error(`SQLite delta log corrupt: entry ${entryIndex} mutation envelope operations do not match delta changes`);
+  }
+  return {
+    version: STORAGE_MUTATION_ENVELOPE_VERSION,
+    mutationId,
+    family: normalizeString(value.family) as StorageMutationEnvelope['family'],
+    deviceId,
+    identityEpoch,
+    journalSequence,
+    createdAt: Math.max(0, Math.floor(Number(value.createdAt || 0))),
+    affectedAggregates: value.affectedAggregates.map((aggregate, aggregateIndex) => {
+      if (!isRecord(aggregate)) {
+        throw new Error(`SQLite delta log corrupt: entry ${entryIndex} aggregate ${aggregateIndex} is invalid`);
+      }
+      return {
+        family: normalizeString(aggregate.family),
+        aggregateId: normalizeString(aggregate.aggregateId),
+        causalBaseRevision: aggregate.causalBaseRevision == null
+          ? null
+          : normalizeString(aggregate.causalBaseRevision),
+      };
+    }),
+    operations,
+    requiredTruthOutputs: value.requiredTruthOutputs.map((output, outputIndex) => {
+      if (!isRecord(output) || !Array.isArray(output.aggregateIds)) {
+        throw new Error(`SQLite delta log corrupt: entry ${entryIndex} truth output ${outputIndex} is invalid`);
+      }
+      return {
+        family: normalizeString(output.family),
+        kind: normalizeString(output.kind) as StorageMutationEnvelope['requiredTruthOutputs'][number]['kind'],
+        aggregateIds: uniqueStrings(output.aggregateIds),
+      };
+    }),
+  };
+}
+
+function normalizeMutationOperation(
+  value: unknown,
+  entryIndex: number,
+  operationIndex: number,
+): StorageMutationOperation {
+  if (!isRecord(value) || !isRecord(value.primaryKey)) {
+    throw new Error(`SQLite delta log corrupt: entry ${entryIndex} mutation operation ${operationIndex} is invalid`);
+  }
+  return {
+    table: normalizeString(value.table),
+    operation: normalizeString(value.operation) as StorageMutationOperation['operation'],
+    primaryKey: Object.fromEntries(
+      Object.entries(value.primaryKey).map(([key, entry]) => [key, normalizeSqlValue(entry)]),
+    ),
+    row: value.row == null
+      ? null
+      : isRecord(value.row)
+        ? Object.fromEntries(Object.entries(value.row).map(([key, entry]) => [key, normalizeSqlValue(entry)]))
+        : null,
+  };
+}
+
+function toStorageMutationOperation(change: SqliteDeltaChange): StorageMutationOperation {
+  return {
+    table: change.table,
+    operation: change.operation,
+    primaryKey: { ...change.primaryKey },
+    row: change.row ? { ...change.row } : null,
+  };
+}
+
+function findExistingMutationEntry(
+  entries: SqliteDeltaEntry[],
+  candidate: StorageMutationEnvelope,
+): SqliteDeltaEntry | null {
+  const existing = [...entries].reverse().find((entry) => (
+    entry.mutationEnvelope?.mutationId === candidate.mutationId
+  )) ?? null;
+  if (!existing?.mutationEnvelope || !existing.durabilityReceipt) {
+    return null;
+  }
+  const existingSignature = JSON.stringify({
+    family: existing.mutationEnvelope.family,
+    deviceId: existing.mutationEnvelope.deviceId,
+    identityEpoch: existing.mutationEnvelope.identityEpoch,
+    affectedAggregates: existing.mutationEnvelope.affectedAggregates,
+    requiredTruthOutputs: existing.mutationEnvelope.requiredTruthOutputs,
+  });
+  const candidateSignature = JSON.stringify({
+    family: candidate.family,
+    deviceId: candidate.deviceId,
+    identityEpoch: candidate.identityEpoch,
+    affectedAggregates: candidate.affectedAggregates,
+    requiredTruthOutputs: candidate.requiredTruthOutputs,
+  });
+  if (existingSignature !== candidateSignature) {
+    throw new Error(`INVALID_REQUEST: conflicting mutation payload for ${candidate.mutationId}`);
+  }
+  return existing;
 }
 
 function normalizeSegmentEnvelope(value: unknown, path: string): SqliteDeltaSegmentEnvelope {
@@ -818,6 +1048,7 @@ function manifestReadSignature(manifest: SqliteDeltaSegmentManifest): string {
     sealedSegments: manifest.sealedSegments,
     checkpoint: manifest.checkpoint ?? null,
     nextSequence: manifest.nextSequence,
+    nextMutationSequence: manifest.nextMutationSequence,
   });
 }
 
@@ -1143,6 +1374,7 @@ export class SqliteDeltaCheckpointLayer {
     label: string;
     capture: SqliteDeltaCaptureResult | null;
     schemaChanged: boolean;
+    mutationEnvelope?: StorageMutationEnvelope;
     diagnostics?: SqliteDeltaDiagnosticsContext;
     diagnosticRecorder?: SqliteDeltaDiagnosticRecorder;
   }): Promise<SqliteDeltaPersistResult> {
@@ -1213,6 +1445,15 @@ export class SqliteDeltaCheckpointLayer {
       pendingBytes,
       source: 'snapshot.pendingBytes',
     });
+    const existingMutationEntry = input.mutationEnvelope
+      ? findExistingMutationEntry(snapshot.entries, input.mutationEnvelope)
+      : null;
+    if (existingMutationEntry) {
+      return {
+        mode: 'delta',
+        entry: existingMutationEntry,
+      };
+    }
     const rawCheckpointReason = this.classifyCheckpointReason(input, snapshot, pendingBytes);
     const checkpointReason = rawCheckpointReason === 'delta-threshold-exceeded' && !this.canUseCheckpointForThreshold()
       ? null
@@ -1306,7 +1547,17 @@ export class SqliteDeltaCheckpointLayer {
 
     const capture = input.capture!;
     const buildEntryStartedAt = Date.now();
-    const entry = this.buildEntry(input.label, capture);
+    const entry = this.buildEntry(
+      input.label,
+      capture,
+      input.mutationEnvelope
+        ? {
+            ...input.mutationEnvelope,
+            journalSequence: snapshot.manifest.nextMutationSequence,
+            operations: capture.changes.map(toStorageMutationOperation),
+          }
+        : null,
+    );
     recordSqliteDeltaDiagnostic(input.diagnosticRecorder, 'sqlite.delta-build-entry', buildEntryStartedAt, {
       label: input.label,
       tableCount: entry.tables.length,
@@ -1570,6 +1821,9 @@ export class SqliteDeltaCheckpointLayer {
       sealedSegments,
       updatedAt: Date.now(),
       nextSequence,
+      nextMutationSequence: entry.mutationEnvelope?.journalSequence
+        ? Math.max(manifest.nextMutationSequence, entry.mutationEnvelope.journalSequence + 1)
+        : manifest.nextMutationSequence,
       checkpoint: null,
     };
     const writeManifestStartedAt = Date.now();
@@ -1884,6 +2138,309 @@ export class SqliteDeltaCheckpointLayer {
     };
   }
 
+  async getStorageInventory(): Promise<SqliteDeltaStorageInventory> {
+    const manifest = await this.readManifest({
+      purpose: 'sqlite-delta.storage-inventory',
+      substep: 'read-manifest',
+    });
+    const segments = [
+      ...manifest.sealedSegments,
+      ...(manifest.openSegment ? [manifest.openSegment] : []),
+    ];
+    return {
+      files: segments.length,
+      sealedFiles: manifest.sealedSegments.length,
+      openFiles: manifest.openSegment ? 1 : 0,
+      entries: segments.reduce((total, segment) => total + segment.entryCount, 0),
+      bytes: segments.reduce((total, segment) => total + segment.byteSize, 0),
+      oldestCreatedAt: segments.reduce<number | null>(
+        (oldest, segment) => segment.minCreatedAt !== null && (oldest === null || segment.minCreatedAt < oldest)
+          ? segment.minCreatedAt
+          : oldest,
+        null,
+      ),
+    };
+  }
+
+  async inspectStartupEvidence(
+    truthCoverageFrontier: number | null,
+  ): Promise<SqliteDeltaStartupEvidence> {
+    this.clearAppendHotPathSnapshot();
+    const snapshot = await this.readSnapshot({
+      allowVerifiedSegmentEvidence: true,
+      purpose: 'sqlite-delta.startup-evidence',
+      substep: 'verify-manifest-and-segments',
+    });
+    const segments = [
+      ...snapshot.manifest.sealedSegments,
+      ...(snapshot.manifest.openSegment ? [snapshot.manifest.openSegment] : []),
+    ];
+    const normalizedFrontier = truthCoverageFrontier === null
+      ? null
+      : Math.max(0, Math.floor(Number(truthCoverageFrontier) || 0));
+    return {
+      files: segments.length,
+      entries: snapshot.entries.length,
+      segmentPaths: segments.map((segment) => segment.path),
+      checkpoint: snapshot.manifest.checkpoint
+        ? structuredClone(snapshot.manifest.checkpoint)
+        : null,
+      truthCoverageFrontier: normalizedFrontier,
+      uncoveredMutationCount: normalizedFrontier === null
+        ? null
+        : snapshot.entries.filter((entry) => (
+          entry.mutationEnvelope?.journalSequence !== null
+          && entry.mutationEnvelope?.journalSequence !== undefined
+          && entry.mutationEnvelope.journalSequence > normalizedFrontier
+          && entry.durabilityReceipt?.stage !== 'failed'
+        )).length,
+    };
+  }
+
+  async compactCoveredSegments(input: {
+    coveredJournalSequence: number;
+    retainSealedSegments?: number;
+  }): Promise<SqliteDeltaCompactionResult> {
+    this.clearAppendHotPathSnapshot();
+    const coveredJournalSequence = Math.max(
+      0,
+      Math.floor(Number(input.coveredJournalSequence) || 0),
+    );
+    const retainSealedSegments = Math.max(
+      0,
+      Math.floor(Number(input.retainSealedSegments) || 0),
+    );
+    let manifest = await this.readManifest({
+      purpose: 'sqlite-delta.compaction',
+      substep: 'read-manifest',
+    });
+
+    if (
+      manifest.checkpoint?.reason === 'coverage-compaction'
+      && manifest.checkpoint.coveredSegmentPaths.length > 0
+    ) {
+      if (!this.fileService.deleteFile) {
+        throw new Error('sqlite-delta-compaction-delete-unavailable');
+      }
+      const pendingCleanupError = await this.deleteCoveredSegmentFiles(
+        manifest.checkpoint.coveredSegmentPaths,
+      );
+      if (pendingCleanupError) {
+        throw new Error(pendingCleanupError);
+      }
+      manifest = {
+        ...manifest,
+        checkpoint: null,
+        updatedAt: Date.now(),
+      };
+      await this.fileService.writeJSON(this.fileName, manifest, {
+        purpose: 'sqlite-delta.compaction',
+        substep: 'clear-completed-cleanup-checkpoint',
+      });
+    }
+
+    const orderedSealed = manifest.sealedSegments
+      .slice()
+      .sort((left, right) => left.sequence - right.sequence || left.path.localeCompare(right.path));
+    const candidateCount = Math.max(0, orderedSealed.length - retainSealedSegments);
+    const candidates = orderedSealed.slice(0, candidateCount);
+    if (candidates.length === 0) {
+      return {
+        coveredJournalSequence,
+        candidateSegmentCount: 0,
+        deletedSegmentPaths: [],
+        relocatedEntryCount: 0,
+        relocatedSegmentPaths: [],
+        remainingSealedSegmentCount: orderedSealed.length,
+      };
+    }
+    if (!this.fileService.deleteFile) {
+      throw new Error('sqlite-delta-compaction-delete-unavailable');
+    }
+
+    const candidateEnvelopes = await Promise.all(candidates.map((candidate) => (
+      this.readSegmentEnvelope(candidate, {
+        allowVerifiedSegmentEvidence: true,
+        purpose: 'sqlite-delta.compaction',
+        substep: 'read-candidate-segment',
+      })
+    )));
+    const relocatedEntries = candidateEnvelopes
+      .flatMap((envelope) => envelope.entries)
+      .filter((entry) => {
+        const sequence = entry.mutationEnvelope?.journalSequence
+          ?? entry.durabilityReceipt?.journalSequence
+          ?? null;
+        return sequence === null || sequence > coveredJournalSequence;
+      });
+    const relocation = await this.writeRelocatedSegments(
+      relocatedEntries,
+      manifest.nextSequence,
+    );
+    const candidatePaths = candidates.map((candidate) => candidate.path);
+    const retainedSegments = orderedSealed.filter((segment) => !candidatePaths.includes(segment.path));
+    const switchedManifest: SqliteDeltaSegmentManifest = {
+      ...manifest,
+      sealedSegments: [...retainedSegments, ...relocation.manifestEntries]
+        .sort((left, right) => left.sequence - right.sequence || left.path.localeCompare(right.path)),
+      updatedAt: Date.now(),
+      nextSequence: relocation.nextSequence,
+      checkpoint: {
+        clearedAt: Date.now(),
+        coveredSegmentPaths: candidatePaths,
+        reason: 'coverage-compaction',
+      },
+    };
+    await this.fileService.writeJSON(this.fileName, switchedManifest, {
+      purpose: 'sqlite-delta.compaction',
+      substep: 'publish-compacted-manifest',
+    });
+    const published = await this.readManifest({
+      purpose: 'sqlite-delta.compaction',
+      substep: 'verify-compacted-manifest',
+    });
+    if (manifestReadSignature(published) !== manifestReadSignature(switchedManifest)) {
+      throw new Error('sqlite-delta-compaction-manifest-verification-failed');
+    }
+
+    const cleanupError = await this.deleteCoveredSegmentFiles(candidatePaths);
+    if (cleanupError) {
+      throw new Error(cleanupError);
+    }
+    const completedManifest: SqliteDeltaSegmentManifest = {
+      ...switchedManifest,
+      checkpoint: null,
+      updatedAt: Date.now(),
+    };
+    await this.fileService.writeJSON(this.fileName, completedManifest, {
+      purpose: 'sqlite-delta.compaction',
+      substep: 'complete-compaction-cleanup',
+    });
+    for (const path of candidatePaths) {
+      this.verifiedSegmentEvidenceByPath.delete(path);
+    }
+    this.rememberAppendHotPathSnapshot(await this.readSnapshotFromManifest(
+      completedManifest,
+      {
+        allowVerifiedSegmentEvidence: true,
+        purpose: 'sqlite-delta.compaction',
+        substep: 'remember-compacted-snapshot',
+      },
+    ));
+    return {
+      coveredJournalSequence,
+      candidateSegmentCount: candidates.length,
+      deletedSegmentPaths: candidatePaths,
+      relocatedEntryCount: relocatedEntries.length,
+      relocatedSegmentPaths: relocation.manifestEntries.map((entry) => entry.path),
+      remainingSealedSegmentCount: completedManifest.sealedSegments.length,
+    };
+  }
+
+  async listJournaledMutations(input: {
+    afterJournalSequence?: number;
+    limit?: number;
+  } = {}): Promise<SqliteJournaledMutationEntry[]> {
+    this.clearAppendHotPathSnapshot();
+    const afterJournalSequence = Math.max(0, Math.floor(Number(input.afterJournalSequence) || 0));
+    const limit = Math.max(1, Math.floor(Number(input.limit) || 32));
+    const snapshot = await this.readSnapshot({
+      allowVerifiedSegmentEvidence: true,
+      purpose: 'sqlite-delta.truth-promotion',
+      substep: 'list-journaled-mutations',
+    });
+    return snapshot.entries
+      .filter((entry): entry is SqliteDeltaEntry & {
+        mutationEnvelope: StorageMutationEnvelope;
+        durabilityReceipt: StorageDurabilityReceipt;
+      } => Boolean(
+        entry.mutationEnvelope
+        && entry.durabilityReceipt
+        && entry.mutationEnvelope.journalSequence !== null
+        && entry.mutationEnvelope.journalSequence > afterJournalSequence
+        && entry.durabilityReceipt.stage !== 'failed',
+      ))
+      .sort((left, right) => (
+        (left.mutationEnvelope.journalSequence ?? 0) - (right.mutationEnvelope.journalSequence ?? 0)
+      ))
+      .slice(0, limit)
+      .map((entry) => ({
+        createdAt: entry.createdAt,
+        mutationEnvelope: structuredClone(entry.mutationEnvelope),
+        durabilityReceipt: structuredClone(entry.durabilityReceipt),
+      }));
+  }
+
+  private async writeRelocatedSegments(
+    entries: SqliteDeltaEntry[],
+    startSequence: number,
+  ): Promise<{
+    manifestEntries: SqliteDeltaSegmentManifestEntry[];
+    nextSequence: number;
+  }> {
+    if (entries.length === 0) {
+      return {
+        manifestEntries: [],
+        nextSequence: startSequence,
+      };
+    }
+    const groups: SqliteDeltaEntry[][] = [];
+    let current: SqliteDeltaEntry[] = [];
+    for (const entry of entries) {
+      const candidate = [...current, entry];
+      const candidateEnvelope = buildSegmentEnvelope({
+        path: 'sqlite-delta-relocation-size-probe',
+        sequence: startSequence + groups.length,
+        sealed: true,
+        entries: candidate,
+      });
+      const exceedsLimit = candidate.length > MAX_OPEN_SEGMENT_DELTA_ENTRIES
+        || encode(candidateEnvelope).byteLength > MAX_OPEN_SEGMENT_BYTES;
+      if (current.length > 0 && exceedsLimit) {
+        groups.push(current);
+        current = [entry];
+      } else {
+        current = candidate;
+      }
+    }
+    if (current.length > 0) {
+      groups.push(current);
+    }
+
+    const manifestEntries: SqliteDeltaSegmentManifestEntry[] = [];
+    let nextSequence = Math.max(1, startSequence);
+    for (const group of groups) {
+      const path = sqliteDeltaSealedSegmentFile(nextSequence);
+      const envelope = buildSegmentEnvelope({
+        path,
+        sequence: nextSequence,
+        sealed: true,
+        entries: group,
+      });
+      const bytes = encode(envelope);
+      await this.fileService.writeBinary(path, bytes, {
+        purpose: 'sqlite-delta.compaction',
+        substep: 'write-relocated-segment',
+      });
+      const manifestEntry = buildSegmentManifestEntry({
+        envelope,
+        bytes,
+        sealedAt: Date.now(),
+      });
+      const verified = await this.readSegmentEnvelope(manifestEntry, {
+        purpose: 'sqlite-delta.compaction',
+        substep: 'verify-relocated-segment',
+      });
+      this.rememberVerifiedSegmentEvidence(manifestEntry, verified, 'persisted-write');
+      manifestEntries.push(manifestEntry);
+      nextSequence += 1;
+    }
+    return {
+      manifestEntries,
+      nextSequence,
+    };
+  }
+
   getHotPathDiagnostics(): SqliteDeltaHotPathDiagnostics {
     return {
       lastWrite: this.lastWrite,
@@ -1970,6 +2527,11 @@ export class SqliteDeltaCheckpointLayer {
         nextSequence: Math.max(
           manifest.nextSequence,
           ...envelopes.map((envelope) => envelope.sequence + 1),
+          1,
+        ),
+        nextMutationSequence: Math.max(
+          manifest.nextMutationSequence,
+          ...entries.map((entry) => (entry.mutationEnvelope?.journalSequence ?? 0) + 1),
           1,
         ),
       }
@@ -2151,7 +2713,11 @@ export class SqliteDeltaCheckpointLayer {
     return null;
   }
 
-  private buildEntry(label: string, capture: SqliteDeltaCaptureResult): SqliteDeltaEntry {
+  private buildEntry(
+    label: string,
+    capture: SqliteDeltaCaptureResult,
+    mutationEnvelope: StorageMutationEnvelope | null,
+  ): SqliteDeltaEntry {
     const changes = capture.changes;
     const tables = uniqueStrings(changes.map((change) => change.table));
     const entry: Omit<SqliteDeltaEntry, 'byteEstimate'> = {
@@ -2165,6 +2731,27 @@ export class SqliteDeltaCheckpointLayer {
       ])),
       tables,
       changes,
+      mutationEnvelope,
+      durabilityReceipt: mutationEnvelope
+        ? {
+            version: STORAGE_DURABILITY_RECEIPT_VERSION,
+            mutationId: mutationEnvelope.mutationId,
+            family: mutationEnvelope.family,
+            stage: 'journaled',
+            journalSequence: mutationEnvelope.journalSequence,
+            affectedAggregates: mutationEnvelope.affectedAggregates,
+            requiredTruthOutputs: mutationEnvelope.requiredTruthOutputs,
+            truthGenerationId: null,
+            retry: {
+              attemptCount: 0,
+              nextAttemptAt: null,
+              lastError: null,
+            },
+            diagnosticCode: null,
+            diagnosticMessage: null,
+            updatedAt: Date.now(),
+          }
+        : null,
     };
     return {
       ...entry,

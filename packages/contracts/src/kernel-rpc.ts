@@ -215,6 +215,10 @@ export interface WriterRelayCommandPayload {
 
 export const KERNEL_RELAY_METHODS = [
   'review.feedback',
+  'card.crud.batchMutate',
+  'card.schedule.batchUpdate',
+  'queue.state.loadAll',
+  'queue.state.batchMutate',
   'domainSync.status',
   'domainSync.repair.preview',
   'domainSync.repair.apply',

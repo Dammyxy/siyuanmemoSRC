@@ -1,5 +1,6 @@
 export * from './autocard';
 export * from './browser';
+export * from './card';
 export * from './core';
 export * from './graph';
 export * from './hotspot';
@@ -8,6 +9,7 @@ export * from './neural-roam';
 export * from './p6-ownership';
 export * from './private-api';
 export * from './progressive';
+export * from './queue';
 export * from './queue-projection';
 export * from './review';
 export * from './semantic';

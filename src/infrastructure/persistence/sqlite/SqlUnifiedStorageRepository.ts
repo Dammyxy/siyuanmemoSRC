@@ -3,6 +3,7 @@ import type {
   UnifiedCardStore,
   UnifiedStorageXiuyuanCardDelta,
 } from '@/core/storage/UnifiedStorageManager';
+import type { BackendLegacyUnifiedImportRecord } from '../../../../packages/contracts/src/backend-rpc';
 import type {
   BrowserDeckReadPort,
   SourceExistenceRefreshCandidate,
@@ -615,6 +616,111 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         ['unified_store_version', stringifyJson(store.version || 2), now],
       );
     }, { label: 'unified-storage.save-store' });
+  }
+
+  resetLegacyImport(): void {
+    this.database.run('DELETE FROM cards');
+    this.database.run(
+      'DELETE FROM algorithm_card_state WHERE algorithm_id IN (?, ?)',
+      [...ACTIVE_ALGORITHM_IDS],
+    );
+    this.database.run('DELETE FROM xiuyuans');
+    this.database.run('DELETE FROM tombstones');
+    this.database.run(
+      'DELETE FROM store_metadata WHERE key IN (?, ?)',
+      ['sync_metadata', 'unified_store_version'],
+    );
+  }
+
+  importLegacyRecords(records: BackendLegacyUnifiedImportRecord[]): void {
+    const existingSource = this.loadSourceExistenceByCardId();
+    for (const record of records) {
+      if (record.kind === 'card') {
+        const store = createEmptyStore();
+        if (record.card && typeof record.card === 'object') {
+          store.cards[record.id] = {
+            ...(record.card as FSRSCard),
+            id: record.id,
+          };
+        }
+        if (record.dto && typeof record.dto === 'object') {
+          store.cardDTOs![record.id] = {
+            ...(record.dto as CardPersistenceDTO),
+            id: record.id,
+          };
+        }
+        if (record.tombstone && typeof record.tombstone === 'object') {
+          store.deletedCardDTOs![record.id] = record.tombstone as DeletionTombstone;
+        }
+        for (const { id, card, dto } of resolveCanonicalStoreCards(store)) {
+          if (isCardDeletedByActiveTombstone(card, store.deletedCardDTOs?.[id])) {
+            continue;
+          }
+          this.writeCardRecord(this.database, { ...card, id }, dto, existingSource.get(id));
+        }
+        continue;
+      }
+      if (record.kind === 'xiuyuan') {
+        const xiuyuan = record.value as IXiuyuan;
+        const updatedAt = normalizeNumber((xiuyuan as { updatedAt?: unknown }).updatedAt) || Date.now();
+        this.database.run(
+          'INSERT OR REPLACE INTO xiuyuans (id, updated_at, payload_json) VALUES (?, ?, ?)',
+          [record.id, updatedAt, stringifyJson(xiuyuan)],
+        );
+        continue;
+      }
+      if (record.kind === 'card-tombstone') {
+        const tombstone = record.value as DeletionTombstone;
+        const card = record.card as FSRSCard | undefined;
+        const dto = record.dto as CardPersistenceDTO | undefined;
+        if (!isCardDeletedByActiveTombstone(card, tombstone)) {
+          continue;
+        }
+        const deletedAt = normalizeNumber(tombstone.deletedAt) || Date.now();
+        const blockId = normalizeString(card?.blockId || dto?.blockId) || null;
+        this.database.run(
+          `INSERT OR REPLACE INTO tombstones (kind, id, deleted_at, deleted_by, payload_json)
+           VALUES (?, ?, ?, ?, ?)`,
+          ['card', record.id, deletedAt, tombstone.deletedBy || null, stringifyJson(tombstone)],
+        );
+        this.options.domainSyncLedger?.appendCardDeleted({
+          cardId: record.id,
+          blockId,
+          deletedAt,
+          deletedBy: tombstone.deletedBy || null,
+          idempotencyKey: `card-delete:${record.id}:${deletedAt}`,
+          payload: tombstone,
+        });
+        continue;
+      }
+      const tombstone = record.value as DeletionTombstone;
+      this.database.run(
+        `INSERT OR REPLACE INTO tombstones (kind, id, deleted_at, deleted_by, payload_json)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          'xiuyuan',
+          record.id,
+          normalizeNumber(tombstone.deletedAt) || Date.now(),
+          tombstone.deletedBy || null,
+          stringifyJson(tombstone),
+        ],
+      );
+    }
+  }
+
+  finalizeLegacyImport(input: {
+    version: number;
+    syncMetadata?: unknown;
+    appliedAt: number;
+  }): void {
+    this.database.run(
+      'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+      ['sync_metadata', stringifyJson(input.syncMetadata ?? null), input.appliedAt],
+    );
+    this.database.run(
+      'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+      ['unified_store_version', stringifyJson(input.version || 2), input.appliedAt],
+    );
   }
 
   async saveXiuyuanCardDelta(delta: UnifiedStorageXiuyuanCardDelta): Promise<void> {

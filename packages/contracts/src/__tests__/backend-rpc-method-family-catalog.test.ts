@@ -110,7 +110,9 @@ describe('backend RPC method-family contract catalog', () => {
     expect(BACKEND_CORE_RPC_METHODS).toEqual([
       'system.health',
       'db.load',
-      'db.persist',
+      'db.reload',
+      'storage.maintenance.status',
+      'storage.maintenance.applyBatch',
       'diagnostics.status',
       'private.health',
       'private.diagnostics.status',
@@ -228,7 +230,7 @@ describe('backend RPC method-family contract catalog', () => {
 
   it('exports sync conflict and domain-sync contracts from the Sync family module', () => {
     expect(BACKEND_SYNC_RPC_METHODS).toEqual([
-      'sync.conflict.merge',
+      'truth.reconciliation.run',
       'sync.reviewDivergence.audit',
       'sync.conflict.summarize',
       'sync.conflict.reload',
@@ -238,9 +240,9 @@ describe('backend RPC method-family contract catalog', () => {
       'domainSync.conflictSources.cleanupCandidates',
       'domainSync.conflictSources.cleanup',
     ] satisfies BackendSyncRpcMethod[]);
-    expect(BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['sync.conflict.merge']).toMatchObject({
-      method: 'sync.conflict.merge',
-      family: 'sync',
+    expect(BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['truth.reconciliation.run']).toMatchObject({
+      method: 'truth.reconciliation.run',
+      family: 'domain-sync',
     });
     expect(BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['domainSync.status']).toMatchObject({
       method: 'domainSync.status',

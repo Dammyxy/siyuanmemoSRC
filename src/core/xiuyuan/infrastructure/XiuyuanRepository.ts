@@ -142,7 +142,13 @@ type StagedXiuyuanSaveMutation = {
   sideEffects: DeferredRepositorySideEffects;
   xiuyuanId: string;
   cardIds: string[];
-  deltaUnsafeReason?: string;
+  deletedCardIds: string[];
+};
+
+type StagedXiuyuanDeleteMutation = {
+  sideEffects: DeferredRepositorySideEffects;
+  xiuyuanId: string;
+  cardIds: string[];
 };
 
 type TraceAttrsSnapshot = {
@@ -600,7 +606,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           return stagedResult;
         }
 
-        const saveResult = await this.storage.save({ transaction });
+        const saveResult = await this.persistStagedXiuyuanDeletes([stagedResult.value], transaction);
         if (isErr(saveResult)) {
           const error = saveResult.error || new Error('Failed to persist xiuyuan deletion');
           logger.error('Failed to persist xiuyuan deletion:', error);
@@ -692,6 +698,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.deleteMany', async (transaction) => {
         const rollbackSnapshot = this.cloneStorageSnapshot();
         const deferredSideEffects = this.createDeferredSideEffects();
+        const stagedDeletes: StagedXiuyuanDeleteMutation[] = [];
 
         try {
           for (const xiuyuan of xiuyuans) {
@@ -700,10 +707,11 @@ export class XiuyuanRepository implements IXiuyuanRepository {
               this.restoreStorageSnapshot(rollbackSnapshot, 'deleteMany', stagedResult.error);
               return stagedResult;
             }
-            this.mergeDeferredSideEffects(deferredSideEffects, stagedResult.value);
+            stagedDeletes.push(stagedResult.value);
+            this.mergeDeferredSideEffects(deferredSideEffects, stagedResult.value.sideEffects);
           }
 
-          const saveResult = await this.storage.save({ transaction });
+          const saveResult = await this.persistStagedXiuyuanDeletes(stagedDeletes, transaction);
           if (isErr(saveResult)) {
             const error = saveResult.error || new Error('Failed to persist xiuyuan batch deletion');
             logger.error('Failed to persist xiuyuan batch deletion:', error);
@@ -825,7 +833,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         sideEffects,
         xiuyuanId,
         cardIds: Array.from(currentCardIds),
-        deltaUnsafeReason: cardsToDelete.length > 0 ? 'removed-existing-card' : undefined,
+        deletedCardIds: cardsToDelete.map((card) => card.id),
       });
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
@@ -836,15 +844,26 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     stagedSaves: StagedXiuyuanSaveMutation[],
     transaction: StorageWriteTransaction,
   ): Promise<Result<unknown>> {
-    const deltaUnsafeReason = stagedSaves
-      .map((staged) => staged.deltaUnsafeReason)
-      .find((reason): reason is string => Boolean(reason));
     const xiuyuanIds = Array.from(new Set(stagedSaves.map((staged) => staged.xiuyuanId)));
     const cardIds = Array.from(new Set(stagedSaves.flatMap((staged) => staged.cardIds)));
+    const deleteCardIds = Array.from(new Set(stagedSaves.flatMap((staged) => staged.deletedCardIds)));
     return this.storage.saveXiuyuanCardDelta({
       xiuyuanIds,
       cardIds,
-      fallbackReason: deltaUnsafeReason,
+      deleteCardIds,
+      transaction,
+    });
+  }
+
+  private async persistStagedXiuyuanDeletes(
+    stagedDeletes: StagedXiuyuanDeleteMutation[],
+    transaction: StorageWriteTransaction,
+  ): Promise<Result<unknown>> {
+    return this.storage.saveXiuyuanCardDelta({
+      xiuyuanIds: [],
+      cardIds: [],
+      deleteCardIds: Array.from(new Set(stagedDeletes.flatMap((staged) => staged.cardIds))),
+      deleteXiuyuanIds: Array.from(new Set(stagedDeletes.map((staged) => staged.xiuyuanId))),
       transaction,
     });
   }
@@ -975,9 +994,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   private async stageDeleteXiuyuanMutation(
     xiuyuan: Xiuyuan,
     transaction?: StorageWriteTransaction,
-  ): Promise<Result<DeferredRepositorySideEffects>> {
+  ): Promise<Result<StagedXiuyuanDeleteMutation>> {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
+      const cardIds = this.storage.getCardsByXiuyuanId(xiuyuanId).map((card) => card.id);
 
       for (const [cardId, indexedXiuyuanId] of this.cardToXiuyuanIndex.entries()) {
         if (indexedXiuyuanId === xiuyuanId) {
@@ -1008,7 +1028,11 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
 
       sideEffects.eventXiuyuans.push(xiuyuan);
-      return ok(sideEffects);
+      return ok({
+        sideEffects,
+        xiuyuanId,
+        cardIds,
+      });
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }

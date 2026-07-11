@@ -7,6 +7,7 @@ import {
 } from '../../../packages/contracts/src/backend-rpc';
 import { BACKEND_AUTOCARD_RPC_HANDLER_REGISTRATIONS, type BackendAutoCardRpcHandlerContext } from './BackendAutoCardRpcAdapter';
 import { BACKEND_BROWSER_RPC_HANDLER_REGISTRATIONS, type BackendBrowserRpcHandlerContext } from './BackendBrowserRpcAdapter';
+import { BACKEND_CARD_RPC_HANDLER_REGISTRATIONS, type BackendCardRpcHandlerContext } from './BackendCardRpcAdapter';
 import { BACKEND_CORE_RPC_HANDLER_REGISTRATIONS, type BackendCoreRpcHandlerContext } from './BackendCoreRpcAdapter';
 import { BACKEND_GRAPH_RPC_HANDLER_REGISTRATIONS, type BackendGraphRpcHandlerContext } from './BackendGraphRpcAdapter';
 import { BACKEND_HOTSPOT_RPC_HANDLER_REGISTRATIONS, type BackendHotspotRpcHandlerContext } from './BackendHotspotRpcAdapter';
@@ -15,6 +16,7 @@ import { BACKEND_NEURAL_ROAM_RPC_HANDLER_REGISTRATIONS, type BackendNeuralRoamRp
 import { BACKEND_P6_OWNERSHIP_RPC_HANDLER_REGISTRATIONS, type BackendP6OwnershipRpcHandlerContext } from './BackendP6OwnershipRpcAdapter';
 import { BACKEND_PRIVATE_API_RPC_HANDLER_REGISTRATIONS, type BackendPrivateApiRpcHandlerContext } from './BackendPrivateApiRpcAdapter';
 import { BACKEND_PROGRESSIVE_RPC_HANDLER_REGISTRATIONS, type BackendProgressiveRpcHandlerContext } from './BackendProgressiveRpcAdapter';
+import { BACKEND_QUEUE_RPC_HANDLER_REGISTRATIONS, type BackendQueueRpcHandlerContext } from './BackendQueueRpcAdapter';
 import { BACKEND_QUEUE_PROJECTION_RPC_HANDLER_REGISTRATIONS, type BackendQueueProjectionRpcHandlerContext } from './BackendQueueProjectionRpcAdapter';
 import { BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS, type BackendReviewRpcHandlerContext } from './BackendReviewRpcAdapter';
 import { BACKEND_SEMANTIC_RPC_HANDLER_REGISTRATIONS, type BackendSemanticRpcHandlerContext } from './BackendSemanticRpcAdapter';
@@ -25,9 +27,11 @@ export interface BackendKernelRpcHandlerContext
   extends BackendAutoCardRpcHandlerContext,
     BackendCoreRpcHandlerContext,
     BackendBrowserRpcHandlerContext,
+    BackendCardRpcHandlerContext,
     BackendHotspotRpcHandlerContext,
     BackendKernelTransactionRpcHandlerContext,
     BackendNeuralRoamRpcHandlerContext,
+    BackendQueueRpcHandlerContext,
     BackendQueueProjectionRpcHandlerContext,
     BackendReviewRpcHandlerContext,
     BackendSyncRpcHandlerContext,
@@ -60,6 +64,8 @@ export const BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS = Object.freeze([
   ...BACKEND_CORE_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_SYNC_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_BROWSER_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_CARD_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_QUEUE_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_QUEUE_PROJECTION_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_NEURAL_ROAM_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_KERNEL_TRANSACTION_RPC_HANDLER_REGISTRATIONS,

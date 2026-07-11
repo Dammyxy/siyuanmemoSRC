@@ -4,12 +4,19 @@ import type {
   BackendAutoCardExecuteBatchRequest,
   BackendAutoCardExecuteBatchResult,
   BackendDbLoadRequest,
+  BackendDbReloadResult,
   BackendBrowserAggregateFocusRequest,
   BackendBrowserAggregateFocusResult,
   BackendBrowserAggregatePageRequest,
   BackendBrowserAggregatePageResult,
   BackendBrowserAggregateSnapshotRequest,
   BackendBrowserAggregateSnapshotResult,
+  BackendCardCrudBatchMutateRequest,
+  BackendCardCrudBatchMutateResult,
+  BackendNativeRiffImportExclusionFindRequest,
+  BackendNativeRiffImportExclusionFindResult,
+  BackendCardScheduleBatchUpdateRequest,
+  BackendCardScheduleBatchUpdateResult,
   BackendBrowserDocumentCountsResult,
   BackendBrowserDocumentCountsScope,
   BackendAutoCardDecisionResolveRequest,
@@ -39,6 +46,10 @@ import type {
   BackendQueueProjectionSnapshotResult,
   BackendStorageProjectionRebuildRequest,
   BackendStorageProjectionRebuildResult,
+  BackendStorageMaintenanceApplyBatchRequest,
+  BackendStorageMaintenanceApplyBatchResult,
+  BackendStorageMaintenanceStatusRequest,
+  BackendStorageMaintenanceStatusResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
   BackendReviewSessionCurrentRequest,
@@ -68,11 +79,11 @@ import type {
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
   BackendDomainSyncStatusRequest,
-  BackendSyncConflictMergeRequest,
-  BackendSyncConflictMergeResult,
   BackendSyncConflictReloadResult,
   BackendSyncConflictSummarizeRequest,
   BackendSyncConflictSummarizeResult,
+  BackendTruthReconciliationRunRequest,
+  BackendTruthReconciliationRunResult,
   BackendSemanticBrowserReadRequest,
   BackendSemanticBrowserReadResult,
   BackendSemanticCommandRequest,
@@ -117,10 +128,12 @@ import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import {
   BackendBrowserRpcClient,
+  BackendCardRpcClient,
   BackendCoreRpcClient,
   BackendIntegrationRpcClient,
   BackendNeuralRoamRpcClient,
   BackendPrivateApiRpcClient,
+  BackendQueueRpcClient,
   BackendQueueProjectionRpcClient,
   BackendReviewRpcClient,
   BackendRpcCaller,
@@ -134,6 +147,7 @@ import {
   type KernelCompanionBackgroundWorkRegistryInterface,
   type KernelCompanionBackgroundWorkRunContext,
   type KernelCompanionReviewTruthBackfillDiagnostics,
+  type KernelCompanionTruthPromotionDiagnostics,
 } from '../backgroundWork/KernelCompanionBackgroundWorkRegistry';
 import {
   KernelCompanionBackgroundWorkStatusReadModel,
@@ -150,6 +164,8 @@ const REVIEW_TRUTH_FLUSH_DEFAULT_THRESHOLD = 8;
 const REVIEW_TRUTH_FLUSH_UNLOAD_WAIT_MS = 1000;
 const REVIEW_TRUTH_BACKFILL_DEFAULT_BATCH_LIMIT = 64;
 const REVIEW_TRUTH_BACKFILL_MAX_STARTUP_BATCHES = 16;
+const TRUTH_PROMOTION_STATUS_MAX_POLLS = 16;
+const TRUTH_PROMOTION_STATUS_POLL_MS = 25;
 
 function isReviewTruthFlushPressureSuppressed(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -181,6 +197,8 @@ export interface SrsBackendClientOptions {
 export class SrsBackendClient {
   private readonly coreClient: BackendCoreRpcClient;
   private readonly browserClient: BackendBrowserRpcClient;
+  private readonly cardClient: BackendCardRpcClient;
+  private readonly queueClient: BackendQueueRpcClient;
   private readonly queueProjectionClient: BackendQueueProjectionRpcClient;
   private readonly reviewClient: BackendReviewRpcClient;
   private readonly neuralRoamClient: BackendNeuralRoamRpcClient;
@@ -196,6 +214,7 @@ export class SrsBackendClient {
   private reviewTruthFlushInFlight = false;
   private reviewTruthFlushInFlightPromise: Promise<void> | null = null;
   private reviewTruthFlushQueued = false;
+  private truthPromotionTrackingJobId: string | null = null;
   private disposed = false;
 
   constructor(
@@ -205,6 +224,8 @@ export class SrsBackendClient {
     const rpcCaller = new BackendRpcCaller(transport);
     this.coreClient = new BackendCoreRpcClient(rpcCaller);
     this.browserClient = new BackendBrowserRpcClient(rpcCaller);
+    this.cardClient = new BackendCardRpcClient(rpcCaller);
+    this.queueClient = new BackendQueueRpcClient(rpcCaller);
     this.queueProjectionClient = new BackendQueueProjectionRpcClient(rpcCaller);
     this.reviewClient = new BackendReviewRpcClient(rpcCaller);
     this.neuralRoamClient = new BackendNeuralRoamRpcClient(rpcCaller);
@@ -222,12 +243,24 @@ export class SrsBackendClient {
     return this.coreClient.systemHealth();
   }
 
-  async loadDatabase(): Promise<{ ok: true; initialized: true; dbFile: string }> {
+  async loadDatabase(): Promise<BackendDbLoadResult> {
     return this.coreClient.loadDatabase(this.createDbLoadRequest());
   }
 
-  async persistDatabase(): Promise<{ ok: true; persisted: true; dbFile: string }> {
-    return this.coreClient.persistDatabase();
+  async reloadDatabase(): Promise<BackendDbReloadResult> {
+    return this.coreClient.reloadDatabase(this.createDbLoadRequest());
+  }
+
+  async storageMaintenanceStatus(
+    request: BackendStorageMaintenanceStatusRequest,
+  ): Promise<BackendStorageMaintenanceStatusResult> {
+    return this.coreClient.storageMaintenanceStatus(request);
+  }
+
+  async applyStorageMaintenanceBatch(
+    request: BackendStorageMaintenanceApplyBatchRequest,
+  ): Promise<BackendStorageMaintenanceApplyBatchResult> {
+    return this.coreClient.applyStorageMaintenanceBatch(request);
   }
 
   private createDbLoadRequest(): BackendDbLoadRequest | undefined {
@@ -237,6 +270,7 @@ export class SrsBackendClient {
     const truthSchemaVersion = this.reviewTruthFlushOptions.schemaVersion ?? MESSAGEPACK_TRUTH_SCHEMA_VERSION;
     return {
       truthDeviceId: this.reviewTruthFlushOptions.deviceId,
+      identityEpoch: this.reviewTruthDeviceDiagnostics?.identityEpoch ?? null,
       cardTruthGenerationId: `card-memory-facts-v${truthSchemaVersion}`,
       reviewTruthGenerationId: this.reviewTruthFlushOptions.generationId,
       truthSchemaVersion,
@@ -276,7 +310,16 @@ export class SrsBackendClient {
       const projectionApplied = Number(journal?.statusCounts?.['projection-applied'] ?? 0);
       const pendingCount = Number(journal?.pendingCount ?? 0);
       const pendingBackfillRows = Number(status.truthBackfill?.pendingSqlRows ?? 0);
-      if (projectionApplied <= 0 && pendingCount <= 0 && pendingBackfillRows <= 0) {
+      const truthPromotionSubmitted = status.truthPromotion?.available
+        && (status.truthPromotion.pendingMutationCount > 0 || status.truthPromotion.active)
+        ? this.submitTruthPromotionTrackingJob(reason, status.truthPromotion)
+        : false;
+      if (
+        projectionApplied <= 0
+        && pendingCount <= 0
+        && pendingBackfillRows <= 0
+        && !truthPromotionSubmitted
+      ) {
         return false;
       }
       const shouldFlush = projectionApplied > 0 || pendingCount > 0;
@@ -292,11 +335,12 @@ export class SrsBackendClient {
         projectionApplied,
         pendingBackfillRows,
         reviewTruthBackfillJobSubmitted: backfillSubmitted,
+        truthPromotionJobSubmitted: truthPromotionSubmitted,
       });
       if (shouldFlush) {
         this.armReviewTruthFlushTimer();
       }
-      return shouldFlush || backfillSubmitted;
+      return shouldFlush || backfillSubmitted || truthPromotionSubmitted;
     } catch (error) {
       logger.warn('[SiYuanMemo][SrsBackendClient] skipped pending Review truth flush scheduling', {
         reason,
@@ -390,6 +434,34 @@ export class SrsBackendClient {
     checkedAt = Date.now(),
   ): Promise<BackendSourceExistenceSweepApplyResult> {
     return this.browserClient.browserSourceExistenceApplySweepHost(request, checkedAt);
+  }
+
+  async cardScheduleBatchUpdate(
+    request: BackendCardScheduleBatchUpdateRequest,
+  ): Promise<BackendCardScheduleBatchUpdateResult> {
+    return this.cardClient.cardScheduleBatchUpdate(request);
+  }
+
+  async cardCrudBatchMutate(
+    request: BackendCardCrudBatchMutateRequest,
+  ): Promise<BackendCardCrudBatchMutateResult> {
+    return this.cardClient.cardCrudBatchMutate(request);
+  }
+
+  async findNativeRiffImportExclusion(
+    request: BackendNativeRiffImportExclusionFindRequest,
+  ): Promise<BackendNativeRiffImportExclusionFindResult> {
+    return this.cardClient.findNativeRiffImportExclusion(request);
+  }
+
+  async queueStateLoadAll(): Promise<BackendQueueStateLoadAllResult> {
+    return this.queueClient.queueStateLoadAll();
+  }
+
+  async queueStateBatchMutate(
+    request: BackendQueueStateBatchMutateRequest,
+  ): Promise<BackendQueueStateBatchMutateResult> {
+    return this.queueClient.queueStateBatchMutate(request);
   }
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
@@ -499,16 +571,16 @@ export class SrsBackendClient {
     return false;
   }
 
-  async mergeSyncConflicts(
-    request: BackendSyncConflictMergeRequest,
-  ): Promise<BackendSyncConflictMergeResult> {
-    return this.integrationClient.mergeSyncConflicts(request);
-  }
-
   async auditReviewSyncDivergence(
     request: BackendReviewSyncDivergenceAuditRequest = {},
   ): Promise<BackendReviewSyncDivergenceAuditResult> {
     return this.integrationClient.auditReviewSyncDivergence(request);
+  }
+
+  async reconcileCanonicalTruth(
+    request: BackendTruthReconciliationRunRequest = {},
+  ): Promise<BackendTruthReconciliationRunResult> {
+    return this.integrationClient.reconcileCanonicalTruth(request);
   }
 
   async summarizeSyncConflicts(
@@ -745,6 +817,9 @@ export class SrsBackendClient {
   }
 
   private scheduleReviewTruthFlushAfterFeedback(result: BackendReviewFeedbackResult): void {
+    if (result.committed && result.durabilityReceipt?.stage === 'journaled') {
+      this.submitTruthPromotionTrackingJob('review.feedback');
+    }
     if (!this.canRunReviewTruthFlush('review.feedback') || !this.shouldScheduleReviewTruthFlush(result)) {
       return;
     }
@@ -914,6 +989,93 @@ export class SrsBackendClient {
       });
     }
     return result.accepted;
+  }
+
+  private submitTruthPromotionTrackingJob(
+    reason: string,
+    initial: BackendReviewTruthMaintenanceStatusResult['truthPromotion'] | null = null,
+  ): boolean {
+    if (this.disposed) {
+      return false;
+    }
+    if (this.truthPromotionTrackingJobId) {
+      const current = this.backgroundWorkRegistry.status(this.truthPromotionTrackingJobId);
+      if (current && (current.state === 'accepted' || current.state === 'running')) {
+        return false;
+      }
+      this.truthPromotionTrackingJobId = null;
+    }
+    const result = this.backgroundWorkRegistry.submit<KernelCompanionTruthPromotionDiagnostics>({
+      kind: 'truth-promotion',
+      diagnostics: {
+        reason,
+        ...(initial ?? {}),
+        pollsAttempted: 0,
+      },
+      run: (context) => this.runTruthPromotionTrackingJob(context, reason),
+    });
+    if (result.accepted) {
+      this.truthPromotionTrackingJobId = result.job.jobId;
+    }
+    return result.accepted;
+  }
+
+  private async runTruthPromotionTrackingJob(
+    context: KernelCompanionBackgroundWorkRunContext,
+    reason: string,
+  ): Promise<KernelCompanionBackgroundWorkHandlerResult<KernelCompanionTruthPromotionDiagnostics>> {
+    let diagnostics: KernelCompanionTruthPromotionDiagnostics = {
+      reason,
+      pollsAttempted: 0,
+    };
+    try {
+      for (let poll = 1; poll <= TRUTH_PROMOTION_STATUS_MAX_POLLS; poll += 1) {
+        if (this.disposed || context.isCanceled()) {
+          return {
+            state: 'canceled',
+            reason: this.disposed ? 'srs-backend-client-dispose' : 'background-work-canceled',
+            diagnostics,
+          };
+        }
+        const status = await this.reviewTruthMaintenanceStatus();
+        const promotion = status.truthPromotion;
+        diagnostics = {
+          reason,
+          ...(promotion ?? {}),
+          pollsAttempted: poll,
+          unavailable: !promotion?.available,
+        };
+        if (!promotion?.available) {
+          return {
+            state: 'deferred',
+            reason: promotion?.retryReason ?? 'truth-promotion-unavailable',
+            diagnostics,
+          };
+        }
+        if (promotion.pendingMutationCount <= 0 && !promotion.active) {
+          return {
+            state: 'completed',
+            diagnostics,
+          };
+        }
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, TRUTH_PROMOTION_STATUS_POLL_MS);
+        });
+      }
+      return {
+        state: 'deferred',
+        reason: diagnostics.retryReason ?? 'truth-promotion-pending',
+        diagnostics,
+      };
+    } catch (error) {
+      return {
+        state: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+        diagnostics,
+      };
+    } finally {
+      this.truthPromotionTrackingJobId = null;
+    }
   }
 
   private async runReviewTruthBackfillJob(

@@ -535,6 +535,32 @@ describe('SrsV2SessionQueueRuntime', () => {
         restoredCardId: first.id,
         replayedCardId: first.id,
         undoToken: 'worker-undo:1',
+        durabilityReceipt: {
+          version: 1 as const,
+          mutationId: 'review-session-undo:worker-undo:1',
+          family: 'review' as const,
+          stage: 'journaled' as const,
+          journalSequence: 9,
+          affectedAggregates: [{
+            family: 'card-schedule',
+            aggregateId: first.id,
+            causalBaseRevision: null,
+          }],
+          requiredTruthOutputs: [{
+            family: 'review',
+            kind: 'event',
+            aggregateIds: [first.id],
+          }],
+          truthGenerationId: null,
+          retry: {
+            attemptCount: 0,
+            nextAttemptAt: null,
+            lastError: null,
+          },
+          diagnosticCode: null,
+          diagnosticMessage: null,
+          updatedAt: Date.now(),
+        },
       })),
     };
     const runtime = new WorkerReviewSessionQueueRuntime({
@@ -564,6 +590,11 @@ describe('SrsV2SessionQueueRuntime', () => {
     const undo = await runtime.undoLast(answer.undoToken);
     expect(undo?.restoredCurrentCard).toMatchObject({ id: first.id });
     expect(undo?.counterSnapshot).toMatchObject({ remaining: 2 });
+    expect(undo?.durabilityReceipt).toMatchObject({
+      mutationId: 'review-session-undo:worker-undo:1',
+      stage: 'journaled',
+      journalSequence: 9,
+    });
     expect(runtime.getSessionCards().map((card) => card.id)).toEqual([first.id, second.id]);
     expect(backend.reviewSessionUndo).toHaveBeenCalledWith({
       sessionId: 'worker-session',

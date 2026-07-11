@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SiYuanMemo Storage Hardening Progress</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 32px auto; max-width: 960px; padding: 0 20px; color: #1f2937; }
+    h1, h2 { color: #111827; }
+    code { background: #f3f4f6; padding: 2px 5px; border-radius: 4px; }
+    .summary { border-left: 4px solid #2563eb; padding: 12px 16px; background: #eff6ff; }
+    .done { color: #166534; }
+    .next { color: #9a3412; }
+    li { margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <h1>Storage Hardening Progress</h1>
+  <div class="summary">
+    <strong>Change:</strong> <code>harden-truth-storage-growth-and-device-identity</code><br>
+    <strong>Progress:</strong> 71 / 71 tasks complete<br>
+    <strong>Updated:</strong> 2026-07-11
+  </div>
+
+  <h2>Accepted architecture</h2>
+  <ul>
+    <li>Temporary SQLite is a disposable projection, not canonical truth.</li>
+    <li>Worker is the only formal storage mutation authority.</li>
+    <li>Each business command has one mutation ID, one SQL transaction, and one replayable durability unit.</li>
+    <li><code>journaled</code> means SQL plus complete delta is durable; <code>truth-committed</code> means canonical truth outputs verify.</li>
+    <li>Canonical truth uses append-only Review facts plus compactable Card/Schedule/Queue state and tombstones.</li>
+    <li>Plugin installation identity is redundantly stored in IndexedDB and localStorage; SiYuan <code>System.ID</code> is fingerprint evidence only.</li>
+  </ul>
+
+  <h2 class="done">Completed</h2>
+  <ul>
+    <li>Versioned storage contracts, writer guards, and future-format fail-closed checks.</li>
+    <li>Stable installation identity, copy repair/conflict handling, identity epochs, and host fingerprint tracking.</li>
+    <li>Atomic mutation receipts, ordered truth promotion, coverage watermarks, and restart continuation.</li>
+    <li>Compactable Card/Schedule and Queue truth families with immutable generation publication.</li>
+    <li>Review, Card/Schedule, Queue, and Card CRUD production write cutover to Worker authority.</li>
+    <li>Card CRUD writer/follower routing, typed unavailable behavior, tombstones, and local projection rollback.</li>
+    <li>Startup schedule normalization and orphan-card repair now run in bounded Worker-owned batches with progress diagnostics and fail-closed rollback.</li>
+    <li>Legacy unified/Queue/Review/Arena import plus Native Riff, algorithm-state, and Neural Roam migrations now use resumable Worker maintenance commands; completed markers skip all legacy source reads.</li>
+    <li>Renderer production composition now consumes only the Worker projection snapshot and has no renderer SQLite or whole-database save/shutdown writer.</li>
+    <li>Single-writer regression coverage now pins Review, Card/Schedule, Queue, Card CRUD, import/repair, renderer projection, and kernel-companion boundaries.</li>
+    <li>Worker diagnostics now expose per-family/per-device storage inventory for counts, bytes, oldest age, generations, projection size, uncovered mutations, compaction state, and pressure evidence.</li>
+    <li>Startup now classifies identity, canonical manifests/segments, current and previous generations, delta coverage, checkpoints, and temporary SQLite into one versioned recovery evidence record.</li>
+    <li>Missing or corrupt temporary SQLite now rebuilds from verified canonical truth plus intact uncovered delta.</li>
+    <li>Invalid current snapshot generations now recover through the previous verified generation, replay later mutations, and preserve damaged current evidence.</li>
+    <li>Read-only recovery now gates formal writes and quarantines unverifiable canonical or uncovered delta evidence.</li>
+    <li>Canonical multi-device reconciliation now deduplicates mutations, preserves Review facts, applies tombstones, exposes aggregate conflicts, publishes verified generations, and rebuilds Card/Review/Queue projections.</li>
+    <li>Combined diagnostics now expose identity, receipt stages, promotion lag, coverage, budget pressure, recovery, reconciliation, and disabled capabilities.</li>
+    <li>Focused lifecycle integration now proves identity → Worker command → delta receipt → truth promotion → compaction → missing-projection restart rebuild → cross-device reconciliation.</li>
+  </ul>
+
+  <h2>Latest execution</h2>
+  <ul>
+    <li><strong>6.7:</strong> Removed renderer SQL and whole-store persistence from production composition; Native Riff exclusion reads and semantic repair now stay on Worker-owned paths.</li>
+    <li><strong>6.8:</strong> Added exact family authority evidence and fallback rejection to <code>check-storage-writer-authority.cjs</code>.</li>
+    <li><strong>7.1:</strong> Added versioned Worker storage inventory, delta manifest metrics, truth generation aggregation, uncovered mutation evidence, and <code>diagnostics.status.storage.inventory</code>.</li>
+    <li><strong>7.2:</strong> Verified configurable count, byte, age, and generation budgets with normal/soft/high/hard classification and accepted initial delta, truth, snapshot, and projection targets.</li>
+    <li><strong>7.3:</strong> Added Worker-owned Card/Queue compaction that reconstructs current state, writes deterministic immutable snapshot generations, verifies records and checksums, publishes through a generation fence, and keeps interrupted candidates non-authoritative.</li>
+    <li><strong>7.4:</strong> Added coverage-aware SQLite delta compaction that verifies candidate segments, relocates uncovered mutations into new sealed segments before manifest cutover, then deletes only retired covered segments.</li>
+    <li><strong>7.5:</strong> Added finite recovery retention: Card/Queue snapshot fences retain current and previous verified generations, reclaim older generation files through an explicit Worker host effect, and delta compaction retains bounded replayable segments.</li>
+    <li><strong>7.6:</strong> Added a one-time startup baseline that measures upgraded installations, fully promotes uncovered mutations, compacts verified truth and delta, then records the migration marker before hard-budget enforcement.</li>
+    <li><strong>7.7:</strong> Added one Worker mutation-growth gate before journaled SQL transactions: soft pressure schedules background maintenance, high pressure runs one bounded synchronous promotion/compaction pass, and unreclaimed hard pressure returns explicit <code>STORAGE_PRESSURE</code> before SQL begins.</li>
+    <li><strong>7.8:</strong> Added and verified soft, high, and hard pressure behavior alongside interrupted generation publication, uncovered delta relocation, current/previous generation retention, and safe obsolete-file deletion coverage.</li>
+    <li><strong>8.1:</strong> Added startup storage evidence classification, current/previous generation fence inspection, verified delta/checkpoint coverage evidence, temp projection rebuild causes, and <code>diagnostics.status.storage.recovery</code>.</li>
+    <li><strong>8.2:</strong> Added deterministic rebuild for missing projections and invalid SQLite headers, with canonical truth applied without overwriting newer replayed delta state.</li>
+    <li><strong>8.3:</strong> Added descriptor/manifest/segment verification for fenced generations, explicit previous-generation selection, later truth/delta replay, recovery diagnostics, and recovery compaction that retains the verified previous generation while preserving damaged current files.</li>
+    <li><strong>8.4–8.7:</strong> Added explicit read-only <code>STORAGE_RECOVERY_REQUIRED</code>, formal-write and sync-upload gates, damaged-evidence quarantine, last-verified reads, and restart coverage for corrupt projection, canonical truth, and uncovered delta.</li>
+    <li><strong>9.1:</strong> Retired SQLite conflict-copy domain authority and made <code>truth.reconciliation.run</code> the active reconciliation entrypoint.</li>
+    <li><strong>9.2–9.7:</strong> Added read-only device/epoch source discovery, mutation dedupe, independent aggregate merge, append-only Review union, causal tombstones, explicit same-aggregate conflicts, and deterministic commutative Queue merge decisions.</li>
+    <li><strong>9.8–9.9:</strong> Added verified reconciliation generation publication before Card/Review/Queue projection rebuild, publication-failure rollback, old-epoch handling, identity-loss coverage, and two-device integration tests.</li>
+    <li><strong>10.1:</strong> Added one combined storage diagnostic containing identity, receipt stages, promotion lag/frontiers, coverage, inventory/budget, recovery, reconciliation, and disabled capabilities.</li>
+    <li><strong>10.2–10.3:</strong> Updated ADR-002, architecture, domain context, and debt ledger with final ownership, recovery history, call chains, invariants, fixed debt, and deferred policy tuning.</li>
+    <li><strong>10.4:</strong> Added the focused lifecycle integration suite covering identity → Worker command → journaled receipt → truth promotion → compaction → missing-projection restart rebuild → synchronization reconciliation.</li>
+    <li><strong>10.5–10.6:</strong> Ran focused tests, writer/follower and two-device smoke coverage, boundary and fallback gates, production build, strict OpenSpec validation, and diff hygiene checks.</li>
+  </ul>
+
+  <h2>Monitoring corrections</h2>
+  <ul>
+    <li>Final lifecycle integration exposed a false reconciliation conflict: source inspection loaded both superseded compactable manifests and the generation-fence current manifest, so one mutation appeared with different snapshot/changeset payloads.</li>
+    <li>Fixed root cause in <code>WorkerTruthReconciliationRuntime</code>: Card/Queue reconciliation now follows each device/family generation fence and reads only the active current generation when a fence exists.</li>
+    <li>Kept unfenced legacy compactable manifests readable for migration, while fenced previous/orphan generations remain recovery evidence rather than simultaneous business truth.</li>
+    <li>Updated the runtime-path guard to assert the real reconciliation constructor and current fail-closed application error contract.</li>
+  </ul>
+
+  <h2>Validation evidence</h2>
+  <ul>
+    <li><strong>Focused Vitest:</strong> 129 tests passed across stable identity, writer/follower relay, backend client, Worker database, recovery, lifecycle integration, and reconciliation.</li>
+    <li><strong>Static/runtime gates:</strong> boundary, no-UI-SQL, storage writer authority, kernel DB ownership, backend cutover/runtime paths, no-runtime-msgpack, hidden fallback, and SRS source/dist hygiene passed.</li>
+    <li><strong>Build:</strong> kernel webpack and production Vite build passed; existing non-blocking i18n and Sass notices remain.</li>
+    <li><strong>Specification:</strong> strict OpenSpec validation passed and apply status reports <code>71 / 71</code>, state <code>all_done</code>.</li>
+    <li><strong>Diff hygiene:</strong> <code>git diff --check</code> passed; only repository line-ending notices remain.</li>
+  </ul>
+
+  <h2 class="done">Closure</h2>
+  <ol>
+    <li>All 71 OpenSpec implementation tasks are complete.</li>
+    <li>Production policy tuning remains data-driven: segment bytes/counts, promotion batch size, maintenance cadence, and large-store throughput.</li>
+    <li>Release validation still includes a deployed two-window SiYuan writer/follower smoke because real host lease handover cannot be created inside unit tests.</li>
+  </ol>
+</body>
+</html>

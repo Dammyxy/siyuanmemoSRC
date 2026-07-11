@@ -13,6 +13,7 @@ import {
   getRuntimePerformanceDiagnosticsReport,
   setRuntimePerformanceDiagnosticsEnabled,
 } from '@/utils/runtimePerformanceDiagnostics';
+import type { StorageMutationEnvelope } from '../../../../../packages/contracts/src/backend-rpc';
 
 type JsonFileService = Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary' | 'deleteFile'>;
 
@@ -28,6 +29,19 @@ type TestSqliteDeltaEntry = {
   tables: string[];
   changes: Array<{ table: string }>;
   byteEstimate: number;
+  mutationEnvelope?: {
+    version: number;
+    mutationId: string;
+    journalSequence: number | null;
+    operations: Array<{ table: string; operation: string }>;
+  } | null;
+  durabilityReceipt?: {
+    version: number;
+    mutationId: string;
+    stage: string;
+    journalSequence: number | null;
+    retry: { attemptCount: number; nextAttemptAt: number | null; lastError: string | null };
+  } | null;
 };
 
 class MemorySqliteFileService implements JsonFileService {
@@ -44,6 +58,7 @@ class MemorySqliteFileService implements JsonFileService {
   readonly writeJSONDiagnostics: Array<{ fileName: string; diagnostics: Record<string, unknown> | null }> = [];
   writeBinaryCount = 0;
   failNextWriteBinary = false;
+  failNextWriteJSONFile: string | null = null;
   lastWriteBinaryDiagnostics: Record<string, unknown> | null = null;
 
   async readJSON<T>(fileName: string, options?: { diagnostics?: Record<string, unknown> }): Promise<T | null> {
@@ -61,6 +76,10 @@ class MemorySqliteFileService implements JsonFileService {
       fileName,
       diagnostics: options?.diagnostics ?? null,
     });
+    if (this.failNextWriteJSONFile === fileName) {
+      this.failNextWriteJSONFile = null;
+      throw new Error('mock JSON write failed');
+    }
     this.json.set(fileName, data);
   }
 
@@ -299,6 +318,33 @@ function insertReviewUndoJournalEntryForSqliteDeltaWindow(
       ],
     );
   });
+}
+
+function createTestMutationEnvelope(
+  mutationId: string,
+  cardId: string,
+  createdAt: number,
+): StorageMutationEnvelope {
+  return {
+    version: 1,
+    mutationId,
+    family: 'review',
+    deviceId: 'device-test',
+    identityEpoch: 'epoch-test',
+    journalSequence: null,
+    createdAt,
+    affectedAggregates: [{
+      family: 'card-schedule',
+      aggregateId: cardId,
+      causalBaseRevision: null,
+    }],
+    operations: [],
+    requiredTruthOutputs: [{
+      family: 'review',
+      kind: 'event',
+      aggregateIds: [cardId],
+    }],
+  };
 }
 
 describe('SqliteDatabaseService', () => {
@@ -1081,6 +1127,313 @@ describe('SqliteDatabaseService', () => {
       label: 'review.feedback',
       mode: 'delta',
     });
+  });
+
+  it('persists one complete mutation envelope with a monotonic journal sequence', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    let durabilityReceipt: unknown = null;
+
+    await database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT OR REPLACE INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-mutation-envelope',
+          'card-mutation-envelope',
+          'attempt-mutation-envelope',
+          3,
+          1_700_000_006_200,
+          'mutation-envelope-1',
+          2026,
+          7,
+          'review-v2',
+          JSON.stringify({ cardId: 'card-mutation-envelope' }),
+        ],
+      );
+    }, {
+      mutationEnvelope: {
+        version: 1,
+        mutationId: 'mutation-envelope-1',
+        family: 'review',
+        deviceId: 'device-test',
+        identityEpoch: 'epoch-test',
+        journalSequence: null,
+        createdAt: 1_700_000_006_200,
+        affectedAggregates: [{
+          family: 'card-schedule',
+          aggregateId: 'card-mutation-envelope',
+          causalBaseRevision: null,
+        }],
+        operations: [],
+        requiredTruthOutputs: [{
+          family: 'review',
+          kind: 'event',
+          aggregateIds: ['card-mutation-envelope'],
+        }],
+      },
+      onDurabilityReceipt: (receipt: unknown) => {
+        durabilityReceipt = receipt;
+      },
+    });
+
+    const [entry] = readSqliteDeltaEntries(fileService);
+    expect(entry.mutationEnvelope).toMatchObject({
+      version: 1,
+      mutationId: 'mutation-envelope-1',
+      journalSequence: 1,
+      operations: expect.arrayContaining([
+        expect.objectContaining({
+          table: 'review_events',
+          operation: 'insert',
+        }),
+      ]),
+    });
+    expect(entry.durabilityReceipt).toMatchObject({
+      version: 1,
+      mutationId: 'mutation-envelope-1',
+      stage: 'journaled',
+      journalSequence: 1,
+      retry: {
+        attemptCount: 0,
+        nextAttemptAt: null,
+        lastError: null,
+      },
+    });
+    expect(fileService.json.get(SQLITE_DELTA_V2_MANIFEST)).toMatchObject({
+      nextMutationSequence: 2,
+    });
+    expect(durabilityReceipt).toMatchObject({
+      version: 1,
+      mutationId: 'mutation-envelope-1',
+      family: 'review',
+      stage: 'journaled',
+      journalSequence: 1,
+    });
+    await expect(database.listJournaledMutations({
+      afterJournalSequence: 0,
+      limit: 1,
+    })).resolves.toEqual([
+      expect.objectContaining({
+        createdAt: expect.any(Number),
+        mutationEnvelope: expect.objectContaining({
+          mutationId: 'mutation-envelope-1',
+          journalSequence: 1,
+        }),
+        durabilityReceipt: expect.objectContaining({
+          mutationId: 'mutation-envelope-1',
+          stage: 'journaled',
+          journalSequence: 1,
+        }),
+      }),
+    ]);
+    await expect(database.listJournaledMutations({
+      afterJournalSequence: 1,
+      limit: 1,
+    })).resolves.toEqual([]);
+  });
+
+  it('reuses the existing journaled receipt for a duplicate mutation id', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    const receipts: unknown[] = [];
+    const mutationEnvelope = createTestMutationEnvelope(
+      'mutation-duplicate-1',
+      'card-mutation-duplicate',
+      1_700_000_006_300,
+    );
+    const write = () => database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT OR REPLACE INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-mutation-duplicate',
+          'card-mutation-duplicate',
+          'attempt-mutation-duplicate',
+          3,
+          1_700_000_006_300,
+          'mutation-duplicate-1',
+          2026,
+          7,
+          'review-v2',
+          JSON.stringify({ cardId: 'card-mutation-duplicate' }),
+        ],
+      );
+    }, {
+      mutationEnvelope,
+      onDurabilityReceipt: (receipt) => receipts.push(receipt),
+    });
+
+    await write();
+    await write();
+
+    expect(readSqliteDeltaEntries(fileService)).toHaveLength(1);
+    expect(receipts).toHaveLength(2);
+    expect(receipts[0]).toMatchObject({ mutationId: 'mutation-duplicate-1', journalSequence: 1 });
+    expect(receipts[1]).toMatchObject({ mutationId: 'mutation-duplicate-1', journalSequence: 1 });
+  });
+
+  it('does not issue journaled when SQL commit cannot persist the complete delta', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    let receipt: unknown = null;
+    fileService.failNextWriteBinary = true;
+
+    await expect(database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT OR REPLACE INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-delta-failure',
+          'card-delta-failure',
+          'attempt-delta-failure',
+          3,
+          1_700_000_006_400,
+          'mutation-delta-failure',
+          2026,
+          7,
+          'review-v2',
+          '{}',
+        ],
+      );
+    }, {
+      mutationEnvelope: createTestMutationEnvelope(
+        'mutation-delta-failure',
+        'card-delta-failure',
+        1_700_000_006_400,
+      ),
+      onDurabilityReceipt: (value) => {
+        receipt = value;
+      },
+    })).rejects.toThrow('mock binary write failed');
+
+    expect(receipt).toBeNull();
+    expect(database.getOne('SELECT id FROM review_events WHERE id = ?', ['event-delta-failure'])).toBeNull();
+  });
+
+  it('does not issue journaled when segment write succeeds but manifest publication fails', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    let receipt: unknown = null;
+    fileService.failNextWriteJSONFile = SQLITE_DELTA_V2_MANIFEST;
+
+    await expect(database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT OR REPLACE INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-manifest-failure',
+          'card-manifest-failure',
+          'attempt-manifest-failure',
+          3,
+          1_700_000_006_450,
+          'mutation-manifest-failure',
+          2026,
+          7,
+          'review-v2',
+          '{}',
+        ],
+      );
+    }, {
+      mutationEnvelope: createTestMutationEnvelope(
+        'mutation-manifest-failure',
+        'card-manifest-failure',
+        1_700_000_006_450,
+      ),
+      onDurabilityReceipt: (value) => {
+        receipt = value;
+      },
+    })).rejects.toThrow('mock JSON write failed');
+
+    expect(fileService.binary.has(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(true);
+    expect(receipt).toBeNull();
+    expect(database.getOne('SELECT id FROM review_events WHERE id = ?', ['event-manifest-failure'])).toBeNull();
+  });
+
+  it('replays every table effect from one multi-table mutation envelope', async () => {
+    const fileService = new MemorySqliteFileService();
+    const options = {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection' as const,
+    };
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, options);
+    await database.init();
+    await database.persist('seed-schema');
+
+    await database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT OR REPLACE INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-multi-table',
+          'card-multi-table',
+          'attempt-multi-table',
+          3,
+          1_700_000_006_500,
+          'mutation-multi-table',
+          2026,
+          7,
+          'review-v2',
+          '{}',
+        ],
+      );
+      db.run(
+        'INSERT OR REPLACE INTO queue_state (key, value_json, updated_at) VALUES (?, ?, ?)',
+        ['retrievalPracticeQueue', JSON.stringify(['keep-card']), 1_700_000_006_500],
+      );
+    }, {
+      mutationEnvelope: createTestMutationEnvelope(
+        'mutation-multi-table',
+        'card-multi-table',
+        1_700_000_006_500,
+      ),
+    });
+
+    const [entry] = readSqliteDeltaEntries(fileService);
+    expect(entry.mutationEnvelope?.operations.map((operation) => operation.table)).toEqual(expect.arrayContaining([
+      'review_events',
+      'queue_state',
+    ]));
+    database.dispose();
+
+    const restarted = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, options);
+    await restarted.init();
+    expect(restarted.getOne('SELECT id FROM review_events WHERE id = ?', ['event-multi-table'])).toBeTruthy();
+    expect(restarted.getOne<{ value_json: string }>(
+      'SELECT value_json FROM queue_state WHERE key = ?',
+      ['retrievalPracticeQueue'],
+    )).toEqual({ value_json: JSON.stringify(['keep-card']) });
+    restarted.dispose();
   });
 
   it('stores sqlite delta v2 manifest and segment files under one versioned directory', async () => {

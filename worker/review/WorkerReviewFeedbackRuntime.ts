@@ -10,6 +10,8 @@ import type {
   BackendReviewFeedbackQueueImpactReorderHint,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  StorageDurabilityReceipt,
+  StorageMutationEnvelope,
 } from '../../packages/contracts/src/backend-rpc';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { buildQueueProjectionCountersFromRows } from '../queue-projection/WorkerQueueProjectionRuntime';
@@ -35,6 +37,8 @@ type ProjectionWorkerQueueType =
 type WorkerReviewFeedbackTransactionOptions = {
   persist?: boolean;
   diagnosticRecorder?: (step: string, durationMs: number, extra?: Record<string, unknown>) => void;
+  mutationEnvelope?: StorageMutationEnvelope;
+  onDurabilityReceipt?: (receipt: StorageDurabilityReceipt) => void;
 };
 
 type WorkerReviewFeedbackTransactionDb =
@@ -62,6 +66,12 @@ export type WorkerReviewFeedbackRuntimeDeps = {
   recordUnavailable?: () => void;
   persistReviewJournal?: (request: BackendReviewFeedbackRequest) => Promise<BackendReviewFeedbackRequest>;
   recordReviewTruthCandidate?: (candidate: WorkerReviewFeedbackTruthCandidate) => void;
+  storageIdentity: {
+    deviceId: string;
+    identityEpoch: string;
+  };
+  scheduleTruthPromotion?: (reason: string) => void;
+  resolveDurabilityReceipt?: (receipt: StorageDurabilityReceipt) => Promise<StorageDurabilityReceipt>;
 };
 
 type WorkerReviewFeedbackQueueProjection = NonNullable<WorkerReviewFeedbackRuntimeDeps['queueProjection']>;
@@ -175,6 +185,7 @@ export class WorkerReviewFeedbackRuntime {
       repository: this.deps.repository,
       runtime: this.deps.runtime,
       domainSyncLedger: this.deps.domainSyncLedger ?? new DomainSyncLedger(this.deps.runtime),
+      storageIdentity: this.deps.storageIdentity,
     });
     const receipt = await mutationModule.commitReviewFeedback(
       {
@@ -190,11 +201,22 @@ export class WorkerReviewFeedbackRuntime {
       },
       (candidate) => this.deps.recordReviewTruthCandidate?.(candidate),
     );
+    let durabilityReceipt = receipt.durabilityReceipt;
+    if (durabilityReceipt) {
+      this.deps.scheduleTruthPromotion?.('review.feedback');
+      durabilityReceipt = this.deps.resolveDurabilityReceipt
+        ? await this.deps.resolveDurabilityReceipt(durabilityReceipt)
+        : durabilityReceipt;
+    }
+    const result = {
+      ...receipt.result,
+      durabilityReceipt,
+    };
     if (!receipt.queueImpactInput) {
-      return receipt.result;
+      return result;
     }
     return {
-      ...receipt.result,
+      ...result,
       queueImpact: this.measureQueueImpactStep(
         'queue-impact',
         receipt.queueImpactInput.queueType,

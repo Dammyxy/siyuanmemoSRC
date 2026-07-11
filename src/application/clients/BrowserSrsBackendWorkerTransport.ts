@@ -57,6 +57,7 @@ export interface BrowserSrsBackendWorkerHostEffects {
   readTruthJSON?: <T>(path: string) => Promise<T | null>;
   writeTruthJSON?: (path: string, value: unknown) => Promise<void>;
   listTruthFiles?: (prefix: string) => Promise<string[]>;
+  deleteTruthFile?: (path: string) => Promise<void>;
   readSyncConflictDatabaseSources?: () => Promise<Array<{
     sourceId: string;
     bytes: Uint8Array;
@@ -553,6 +554,12 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('truth.listFiles host effect unavailable');
         }
         return this.options.hostEffects.listTruthFiles(effect.prefix);
+      case 'truth.deleteFile':
+        if (!this.options.hostEffects.deleteTruthFile) {
+          throw unavailable('truth.deleteFile host effect unavailable');
+        }
+        await this.options.hostEffects.deleteTruthFile(effect.path);
+        return null;
       case 'sqlite.readSyncConflictDatabaseSources':
         if (!this.options.hostEffects.readSyncConflictDatabaseSources) {
           return [];

@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ApplicationContext } from '../ApplicationContext';
+import {
+  IntegrationRuntimeAccess,
+  ProgressiveRuntimeAccess,
+} from '@/application/runtime-access';
 import { SqliteDatabaseService } from '@/infrastructure/persistence/sqlite/SqliteDatabaseService';
 import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import type { IFileService } from '@/infrastructure/services/FileService';
@@ -16,6 +20,14 @@ function readBackendRuntimeFactorySource(): string {
 
 function readTruthDeviceIdentitySource(): string {
   return readFileSync(resolve(process.cwd(), 'src/application/factories/truthDeviceIdentity.ts'), 'utf8');
+}
+
+function createRuntimeAccessFixture() {
+  return {
+    progressiveRuntimeAccess: new ProgressiveRuntimeAccess(),
+    integrationRuntimeAccess: new IntegrationRuntimeAccess(),
+    bootstrapCallbackPorts: [],
+  };
 }
 
 class MemorySqliteFileService implements Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'> {
@@ -74,24 +86,32 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     const factorySource = readBackendRuntimeFactorySource();
     const identitySource = readTruthDeviceIdentitySource();
 
-    expect(factorySource).toContain('resolveTruthDeviceIdentity({ localStore: options.fileService })');
+    expect(factorySource).toContain('resolveTruthDeviceIdentity({');
+    expect(factorySource).toContain('localStore: options.fileService');
+    expect(factorySource).toContain('identityStore: new IndexedDbTruthDeviceIdentityStore()');
+    expect(factorySource).toContain('hostFingerprint: (options.resolveSiyuanSystemId ?? resolveSiyuanSystemId)()');
     expect(factorySource).toContain('TRUTH_DEVICE_ID_UNAVAILABLE');
+    expect(identitySource).toContain("TRUTH_DEVICE_IDENTITY_STORAGE_KEY = 'siyuanmemo.truth.identity.v2'");
     expect(identitySource).toContain("TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1'");
     expect(identitySource).toContain("LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
     expect(identitySource).toContain("TRUTH_DEVICE_ID_LOCAL_STATE_PATH = 'truth-device-id.v1.json'");
     expect(identitySource).not.toContain("const REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
   });
 
-  it('constructs renderer sqlite projection on the temp DB adapter without implicit startup checkpointing', () => {
+  it('hydrates renderer memory from the Worker projection without renderer sqlite composition', () => {
     const contextSource = readApplicationContextSource();
 
-    expect(contextSource).toContain('createSqlProjectionFileService(fileService)');
-    expect(contextSource).toContain('fileService.readTempProjectionBinary(fileName)');
-    expect(contextSource).toContain('fileService.writeTempProjectionBinary(fileName, bytes, options)');
-    expect(contextSource).toContain('new SqliteDatabaseService(sqlFileService, SQLITE_DB_FILE, {');
-    expect(contextSource).toContain('persistOnInit: false');
-    expect(contextSource).toContain('enableDeltaPersistence: true');
-    expect(contextSource).toContain("checkpointStorageClass: 'volatile-projection'");
+    expect(contextSource).not.toContain('createSqlProjectionFileService(fileService)');
+    expect(contextSource).not.toContain('new SqliteDatabaseService(');
+    expect(contextSource).not.toContain('new SqlUnifiedStorageRepository(');
+    expect(contextSource).not.toContain('sqlPersistence');
+    expect(contextSource).not.toContain('unifiedStorageManager.save(');
+    expect(contextSource).not.toContain('persistDatabase(');
+    expect(contextSource).toContain('const loadResult = await srsBackendClient.loadDatabase();');
+    expect(contextSource).toContain('return loadResult.projectionSnapshot as UnifiedCardStore;');
+    expect(contextSource).toContain(
+      'unifiedStorageManager.setReadPersistenceCallbacks(unifiedLoad, unifiedDeltaPersistence);',
+    );
   });
 
   it('routes backend Worker sqlite projection effects to temp while keeping truth effects on plugin storage', () => {
@@ -192,6 +212,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       rescheduleService: {},
       unifiedDataSourceManager: {},
       blockMenuHandler: {},
+      ...createRuntimeAccessFixture(),
       srsBackendClient,
       srsBackendTransport,
       frontendInstanceRuntime,
@@ -253,6 +274,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       rescheduleService: {},
       unifiedDataSourceManager: {},
       blockMenuHandler: {},
+      ...createRuntimeAccessFixture(),
       kernelSidecarClient: { marker: 'kernel-sidecar-client' },
       backendMigrationRuntimePolicy: runtimePolicy,
     });
@@ -273,25 +295,27 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     }).getAutoCardBackendExecutionHandler()).toBe(activeHandler);
   });
 
-  it('defers native Riff upsert sync while AutoCard backend execution is active', () => {
+  it('routes AutoCard backend execution through the scoped runtime guard', () => {
     const contextSource = readApplicationContextSource();
 
-    expect(contextSource).toContain('runAutoCardBackendExecution(() => autoCardHandler.executeEnvelopeFromBackend(request))');
-    expect(contextSource).toContain('runAutoCardBackendExecution(() => autoCardHandler.executeBatchFromBackend(request))');
-    expect(contextSource).toContain('deferNativeRiffUpsertWhile: () => this.isAutoCardBackendExecutionInProgress()');
+    expect(contextSource).toContain('return context.runAutoCardBackendExecution(');
+    expect(contextSource).toContain('autoCardHandler.executeEnvelopeFromBackend(request)');
+    expect(contextSource).toContain('autoCardHandler.executeBatchFromBackend(request)');
     expect(contextSource).toContain('this.autoCardBackendExecutionDepth > 0');
+    expect(contextSource).toContain('this.autoCardBackendExecutionHandlerScopes.length > 0');
   });
 
-  it('wires Xiuyuan startup sync to the shared background work registry', () => {
+  it('keeps the Xiuyuan factory independent of backend runtime locators', () => {
     const contextSource = readApplicationContextSource();
     const factorySource = readFileSync(
       resolve(process.cwd(), 'src/application/factories/createAutoCardKernelXiuyuanServiceBundle.ts'),
       'utf8',
     );
 
-    expect(contextSource).toContain('getBackgroundWorkRegistry: () => this.srsBackendClient?.getBackgroundWorkRegistry() ?? null');
-    expect(factorySource).toContain('getBackgroundWorkRegistry: () => KernelCompanionBackgroundWorkRegistryInterface | null');
-    expect(factorySource).toContain('deps.getBackgroundWorkRegistry()');
+    expect(contextSource).toContain('createAutoCardKernelXiuyuanServiceBundle({');
+    expect(factorySource).toContain('getUnifiedStorage: () => UnifiedStorageManager');
+    expect(factorySource).not.toContain('SrsBackendClient');
+    expect(factorySource).not.toContain('getBackgroundWorkRegistry');
   });
 
   it('does not leave backend Worker transport alive when frontend runtime dispose hangs during unload', async () => {
@@ -347,6 +371,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
         rescheduleService: {},
         unifiedDataSourceManager: {},
         blockMenuHandler: {},
+        ...createRuntimeAccessFixture(),
         srsBackendClient,
         srsBackendTransport,
         frontendInstanceRuntime,
@@ -424,6 +449,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
         rescheduleService: {},
         unifiedDataSourceManager: {},
         blockMenuHandler: {},
+        ...createRuntimeAccessFixture(),
         srsBackendClient,
         srsBackendTransport,
         frontendInstanceRuntime,
@@ -505,6 +531,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       rescheduleService: {},
       unifiedDataSourceManager: {},
       blockMenuHandler: {},
+      ...createRuntimeAccessFixture(),
       srsBackendClient,
       srsBackendTransport,
       frontendInstanceRuntime,
@@ -540,6 +567,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
           dispose: vi.fn(() => new Promise<void>(() => {})),
         },
         blockMenuHandler: {},
+        ...createRuntimeAccessFixture(),
       });
 
       const disposeCompleted = vi.fn();
@@ -646,6 +674,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       rescheduleService: {},
       unifiedDataSourceManager: {},
       blockMenuHandler: {},
+      ...createRuntimeAccessFixture(),
       srsBackendClient: {
         domainSyncStatus,
         domainSyncRepairPreview,
@@ -709,6 +738,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       rescheduleService: {},
       unifiedDataSourceManager: {},
       blockMenuHandler: {},
+      ...createRuntimeAccessFixture(),
       sqlPersistence: {
         database: cleanDatabase,
       },
@@ -746,6 +776,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       rescheduleService: {},
       unifiedDataSourceManager: {},
       blockMenuHandler: {},
+      ...createRuntimeAccessFixture(),
       sqlPersistence: {
         database,
       },

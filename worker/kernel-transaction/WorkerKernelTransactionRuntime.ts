@@ -80,6 +80,8 @@ type KernelTransactionStatus = {
   actionDequeuedTotal: number;
   actionRequeuedTotal: number;
   actionRejectedTotal: number;
+  removeActionQueuedTotal: number;
+  upsertActionQueuedTotal: number;
   autoCardActionQueuedTotal: number;
   maxActionQueueLength: number;
   lastAcceptedAt: number | null;
@@ -158,6 +160,8 @@ export class WorkerKernelTransactionRuntime {
       actionDequeuedTotal: this.kernelActionDequeuedTotal,
       actionRequeuedTotal: this.kernelActionRequeuedTotal,
       actionRejectedTotal: this.kernelActionRejectedTotal,
+      removeActionQueuedTotal: 0,
+      upsertActionQueuedTotal: 0,
       autoCardActionQueuedTotal: this.kernelAutoCardActionQueuedTotal,
       maxActionQueueLength: this.maxKernelActionQueueLength,
       lastAcceptedAt: this.lastKernelAcceptedAt,
@@ -366,8 +370,11 @@ export class WorkerKernelTransactionRuntime {
       const snapshot = await this.deps.fileService.readJSON<KernelTransactionActionSnapshot>(
         KERNEL_ACTION_QUEUE_SNAPSHOT_FILE,
       );
-      if (!snapshot || snapshot.version !== KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION) {
+      if (!snapshot) {
         return;
+      }
+      if (snapshot.version !== KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION) {
+        throw new Error(`Unsupported kernel action queue snapshot version: ${String(snapshot.version)}`);
       }
       const normalized = this.normalizeKernelActions(snapshot.actions || []);
       if (normalized.length > 0) {
@@ -398,6 +405,9 @@ export class WorkerKernelTransactionRuntime {
         );
       }
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Unsupported kernel action queue snapshot version:')) {
+        throw error;
+      }
       logger.warn('Failed to restore kernel action queue snapshot', {
         message: error instanceof Error ? error.message : String(error || ''),
       });
@@ -409,8 +419,11 @@ export class WorkerKernelTransactionRuntime {
       const snapshot = await this.deps.fileService.readJSON<KernelTransactionIngestSnapshot>(
         KERNEL_INGEST_QUEUE_SNAPSHOT_FILE,
       );
-      if (!snapshot || snapshot.version !== KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION) {
+      if (!snapshot) {
         return;
+      }
+      if (snapshot.version !== KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION) {
+        throw new Error(`Unsupported kernel ingest queue snapshot version: ${String(snapshot.version)}`);
       }
       const now = this.now();
       const normalizedQueue = this.normalizeKernelTransactionQueue(snapshot.queue || []);
@@ -476,6 +489,9 @@ export class WorkerKernelTransactionRuntime {
           : this.lastKernelDrainAt;
       }
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Unsupported kernel ingest queue snapshot version:')) {
+        throw error;
+      }
       logger.warn('Failed to restore kernel ingest queue snapshot', {
         message: error instanceof Error ? error.message : String(error || ''),
       });

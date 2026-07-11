@@ -33,7 +33,6 @@
 
 import type {
   CardStorageMutationOptions,
-  CardStorageWriteTransaction,
   DeleteFSRSCardStoragePort,
 } from '@/core/storage/ports';
 import { ok, err, type Result } from '@/types/result';
@@ -83,8 +82,8 @@ export class DeleteFSRSCardUseCase {
       }
       
       // 2. 删除本地卡片
-      await this.deleteCardFromStorage(command.cardId);
-      await this.storage.saveCards();
+      const deleteResult = await this.storage.deleteCard(command.cardId);
+      throwOnFailedStorageOperation(deleteResult, `Failed to delete card: ${command.cardId}`);
       
       logger.info('Card deleted from local storage:', command.cardId);
       
@@ -123,70 +122,29 @@ export class DeleteFSRSCardUseCase {
         });
       const alreadyAbsentCardIds = cardIds.filter((cardId) => !cardsToDelete.some((entry) => entry.cardId === cardId));
       const deletedCardIds: string[] = [...alreadyAbsentCardIds];
-      const failedCardIds: string[] = [];
       const cleanupTargets: BatchCleanupTargetMap = new Map();
 
-      await this.runBatchStorageMutation(async (transaction) => {
-        for (const { cardId, card } of cardsToDelete) {
-          try {
-            await this.deleteCardFromStorage(cardId, {
-              transaction,
-              suppressAutosave: true,
-            });
-            deletedCardIds.push(cardId);
-            if (card.blockId) {
-              this.addCleanupTarget(cleanupTargets, card.blockId, cardId);
-            }
-          } catch (error) {
-            failedCardIds.push(cardId);
-            logger.warn('Failed to batch delete local FSRS card:', { cardId, error });
-          }
+      for (const { cardId, card } of cardsToDelete) {
+        deletedCardIds.push(cardId);
+        if (card.blockId) {
+          this.addCleanupTarget(cleanupTargets, card.blockId, cardId);
         }
-      });
-
-      if (deletedCardIds.length > alreadyAbsentCardIds.length) {
-        await this.storage.saveCards();
       }
 
+      const deleteResult = await this.storage.deleteCards(cardsToDelete.map(({ cardId }) => cardId));
+      throwOnFailedStorageOperation(deleteResult, 'Failed to batch delete FSRS cards');
       await this.removeCardBlockAttrsBatch(cleanupTargets);
 
       return ok({
         attemptedCount: cardIds.length,
         deletedCount: deletedCardIds.length,
         deletedCardIds,
-        failedCardIds,
+        failedCardIds: [],
       });
     } catch (error) {
       logger.error('Failed to batch delete FSRS cards:', error);
       return err(error instanceof Error ? error : new Error(String(error)));
     }
-  }
-
-  private async deleteCardFromStorage(cardId: string, options: CardStorageMutationOptions = {}): Promise<void> {
-    if (typeof this.storage.deleteCard === 'function') {
-      const result = await this.storage.deleteCard(cardId, options);
-      throwOnFailedStorageOperation(result, `Failed to delete card: ${cardId}`);
-      return;
-    }
-
-    if (typeof this.storage.removeCard === 'function') {
-      const removed = this.storage.removeCard(cardId);
-      if (!removed) {
-        throw new Error(`Failed to delete card via removeCard(): ${cardId}`);
-      }
-      return;
-    }
-
-    throw new Error('No available delete capability on DeleteFSRSCardStoragePort');
-  }
-
-  private async runBatchStorageMutation<T>(
-    operation: (transaction?: CardStorageWriteTransaction) => Promise<T>
-  ): Promise<T> {
-    if (typeof this.storage.runWriteTransaction === 'function') {
-      return this.storage.runWriteTransaction('DeleteFSRSCardUseCase.executeBatch', operation);
-    }
-    return operation(undefined);
   }
 
   private normalizeCardIds(cardIds: readonly string[] | undefined): string[] {

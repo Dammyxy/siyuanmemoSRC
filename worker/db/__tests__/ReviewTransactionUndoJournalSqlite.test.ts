@@ -75,7 +75,10 @@ function createUndoEntry(beforeCard: FSRSCard, afterCard: FSRSCard): ReviewTrans
 describe('Review Transaction Undo Journal SQLite integration', () => {
   it('restores schedule, records reversal evidence, invalidates projections, and excludes undone answers from active audit counts', async () => {
     const db = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
-    await db.init();
+    await db.load({
+      truthDeviceId: 'device-undo-test',
+      identityEpoch: 'epoch-undo-test',
+    });
 
     const beforeCard = createCard();
     const afterCard = createCard({
@@ -146,6 +149,12 @@ describe('Review Transaction Undo Journal SQLite integration', () => {
       status: 'undone',
       scheduleRestoreApplied: true,
       originalReviewIdempotencyKey: 'review-commit:undo-sql',
+      durabilityReceipt: {
+        mutationId: 'review-session-undo:worker-review-session-undo:sql:1',
+        family: 'review',
+        stage: 'journaled',
+        journalSequence: expect.any(Number),
+      },
     });
     expect(db.getOne<{ reps: number; last_review: number; due: number }>(
       'SELECT reps, last_review, due FROM cards WHERE id = ?',

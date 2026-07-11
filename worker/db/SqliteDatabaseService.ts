@@ -5,8 +5,20 @@ import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite
 import { SqlQueueProjectionRepository } from '@/infrastructure/persistence/sqlite/SqlQueueProjectionRepository';
 import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/SqlQueueStateRepository';
 import { SqlSemanticActivationRepository } from '@/infrastructure/persistence/sqlite/SqlSemanticActivationRepository';
+import { SqlReviewLogRepository } from '@/infrastructure/persistence/sqlite/SqlReviewLogRepository';
+import { SqlArenaRepository } from '@/infrastructure/persistence/sqlite/SqlArenaRepository';
+import { SqlNeuralRoamRouteRepository } from '@/infrastructure/persistence/sqlite/SqlNeuralRoamRouteRepository';
+import { migrateLegacyNeuralRoamStateToDefaultRoute } from '@/core/queue/neural/routes';
+import type { DrillLogV2, ReviewLog, ReviewLogV2 } from '@/types/review';
+import type { RescheduleLog } from '@/types/scheduler';
+import type {
+  ArenaCardAttributionRecord,
+  ArenaMatchRecord,
+  ArenaScoreSnapshot,
+} from '@/types/arena';
 import {
   MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+  STORAGE_MUTATION_ENVELOPE_VERSION,
 } from '../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
@@ -31,6 +43,16 @@ import type {
 } from '@/application/queries/browser/browser-deck-query';
 import type {
   BackendDbLoadRequest,
+  BackendDbLoadResult,
+  BackendDbReloadResult,
+  BackendCardCrudBatchMutateRequest,
+  BackendCardCrudBatchMutateResult,
+  BackendNativeRiffImportExclusionFindRequest,
+  BackendNativeRiffImportExclusionFindResult,
+  BackendCardScheduleBatchUpdateRequest,
+  BackendCardScheduleBatchUpdateResult,
+  BackendQueueStateBatchMutateRequest,
+  BackendQueueStateBatchMutateResult,
   BackendAutoCardDecisionResolveRequest,
   BackendAutoCardDecisionResolveResult,
   BackendQueueProjectionRowsByIdsRequest,
@@ -71,6 +93,8 @@ import type {
   BackendSyncConflictReloadResult,
   BackendSyncConflictSummarizeRequest,
   BackendSyncConflictSummarizeResult,
+  BackendTruthReconciliationRunRequest,
+  BackendTruthReconciliationRunResult,
   BackendSemanticBrowserReadRequest,
   BackendSemanticBrowserReadResult,
   BackendSemanticCommandRequest,
@@ -85,14 +109,42 @@ import type {
   BackendReviewFeedbackJournalOperationStatus,
   BackendStorageErrorCode,
   BackendStorageDiagnostic,
+  BackendStorageMaintenanceApplyBatchRequest,
+  BackendStorageMaintenanceApplyBatchResult,
+  BackendStorageMaintenanceStatusRequest,
+  BackendStorageMaintenanceStatusResult,
+  BackendStorageIdentityDiagnostics,
+  BackendStorageReceiptStageDiagnostics,
+  BackendTruthCoverageDiagnostics,
+  BackendTruthPromotionStatusDiagnostics,
+  BackendTruthReconciliationDiagnostics,
   MessagePackTruthFamily,
   MessagePackTruthRecord,
   MessagePackReviewEventTruthRecord,
+  StorageInventoryRecord,
+  StorageDurabilityReceipt,
+  type StorageRecoveryState,
 } from '../../packages/contracts/src/backend-rpc';
 import {
+  type MessagePackTruthSegmentStore,
   type MessagePackTruthSegmentManifest,
   type MessagePackTruthSegmentFileStore,
 } from '../truth/MessagePackTruthSegmentStore';
+import { MessagePackTruthPromotionStateStore } from '../truth/MessagePackTruthPromotionStateStore';
+import {
+  WorkerTruthPromotionModule,
+  type WorkerTruthPromotionDiagnostics,
+  type WorkerTruthPromotionResult,
+} from '../truth/WorkerTruthPromotionModule';
+import { WorkerTruthPublicationModule } from '../truth/WorkerTruthPublicationModule';
+import {
+  WorkerTruthCompactionModule,
+  type WorkerTruthCompactionResult,
+} from '../truth/WorkerTruthCompactionModule';
+import { WorkerTruthReconciliationRuntime } from '../truth/WorkerTruthReconciliationRuntime';
+import { replayQueueFamilyTruthRecords } from '../truth/CompactableCanonicalTruth';
+import { WorkerStorageInventory } from './WorkerStorageInventory';
+import type { WorkerStorageBudgetPolicy } from './WorkerStoragePressureClassifier';
 import type {
   ReviewSqlTruthBackfillProjectionPatch,
   ReviewSqlTruthBackfillRow,
@@ -150,13 +202,31 @@ import {
   type StartupTruthProjectionInput,
   type WorkerStorageBootstrapOptions,
 } from './StorageBootstrapRuntime';
+import {
+  LEGACY_SQLITE_DELTA_LOG_FILE,
+  SQLITE_DELTA_LOG_FILE,
+} from '@/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint';
+import {
+  classifyWorkerStartupStorageEvidence,
+  type WorkerStartupStorageEvidence,
+} from './WorkerStartupStorageEvidence';
 import { activePluginCardSql } from '@/infrastructure/persistence/sqlite/cardAdmissionSql';
 import {
   deriveAlgorithmCardState,
   stringifyAlgorithmCardState,
   ACTIVE_ALGORITHM_IDS,
 } from '@/infrastructure/persistence/sqlite/algorithmCardState';
-import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
+import {
+  canonicalizeSchedulingState,
+  isAuthorizedSchedulingWriteSource,
+} from '@/core/scheduler/schedulingStateCleanliness';
+import { NATIVE_RIFF_IMPORT_EXCLUSION_KIND } from '@/infrastructure/persistence/sqlite/SqlNativeRiffImportExclusionRepository';
+import {
+  SqliteWorkerStorageMaintenancePersistence,
+  WorkerStorageMaintenanceOperationRuntime,
+  type WorkerStorageMaintenanceOperationRecord,
+  type WorkerStorageMaintenanceRunOptions,
+} from './WorkerStorageMaintenanceOperationRuntime';
 
 type SqlParams = SqlValue[] | ParamsObject;
 const logger = createLogger('WorkerSqliteDatabaseService');
@@ -166,6 +236,7 @@ const DOMAIN_SYNC_REPAIR_DAY_MS = 24 * 60 * 60 * 1000;
 const REVIEW_FEEDBACK_JOURNAL_STORAGE_NAME = 'review-feedback-journal.v1';
 const REVIEW_FEEDBACK_JOURNAL_VERSION = 1;
 const REVIEW_FEEDBACK_JOURNAL_REPLAY_BATCH_LIMIT = 512;
+const STORAGE_GROWTH_BASELINE_MIGRATION_ID = 'truth-storage-growth-baseline-v1';
 const DEFAULT_REVIEW_FEEDBACK_JOURNAL_MAX_PENDING_COUNT = 50_000;
 const DEFAULT_REVIEW_FEEDBACK_JOURNAL_MAX_PENDING_BYTES = 16 * 1024 * 1024;
 const DEFAULT_REVIEW_FEEDBACK_JOURNAL_MAX_OLDEST_PENDING_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -820,10 +891,40 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function extractEvidencePaths(message: string): string[] {
+  return Array.from(new Set(
+    message
+      .match(/(?:truth|sqlite-delta)[/\\][A-Za-z0-9_.\-/\\]+(?:\.json|\.msgpack)/g)
+      ?.map((path) => path.replace(/\\/g, '/'))
+      ?? [],
+  ));
+}
+
+function isSqliteDeltaValidationError(error: unknown): boolean {
+  return /(?:SQLite delta|SQLITE_DELTA)/.test(errorMessage(error));
+}
+
 export class WorkerSqliteDatabaseService {
   private readonly fileService: SqliteFileServiceAdapter;
   private readonly runtime: RuntimeSqliteDatabaseService;
   private readonly truthFileStore: MessagePackTruthSegmentFileStore | null;
+  private truthPublicationModule: WorkerTruthPublicationModule | null = null;
+  private truthPromotionModule: WorkerTruthPromotionModule | null = null;
+  private truthCompactionModule: WorkerTruthCompactionModule | null = null;
+  private truthPromotionConfig: {
+    deviceId: string;
+    identityEpoch: string;
+    schemaVersion: number;
+    reviewGenerationId: string;
+  } | null = null;
+  private truthPromotionTimer: ReturnType<typeof setTimeout> | null = null;
+  private truthPromotionRun: Promise<void> | null = null;
+  private storagePressureMaintenanceTimer: ReturnType<typeof setTimeout> | null = null;
+  private storagePressureMaintenanceRun: Promise<void> | null = null;
+  private truthPromotionShutdownStarted = false;
+  private storageGrowthBaselineReady = false;
+  private storagePressureBlockReason: string | null = null;
+  private startupStorageEvidence: WorkerStartupStorageEvidence | null = null;
   private readonly autoCardDecisionService = new AutoCardDecisionService();
   private readonly kernelTransactionRuntime: WorkerKernelTransactionRuntime;
   private readonly storageBootstrapRuntime: StorageBootstrapRuntime;
@@ -831,7 +932,30 @@ export class WorkerSqliteDatabaseService {
   private queueProjection: SqlQueueProjectionRepository | null = null;
   private queueState: SqlQueueStateRepository | null = null;
   private semanticActivation: SqlSemanticActivationRepository | null = null;
+  private storageMutationIdentity: { deviceId: string; identityEpoch: string } | null = null;
+  private readonly reconciliationBlockedAggregateIds = new Set<string>();
+  private lastTruthReconciliationDiagnostics: BackendTruthReconciliationDiagnostics = {
+    status: 'never-run',
+    reason: null,
+    startedAt: null,
+    completedAt: null,
+    sourceCount: 0,
+    acceptedMutationCount: 0,
+    duplicateMutationCount: 0,
+    blockedAggregateIds: [],
+    conflictCount: 0,
+    mergeDecisionCount: 0,
+    generationIds: {
+      card: null,
+      queue: null,
+      review: null,
+      domainSync: null,
+    },
+    projectionRebuilt: false,
+    lastError: null,
+  };
   private initialized = false;
+  private storageMaintenanceOperations: WorkerStorageMaintenanceOperationRuntime | null = null;
   private lastObservedPersistedHash: string | null = null;
   private lastDomainSyncStatusSnapshot: BackendDomainSyncStatusResult | null = null;
   private reviewFeedbackMainDbFastSkipUsesRemaining = 0;
@@ -875,6 +999,9 @@ export class WorkerSqliteDatabaseService {
     maxPendingBytes: number;
     maxOldestPendingAgeMs: number;
   };
+  private readonly truthPromotionMaxBatchSize: number;
+  private readonly truthPromotionScheduleDelayMs: number;
+  private readonly storageBudgetPolicies?: readonly WorkerStorageBudgetPolicy[];
   constructor(
     bridge: SqlitePersistenceBridge,
     private readonly dbFile = SQLITE_DB_FILE,
@@ -888,6 +1015,9 @@ export class WorkerSqliteDatabaseService {
         maxPendingBytes?: number;
         maxOldestPendingAgeMs?: number;
       };
+      truthPromotionMaxBatchSize?: number;
+      truthPromotionScheduleDelayMs?: number;
+      storageBudgetPolicies?: readonly WorkerStorageBudgetPolicy[];
     },
   ) {
     this.truthFileStore = bridge.truthFileStore ?? null;
@@ -908,7 +1038,7 @@ export class WorkerSqliteDatabaseService {
       addStorageDiagnostic: (diagnostic) => this.addStorageDiagnostic(diagnostic),
       projectionRuntime: {
         dispose: () => this.runtime.dispose(),
-        init: () => this.runtime.init(),
+        init: (options) => this.runtime.init(options),
         suppressPersistedProjectionRead: async (task) => {
           this.suppressProjectionReadForStartupReset = true;
           try {
@@ -932,6 +1062,7 @@ export class WorkerSqliteDatabaseService {
       enableDeltaPersistence: true,
       checkpointStorageClass: 'volatile-projection',
       dropStoredDatabaseOnSchemaMismatch: true,
+      beforeMutation: () => this.enforceFormalWriteBeforeMutation(),
     });
     this.reviewFeedbackJournalBackpressure = {
       maxPendingCount: Math.max(
@@ -956,6 +1087,15 @@ export class WorkerSqliteDatabaseService {
         )),
       ),
     };
+    this.truthPromotionMaxBatchSize = Math.max(
+      1,
+      Math.floor(Number(options?.truthPromotionMaxBatchSize) || 32),
+    );
+    this.truthPromotionScheduleDelayMs = Math.max(
+      0,
+      Math.floor(Number(options?.truthPromotionScheduleDelayMs) || 0),
+    );
+    this.storageBudgetPolicies = options?.storageBudgetPolicies;
   }
 
   async init(request?: BackendDbLoadRequest): Promise<void> {
@@ -963,17 +1103,64 @@ export class WorkerSqliteDatabaseService {
       return;
     }
     const bootstrapOptions = this.normalizeStorageBootstrapOptions(request);
+    this.storageMutationIdentity = bootstrapOptions.truthDeviceId && bootstrapOptions.identityEpoch
+      ? {
+          deviceId: bootstrapOptions.truthDeviceId,
+          identityEpoch: bootstrapOptions.identityEpoch,
+        }
+      : null;
     const storageBootstrap = await this.storageBootstrapRuntime.bootstrap(bootstrapOptions);
     const projectionBytesBeforeStartup = storageBootstrap.projectionBytesBeforeStartup;
-    let projectionResetDuringStartup = false;
+    let deltaValidationError: string | null = null;
+    let deltaEvidence = null;
     try {
-      await this.runtime.init();
+      deltaEvidence = await this.runtime.getSqliteDeltaStartupEvidence(null);
     } catch (error) {
-      if (!storageBootstrap.truthAvailable) {
-        throw error;
+      deltaValidationError = errorMessage(error);
+    }
+    let recoveryRequired = Boolean(
+      storageBootstrap.truthValidationError
+      || deltaValidationError
+    );
+    let projectionResetDuringStartup = false;
+    let projectionRebuildReason = storageBootstrap.projectionRebuildReason;
+    try {
+      await this.runtime.init({
+        skipDeltaReplay: recoveryRequired,
+      });
+    } catch (error) {
+      if (isSqliteDeltaValidationError(error)) {
+        deltaValidationError = errorMessage(error);
+        recoveryRequired = true;
+        await this.storageBootstrapRuntime.reinitializeTempProjectionRuntimeAfterLoadFailure(
+          error,
+          { skipDeltaReplay: true },
+        );
+      } else {
+        if (!storageBootstrap.truthAvailable && !recoveryRequired) {
+          throw error;
+        }
+        projectionResetDuringStartup = true;
+        projectionRebuildReason = 'temp-projection-corrupt';
+        await this.storageBootstrapRuntime.reinitializeTempProjectionRuntimeAfterLoadFailure(
+          error,
+          { skipDeltaReplay: recoveryRequired },
+        );
       }
-      projectionResetDuringStartup = true;
-      await this.storageBootstrapRuntime.reinitializeTempProjectionRuntimeAfterLoadFailure(error);
+    }
+    const storageMaintenancePersistence = new SqliteWorkerStorageMaintenancePersistence(this.runtime);
+    storageMaintenancePersistence.ensureSchema();
+    this.storageMaintenanceOperations = new WorkerStorageMaintenanceOperationRuntime(
+      storageMaintenancePersistence,
+    );
+    if (!recoveryRequired) {
+      this.configureTruthPromotion(bootstrapOptions);
+      if (storageBootstrap.truthProjectionInput) {
+        await this.storageBootstrapRuntime.reconcileVerifiedTruthWithoutReceipt(
+          bootstrapOptions,
+          storageBootstrap.truthProjectionInput,
+        );
+      }
     }
     this.repository = new SqlUnifiedStorageRepository(this.runtime, {
       domainSyncLedger: new DomainSyncLedger(this.runtime),
@@ -1004,9 +1191,56 @@ export class WorkerSqliteDatabaseService {
       await this.rebuildRequiredStartupProjectionFromTruth(
         bootstrapOptions,
         storageBootstrap.truthProjectionInput,
-        storageBootstrap.projectionRebuildReason
-          ?? (projectionResetDuringStartup ? 'temp-projection-reset' : 'temp-projection-missing'),
+        projectionRebuildReason ?? 'temp-projection-missing',
       );
+    }
+    const truthProjectionInput = storageBootstrap.truthProjectionInput;
+    if (recoveryRequired) {
+      this.startupStorageEvidence = classifyWorkerStartupStorageEvidence({
+        identity: {
+          deviceId: bootstrapOptions.truthDeviceId,
+          identityEpoch: bootstrapOptions.identityEpoch,
+        },
+        truth: {
+          manifestCount: truthProjectionInput?.manifestCount ?? 0,
+          segmentCount: truthProjectionInput?.segmentCount ?? 0,
+          currentGenerationId: truthProjectionInput?.currentGenerationId ?? null,
+          previousGenerationId: truthProjectionInput?.previousGenerationId ?? null,
+          selectedGenerationId: truthProjectionInput?.selectedGenerationId ?? null,
+          generationFallbackReason: truthProjectionInput?.generationFallbackReason ?? null,
+          validationError: storageBootstrap.truthValidationError,
+          quarantinedPaths: storageBootstrap.quarantinedPaths,
+        },
+        delta: {
+          files: deltaEvidence?.files ?? 0,
+          entries: deltaEvidence?.entries ?? 0,
+          checkpoint: deltaEvidence?.checkpoint ?? null,
+          truthCoverageFrontier: deltaEvidence?.truthCoverageFrontier ?? null,
+          uncoveredMutationCount: deltaEvidence?.uncoveredMutationCount ?? null,
+          validationError: deltaValidationError,
+          quarantinedPaths: deltaValidationError
+            ? uniqueStrings([
+                SQLITE_DELTA_LOG_FILE,
+                LEGACY_SQLITE_DELTA_LOG_FILE,
+                ...(deltaEvidence?.segmentPaths ?? []),
+                ...extractEvidencePaths(deltaValidationError),
+              ])
+            : [],
+        },
+        projection: {
+          status: projectionResetDuringStartup
+            ? 'corrupt'
+            : projectionBytesBeforeStartup
+              ? 'present'
+              : 'missing',
+          byteLength: projectionBytesBeforeStartup?.byteLength ?? 0,
+          reason: projectionRebuildReason,
+        },
+      });
+      this.storageGrowthBaselineReady = false;
+      this.initialized = true;
+      await this.rememberPersistedHash();
+      return;
     }
     const domainSyncLedger = new DomainSyncLedger(this.runtime);
     if (domainSyncLedger.hasMissingBackfillOperations()) {
@@ -1017,6 +1251,57 @@ export class WorkerSqliteDatabaseService {
     await this.replayPendingReviewFeedbackJournalEntries();
     await this.reconcileReviewFeedbackJournalProjectionState();
     await this.kernelTransactionRuntime.restoreSnapshots();
+    const startupPromotion = await this.truthPromotionModule?.promotePending();
+    if (startupPromotion?.ok) {
+      await this.truthPromotionModule?.diagnostics();
+    }
+    await this.runOneTimeStorageGrowthBaseline();
+    this.storageGrowthBaselineReady = true;
+    const startupPromotionDiagnostics = await this.truthPromotionModule?.diagnostics();
+    const verifiedDeltaEvidence = await this.runtime.getSqliteDeltaStartupEvidence(
+      startupPromotionDiagnostics?.truthCoverageFrontier ?? null,
+    );
+    this.startupStorageEvidence = classifyWorkerStartupStorageEvidence({
+      identity: {
+        deviceId: bootstrapOptions.truthDeviceId,
+        identityEpoch: bootstrapOptions.identityEpoch,
+      },
+      truth: {
+        manifestCount: truthProjectionInput?.manifestCount ?? 0,
+        segmentCount: truthProjectionInput?.segmentCount ?? 0,
+        currentGenerationId: truthProjectionInput?.currentGenerationId ?? null,
+        previousGenerationId: truthProjectionInput?.previousGenerationId ?? null,
+        selectedGenerationId: truthProjectionInput?.selectedGenerationId ?? null,
+        generationFallbackReason: truthProjectionInput?.generationFallbackReason ?? null,
+        validationError: null,
+        quarantinedPaths: truthProjectionInput?.quarantinedPaths ?? [],
+      },
+      delta: {
+        files: verifiedDeltaEvidence?.files ?? 0,
+        entries: verifiedDeltaEvidence?.entries ?? 0,
+        checkpoint: verifiedDeltaEvidence?.checkpoint ?? null,
+        truthCoverageFrontier: verifiedDeltaEvidence?.truthCoverageFrontier ?? null,
+        uncoveredMutationCount: verifiedDeltaEvidence?.uncoveredMutationCount ?? null,
+        validationError: null,
+        quarantinedPaths: [],
+      },
+      projection: {
+        status: storageBootstrap.truthAvailable && (
+          storageBootstrap.projectionRebuildRequired
+          || projectionResetDuringStartup
+          || !projectionBytesBeforeStartup
+        )
+          ? 'rebuilt'
+          : projectionBytesBeforeStartup
+            ? 'present'
+            : 'missing',
+        byteLength: projectionBytesBeforeStartup?.byteLength ?? 0,
+        reason: projectionRebuildReason,
+      },
+    });
+    if ((startupPromotionDiagnostics?.pendingMutationCount ?? 0) > 0) {
+      this.scheduleTruthPromotion('startup-resume');
+    }
     this.initialized = true;
     await this.rememberPersistedHash();
   }
@@ -1029,17 +1314,127 @@ export class WorkerSqliteDatabaseService {
       Math.floor(Number(request?.truthSchemaVersion ?? MESSAGEPACK_TRUTH_SCHEMA_VERSION) || MESSAGEPACK_TRUTH_SCHEMA_VERSION),
     );
     const truthDeviceId = normalizeString(request?.truthDeviceId);
+    const identityEpoch = normalizeString(request?.identityEpoch);
     const requestedMaxSegmentBytes = normalizeOptionalInteger(request?.maxSegmentBytes);
     return {
       truthDeviceId: truthDeviceId || null,
+      identityEpoch: identityEpoch || null,
+      truthSchemaVersion: schemaVersion,
       cardTruthGenerationId: normalizeString(request?.cardTruthGenerationId)
         || `card-memory-facts-v${schemaVersion}`,
       reviewTruthGenerationId: normalizeString(request?.reviewTruthGenerationId)
         || `review-events-v${schemaVersion}`,
+      queueTruthGenerationId: `queue-facts-v${schemaVersion}`,
       maxSegmentBytes: requestedMaxSegmentBytes && requestedMaxSegmentBytes >= 256
         ? requestedMaxSegmentBytes
         : undefined,
     };
+  }
+
+  private configureTruthPromotion(options: WorkerStorageBootstrapOptions): void {
+    this.truthPromotionShutdownStarted = false;
+    if (!this.truthFileStore || !options.truthDeviceId || !options.identityEpoch) {
+      this.truthPublicationModule = null;
+      this.truthPromotionModule = null;
+      this.truthCompactionModule = null;
+      this.truthPromotionConfig = null;
+      return;
+    }
+    this.truthPublicationModule = new WorkerTruthPublicationModule({
+      fileStore: this.truthFileStore,
+      deviceId: options.truthDeviceId,
+      identityEpoch: options.identityEpoch,
+      schemaVersion: options.truthSchemaVersion,
+      maxSegmentBytes: options.maxSegmentBytes,
+      generationIds: {
+        'review-events': options.reviewTruthGenerationId,
+        'card-memory-facts': options.cardTruthGenerationId,
+        'queue-facts': options.queueTruthGenerationId,
+      },
+    });
+    this.truthPromotionModule = new WorkerTruthPromotionModule({
+      deviceId: options.truthDeviceId,
+      identityEpoch: options.identityEpoch,
+      journalSource: {
+        listJournaledMutations: (input) => this.runtime.listJournaledMutations(input),
+      },
+      stateStore: new MessagePackTruthPromotionStateStore({
+        fileStore: this.truthFileStore,
+        deviceId: options.truthDeviceId,
+        identityEpoch: options.identityEpoch,
+      }),
+      publisher: this.truthPublicationModule,
+      maxBatchSize: this.truthPromotionMaxBatchSize,
+    });
+    this.truthCompactionModule = new WorkerTruthCompactionModule({
+      fileStore: this.truthFileStore,
+      deviceId: options.truthDeviceId,
+      schemaVersion: options.truthSchemaVersion,
+      sourceGenerationIds: {
+        'card-memory-facts': options.cardTruthGenerationId,
+        'queue-facts': options.queueTruthGenerationId,
+      },
+      maxSegmentBytes: options.maxSegmentBytes,
+      maxSegmentRecords: 512,
+    });
+    this.truthPromotionConfig = {
+      deviceId: options.truthDeviceId,
+      identityEpoch: options.identityEpoch,
+      schemaVersion: options.truthSchemaVersion,
+      reviewGenerationId: options.reviewTruthGenerationId,
+    };
+  }
+
+  private scheduleTruthPromotion(
+    reason: string,
+    delayMs = this.truthPromotionScheduleDelayMs,
+  ): void {
+    if (
+      this.truthPromotionShutdownStarted
+      || !this.truthPromotionModule
+      || this.truthPromotionTimer
+      || this.truthPromotionRun
+      || this.storagePressureMaintenanceTimer
+      || this.storagePressureMaintenanceRun
+    ) {
+      return;
+    }
+    this.truthPromotionTimer = setTimeout(() => {
+      this.truthPromotionTimer = null;
+      const module = this.truthPromotionModule;
+      if (!module) {
+        return;
+      }
+      this.truthPromotionRun = (async () => {
+        const result = await module.promotePending();
+        if (!result.ok) {
+          logger.warn('[WorkerSqliteDatabaseService] truth promotion deferred', {
+            reason,
+            error: result.error,
+            coveredJournalSequence: result.coveredJournalSequence,
+          });
+          this.truthPromotionRun = null;
+          this.scheduleTruthPromotion('retry-after-failure', 1_000);
+          return;
+        }
+        const diagnostics = await module.diagnostics();
+        if (diagnostics.pendingMutationCount > 0) {
+          this.truthPromotionRun = null;
+          this.scheduleTruthPromotion('continue-bounded-batch', 0);
+        }
+      })().finally(() => {
+        this.truthPromotionRun = null;
+      });
+    }, Math.max(0, Math.floor(delayMs)));
+  }
+
+  private requireStorageMutationIdentity(): { deviceId: string; identityEpoch: string } {
+    if (!this.storageMutationIdentity) {
+      throw new Error(
+        'BACKEND_UNAVAILABLE: storage mutation identity requires matching deviceId and identityEpoch',
+      );
+    }
+    return this.storageMutationIdentity;
   }
 
   private async rebuildRequiredStartupProjectionFromTruth(
@@ -1050,10 +1445,10 @@ export class WorkerSqliteDatabaseService {
     if (!truthProjectionInput) {
       throw storageError('PROJECTION_REBUILD_FAILED', `startup projection rebuild unavailable: ${reason}`);
     }
-    const result = this.rebuildSqlProjectionsFromTruth({
+    const result = await this.rebuildSqlProjectionsFromTruth({
       rebuildId: `startup:${Date.now()}`,
       cause: reason,
-      families: ['cards', 'review-event-indexes'],
+      families: ['cards', 'review-event-indexes', 'queue-projections'],
       deviceId: truthProjectionInput.primaryDeviceId,
       generationId: truthProjectionInput.primaryGenerationId,
       schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
@@ -1130,23 +1525,28 @@ export class WorkerSqliteDatabaseService {
     }
   }
 
-  async load(request?: BackendDbLoadRequest): Promise<{ ok: true; initialized: true; dbFile: string }> {
+  async load(request?: BackendDbLoadRequest): Promise<BackendDbLoadResult> {
     await this.init(request);
+    if (!this.repository) {
+      throw new Error('BACKEND_UNAVAILABLE: unified storage projection repository is not initialized');
+    }
     return {
       ok: true,
       initialized: true,
       dbFile: this.dbFile,
+      projectionSnapshot: await this.repository.loadStore('startup-load'),
     };
   }
 
-  async reloadFromDisk(): Promise<BackendSyncConflictReloadResult> {
+  async reloadFromDisk(request?: BackendDbLoadRequest): Promise<BackendDbReloadResult> {
     this.queueState = null;
     this.semanticActivation = null;
     this.lastDomainSyncStatusSnapshot = null;
     this.runtime.dispose();
     this.initialized = false;
+    this.startupStorageEvidence = null;
     this.appliedReviewFeedbackJournalEntryIds.clear();
-    await this.init();
+    await this.init(request);
     return {
       ok: true,
       reloaded: true,
@@ -1155,6 +1555,7 @@ export class WorkerSqliteDatabaseService {
   }
 
   async persist(): Promise<{ ok: true; persisted: true; dbFile: string }> {
+    this.assertFormalWritesAvailable();
     let pendingCountBefore: number | undefined;
     let pendingBytesBefore: number | undefined;
     try {
@@ -1205,116 +1606,16 @@ export class WorkerSqliteDatabaseService {
     const totalStartedAt = Date.now();
     const context = options.context ?? 'generic';
     const cardId = options.cardId ?? null;
-    const forceMainDbRead = options.forceMainDbRead === true;
-    const skipMainDbRead = options.skipMainDbRead === true && !forceMainDbRead;
-    const ignoreProcessedSourceDeduplication = options.ignoreProcessedSourceDeduplication === true;
-    await this.measureReviewFeedbackDatabaseStep('merge.init', cardId, () => this.init());
-    const sources: BackendSyncConflictMergeRequest['sources'] = [];
-    const conflictSources = skipMainDbRead
-      ? []
-      : await this.measureReviewFeedbackDatabaseStep(
-        'merge.read-conflict-sources',
-        cardId,
-        () => this.fileService.readSyncConflictDatabaseSources(),
-      );
-    let mainDbReadSkipped = false;
-    let mainDbReadSkipReason: string | null = null;
-    const nonEmptyConflictSources = conflictSources.filter((source) => source.bytes.byteLength > 0);
-    if (skipMainDbRead) {
-      mainDbReadSkipped = true;
-      mainDbReadSkipReason = 'read-only-preflight-main-db-disabled';
-      recordReviewFeedbackInnerStep({
-        layer: 'database',
-        step: 'merge.skip-main-db-read',
-        cardId: cardId ? String(cardId) : null,
-        durationMs: 0,
-        extra: {
-          context,
-          reason: mainDbReadSkipReason,
-          conflictSourceCount: conflictSources.length,
-          nonEmptyConflictSourceCount: nonEmptyConflictSources.length,
-        },
-      });
-    } else if (!forceMainDbRead && nonEmptyConflictSources.length === 0 && this.canSkipMainDbReadForReviewFeedbackPreflight(context)) {
-      this.reviewFeedbackMainDbFastSkipUsesRemaining -= 1;
-      mainDbReadSkipped = true;
-      mainDbReadSkipReason = 'own-review-feedback-persisted-no-conflict-sources';
-      recordReviewFeedbackInnerStep({
-        layer: 'database',
-        step: 'merge.fast-skip-main-db-read',
-        cardId: cardId ? String(cardId) : null,
-        durationMs: 0,
-        extra: {
-          context,
-          usesRemaining: this.reviewFeedbackMainDbFastSkipUsesRemaining,
-          reason: mainDbReadSkipReason,
-          conflictSourceCount: conflictSources.length,
-          nonEmptyConflictSourceCount: nonEmptyConflictSources.length,
-        },
-      });
-      logger.info('[SiYuanMemo][WorkerSqliteDatabaseService] review.feedback preflight skipped persisted main DB read', {
-        cardId: cardId ? String(cardId) : null,
-        context,
-        usesRemaining: this.reviewFeedbackMainDbFastSkipUsesRemaining,
-        reason: mainDbReadSkipReason,
-        conflictSourceCount: conflictSources.length,
-        nonEmptyConflictSourceCount: nonEmptyConflictSources.length,
-      });
-    } else {
-      if (context === 'review-feedback-preflight' && !forceMainDbRead && nonEmptyConflictSources.length === 0) {
-        mainDbReadSkipReason = this.reviewFeedbackMainDbFastSkipUsesRemaining <= 0
-          ? `fast-skip-not-eligible:${this.reviewFeedbackMainDbFastSkipInvalidatedBy ?? 'unknown'}`
-          : 'fast-skip-not-eligible:unknown';
-      } else if (context === 'review-feedback-preflight' && !forceMainDbRead) {
-        mainDbReadSkipReason = 'fast-skip-blocked:non-empty-conflict-sources';
-      }
-      if (context !== 'review-feedback-preflight' && context !== 'read-only-preflight') {
-        this.invalidateReviewFeedbackMainDbFastSkip(`merge:${context}`);
-      }
-      const bytes = await this.measureReviewFeedbackDatabaseStep(
-        'merge.read-main-db',
-        cardId,
-        () => this.fileService.readBinary(this.dbFile),
-      );
-
-      if (bytes && bytes.byteLength > 0) {
-        const persistedHash = hashBytes(bytes);
-        if (forceMainDbRead || persistedHash !== this.lastObservedPersistedHash) {
-          const currentHash = await this.measureReviewFeedbackDatabaseStep(
-            'merge.hash-current-db',
-            cardId,
-            () => this.runtime.read((db) => hashBytes(db.export())),
-          );
-          if (persistedHash === currentHash) {
-            this.lastObservedPersistedHash = persistedHash;
-          } else {
-            sources.push({ sourceId: 'siyuan-sync:siyuanmemo.db', bytes });
-          }
-        }
-      }
+    await this.measureReviewFeedbackDatabaseStep('reconciliation.init', cardId, () => this.init());
+    if (context !== 'read-only-preflight') {
+      this.assertFormalWritesAvailable();
     }
-    for (const source of nonEmptyConflictSources) {
-      sources.push(source);
-    }
-    const forgottenStaleSkippedSources = this.forgetStaleUnknownSkippedDomainSyncConflictSources(
-      conflictSources.map((source) => source.sourceId),
-    );
-
-    if (sources.length === 0) {
-      if (forgottenStaleSkippedSources > 0) {
-        this.invalidateReviewFeedbackMainDbFastSkip('merge:forgotten-stale-skipped-sources');
-        await this.measureReviewFeedbackDatabaseStep('merge.persist-forgotten-skipped', cardId, () => this.runtime.persist());
-        await this.measureReviewFeedbackDatabaseStep('merge.remember-hash', cardId, () => this.rememberPersistedHash());
-      }
-      const domainSyncStatus = await this.measureReviewFeedbackDatabaseStep(
-        'merge.domain-sync-status.no-sources',
-        cardId,
-        () => this.readDomainSyncStatusForNoSourceMerge(context, Date.now()),
-      );
-      const response: ExternalDatabaseMergeResult = {
+    if (context === 'read-only-preflight') {
+      const domainSyncStatus = await this.readDomainSyncStatusForNoSourceMerge(context, mergedAt);
+      return {
         ok: true,
         checked: true,
-        changed: forgottenStaleSkippedSources > 0,
+        changed: false,
         mergedReviewEvents: 0,
         mergedCards: 0,
         ignoredReviewEvents: 0,
@@ -1329,102 +1630,60 @@ export class WorkerSqliteDatabaseService {
         diagnostics: {
           reviewCardDivergences: [],
         },
-        mainDbReadSkipped,
-        mainDbReadSkipReason,
-        conflictSourceCount: conflictSources.length,
-        nonEmptyConflictSourceCount: nonEmptyConflictSources.length,
+        mainDbReadSkipped: true,
+        mainDbReadSkipReason: 'sqlite-conflict-copies-non-authoritative',
+        conflictSourceCount: 0,
+        nonEmptyConflictSourceCount: 0,
       };
-      this.logReviewFeedbackDatabaseStepIfSlow('merge.total', cardId, Date.now() - totalStartedAt, {
-        changed: response.changed,
-        sourceCount: response.sourceIds.length,
-        sanityStatus: response.sanityStatus,
-        mainDbReadSkipped: response.mainDbReadSkipped,
-        mainDbReadSkipReason: response.mainDbReadSkipReason,
-        conflictSourceCount: response.conflictSourceCount,
-        nonEmptyConflictSourceCount: response.nonEmptyConflictSourceCount,
-      });
-      return response;
     }
-
-    const operationCountBeforeMerge = this.runtime.getOne<{ count: number }>(
-      'SELECT COUNT(*) AS count FROM domain_sync_operations',
-    )?.count ?? 0;
-    const result = await this.measureReviewFeedbackDatabaseStep(
-      'merge.apply-conflicts',
+    const reconciliation = await this.measureReviewFeedbackDatabaseStep(
+      'reconciliation.apply-canonical-truth',
       cardId,
-      () => this.mergeSyncConflictDatabases({
-        mergedAt,
-        sources,
-        ignoreProcessedSourceDeduplication,
+      () => this.reconcileCanonicalTruth({
+        reason: `sync-preflight:${context}`,
       }),
-      { sourceCount: sources.length },
     );
     const domainSyncStatus = await this.measureReviewFeedbackDatabaseStep(
-      'merge.domain-sync-status.after-merge',
+      'reconciliation.domain-sync-status.after-publication',
       cardId,
       () => this.readDomainSyncStatusSnapshot(Date.now()),
-      { sourceCount: sources.length },
+      { sourceCount: reconciliation.sourceCount },
     );
-    const processedRows = this.readDomainSyncProcessedSourcesForSourceIds(sources.map((source) => source.sourceId));
-    const skippedSourceReasons: Record<string, number> = {};
-    for (const skipped of result.skippedSources) {
-      const reason = String(skipped.reason || 'unknown');
-      skippedSourceReasons[reason] = (skippedSourceReasons[reason] || 0) + 1;
-    }
-    const operationCountAfterMerge = this.runtime.getOne<{ count: number }>(
-      'SELECT COUNT(*) AS count FROM domain_sync_operations',
-    )?.count ?? operationCountBeforeMerge;
-    const changed = result.mergedReviewEvents > 0
-      || result.mergedCards > 0
-      || Number(operationCountAfterMerge) > Number(operationCountBeforeMerge)
-      || forgottenStaleSkippedSources > 0;
-    if (
-      result.skippedSources.length === 0
-      && changed
-    ) {
-      await this.measureReviewFeedbackDatabaseStep('merge.persist-changed', cardId, () => this.runtime.persist(), {
-        sourceCount: sources.length,
-      });
-      await this.measureReviewFeedbackDatabaseStep('merge.remember-hash', cardId, () => this.rememberPersistedHash());
-    } else if (result.skippedSources.length === 0 && !changed) {
-      await this.measureReviewFeedbackDatabaseStep('merge.remember-noop-hash', cardId, () => this.rememberPersistedHash());
-    }
-    this.invalidateReviewFeedbackMainDbFastSkip('merge:changed-or-conflict-source');
+    const changed = reconciliation.sourceCount > 1
+      || reconciliation.duplicateMutationIds.length > 0
+      || reconciliation.mergeDecisionCount > 0
+      || reconciliation.blockedAggregateIds.length > 0;
 
     const response: ExternalDatabaseMergeResult = {
       ok: true,
       checked: true,
       changed,
-      mergedReviewEvents: result.mergedReviewEvents,
-      mergedCards: result.mergedCards,
-      ignoredReviewEvents: result.ignoredReviewEvents,
-      ignoredCards: result.ignoredCards,
-      importedOperations: processedRows.reduce((sum, row) => sum + Number(row.imported_operations || 0), 0),
-      ignoredOperations: processedRows.reduce((sum, row) => sum + Number(row.ignored_operations || 0), 0),
-      processedSourceIds: processedRows
-        .filter((row) => !row.skipped_reason)
-        .map((row) => row.source_id),
-      skippedSourceReasons,
+      mergedReviewEvents: 0,
+      mergedCards: 0,
+      ignoredReviewEvents: reconciliation.duplicateMutationIds.length,
+      ignoredCards: reconciliation.blockedAggregateIds.filter((aggregateId) => aggregateId.startsWith('card:')).length,
+      importedOperations: reconciliation.acceptedMutationIds.length,
+      ignoredOperations: reconciliation.duplicateMutationIds.length,
+      processedSourceIds: [],
+      skippedSourceReasons: {},
       sanityStatus: domainSyncStatus.sanity.status,
-      sourceIds: sources.map((source) => String(source.sourceId || '').trim() || 'unknown'),
-      skippedSources: result.skippedSources,
-      diagnostics: result.diagnostics,
-      mainDbReadSkipped,
-      mainDbReadSkipReason,
-      conflictSourceCount: conflictSources.length,
-      nonEmptyConflictSourceCount: nonEmptyConflictSources.length,
+      sourceIds: [],
+      skippedSources: [],
+      diagnostics: {
+        reviewCardDivergences: [],
+      },
+      mainDbReadSkipped: true,
+      mainDbReadSkipReason: 'sqlite-conflict-copies-non-authoritative',
+      conflictSourceCount: 0,
+      nonEmptyConflictSourceCount: 0,
     };
-    this.logReviewFeedbackDatabaseStepIfSlow('merge.total', cardId, Date.now() - totalStartedAt, {
+    this.logReviewFeedbackDatabaseStepIfSlow('reconciliation.total', cardId, Date.now() - totalStartedAt, {
       changed: response.changed,
-      sourceCount: response.sourceIds.length,
+      sourceCount: reconciliation.sourceCount,
       sanityStatus: response.sanityStatus,
-      mergedCards: response.mergedCards,
-      mergedReviewEvents: response.mergedReviewEvents,
       importedOperations: response.importedOperations,
       mainDbReadSkipped: response.mainDbReadSkipped,
       mainDbReadSkipReason: response.mainDbReadSkipReason,
-      conflictSourceCount: response.conflictSourceCount,
-      nonEmptyConflictSourceCount: response.nonEmptyConflictSourceCount,
     });
     return response;
   }
@@ -1692,6 +1951,8 @@ export class WorkerSqliteDatabaseService {
 
   async setQueueStateValue(key: string, value: unknown): Promise<void> {
     await this.init();
+    this.assertFormalWritesAvailable();
+    this.assertReconciliationAggregatesWritable('queue', [key]);
     this.queueState!.set(key, value);
     await this.queueState!.persist();
   }
@@ -1740,6 +2001,7 @@ export class WorkerSqliteDatabaseService {
       backendMethod: 'queue.projection.replace',
       queueType: request.queueType,
     });
+    this.assertFormalWritesAvailable();
     const result = await this.measureDiagnosticDatabaseStep(
       'queueProjection.replace.total',
       () => this.createQueueProjectionRuntime().replace(request),
@@ -1765,6 +2027,7 @@ export class WorkerSqliteDatabaseService {
       families: request.families,
       cause: request.cause ?? null,
     });
+    this.assertFormalWritesAvailable();
     return this.measureDiagnosticDatabaseStep(
       'storageProjection.rebuild.total',
       () => this.rebuildSqlProjectionsFromTruth(request),
@@ -1783,9 +2046,613 @@ export class WorkerSqliteDatabaseService {
     return this.repository!.getCard(cardId);
   }
 
+  async findNativeRiffImportExclusion(
+    request: BackendNativeRiffImportExclusionFindRequest,
+  ): Promise<BackendNativeRiffImportExclusionFindResult> {
+    await this.init();
+    const blockId = normalizeString(request.blockId);
+    if (!blockId) {
+      throw new Error('INVALID_REQUEST: card.nativeRiffImportExclusion.find requires blockId');
+    }
+    const row = this.runtime.getOne<{ payload_json: string }>(
+      'SELECT payload_json FROM tombstones WHERE kind = ? AND id = ?',
+      [NATIVE_RIFF_IMPORT_EXCLUSION_KIND, blockId],
+    );
+    if (!row) {
+      return { exclusion: null };
+    }
+    const value = parseJsonObject<Record<string, unknown>>(row.payload_json, {});
+    const source = value.source === 'legacy-blacklist' || value.source === 'user'
+      ? value.source
+      : null;
+    const excludedAt = Number(value.excludedAt);
+    if (
+      value.version !== 1
+      || normalizeString(value.blockId) !== blockId
+      || !source
+      || !Number.isFinite(excludedAt)
+      || excludedAt < 0
+    ) {
+      throw new Error('STORAGE_RECOVERY_REQUIRED: invalid native Riff import exclusion record');
+    }
+    return {
+      exclusion: {
+        version: 1,
+        blockId,
+        ...(normalizeString(value.nativeCardId) ? { nativeCardId: normalizeString(value.nativeCardId)! } : {}),
+        ...(normalizeString(value.deckId) ? { deckId: normalizeString(value.deckId)! } : {}),
+        excludedAt,
+        source,
+        ...(normalizeString(value.reason) ? { reason: normalizeString(value.reason)! } : {}),
+      },
+    };
+  }
+
   async upsertCards(cards: FSRSCard[]): Promise<void> {
     await this.init();
+    this.assertFormalWritesAvailable();
+    this.assertReconciliationAggregatesWritable('card', cards.map((card) => card.id));
     this.repository!.upsertCards(cards);
+  }
+
+  async runStorageMaintenanceOperation(
+    options: WorkerStorageMaintenanceRunOptions,
+  ): Promise<WorkerStorageMaintenanceOperationRecord> {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    if (!this.storageMaintenanceOperations) {
+      throw new Error('BACKEND_UNAVAILABLE: storage maintenance runtime is not initialized');
+    }
+    return this.storageMaintenanceOperations.run(options);
+  }
+
+  async applyStorageMaintenanceBatch(
+    request: BackendStorageMaintenanceApplyBatchRequest,
+  ): Promise<BackendStorageMaintenanceApplyBatchResult> {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    if (!this.storageMaintenanceOperations || !this.repository) {
+      throw new Error('BACKEND_UNAVAILABLE: storage maintenance runtime is not initialized');
+    }
+    const record = await this.storageMaintenanceOperations.applyBatch({
+      operationId: request.operationId,
+      migrationId: request.migrationId,
+      batchIndex: request.batchIndex,
+      totalBatches: request.totalBatches,
+      executeBatch: () => this.executeStorageMaintenanceBatch(request),
+    });
+    return {
+      operationId: record.operationId,
+      migrationId: record.migrationId,
+      status: record.status,
+      completedBatches: record.completedBatches,
+      totalBatches: record.totalBatches,
+      lastMutationId: record.lastMutationId,
+      completedAt: record.completedAt,
+      error: record.error,
+    };
+  }
+
+  async getStorageMaintenanceStatus(
+    request: BackendStorageMaintenanceStatusRequest,
+  ): Promise<BackendStorageMaintenanceStatusResult> {
+    await this.init();
+    if (!this.storageMaintenanceOperations) {
+      throw new Error('BACKEND_UNAVAILABLE: storage maintenance runtime is not initialized');
+    }
+    return this.storageMaintenanceOperations.status(request);
+  }
+
+  private async executeStorageMaintenanceBatch(
+    request: BackendStorageMaintenanceApplyBatchRequest,
+  ): Promise<void> {
+    const batch = request.batch;
+    if (batch.kind === 'legacy-storage-import-begin') {
+      return;
+    }
+    if (batch.kind === 'legacy-unified-reset') {
+      this.repository!.resetLegacyImport();
+      this.runtime.run('DELETE FROM queue_state');
+      this.runtime.run('DELETE FROM review_events');
+      this.runtime.run('DELETE FROM drill_events');
+      this.runtime.run('DELETE FROM reschedule_events');
+      this.runtime.run('DELETE FROM arena_score_snapshots');
+      this.runtime.run('DELETE FROM arena_outcomes');
+      this.runtime.run('DELETE FROM ai_arena_events');
+      this.runtime.run('DELETE FROM ai_card_attributions');
+      return;
+    }
+    if (batch.kind === 'legacy-unified-records') {
+      this.repository!.importLegacyRecords(batch.records);
+      return;
+    }
+    if (batch.kind === 'legacy-queue-records') {
+      for (const [key, value] of batch.entries) {
+        this.queueState!.set(key, value);
+      }
+      return;
+    }
+    if (batch.kind === 'legacy-review-records') {
+      const repository = new SqlReviewLogRepository(this.runtime);
+      repository.importMonthlyLogs({
+        reviewLogs: batch.records
+          .filter((record) => record.kind === 'review')
+          .map((record) => record.value as ReviewLog),
+        reviewLogsV2: batch.records
+          .filter((record) => record.kind === 'review-v2')
+          .map((record) => record.value as ReviewLogV2),
+        drillLogsV2: batch.records
+          .filter((record) => record.kind === 'drill-v2')
+          .map((record) => record.value as DrillLogV2),
+        rescheduleLogs: batch.records
+          .filter((record) => record.kind === 'reschedule')
+          .map((record) => record.value as RescheduleLog),
+      });
+      return;
+    }
+    if (batch.kind === 'legacy-arena-records') {
+      const repository = new SqlArenaRepository(this.runtime);
+      repository.recordBatch({
+        matches: batch.records
+          .filter((record) => record.kind === 'match')
+          .map((record) => record.value as ArenaMatchRecord),
+        scoreSnapshots: batch.records
+          .filter((record) => record.kind === 'score')
+          .map((record) => record.value as ArenaScoreSnapshot),
+        attributions: batch.records
+          .filter((record) => record.kind === 'attribution')
+          .map((record) => record.value as ArenaCardAttributionRecord),
+      });
+      return;
+    }
+    if (batch.kind === 'legacy-unified-finalize') {
+      this.repository!.finalizeLegacyImport(batch);
+      return;
+    }
+    if (batch.kind === 'native-riff-retirement') {
+      const blockIds = Array.from(new Set(
+        (Array.isArray(batch.blockIds) ? batch.blockIds : [])
+          .map((value) => normalizeString(value))
+          .filter(Boolean),
+      )).sort();
+      if (batch.includeStoredBlacklist && this.hasLegacyRiffSyncTable()) {
+        const row = this.runtime.getOne<{ value_json: string }>(
+          'SELECT value_json FROM riff_sync WHERE key = ?',
+          ['blacklist'],
+        );
+        for (const value of parseJsonObject<unknown[]>(row?.value_json ?? '[]', [])) {
+          const blockId = normalizeString(value);
+          if (blockId && !blockIds.includes(blockId)) {
+            blockIds.push(blockId);
+          }
+        }
+        blockIds.sort();
+      }
+      for (const blockId of blockIds) {
+        const exclusion = {
+          version: 1,
+          blockId,
+          excludedAt: batch.appliedAt,
+          source: 'legacy-blacklist',
+          reason: 'migrated-riff-blacklist',
+        } as const;
+        this.runtime.run(
+          `INSERT OR IGNORE INTO tombstones (
+            kind, id, deleted_at, deleted_by, payload_json
+          ) VALUES (?, ?, ?, ?, ?)`,
+          [
+            NATIVE_RIFF_IMPORT_EXCLUSION_KIND,
+            blockId,
+            batch.appliedAt,
+            exclusion.source,
+            JSON.stringify(exclusion),
+          ],
+        );
+      }
+      if (batch.dropLegacyTable !== false) {
+        this.runtime.run('DROP TABLE IF EXISTS riff_sync');
+      }
+      return;
+    }
+    if (batch.kind === 'algorithm-card-state-backup') {
+      const backup = this.repository!.createAlgorithmCardStateMigrationBackup();
+      if (backup.cards.length > 0 || backup.algorithmCardStates.length > 0) {
+        await this.fileService.writeJSON(batch.fileName, {
+          capturedAt: batch.capturedAt,
+          ...backup,
+        });
+      }
+      return;
+    }
+    if (batch.kind === 'algorithm-card-state-backfill') {
+      const summary = this.repository.backfillAlgorithmCardStates(batch.appliedAt);
+      if (summary.afterDirty > 0 || summary.orphanStateRows > 0) {
+        throw new Error(
+          `STORAGE_MAINTENANCE_FAILED: algorithm state remains dirty (${summary.afterDirty}/${summary.orphanStateRows})`,
+        );
+      }
+      return;
+    }
+    if (batch.kind === 'neural-roam-route-migration') {
+      const routeRepository = new SqlNeuralRoamRouteRepository(this.runtime);
+      const existingRouteState = await routeRepository.loadState();
+      if (existingRouteState && existingRouteState.routes.length > 0) {
+        return;
+      }
+      const legacyState = this.queueState!.loadAll().neuralRoamQueue;
+      if (!legacyState) {
+        return;
+      }
+      const migratedState = migrateLegacyNeuralRoamStateToDefaultRoute(
+        legacyState,
+        batch.appliedAt,
+      );
+      if (migratedState) {
+        routeRepository.saveStateInCurrentTransaction(migratedState);
+      }
+      return;
+    }
+    const unsupported = batch as { kind?: string };
+    throw new Error(`INVALID_REQUEST: unsupported storage maintenance batch ${unsupported.kind ?? 'unknown'}`);
+  }
+
+  private hasLegacyRiffSyncTable(): boolean {
+    return Boolean(this.runtime.getOne<{ present: number }>(
+      `SELECT 1 AS present
+       FROM sqlite_master
+       WHERE type = 'table' AND name = 'riff_sync'`,
+    ));
+  }
+
+  async loadQueueState(): Promise<Record<string, unknown>> {
+    await this.init();
+    return this.queueState!.loadAll();
+  }
+
+  async commitQueueStateBatch(
+    request: BackendQueueStateBatchMutateRequest,
+  ): Promise<BackendQueueStateBatchMutateResult> {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    const mutationId = String(request.mutationId || '').trim();
+    if (!mutationId) {
+      throw new Error('INVALID_REQUEST: queue.state.batchMutate requires mutationId');
+    }
+    if (!Array.isArray(request.mutations) || request.mutations.length === 0) {
+      throw new Error('INVALID_REQUEST: queue.state.batchMutate requires mutations');
+    }
+
+    const mutationByKey = new Map<string, BackendQueueStateBatchMutateRequest['mutations'][number]>();
+    for (const mutation of request.mutations) {
+      const key = String(mutation?.key || '').trim();
+      if (!key) {
+        throw new Error('INVALID_REQUEST: queue.state.batchMutate mutation requires key');
+      }
+      if (mutation.operation !== 'set' && mutation.operation !== 'delete') {
+        throw new Error('INVALID_REQUEST: queue.state.batchMutate mutation requires set or delete operation');
+      }
+      if (mutation.operation === 'set') {
+        const serialized = JSON.stringify(mutation.value);
+        if (serialized === undefined) {
+          throw new Error(`INVALID_REQUEST: queue.state.batchMutate value for ${key} is not JSON-serializable`);
+        }
+        mutationByKey.set(key, {
+          operation: 'set',
+          key,
+          value: mutation.value,
+        });
+      } else {
+        mutationByKey.set(key, {
+          operation: 'delete',
+          key,
+        });
+      }
+    }
+
+    const mutations = [...mutationByKey.values()]
+      .sort((left, right) => left.key.localeCompare(right.key));
+    const aggregateIds = mutations.map((mutation) => mutation.key);
+    this.assertReconciliationAggregatesWritable('queue', aggregateIds);
+    const updatedKeys = mutations
+      .filter((mutation) => mutation.operation === 'set')
+      .map((mutation) => mutation.key);
+    const deletedKeys = mutations
+      .filter((mutation) => mutation.operation === 'delete')
+      .map((mutation) => mutation.key);
+    const storageIdentity = this.requireStorageMutationIdentity();
+    let durabilityReceipt: StorageDurabilityReceipt | null = null;
+
+    await this.runtime.runTransaction('queue.state.batchMutate', () => {
+      for (const mutation of mutations) {
+        if (mutation.operation === 'set') {
+          this.queueState!.set(mutation.key, mutation.value);
+        } else {
+          this.queueState!.delete(mutation.key);
+        }
+      }
+    }, {
+      persist: true,
+      mutationEnvelope: {
+        version: STORAGE_MUTATION_ENVELOPE_VERSION,
+        mutationId,
+        family: 'queue',
+        deviceId: storageIdentity.deviceId,
+        identityEpoch: storageIdentity.identityEpoch,
+        journalSequence: null,
+        createdAt: Date.now(),
+        affectedAggregates: aggregateIds.map((aggregateId) => ({
+          family: 'queue',
+          aggregateId,
+          causalBaseRevision: null,
+        })),
+        operations: [],
+        requiredTruthOutputs: [{
+          family: 'queue',
+          kind: 'changeset',
+          aggregateIds,
+        }],
+      },
+      onDurabilityReceipt: (receipt) => {
+        durabilityReceipt = receipt;
+      },
+    });
+    if (!durabilityReceipt) {
+      throw new Error('STORAGE_JOURNAL_FAILED: queue.state.batchMutate returned no durability receipt');
+    }
+    this.scheduleTruthPromotion('queue.state.batchMutate');
+    return {
+      updatedKeys,
+      deletedKeys,
+      durabilityReceipt,
+    };
+  }
+
+  async commitCardScheduleBatch(
+    request: BackendCardScheduleBatchUpdateRequest,
+  ): Promise<BackendCardScheduleBatchUpdateResult> {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    const mutationId = String(request.mutationId || '').trim();
+    if (!mutationId) {
+      throw new Error('INVALID_REQUEST: card.schedule.batchUpdate requires mutationId');
+    }
+    if (!isAuthorizedSchedulingWriteSource(request.schedulingWriteSource)) {
+      throw new Error('INVALID_REQUEST: card.schedule.batchUpdate requires authorized schedulingWriteSource');
+    }
+
+    const deduped = new Map<string, FSRSCard>();
+    for (const candidate of request.cards) {
+      if (!candidate || typeof candidate !== 'object') {
+        throw new Error('INVALID_REQUEST: card.schedule.batchUpdate card payload must be an object');
+      }
+      const card = candidate as FSRSCard;
+      const cardId = String(card.id || '').trim();
+      if (!cardId) {
+        throw new Error('INVALID_REQUEST: card.schedule.batchUpdate card requires id');
+      }
+      const canonical = canonicalizeSchedulingState(card, {
+        source: request.schedulingWriteSource,
+        mode: 'assert-internal',
+      }).card;
+      deduped.set(cardId, canonical);
+    }
+    const cards = Array.from(deduped.values());
+    if (cards.length === 0) {
+      throw new Error('INVALID_REQUEST: card.schedule.batchUpdate requires cards');
+    }
+
+    const storageIdentity = this.requireStorageMutationIdentity();
+    const aggregateIds = cards.map((card) => card.id);
+    this.assertReconciliationAggregatesWritable('card', aggregateIds);
+    let durabilityReceipt: StorageDurabilityReceipt | null = null;
+    await this.runtime.runTransaction('card.schedule.batchUpdate', () => {
+      this.repository!.upsertCards(cards);
+    }, {
+      persist: true,
+      mutationEnvelope: {
+        version: STORAGE_MUTATION_ENVELOPE_VERSION,
+        mutationId,
+        family: 'card-schedule',
+        deviceId: storageIdentity.deviceId,
+        identityEpoch: storageIdentity.identityEpoch,
+        journalSequence: null,
+        createdAt: Date.now(),
+        affectedAggregates: aggregateIds.map((aggregateId) => ({
+          family: 'card-schedule',
+          aggregateId,
+          causalBaseRevision: null,
+        })),
+        operations: [],
+        requiredTruthOutputs: [{
+          family: 'card-schedule',
+          kind: 'changeset',
+          aggregateIds,
+        }],
+      },
+      onDurabilityReceipt: (receipt) => {
+        durabilityReceipt = receipt;
+      },
+    });
+    if (!durabilityReceipt) {
+      throw new Error('STORAGE_JOURNAL_FAILED: card.schedule.batchUpdate returned no durability receipt');
+    }
+    this.scheduleTruthPromotion('card.schedule.batchUpdate');
+    return {
+      updatedCardIds: aggregateIds,
+      durabilityReceipt,
+    };
+  }
+
+  async commitCardCrudBatch(
+    request: BackendCardCrudBatchMutateRequest,
+  ): Promise<BackendCardCrudBatchMutateResult> {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    const mutationId = String(request.mutationId || '').trim();
+    if (!mutationId) {
+      throw new Error('INVALID_REQUEST: card.crud.batchMutate requires mutationId');
+    }
+
+    const upsertCardById = new Map<string, FSRSCard>();
+    for (const candidate of request.upsertCards || []) {
+      if (!candidate || typeof candidate !== 'object') {
+        throw new Error('INVALID_REQUEST: card.crud.batchMutate card payload must be an object');
+      }
+      const card = candidate as FSRSCard;
+      const cardId = String(card.id || '').trim();
+      if (!cardId) {
+        throw new Error('INVALID_REQUEST: card.crud.batchMutate upsert card requires id');
+      }
+      upsertCardById.set(cardId, card);
+    }
+
+    const upsertXiuyuanById = new Map<string, Record<string, unknown>>();
+    for (const candidate of request.upsertXiuyuans || []) {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        throw new Error('INVALID_REQUEST: card.crud.batchMutate xiuyuan payload must be an object');
+      }
+      const xiuyuan = candidate as Record<string, unknown>;
+      const xiuyuanId = String(xiuyuan.id || '').trim();
+      if (!xiuyuanId) {
+        throw new Error('INVALID_REQUEST: card.crud.batchMutate upsert xiuyuan requires id');
+      }
+      upsertXiuyuanById.set(xiuyuanId, xiuyuan);
+    }
+
+    const deleteCardIds = uniqueStrings(request.deleteCardIds || []).sort();
+    const deleteXiuyuanIds = uniqueStrings(request.deleteXiuyuanIds || []).sort();
+    for (const cardId of deleteCardIds) {
+      if (upsertCardById.has(cardId)) {
+        throw new Error(`INVALID_REQUEST: card.crud.batchMutate card cannot be upserted and deleted: ${cardId}`);
+      }
+    }
+    for (const xiuyuanId of deleteXiuyuanIds) {
+      if (upsertXiuyuanById.has(xiuyuanId)) {
+        throw new Error(`INVALID_REQUEST: card.crud.batchMutate xiuyuan cannot be upserted and deleted: ${xiuyuanId}`);
+      }
+    }
+
+    const upsertedCardIds = Array.from(upsertCardById.keys()).sort();
+    const upsertedXiuyuanIds = Array.from(upsertXiuyuanById.keys()).sort();
+    if (
+      upsertedCardIds.length === 0
+      && upsertedXiuyuanIds.length === 0
+      && deleteCardIds.length === 0
+      && deleteXiuyuanIds.length === 0
+    ) {
+      throw new Error('INVALID_REQUEST: card.crud.batchMutate requires mutations');
+    }
+
+    const storageIdentity = this.requireStorageMutationIdentity();
+    const createdAt = Date.now();
+    const affectedCardIds = [...upsertedCardIds, ...deleteCardIds].sort();
+    this.assertReconciliationAggregatesWritable('card', affectedCardIds);
+    let durabilityReceipt: StorageDurabilityReceipt | null = null;
+    await this.runtime.runTransaction('card.crud.batchMutate', (db) => {
+      for (const [xiuyuanId, xiuyuan] of upsertXiuyuanById.entries()) {
+        const updatedAt = Number(xiuyuan.updatedAt);
+        const serialized = JSON.stringify(xiuyuan);
+        if (serialized === undefined) {
+          throw new Error(`INVALID_REQUEST: card.crud.batchMutate xiuyuan is not serializable: ${xiuyuanId}`);
+        }
+        db.run(
+          'INSERT OR REPLACE INTO xiuyuans (id, updated_at, payload_json) VALUES (?, ?, ?)',
+          [xiuyuanId, Number.isFinite(updatedAt) ? updatedAt : createdAt, serialized],
+        );
+        db.run('DELETE FROM tombstones WHERE kind = ? AND id = ?', ['xiuyuan', xiuyuanId]);
+      }
+
+      if (upsertedCardIds.length > 0) {
+        this.repository!.upsertCards(upsertedCardIds.map((cardId) => upsertCardById.get(cardId)!));
+        for (const cardId of upsertedCardIds) {
+          db.run('DELETE FROM tombstones WHERE kind = ? AND id = ?', ['card', cardId]);
+        }
+      }
+
+      for (const cardId of deleteCardIds) {
+        const row = this.getOne<{
+          block_id: string | null;
+          xiuyuan_id: string | null;
+          payload_json: string | null;
+        }>(
+          'SELECT block_id, xiuyuan_id, payload_json FROM cards WHERE id = ?',
+          [cardId],
+        );
+        const tombstone = {
+          deletedAt: createdAt,
+          deletedBy: storageIdentity.deviceId,
+          cardId,
+          blockId: row?.block_id ?? null,
+          xiuyuanId: row?.xiuyuan_id ?? null,
+        };
+        db.run('DELETE FROM algorithm_card_state WHERE card_id = ?', [cardId]);
+        db.run('DELETE FROM cards WHERE id = ?', [cardId]);
+        db.run(
+          `INSERT OR REPLACE INTO tombstones
+            (kind, id, deleted_at, deleted_by, payload_json)
+           VALUES (?, ?, ?, ?, ?)`,
+          ['card', cardId, createdAt, storageIdentity.deviceId, JSON.stringify(tombstone)],
+        );
+      }
+
+      for (const xiuyuanId of deleteXiuyuanIds) {
+        const tombstone = {
+          deletedAt: createdAt,
+          deletedBy: storageIdentity.deviceId,
+          xiuyuanId,
+        };
+        db.run('DELETE FROM xiuyuans WHERE id = ?', [xiuyuanId]);
+        db.run(
+          `INSERT OR REPLACE INTO tombstones
+            (kind, id, deleted_at, deleted_by, payload_json)
+           VALUES (?, ?, ?, ?, ?)`,
+          ['xiuyuan', xiuyuanId, createdAt, storageIdentity.deviceId, JSON.stringify(tombstone)],
+        );
+      }
+    }, {
+      persist: true,
+      mutationEnvelope: {
+        version: STORAGE_MUTATION_ENVELOPE_VERSION,
+        mutationId,
+        family: 'card-crud',
+        deviceId: storageIdentity.deviceId,
+        identityEpoch: storageIdentity.identityEpoch,
+        journalSequence: null,
+        createdAt,
+        affectedAggregates: affectedCardIds.map((aggregateId) => ({
+          family: 'card-crud',
+          aggregateId,
+          causalBaseRevision: null,
+        })),
+        operations: [],
+        requiredTruthOutputs: [
+          ...(upsertedCardIds.length > 0 ? [{
+            family: 'card-crud',
+            kind: 'changeset' as const,
+            aggregateIds: upsertedCardIds,
+          }] : []),
+          ...(deleteCardIds.length > 0 ? [{
+            family: 'card-crud',
+            kind: 'tombstone' as const,
+            aggregateIds: deleteCardIds,
+          }] : []),
+        ],
+      },
+      onDurabilityReceipt: (receipt) => {
+        durabilityReceipt = receipt;
+      },
+    });
+    if (!durabilityReceipt) {
+      throw new Error('STORAGE_JOURNAL_FAILED: card.crud.batchMutate returned no durability receipt');
+    }
+    this.scheduleTruthPromotion('card.crud.batchMutate');
+    return {
+      upsertedCardIds,
+      upsertedXiuyuanIds,
+      deletedCardIds: deleteCardIds,
+      deletedXiuyuanIds: deleteXiuyuanIds,
+      durabilityReceipt,
+    };
   }
 
   async countCards(query?: StructuredCardQuery): Promise<number> {
@@ -1814,6 +2681,7 @@ export class WorkerSqliteDatabaseService {
     checkedAt?: number,
   ): Promise<void> {
     await this.init();
+    this.assertFormalWritesAvailable();
     const previousStatus = this.repository!.getSourceExistenceByBlockIds(
       updates.map((update) => update.blockId),
     );
@@ -1850,6 +2718,7 @@ export class WorkerSqliteDatabaseService {
     checkedAt = Date.now(),
   ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean; changedBlockIds: string[] }> {
     await this.init();
+    this.assertFormalWritesAvailable();
 
     const candidates = this.repository!.getSourceExistenceRefreshCandidates(request);
     return this.applySourceExistenceSweepFromCandidates(candidates, existingBlockIds, checkedAt);
@@ -1861,6 +2730,7 @@ export class WorkerSqliteDatabaseService {
     checkedAt = Date.now(),
   ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean; changedBlockIds: string[] }> {
     await this.init();
+    this.assertFormalWritesAvailable();
 
     if (candidates.length === 0) {
       return { checked: 0, updated: 0, changed: false, changedToMissing: false, changedBlockIds: [] };
@@ -1955,14 +2825,22 @@ export class WorkerSqliteDatabaseService {
 
   createReviewTransactionUndoJournal(): ReviewTransactionUndoJournal {
     return {
-      append: (entry) => this.appendReviewTransactionUndoJournalEntry(entry),
-      consume: (request) => this.consumeReviewTransactionUndoJournalEntry(request),
+      append: (entry) => {
+        this.assertFormalWritesAvailable();
+        return this.appendReviewTransactionUndoJournalEntry(entry);
+      },
+      consume: (request) => {
+        this.assertFormalWritesAvailable();
+        return this.consumeReviewTransactionUndoJournalEntry(request);
+      },
     };
   }
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     const totalStartedAt = Date.now();
     await this.measureReviewFeedbackDatabaseStep('reviewFeedback.init', request.cardId, () => this.init());
+    this.assertFormalWritesAvailable();
+    this.assertReconciliationAggregatesWritable('card', [request.cardId]);
     let committedJournalEntryId: string | null = null;
     let truthCandidate: MessagePackReviewEventTruthRecord | null = null;
     const runtime = new WorkerReviewFeedbackRuntime({
@@ -1992,6 +2870,9 @@ export class WorkerSqliteDatabaseService {
       recordReviewTruthCandidate: (candidate) => {
         truthCandidate = this.validateReviewFeedbackTruthCandidate(candidate);
       },
+      storageIdentity: this.requireStorageMutationIdentity(),
+      scheduleTruthPromotion: (reason) => this.scheduleTruthPromotion(reason),
+      resolveDurabilityReceipt: (receipt) => this.resolveTruthDurabilityReceipt(receipt),
     });
     let result: BackendReviewFeedbackResult;
     try {
@@ -2106,6 +2987,9 @@ export class WorkerSqliteDatabaseService {
         recordUnavailable: () => {
           this.reviewFeedbackUnavailableTotal += 1;
         },
+        storageIdentity: this.requireStorageMutationIdentity(),
+        scheduleTruthPromotion: (reason) => this.scheduleTruthPromotion(reason),
+        resolveDurabilityReceipt: (receipt) => this.resolveTruthDurabilityReceipt(receipt),
       });
       for (const entry of pendingEntries) {
         if (this.appliedReviewFeedbackJournalEntryIds.has(entry.id)) {
@@ -2196,34 +3080,52 @@ export class WorkerSqliteDatabaseService {
     if (!sessionId) {
       return null;
     }
-    return this.runtime.runTransaction('review.session.undo-journal.consume', () => {
-      const token = normalizeString(request.undoToken);
-      const row = token
-        ? this.runtime.getOne<{
-          undo_token: string;
-          status: string;
-          payload_json: string;
-          recorded_at: number;
-        }>(
-          `SELECT undo_token, status, payload_json, recorded_at
-             FROM review_transaction_undo_journal
-            WHERE session_id = ? AND undo_token = ?
-            LIMIT 1`,
-          [sessionId, token],
-        )
-        : this.runtime.getOne<{
-          undo_token: string;
-          status: string;
-          payload_json: string;
-          recorded_at: number;
-        }>(
-          `SELECT undo_token, status, payload_json, recorded_at
-             FROM review_transaction_undo_journal
-            WHERE session_id = ? AND status = 'open'
-            ORDER BY recorded_at DESC, undo_token DESC
-            LIMIT 1`,
-          [sessionId],
-        );
+    const requestedToken = normalizeString(request.undoToken);
+    const candidateRow = requestedToken
+      ? this.runtime.getOne<{
+        undo_token: string;
+        status: string;
+        payload_json: string;
+        recorded_at: number;
+      }>(
+        `SELECT undo_token, status, payload_json, recorded_at
+           FROM review_transaction_undo_journal
+          WHERE session_id = ? AND undo_token = ?
+          LIMIT 1`,
+        [sessionId, requestedToken],
+      )
+      : this.runtime.getOne<{
+        undo_token: string;
+        status: string;
+        payload_json: string;
+        recorded_at: number;
+      }>(
+        `SELECT undo_token, status, payload_json, recorded_at
+           FROM review_transaction_undo_journal
+          WHERE session_id = ? AND status = 'open'
+          ORDER BY recorded_at DESC, undo_token DESC
+          LIMIT 1`,
+        [sessionId],
+      );
+    if (!candidateRow) {
+      return null;
+    }
+    const candidateEntry = parseJsonObject(candidateRow.payload_json) as unknown as ReviewTransactionUndoJournalEntry;
+    const storageIdentity = this.requireStorageMutationIdentity();
+    let durabilityReceipt: StorageDurabilityReceipt | null = null;
+    const result = await this.runtime.runTransaction('review.session.undo-journal.consume', () => {
+      const row = this.runtime.getOne<{
+        undo_token: string;
+        status: string;
+        payload_json: string;
+        recorded_at: number;
+      }>(
+        `SELECT undo_token, status, payload_json, recorded_at
+           FROM review_transaction_undo_journal
+          WHERE session_id = ? AND undo_token = ?
+          LIMIT 1`,
+        [sessionId, candidateRow.undo_token],
+      );
       if (!row) {
         return null;
       }
@@ -2267,7 +3169,57 @@ export class WorkerSqliteDatabaseService {
         status: 'undone',
         scheduleRestoreApplied: true,
       };
-    }, { persist: true });
+    }, {
+      persist: true,
+      mutationEnvelope: {
+        version: STORAGE_MUTATION_ENVELOPE_VERSION,
+        mutationId: `review-session-undo:${candidateRow.undo_token}`,
+        family: 'review',
+        deviceId: storageIdentity.deviceId,
+        identityEpoch: storageIdentity.identityEpoch,
+        journalSequence: null,
+        createdAt: candidateEntry.recordedAt,
+        affectedAggregates: [{
+          family: 'card-schedule',
+          aggregateId: candidateEntry.cardId || candidateEntry.beforeCard?.id || sessionId,
+          causalBaseRevision: null,
+        }],
+        operations: [],
+        requiredTruthOutputs: [
+          {
+            family: 'review',
+            kind: 'event',
+            aggregateIds: [candidateEntry.cardId || candidateRow.undo_token],
+          },
+          {
+            family: 'card-schedule',
+            kind: 'changeset',
+            aggregateIds: [candidateEntry.cardId || candidateRow.undo_token],
+          },
+          {
+            family: 'queue',
+            kind: 'changeset',
+            aggregateIds: [candidateEntry.queueType],
+          },
+          {
+            family: 'review',
+            kind: 'metadata',
+            aggregateIds: [candidateRow.undo_token],
+          },
+        ],
+      },
+      onDurabilityReceipt: (receipt) => {
+        durabilityReceipt = receipt;
+      },
+    });
+    return result
+      ? {
+          ...result,
+          durabilityReceipt: durabilityReceipt
+            ? await this.resolveTruthDurabilityReceipt(durabilityReceipt)
+            : null,
+        }
+      : null;
   }
 
   private appendReviewTransactionUndoReversalEvent(
@@ -2618,6 +3570,7 @@ export class WorkerSqliteDatabaseService {
       return;
     }
     await this.init();
+    this.assertFormalWritesAvailable();
     await this.runtime.runTransaction('review.truth.backfill.patch-refs', () => {
       for (const patch of patches) {
         this.runtime.run(
@@ -2645,6 +3598,319 @@ export class WorkerSqliteDatabaseService {
       throw new Error('SQLite delta diagnostics unavailable');
     }
     return diagnostics;
+  }
+
+  async getStorageInventory(): Promise<StorageInventoryRecord> {
+    return this.collectStorageInventory();
+  }
+
+  getStartupStorageEvidence(): WorkerStartupStorageEvidence | null {
+    return this.startupStorageEvidence
+      ? structuredClone(this.startupStorageEvidence)
+      : null;
+  }
+
+  getStorageRecoveryState(): StorageRecoveryState | null {
+    return this.startupStorageEvidence
+      ? structuredClone(this.startupStorageEvidence.recoveryState)
+      : null;
+  }
+
+  async getCombinedStorageDiagnostics(): Promise<{
+    identity: BackendStorageIdentityDiagnostics;
+    receipts: BackendStorageReceiptStageDiagnostics;
+    promotion: BackendTruthPromotionStatusDiagnostics;
+    coverage: BackendTruthCoverageDiagnostics;
+    inventory: StorageInventoryRecord;
+    budget: StorageInventoryRecord['pressure'];
+    recovery: StorageRecoveryState | null;
+    reconciliation: BackendTruthReconciliationDiagnostics;
+    disabledCapabilities: string[];
+  }> {
+    const identity = this.storageMutationIdentity;
+    const promotion = this.truthPromotionModule
+      ? await this.truthPromotionModule.diagnostics()
+      : null;
+    const inventory = await this.collectStorageInventory();
+    const recovery = this.getStorageRecoveryState();
+    const disabledCapabilities = new Set(recovery?.disabledCapabilities ?? []);
+    if (!identity) {
+      disabledCapabilities.add('storage-mutations');
+      disabledCapabilities.add('truth-promotion');
+      disabledCapabilities.add('truth-compaction');
+      disabledCapabilities.add('truth-reconciliation');
+    }
+    if (!this.truthPromotionModule) {
+      disabledCapabilities.add('truth-promotion');
+      disabledCapabilities.add('truth-compaction');
+    }
+    if (!this.truthFileStore || !this.truthPromotionConfig) {
+      disabledCapabilities.add('truth-reconciliation');
+    }
+    if (inventory.pressure.blockingMutationGrowth) {
+      disabledCapabilities.add('growth-producing-mutations');
+    }
+    if (this.reconciliationBlockedAggregateIds.size > 0) {
+      disabledCapabilities.add('conflicted-aggregate-writes');
+    }
+    const journalSequenceFrontier = promotion?.journalSequenceFrontier ?? 0;
+    const truthCoverageFrontier = promotion?.truthCoverageFrontier ?? 0;
+    const pendingMutationCount = promotion?.pendingMutationCount ?? 0;
+    return {
+      identity: {
+        available: identity !== null,
+        deviceId: identity?.deviceId ?? null,
+        identityEpoch: identity?.identityEpoch ?? null,
+      },
+      receipts: {
+        stageCounts: {
+          failed: null,
+          journaled: pendingMutationCount,
+          'truth-committed': truthCoverageFrontier,
+        },
+        latestRetryReason: promotion?.retryReason ?? null,
+      },
+      promotion: {
+        available: promotion !== null,
+        active: promotion?.active ?? false,
+        shutdownStarted: promotion?.shutdownStarted ?? this.truthPromotionShutdownStarted,
+        pendingMutationCount,
+        oldestPendingAgeMs: promotion?.oldestPendingAgeMs ?? null,
+        journalSequenceFrontier,
+        truthCoverageFrontier,
+        retryReason: promotion?.retryReason ?? null,
+        lastSuccessfulPromotionAt: promotion?.lastSuccessfulPromotionAt ?? null,
+      },
+      coverage: {
+        available: promotion !== null,
+        journalSequenceFrontier,
+        truthCoverageFrontier,
+        uncoveredMutationCount: pendingMutationCount,
+        lag: Math.max(0, journalSequenceFrontier - truthCoverageFrontier),
+      },
+      inventory,
+      budget: inventory.pressure,
+      recovery,
+      reconciliation: structuredClone(this.lastTruthReconciliationDiagnostics),
+      disabledCapabilities: [...disabledCapabilities].sort(),
+    };
+  }
+
+  private async collectStorageInventory(): Promise<StorageInventoryRecord> {
+    const identity = this.storageMutationIdentity;
+    const inventory = await new WorkerStorageInventory({
+      truthFileStore: this.truthFileStore,
+      deviceId: identity?.deviceId ?? null,
+      identityEpoch: identity?.identityEpoch ?? null,
+      readSqliteDeltaInventory: () => this.runtime.getSqliteDeltaStorageInventory(),
+      readProjectionBytes: () => this.fileService.readBinary(this.dbFile),
+      readPromotionDiagnostics: () => (
+        this.truthPromotionModule
+          ? this.truthPromotionModule.diagnostics()
+          : Promise.resolve(null)
+      ),
+      budgetPolicies: this.storageBudgetPolicies,
+    }).collect();
+    if (inventory.pressure.level !== 'hard') {
+      this.storagePressureBlockReason = null;
+      return inventory;
+    }
+    if (!this.storagePressureBlockReason) {
+      return inventory;
+    }
+    return {
+      ...inventory,
+      pressure: {
+        ...inventory.pressure,
+        blockingMutationGrowth: true,
+        code: 'STORAGE_PRESSURE',
+        reason: this.storagePressureBlockReason,
+      },
+    };
+  }
+
+  private async enforceStoragePressureBeforeMutation(): Promise<void> {
+    if (!this.storageGrowthBaselineReady) {
+      return;
+    }
+    const before = await this.collectStorageInventory();
+    if (before.pressure.level === 'normal') {
+      return;
+    }
+    if (before.pressure.level === 'soft') {
+      this.scheduleStoragePressureMaintenance('soft-pressure');
+      return;
+    }
+    const maintenance = await this.runBoundedStoragePressureMaintenance();
+    const after = await this.collectStorageInventory();
+    if (after.pressure.level !== 'hard') {
+      this.storagePressureBlockReason = null;
+      return;
+    }
+    const reason = [
+      after.pressure.reason,
+      maintenance.error,
+    ].filter((value): value is string => Boolean(value)).join(' | ')
+      || 'hard storage pressure remains after bounded maintenance';
+    this.storagePressureBlockReason = reason;
+    throw new Error(`STORAGE_PRESSURE: ${reason}`);
+  }
+
+  private async enforceFormalWriteBeforeMutation(): Promise<void> {
+    this.assertFormalWritesAvailable();
+    await this.enforceStoragePressureBeforeMutation();
+  }
+
+  private assertFormalWritesAvailable(): void {
+    if (!this.isReadOnlyRecoveryRequired()) {
+      return;
+    }
+    const recovery = this.startupStorageEvidence!.recoveryState;
+    throw new Error(
+      `STORAGE_RECOVERY_REQUIRED: ${recovery.diagnosticReason ?? 'canonical storage evidence requires recovery'}`,
+    );
+  }
+
+  private assertReconciliationAggregatesWritable(
+    aggregateType: 'card' | 'queue',
+    aggregateIds: string[],
+  ): void {
+    const blocked = uniqueStrings(aggregateIds)
+      .map((aggregateId) => `${aggregateType}:${aggregateId}`)
+      .filter((aggregateId) => this.reconciliationBlockedAggregateIds.has(aggregateId));
+    if (blocked.length === 0) {
+      return;
+    }
+    throw new Error(
+      `STORAGE_RECOVERY_REQUIRED: unresolved truth reconciliation conflict blocks ${blocked.join(', ')}`,
+    );
+  }
+
+  private isReadOnlyRecoveryRequired(): boolean {
+    return this.startupStorageEvidence?.recoveryState.status === 'read-only-recovery-required';
+  }
+
+  private scheduleStoragePressureMaintenance(
+    reason: string,
+    delayMs = this.truthPromotionScheduleDelayMs,
+  ): void {
+    if (
+      this.truthPromotionShutdownStarted
+      || !this.truthPromotionModule
+      || !this.truthCompactionModule
+      || this.storagePressureMaintenanceTimer
+      || this.storagePressureMaintenanceRun
+    ) {
+      return;
+    }
+    this.storagePressureMaintenanceTimer = setTimeout(async () => {
+      this.storagePressureMaintenanceTimer = null;
+      this.storagePressureMaintenanceRun = (async () => {
+        const maintenance = await this.runBoundedStoragePressureMaintenance();
+        const after = await this.collectStorageInventory();
+        if (after.pressure.level === 'hard') {
+          this.storagePressureBlockReason = [
+            after.pressure.reason,
+            maintenance.error,
+          ].filter((value): value is string => Boolean(value)).join(' | ')
+            || 'hard storage pressure remains after background maintenance';
+        }
+        if (!maintenance.ok) {
+          logger.warn('[WorkerSqliteDatabaseService] storage pressure maintenance deferred', {
+            reason,
+            error: maintenance.error,
+            pressure: after.pressure.level,
+          });
+        }
+      })().finally(() => {
+        this.storagePressureMaintenanceRun = null;
+      });
+      await this.storagePressureMaintenanceRun;
+    }, Math.max(0, Math.floor(delayMs)));
+  }
+
+  private async runBoundedStoragePressureMaintenance(): Promise<{
+    ok: boolean;
+    error: string | null;
+  }> {
+    if (!this.truthPromotionModule || !this.truthCompactionModule) {
+      return {
+        ok: false,
+        error: 'storage pressure maintenance unavailable',
+      };
+    }
+    try {
+      await this.truthPromotionRun;
+      const promotion = await this.truthPromotionModule.promotePending();
+      if (!promotion.ok) {
+        return {
+          ok: false,
+          error: promotion.error ?? 'truth promotion failed',
+        };
+      }
+      const diagnostics = await this.truthPromotionModule.diagnostics();
+      await this.truthPromotionModule.runExclusivePublication(
+        () => this.truthCompactionModule!.compactAll(),
+      );
+      await this.runtime.compactSqliteDelta({
+        coveredJournalSequence: diagnostics.truthCoverageFrontier,
+        retainSealedSegments: 16,
+      });
+      return { ok: true, error: null };
+    } catch (error) {
+      return {
+        ok: false,
+        error: errorMessage(error),
+      };
+    }
+  }
+
+  private async runOneTimeStorageGrowthBaseline(): Promise<void> {
+    if (
+      this.runtime.hasMigration(STORAGE_GROWTH_BASELINE_MIGRATION_ID)
+      || !this.truthPromotionModule
+      || !this.truthCompactionModule
+    ) {
+      return;
+    }
+    const before = await this.collectStorageInventory();
+    const aboveTarget = before.pressure.metrics.some((metric) => (
+      (metric.targetFiles !== null && metric.files > metric.targetFiles)
+      || (metric.targetBytes !== null && metric.bytes > metric.targetBytes)
+      || (
+        metric.targetGenerations !== null
+        && metric.generationCount > metric.targetGenerations
+      )
+    ));
+    if (aboveTarget || before.pressure.level !== 'normal') {
+      let lastCoveredSequence = -1;
+      for (let iteration = 0; iteration < 10_000; iteration += 1) {
+        const promotion = await this.truthPromotionModule.promotePending();
+        if (!promotion.ok) {
+          throw new Error(`STORAGE_MIGRATION_PROMOTION_FAILED: ${promotion.error ?? 'unknown'}`);
+        }
+        const diagnostics = await this.truthPromotionModule.diagnostics();
+        if (diagnostics.pendingMutationCount === 0) {
+          break;
+        }
+        if (diagnostics.truthCoverageFrontier === lastCoveredSequence) {
+          throw new Error('STORAGE_MIGRATION_PROMOTION_STALLED');
+        }
+        lastCoveredSequence = diagnostics.truthCoverageFrontier;
+      }
+      const diagnostics = await this.truthPromotionModule.diagnostics();
+      if (diagnostics.pendingMutationCount > 0) {
+        throw new Error('STORAGE_MIGRATION_PROMOTION_LIMIT_EXCEEDED');
+      }
+      await this.truthPromotionModule.runExclusivePublication(
+        () => this.truthCompactionModule!.compactAll(),
+      );
+      await this.runtime.compactSqliteDelta({
+        coveredJournalSequence: diagnostics.truthCoverageFrontier,
+        retainSealedSegments: 16,
+      });
+    }
+    this.runtime.markMigration(STORAGE_GROWTH_BASELINE_MIGRATION_ID);
   }
 
   private buildReviewFeedbackJournalBackpressure(
@@ -3143,12 +4409,14 @@ export class WorkerSqliteDatabaseService {
       limit,
     };
 
-    this.persistDomainSyncRepairPreviewPlan({
-      request,
-      result,
-      rows,
-      schedulerConfigHash,
-    });
+    if (!this.isReadOnlyRecoveryRequired()) {
+      this.persistDomainSyncRepairPreviewPlan({
+        request,
+        result,
+        rows,
+        schedulerConfigHash,
+      });
+    }
     return result;
   }
 
@@ -3157,6 +4425,7 @@ export class WorkerSqliteDatabaseService {
     appliedAt = Date.now(),
   ): Promise<BackendDomainSyncRepairApplyResult> {
     await this.init();
+    this.assertFormalWritesAvailable();
     const planId = String(request?.planId || '').trim();
     const idempotencyKey = String(request?.idempotencyKey || '').trim();
     const confirmedAt = Math.max(0, Math.floor(Number(request?.confirmedAt || 0)));
@@ -3335,13 +4604,14 @@ export class WorkerSqliteDatabaseService {
         ['applied', idempotencyKey, appliedAt, JSON.stringify(result), planId],
       );
       return result;
-    });
-  }
+      });
+    }
 
   async cleanupDomainSyncConflictSources(
     request: BackendDomainSyncConflictSourceCleanupRequest,
   ): Promise<BackendDomainSyncConflictSourceCleanupResult> {
     await this.init();
+    this.assertFormalWritesAvailable();
     const idempotencyKey = String(request?.idempotencyKey || '').trim();
     const sourceIds = [...new Set((Array.isArray(request?.sourceIds) ? request.sourceIds : [])
       .map((sourceId) => String(sourceId || '').trim())
@@ -3441,13 +4711,15 @@ export class WorkerSqliteDatabaseService {
   async listDomainSyncConflictSourceCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult> {
     await this.init();
     const conflictSources = await this.fileService.readSyncConflictDatabaseSources();
-    const forgotten = this.forgetStaleUnknownSkippedDomainSyncConflictSources(
-      conflictSources.map((source) => source.sourceId),
-    );
-    if (forgotten > 0) {
-      this.lastDomainSyncStatusSnapshot = null;
-      await this.runtime.persist();
-      await this.rememberPersistedHash();
+    if (!this.isReadOnlyRecoveryRequired()) {
+      const forgotten = this.forgetStaleUnknownSkippedDomainSyncConflictSources(
+        conflictSources.map((source) => source.sourceId),
+      );
+      if (forgotten > 0) {
+        this.lastDomainSyncStatusSnapshot = null;
+        await this.runtime.persist();
+        await this.rememberPersistedHash();
+      }
     }
     const status = await this.readDomainSyncStatusSnapshot();
     const rows = this.readDomainSyncProcessedSourcesForSourceIds(conflictSources.map((source) => source.sourceId));
@@ -3505,234 +4777,11 @@ export class WorkerSqliteDatabaseService {
   }
 
   async mergeSyncConflictDatabases(
-    request: WorkerSyncConflictMergeRequest,
+    _request: WorkerSyncConflictMergeRequest,
   ): Promise<BackendSyncConflictMergeResult> {
-    await this.init();
-    const sources = Array.isArray(request.sources) ? request.sources : [];
-    const result: BackendSyncConflictMergeResult = {
-      ok: true,
-      sources: sources.length,
-      mergedReviewEvents: 0,
-      ignoredReviewEvents: 0,
-      mergedCards: 0,
-      ignoredCards: 0,
-      skippedSources: [],
-      diagnostics: {
-        reviewCardDivergences: [],
-      },
-    };
-
-    for (const source of sources) {
-      const sourceId = String(source?.sourceId || '').trim() || 'unknown';
-      const sourceFingerprint = isUint8ArrayLike(source?.bytes) ? hashBytes(source.bytes) : '';
-      if (!isUint8ArrayLike(source?.bytes) || source.bytes.byteLength === 0) {
-        result.skippedSources.push({ sourceId, reason: 'invalid-bytes' });
-        this.recordDomainSyncSkippedSource({
-          sourceId,
-          sourceFingerprint,
-          sourceKind: 'unknown',
-          path: source?.path ?? null,
-          processedAt: request.mergedAt,
-          skippedReason: 'invalid-bytes',
-          metadata: { byteLength: isUint8ArrayLike(source?.bytes) ? source.bytes.byteLength : null },
-        });
-        continue;
-      }
-      if (!request.ignoreProcessedSourceDeduplication && this.hasSuccessfulDomainSyncProcessedSource(sourceId, sourceFingerprint)) {
-        continue;
-      }
-
-      let conflictRuntime: RuntimeSqliteDatabaseService | null = null;
-      try {
-        conflictRuntime = new RuntimeSqliteDatabaseService(
-          createReadonlyConflictFileService(source.bytes),
-          `${sourceId}.db`,
-          {
-            applySchemaOnInit: false,
-            persistOnInit: false,
-          },
-        );
-        await conflictRuntime.init();
-        const reviewEvents = conflictRuntime.getAll<ConflictReviewEventRow>(
-          `SELECT id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json
-           FROM review_events
-           ORDER BY reviewed_at, id`,
-        );
-        const cards = conflictRuntime.getAll<ConflictCardRow>(
-          `SELECT id, updated_at, reps, last_review,
-                  block_id, source_exists, source_checked_at, source_missing_at,
-                  payload_json
-           FROM cards
-           ORDER BY id`,
-        );
-        const hasDomainSyncLedger = this.hasConflictDomainSyncLedger(conflictRuntime);
-        const domainSyncOperations = this.readConflictDomainSyncOperations(conflictRuntime);
-        const sourceKind = this.resolveDomainSyncProcessedSourceKind(sourceId, hasDomainSyncLedger);
-        const conflictCardsById = new Map(cards.map((cardRow) => [String(cardRow.id || '').trim(), cardRow]));
-        const processedCounters: DomainSyncProcessedSourceCounters = {
-          importedOperations: 0,
-          ignoredOperations: 0,
-          importedReviewEvents: 0,
-          ignoredReviewEvents: 0,
-          importedCards: 0,
-          ignoredCards: 0,
-        };
-
-        await this.runtime.runTransaction('sync.conflict.merge', async () => {
-          let sourceChanged = false;
-          const affectedCardIds = new Set<string>();
-          const affectedBlockIds = new Set<string>();
-          const diagnosticCardIds = new Set<string>();
-          if (domainSyncOperations.length > 0) {
-            const operationImport = this.importMissingDomainSyncOperations(domainSyncOperations);
-            processedCounters.importedOperations += operationImport.imported;
-            processedCounters.ignoredOperations += operationImport.ignored;
-            for (const cardId of operationImport.affectedCardIds) {
-              affectedCardIds.add(cardId);
-            }
-            for (const blockId of operationImport.affectedBlockIds) {
-              affectedBlockIds.add(blockId);
-            }
-            sourceChanged = operationImport.imported > 0 || sourceChanged;
-          }
-          for (const event of reviewEvents) {
-            const eventCardId = String(event.card_id || '').trim();
-            if (eventCardId) {
-              diagnosticCardIds.add(eventCardId);
-            }
-            const existing = this.runtime.getOne<{ count: number }>(
-              'SELECT COUNT(*) AS count FROM review_events WHERE id = ?',
-              [event.id],
-            );
-            if (Number(existing?.count) > 0) {
-              result.ignoredReviewEvents += 1;
-              processedCounters.ignoredReviewEvents += 1;
-              continue;
-            }
-            this.runtime.run(
-              `INSERT INTO review_events
-                (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              [
-                event.id,
-                event.card_id || null,
-                event.attempt_id || null,
-                event.rating ?? null,
-                Number(event.reviewed_at),
-                Number(event.year),
-                Number(event.month),
-                event.event_type || 'review',
-                event.payload_json || '{}',
-              ],
-            );
-            result.mergedReviewEvents += 1;
-            processedCounters.importedReviewEvents += 1;
-            if (!hasDomainSyncLedger && event.event_type === 'review-v2') {
-              const ledgerBackfill = this.appendLegacyReviewImportDomainSyncOperation({
-                event,
-                blockId: conflictCardsById.get(eventCardId)?.block_id ?? null,
-                sourceId,
-                observedAt: request.mergedAt,
-              });
-              processedCounters.importedOperations += ledgerBackfill.imported;
-              processedCounters.ignoredOperations += ledgerBackfill.ignored;
-            }
-            sourceChanged = true;
-          }
-
-          for (const cardRow of cards) {
-            const incoming = parseJsonObject<FSRSCard | null>(cardRow.payload_json, null);
-            if (!incoming?.id) {
-              result.ignoredCards += 1;
-              processedCounters.ignoredCards += 1;
-              continue;
-            }
-            diagnosticCardIds.add(incoming.id);
-            const existing = this.runtime.getOne<ConflictCardRow>(
-              `SELECT id, updated_at, reps, last_review,
-                      block_id, source_exists, source_checked_at, source_missing_at,
-                      payload_json
-               FROM cards
-               WHERE id = ?`,
-              [incoming.id],
-            );
-            const reviewEvidence = existing
-              ? this.readReviewSyncSchedulingEvidence(incoming.id)
-              : null;
-            const mergeDecision = existing
-              ? decideReviewSyncCardMerge(existing, cardRow, reviewEvidence)
-              : { action: 'apply-card' as const, reason: 'incoming-card-newer' as const };
-            if (existing && mergeDecision.action === 'skip-card') {
-              if (this.applyIncomingMissingSourceProjection(cardRow, incoming)) {
-                sourceChanged = true;
-                affectedCardIds.add(incoming.id);
-                const blockId = String(incoming.blockId || '').trim();
-                if (blockId) {
-                  affectedBlockIds.add(blockId);
-                }
-              }
-              result.ignoredCards += 1;
-              processedCounters.ignoredCards += 1;
-              continue;
-            }
-            this.repository!.upsertCard(incoming);
-            this.applyIncomingMissingSourceProjection(cardRow, incoming);
-            result.mergedCards += 1;
-            processedCounters.importedCards += 1;
-            sourceChanged = true;
-            affectedCardIds.add(incoming.id);
-            const blockId = String(incoming.blockId || '').trim();
-            if (blockId) {
-              affectedBlockIds.add(blockId);
-            }
-          }
-
-          if (sourceChanged) {
-            this.invalidateQueueProjectionsForSyncConflictMerge({
-              affectedCardIds: [...affectedCardIds],
-              affectedBlockIds: [...affectedBlockIds],
-              mergedAt: request.mergedAt,
-            });
-            await this.repository!.touchSyncMetadata({
-              modifiedAt: request.mergedAt,
-              modifiedBy: 'srs-backend-worker:sync.conflict.merge',
-            });
-          }
-          if (this.shouldRecordDomainSyncProcessedSource(sourceKind, sourceChanged, processedCounters)) {
-            this.recordDomainSyncProcessedSource({
-              sourceId,
-              sourceFingerprint,
-              sourceKind,
-              path: source.path ?? null,
-              processedAt: request.mergedAt,
-              counters: processedCounters,
-            });
-          }
-          this.appendReviewCardDivergenceDiagnostics(result.diagnostics.reviewCardDivergences, [...diagnosticCardIds]);
-        });
-      } catch (error) {
-        const reason = this.resolveDomainSyncSkippedReason(error);
-        result.skippedSources.push({
-          sourceId,
-          reason: error instanceof Error ? error.message : String(error),
-        });
-        this.recordDomainSyncSkippedSource({
-          sourceId,
-          sourceFingerprint,
-          sourceKind: 'unknown',
-          path: source.path ?? null,
-          processedAt: request.mergedAt,
-          skippedReason: reason,
-          metadata: {
-            error: error instanceof Error ? error.message : String(error),
-          },
-        });
-      } finally {
-        conflictRuntime?.dispose();
-      }
-    }
-
-    return result;
+    throw new Error(
+      'BACKEND_UNAVAILABLE: SQLite conflict copies are non-authoritative; use truth.reconciliation.run',
+    );
   }
 
   private readConflictDomainSyncOperations(conflictRuntime: RuntimeSqliteDatabaseService): ConflictDomainSyncOperationRow[] {
@@ -4764,6 +5813,127 @@ export class WorkerSqliteDatabaseService {
     return next;
   }
 
+  async reconcileCanonicalTruth(
+    request: BackendTruthReconciliationRunRequest = {},
+  ): Promise<BackendTruthReconciliationRunResult> {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    if (!this.truthFileStore) {
+      throw new Error('BACKEND_UNAVAILABLE: truth reconciliation requires truth segment file store');
+    }
+    const identity = this.requireStorageMutationIdentity();
+    const config = this.truthPromotionConfig;
+    if (!config) {
+      throw new Error('BACKEND_UNAVAILABLE: truth reconciliation requires initialized truth promotion config');
+    }
+    const reason = normalizeString(request.reason) || 'manual';
+    const startedAt = Date.now();
+    const runtime = new WorkerTruthReconciliationRuntime({
+      fileStore: this.truthFileStore,
+      localDeviceId: identity.deviceId,
+      localIdentityEpoch: identity.identityEpoch,
+      schemaVersion: config.schemaVersion,
+      reviewGenerationId: config.reviewGenerationId,
+      domainSyncGenerationId: `domain-sync-operations-v${config.schemaVersion}`,
+      rebuildProjection: async (input) => {
+        const generationId = input.generationIds.card
+          ?? input.generationIds.queue
+          ?? input.generationIds.review;
+        const projection = await this.rebuildSqlProjectionsFromTruth({
+          rebuildId: `truth-reconciliation:${Date.now()}`,
+          cause: `truth-reconciliation:${reason}`,
+          families: ['cards', 'review-event-indexes', 'queue-projections'],
+          deviceId: identity.deviceId,
+          generationId,
+          schemaVersion: config.schemaVersion,
+          truthRecords: input.truthRecords,
+          truthManifest: {
+            version: 1,
+            path: `truth/reconciliation/${generationId}/device-${identity.deviceId}/manifest.v1.json`,
+            family: 'reconciliation',
+            deviceId: identity.deviceId,
+            generationId,
+            schemaVersion: config.schemaVersion,
+            segments: [],
+            updatedAt: Date.now(),
+          },
+          sourceReads: [],
+        });
+        if (projection.status !== 'ready') {
+          throw new Error(
+            `PROJECTION_REBUILD_FAILED: ${projection.error ?? projection.status}`,
+          );
+        }
+        await this.runtime.persist({
+          force: true,
+          reason: 'truth.reconciliation.run',
+          diagnostics: {
+            cause: reason,
+            initiator: 'truth.reconciliation.run',
+            projectionGeneration: projection.projectionGeneration,
+            hotPath: false,
+          },
+        });
+      },
+    });
+    let publication;
+    try {
+      publication = await runtime.reconcile();
+    } catch (error) {
+      this.lastTruthReconciliationDiagnostics = {
+        status: 'failed',
+        reason,
+        startedAt,
+        completedAt: Date.now(),
+        sourceCount: 0,
+        acceptedMutationCount: 0,
+        duplicateMutationCount: 0,
+        blockedAggregateIds: [],
+        conflictCount: 0,
+        mergeDecisionCount: 0,
+        generationIds: {
+          card: null,
+          queue: null,
+          review: null,
+          domainSync: null,
+        },
+        projectionRebuilt: false,
+        lastError: error instanceof Error ? error.message : String(error),
+      };
+      throw error;
+    }
+    this.reconciliationBlockedAggregateIds.clear();
+    for (const aggregateId of publication.reconciliation.blockedAggregateIds) {
+      this.reconciliationBlockedAggregateIds.add(aggregateId);
+    }
+    this.lastTruthReconciliationDiagnostics = {
+      status: 'succeeded',
+      reason,
+      startedAt,
+      completedAt: Date.now(),
+      sourceCount: publication.reconciliation.sources.length,
+      acceptedMutationCount: publication.reconciliation.acceptedMutationIds.length,
+      duplicateMutationCount: publication.reconciliation.duplicateMutationIds.length,
+      blockedAggregateIds: [...publication.reconciliation.blockedAggregateIds],
+      conflictCount: publication.reconciliation.conflicts.length,
+      mergeDecisionCount: publication.reconciliation.mergeDecisions.length,
+      generationIds: { ...publication.generationIds },
+      projectionRebuilt: publication.projectionRebuilt,
+      lastError: null,
+    };
+    return {
+      ok: true,
+      sourceCount: publication.reconciliation.sources.length,
+      acceptedMutationIds: publication.reconciliation.acceptedMutationIds,
+      duplicateMutationIds: publication.reconciliation.duplicateMutationIds,
+      blockedAggregateIds: publication.reconciliation.blockedAggregateIds,
+      conflicts: publication.reconciliation.conflicts,
+      mergeDecisionCount: publication.reconciliation.mergeDecisions.length,
+      generationIds: publication.generationIds,
+      projectionRebuilt: publication.projectionRebuilt,
+    };
+  }
+
   private isCompleteDomainSyncRepairAfterState(after: Record<string, unknown>): boolean {
     return hasRepairAfterStateValue(after, 'due')
       && hasRepairAfterStateValue(after, 'stability')
@@ -4878,9 +6048,9 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
-  private rebuildSqlProjectionsFromTruth(
+  private async rebuildSqlProjectionsFromTruth(
     request: WorkerStorageProjectionRebuildRequest,
-  ): BackendStorageProjectionRebuildResult {
+  ): Promise<BackendStorageProjectionRebuildResult> {
     const at = Date.now();
     const rebuildId = normalizeString(request.rebuildId) || `projection-rebuild:${at}`;
     const cause = normalizeString(request.cause) || 'manual';
@@ -4890,14 +6060,21 @@ export class WorkerSqliteDatabaseService {
 
     for (const family of families) {
       if (family === 'review-event-indexes') {
-        familyResults.push(this.rebuildReviewEventIndexProjection({
+        familyResults.push(await this.rebuildReviewEventIndexProjection({
           request,
           projectionGeneration,
         }));
         continue;
       }
       if (family === 'cards') {
-        familyResults.push(this.rebuildCardProjection({
+        familyResults.push(await this.rebuildCardProjection({
+          request,
+          projectionGeneration,
+        }));
+        continue;
+      }
+      if (family === 'queue-projections') {
+        familyResults.push(await this.rebuildQueueProjection({
           request,
           projectionGeneration,
         }));
@@ -4939,10 +6116,10 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
-  private rebuildReviewEventIndexProjection(input: {
+  private async rebuildReviewEventIndexProjection(input: {
     request: WorkerStorageProjectionRebuildRequest;
     projectionGeneration: number;
-  }): BackendStorageProjectionRebuildFamilyResult {
+  }): Promise<BackendStorageProjectionRebuildFamilyResult> {
     const reviewRecords = input.request.truthRecords
       .filter(isReviewEventTruthRecord);
     const reviewBlockIds = new Set(reviewRecords
@@ -4973,7 +6150,7 @@ export class WorkerSqliteDatabaseService {
       }))
       .filter((row): row is ReviewEventProjectionRow => row !== null);
 
-    this.runtime.runTransaction('storage.projection.rebuild.review-event-indexes', () => {
+    await this.runtime.runTransaction('storage.projection.rebuild.review-event-indexes', () => {
       for (const row of rows) {
         if (row.commitIdempotencyKey) {
           this.runtime.run(
@@ -5021,10 +6198,10 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
-  private rebuildCardProjection(input: {
+  private async rebuildCardProjection(input: {
     request: WorkerStorageProjectionRebuildRequest;
     projectionGeneration: number;
-  }): BackendStorageProjectionRebuildFamilyResult {
+  }): Promise<BackendStorageProjectionRebuildFamilyResult> {
     const cardRecords = input.request.truthRecords
       .filter((record): record is MessagePackTruthRecord & Record<string, unknown> => (
         isCardMemoryFactTruthRecord(record) || isReviewFeedbackV2CardTruthRecord(record)
@@ -5053,7 +6230,7 @@ export class WorkerSqliteDatabaseService {
     }
 
     let rowsWritten = 0;
-    this.runtime.runTransaction('storage.projection.rebuild.cards', () => {
+    await this.runtime.runTransaction('storage.projection.rebuild.cards', () => {
       for (const row of cardRows) {
         const existing = this.runtime.getOne<Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>>(
           `SELECT updated_at, reps, last_review
@@ -5144,6 +6321,175 @@ export class WorkerSqliteDatabaseService {
       status: 'ready',
       projectionGeneration: input.projectionGeneration,
       rowsRead: cardRecords.length,
+      rowsWritten,
+      sourceReadCount: input.request.sourceReads.length,
+      missingSourceIds: [],
+      error: null,
+    };
+  }
+
+  private async rebuildQueueProjection(input: {
+    request: WorkerStorageProjectionRebuildRequest;
+    projectionGeneration: number;
+  }): Promise<BackendStorageProjectionRebuildFamilyResult> {
+    if (!this.queueProjection) {
+      return {
+        family: 'queue-projections',
+        status: 'unavailable',
+        unavailableReason: 'internal-error',
+        projectionGeneration: 0,
+        rowsRead: 0,
+        rowsWritten: 0,
+        sourceReadCount: input.request.sourceReads.length,
+        missingSourceIds: [],
+        error: 'queue projection repository unavailable',
+      };
+    }
+    const queueTruthRecords = input.request.truthRecords.filter((record) => (
+      record
+      && typeof record === 'object'
+      && !Array.isArray(record)
+      && (record as Record<string, unknown>).family === 'queue-facts'
+    ));
+    const replay = replayQueueFamilyTruthRecords(queueTruthRecords);
+    const invalidQueueFamilies = replay.queues
+      .map((queue) => queue.queueFamily)
+      .filter((queueFamily) => !Object.values(QueueType).includes(queueFamily as QueueType));
+    if (replay.diagnostics.length > 0 || invalidQueueFamilies.length > 0) {
+      return {
+        family: 'queue-projections',
+        status: 'repair-required',
+        unavailableReason: 'validation-failed',
+        projectionGeneration: 0,
+        rowsRead: queueTruthRecords.length,
+        rowsWritten: 0,
+        sourceReadCount: input.request.sourceReads.length,
+        missingSourceIds: [],
+        error: [
+          ...replay.diagnostics.map((diagnostic) => (
+            `${diagnostic.reason}:${diagnostic.aggregateId ?? 'unknown'}`
+          )),
+          ...invalidQueueFamilies.map((queueFamily) => `invalid-queue-family:${queueFamily}`),
+        ].join(', '),
+      };
+    }
+
+    let rowsWritten = 0;
+    await this.runtime.runTransaction('storage.projection.rebuild.queue-projections', () => {
+      this.runtime.run('DELETE FROM queue_state');
+      this.runtime.run('DELETE FROM queue_projection_rows');
+      this.runtime.run('DELETE FROM queue_projection_counters');
+      this.runtime.run('DELETE FROM queue_projection_generations');
+
+      for (const state of replay.queueState) {
+        this.runtime.run(
+          'INSERT OR REPLACE INTO queue_state (key, value_json, updated_at) VALUES (?, ?, ?)',
+          [
+            state.key,
+            JSON.stringify(state.value),
+            input.projectionGeneration,
+          ],
+        );
+        rowsWritten += 1;
+      }
+
+      for (const queue of replay.queues) {
+        const queueType = queue.queueFamily as QueueType;
+        const policyHash = `canonical-truth:${input.request.generationId}:${queue.revision}`;
+        const rows = queue.members.map((member, index): QueueProjectionRow => {
+          const card = this.runtime.getOne<{
+            block_id: string | null;
+            deck_id: string | null;
+            type: string | null;
+          }>(
+            'SELECT block_id, deck_id, type FROM cards WHERE id = ?',
+            [member.cardId],
+          );
+          const dueAt = Number.isFinite(Number(member.due))
+            ? Number(member.due)
+            : null;
+          const dueBucket: QueueProjectionRow['dueBucket'] = Number(member.state) === CardState.New
+            ? 'new'
+            : dueAt === null
+              ? 'manual'
+              : dueAt <= input.projectionGeneration
+                ? 'due'
+                : 'future';
+          return {
+            queueType,
+            rowId: member.cardId,
+            cardId: member.cardId,
+            blockId: card?.block_id ?? null,
+            deckId: card?.deck_id ?? null,
+            membershipReason: member.membershipReason ?? 'canonical-truth',
+            dueAt,
+            dueBucket,
+            priorityScore: Number(member.priority) || 0,
+            sortKey: member.sortKey ?? [
+              String(dueAt ?? Number.MAX_SAFE_INTEGER).padStart(16, '0'),
+              String(index).padStart(8, '0'),
+              member.cardId,
+            ].join(':'),
+            queueIndexHint: index,
+            policyHash,
+            sourceGeneration: input.projectionGeneration,
+            payload: {
+              state: member.state,
+              schedulerType: member.schedulerType,
+              canonicalRevision: queue.revision,
+              canonicalMutationId: queue.mutationId,
+            },
+            updatedAt: input.projectionGeneration,
+          };
+        });
+        const buckets = {
+          all: rows.length,
+          item: 0,
+          descriptor: 0,
+          topic: 0,
+          concept: 0,
+        };
+        for (const row of rows) {
+          const type = this.runtime.getOne<{ type: string | null }>(
+            'SELECT type FROM cards WHERE id = ?',
+            [row.cardId],
+          )?.type;
+          if (type === 'item' || type === 'descriptor' || type === 'topic' || type === 'concept') {
+            buckets[type] += 1;
+          }
+        }
+        this.queueProjection!.replaceQueueProjection({
+          queueType,
+          policyHash,
+          generation: input.projectionGeneration,
+          rows,
+          counters: {
+            queueType,
+            policyHash,
+            generation: input.projectionGeneration,
+            version: 1,
+            remaining: rows.length,
+            due: rows.filter((row) => row.dueAt !== null && row.dueAt <= input.projectionGeneration).length,
+            total: rows.length,
+            buckets,
+            updatedAt: input.projectionGeneration,
+          },
+          metadata: {
+            source: 'canonical-truth-reconciliation',
+            truthGenerationId: input.request.generationId,
+            truthRevision: queue.revision,
+            truthMutationId: queue.mutationId,
+          },
+        });
+        rowsWritten += rows.length;
+      }
+    });
+
+    return {
+      family: 'queue-projections',
+      status: 'ready',
+      projectionGeneration: input.projectionGeneration,
+      rowsRead: queueTruthRecords.length,
       rowsWritten,
       sourceReadCount: input.request.sourceReads.length,
       missingSourceIds: [],
@@ -5446,11 +6792,13 @@ export class WorkerSqliteDatabaseService {
     request: BackendKernelTransactionIngestRequest,
   ): Promise<BackendKernelTransactionIngestResult> {
     await this.init();
+    this.assertFormalWritesAvailable();
     return this.kernelTransactionRuntime.ingestKernelTransactions(request);
   }
 
   async dequeueKernelTransactionActions(maxActions = 16): Promise<BackendKernelTransactionDequeueResult> {
     await this.init();
+    this.assertFormalWritesAvailable();
     return this.kernelTransactionRuntime.dequeueKernelTransactionActions(maxActions);
   }
 
@@ -5458,6 +6806,7 @@ export class WorkerSqliteDatabaseService {
     actions: BackendKernelTransactionAction[],
   ): Promise<BackendKernelTransactionRequeueResult> {
     await this.init();
+    this.assertFormalWritesAvailable();
     return this.kernelTransactionRuntime.requeueKernelTransactionActions(actions);
   }
 
@@ -5473,6 +6822,7 @@ export class WorkerSqliteDatabaseService {
 
   async executeSemanticCommand(request: BackendSemanticCommandRequest): Promise<BackendSemanticCommandResult> {
     await this.init();
+    this.assertFormalWritesAvailable();
     const requestId = normalizeString(request.requestId);
     const callerIntent = normalizeString(request.callerIntent);
     const idempotencyKey = normalizeString(request.idempotencyKey);
@@ -6388,11 +7738,91 @@ export class WorkerSqliteDatabaseService {
     writer: (db: Database) => T | Promise<T>,
   ): Promise<T> {
     await this.init();
+    this.assertFormalWritesAvailable();
     return this.runtime.runTransaction(label, writer);
+  }
+
+  async promotePendingTruth(): Promise<WorkerTruthPromotionResult> {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    if (!this.truthPromotionModule) {
+      return {
+        ok: false,
+        promotedMutationIds: [],
+        coveredJournalSequence: 0,
+        truthGenerationId: null,
+        error: 'truth-promotion-unavailable',
+      };
+    }
+    return this.truthPromotionModule.promotePending();
+  }
+
+  async resolveTruthDurabilityReceipt(receipt: StorageDurabilityReceipt): Promise<StorageDurabilityReceipt> {
+    await this.init();
+    return this.truthPromotionModule
+      ? this.truthPromotionModule.resolveReceipt(receipt)
+      : structuredClone(receipt);
+  }
+
+  async getTruthPromotionDiagnostics(): Promise<WorkerTruthPromotionDiagnostics | null> {
+    await this.init();
+    return this.truthPromotionModule ? this.truthPromotionModule.diagnostics() : null;
+  }
+
+  async compactTruthStorage(): Promise<WorkerTruthCompactionResult> {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    if (!this.truthPromotionModule || !this.truthCompactionModule) {
+      throw new Error('BACKEND_UNAVAILABLE: truth compaction module unavailable');
+    }
+    return this.truthPromotionModule.runExclusivePublication(
+      () => this.truthCompactionModule!.compactAll(),
+    );
+  }
+
+  async compactSqliteDeltaStorage(retainSealedSegments = 16) {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    if (!this.truthPromotionModule) {
+      throw new Error('BACKEND_UNAVAILABLE: SQLite delta compaction requires truth coverage');
+    }
+    const diagnostics = await this.truthPromotionModule.diagnostics();
+    return this.runtime.compactSqliteDelta({
+      coveredJournalSequence: diagnostics.truthCoverageFrontier,
+      retainSealedSegments,
+    });
+  }
+
+  async getReviewTruthPublicationStore(input: {
+    deviceId: string;
+    generationId: string;
+    schemaVersion: number;
+  }): Promise<Pick<MessagePackTruthSegmentStore, 'appendRecords' | 'replayRecords'>> {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    const config = this.truthPromotionConfig;
+    if (!this.truthPublicationModule || !this.truthPromotionModule || !config) {
+      throw new Error('BACKEND_UNAVAILABLE: Review truth publication module unavailable');
+    }
+    if (
+      input.deviceId !== config.deviceId
+      || input.generationId !== config.reviewGenerationId
+      || input.schemaVersion !== config.schemaVersion
+    ) {
+      throw new Error('BACKEND_UNAVAILABLE: Review truth publication configuration mismatch');
+    }
+    const store = this.truthPublicationModule.getFamilyStore('review-events');
+    return {
+      replayRecords: (options) => store.replayRecords(options),
+      appendRecords: (records, options) => this.truthPromotionModule!.runExclusivePublication(
+        () => store.appendRecords(records, options),
+      ),
+    };
   }
 
   async write<T>(writer: (db: Database) => T | Promise<T>): Promise<T> {
     await this.init();
+    this.assertFormalWritesAvailable();
     return this.runtime.write(writer);
   }
 
@@ -6405,15 +7835,42 @@ export class WorkerSqliteDatabaseService {
   }
 
   run(sql: string, params?: SqlParams): void {
+    this.assertFormalWritesAvailable();
     this.runtime.run(sql, params);
   }
 
-  dispose(): void {
-    void this.kernelTransactionRuntime.persistSnapshots();
+  async shutdown(): Promise<void> {
+    const recoveryRequired = this.isReadOnlyRecoveryRequired();
+    this.truthPromotionShutdownStarted = true;
+    this.storageGrowthBaselineReady = false;
+    this.storagePressureBlockReason = null;
+    if (this.storagePressureMaintenanceTimer) {
+      clearTimeout(this.storagePressureMaintenanceTimer);
+      this.storagePressureMaintenanceTimer = null;
+    }
+    if (this.truthPromotionTimer) {
+      clearTimeout(this.truthPromotionTimer);
+      this.truthPromotionTimer = null;
+    }
+    await this.storagePressureMaintenanceRun;
+    await this.truthPromotionRun;
+    await this.truthPromotionModule?.shutdown();
+    if (!recoveryRequired) {
+      await this.kernelTransactionRuntime.persistSnapshots();
+    }
+    this.startupStorageEvidence = null;
     this.runtime.dispose();
     this.repository = null;
     this.initialized = false;
     this.appliedReviewFeedbackJournalEntryIds.clear();
+    this.truthPromotionModule = null;
+    this.truthPublicationModule = null;
+    this.truthCompactionModule = null;
+    this.truthPromotionConfig = null;
+  }
+
+  dispose(): void {
+    void this.shutdown();
   }
 }
 

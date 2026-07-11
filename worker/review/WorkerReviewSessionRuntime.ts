@@ -103,6 +103,7 @@ export interface WorkerReviewSessionUndoResult extends WorkerReviewSessionState 
   restoredCardId: string | null;
   replayedCardId: string | null;
   undoToken: string;
+  durabilityReceipt?: ReviewTransactionUndoJournalEntry['durabilityReceipt'];
 }
 
 type WorkerReviewSessionUndoSnapshot = {
@@ -788,13 +789,17 @@ export class WorkerReviewSessionRuntime {
       undoStack: [],
     };
     this.sessions.set(entry.sessionId, session);
-    return this.restoreSessionFromSnapshot(
+    const result = await this.restoreSessionFromSnapshot(
       session,
       entry.frontierBefore,
       entry.replayedCardId,
       entry.undoToken,
       entry.scheduleRestoreApplied !== true,
     );
+    return {
+      ...result,
+      durabilityReceipt: entry.durabilityReceipt ?? null,
+    };
   }
 
   private async restoreSessionFromSnapshot(
@@ -818,6 +823,7 @@ export class WorkerReviewSessionRuntime {
       restoredCardId: session.current?.id ?? null,
       replayedCardId,
       undoToken,
+      durabilityReceipt: undefined,
     };
   }
 

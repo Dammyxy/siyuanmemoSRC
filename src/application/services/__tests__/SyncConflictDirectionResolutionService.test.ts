@@ -3,6 +3,7 @@ import { SyncConflictDirectionResolutionService } from '../SyncConflictDirection
 import type {
   BackendSyncConflictMergeRequest,
   BackendSyncConflictSummarizeResult,
+  BackendTruthReconciliationRunResult,
 } from '../../../../../packages/contracts/src/backend-rpc';
 
 const source = {
@@ -44,13 +45,10 @@ describe('SyncConflictDirectionResolutionService', () => {
     const service = new SyncConflictDirectionResolutionService(
       {
         readSyncConflictDatabaseSources: async () => [source],
-        backupCurrentSqliteDatabase: vi.fn(),
-        replaceCurrentSqliteDatabase: vi.fn(),
       },
       {
         summarizeSyncConflicts: vi.fn(async (request) => summaryFor(request.sources)),
-        mergeSyncConflicts: vi.fn(),
-        reloadSyncConflictDatabase: vi.fn(),
+        reconcileCanonicalTruth: vi.fn(),
       },
     );
 
@@ -61,18 +59,14 @@ describe('SyncConflictDirectionResolutionService', () => {
   });
 
   it('keeps current local without mutation', async () => {
-    const mergeSyncConflicts = vi.fn();
-    const replaceCurrentSqliteDatabase = vi.fn();
+    const reconcileCanonicalTruth = vi.fn();
     const service = new SyncConflictDirectionResolutionService(
       {
         readSyncConflictDatabaseSources: async () => [source],
-        backupCurrentSqliteDatabase: vi.fn(),
-        replaceCurrentSqliteDatabase,
       },
       {
         summarizeSyncConflicts: vi.fn(async (request) => summaryFor(request.sources)),
-        mergeSyncConflicts,
-        reloadSyncConflictDatabase: vi.fn(),
+        reconcileCanonicalTruth,
       },
     );
 
@@ -81,106 +75,48 @@ describe('SyncConflictDirectionResolutionService', () => {
       unchanged: true,
       sources: 1,
     });
-    expect(mergeSyncConflicts).not.toHaveBeenCalled();
-    expect(replaceCurrentSqliteDatabase).not.toHaveBeenCalled();
+    expect(reconcileCanonicalTruth).not.toHaveBeenCalled();
   });
 
-  it('smart merges only readable sources', async () => {
+  it('routes smart merge to canonical truth reconciliation', async () => {
     const unreadable = { sourceId: 'conflict-b', bytes: new Uint8Array([0]) };
-    const mergeSyncConflicts = vi.fn(async () => ({
+    const reconciliation: BackendTruthReconciliationRunResult = {
       ok: true,
-      sources: 1,
-      mergedReviewEvents: 2,
-      ignoredReviewEvents: 0,
-      mergedCards: 3,
-      ignoredCards: 0,
-      skippedSources: [],
-      diagnostics: {
-        reviewCardDivergences: [],
+      sourceCount: 2,
+      acceptedMutationIds: ['mutation-a', 'mutation-b'],
+      duplicateMutationIds: [],
+      blockedAggregateIds: [],
+      conflicts: [],
+      mergeDecisionCount: 0,
+      generationIds: {
+        card: 'card-generation',
+        queue: 'queue-generation',
+        review: 'review-generation',
+        domainSync: 'domain-sync-generation',
       },
-    }));
+      projectionRebuilt: true,
+    };
+    const reconcileCanonicalTruth = vi.fn(async () => reconciliation);
     const service = new SyncConflictDirectionResolutionService(
       {
         readSyncConflictDatabaseSources: async () => [source, unreadable],
-        backupCurrentSqliteDatabase: vi.fn(),
-        replaceCurrentSqliteDatabase: vi.fn(),
       },
       {
         summarizeSyncConflicts: vi.fn(async (request) => summaryFor(request.sources)),
-        mergeSyncConflicts,
-        reloadSyncConflictDatabase: vi.fn(),
+        reconcileCanonicalTruth,
       },
     );
 
     await expect(service.apply({ kind: 'smartMerge' })).resolves.toMatchObject({
       kind: 'smartMerge',
-      merge: { sources: 1, mergedReviewEvents: 2, mergedCards: 3 },
+      reconciliation: {
+        sourceCount: 2,
+        acceptedMutationIds: ['mutation-a', 'mutation-b'],
+        projectionRebuilt: true,
+      },
     });
-    expect(mergeSyncConflicts).toHaveBeenCalledWith({
-      sources: [source],
-      mergedAt: undefined,
+    expect(reconcileCanonicalTruth).toHaveBeenCalledWith({
+      reason: 'manual-sync-conflict-reconciliation',
     });
-  });
-
-  it('backs up, replaces, and reloads for confirmed replacement', async () => {
-    const backupCurrentSqliteDatabase = vi.fn(async () => ({
-      backupPath: 'manual-sync-backups/siyuanmemo.db.backup',
-      bytes: new Uint8Array([9]),
-    }));
-    const replaceCurrentSqliteDatabase = vi.fn();
-    const reloadSyncConflictDatabase = vi.fn(async () => ({
-      ok: true,
-      reloaded: true,
-      dbFile: 'siyuanmemo.db',
-    }));
-    const service = new SyncConflictDirectionResolutionService(
-      {
-        readSyncConflictDatabaseSources: async () => [source],
-        backupCurrentSqliteDatabase,
-        replaceCurrentSqliteDatabase,
-      },
-      {
-        summarizeSyncConflicts: vi.fn(async (request) => summaryFor(request.sources)),
-        mergeSyncConflicts: vi.fn(),
-        reloadSyncConflictDatabase,
-      },
-    );
-
-    await expect(service.apply({
-      kind: 'replaceWithConflictCopy',
-      sourceId: 'conflict-a',
-      confirmed: true,
-      now: 1,
-    })).resolves.toMatchObject({
-      kind: 'replaceWithConflictCopy',
-      sourceId: 'conflict-a',
-      backupPath: 'manual-sync-backups/siyuanmemo.db.backup',
-    });
-    expect(backupCurrentSqliteDatabase).toHaveBeenCalledWith({ sourceId: 'conflict-a', now: 1 });
-    expect(replaceCurrentSqliteDatabase).toHaveBeenCalledWith(source.bytes);
-    expect(reloadSyncConflictDatabase).toHaveBeenCalled();
-  });
-
-  it('treats declined replacement as cancel', async () => {
-    const replaceCurrentSqliteDatabase = vi.fn();
-    const service = new SyncConflictDirectionResolutionService(
-      {
-        readSyncConflictDatabaseSources: async () => [source],
-        backupCurrentSqliteDatabase: vi.fn(),
-        replaceCurrentSqliteDatabase,
-      },
-      {
-        summarizeSyncConflicts: vi.fn(async (request) => summaryFor(request.sources)),
-        mergeSyncConflicts: vi.fn(),
-        reloadSyncConflictDatabase: vi.fn(),
-      },
-    );
-
-    await expect(service.apply({
-      kind: 'replaceWithConflictCopy',
-      sourceId: 'conflict-a',
-      confirmed: false,
-    })).resolves.toEqual({ kind: 'cancel', unchanged: true });
-    expect(replaceCurrentSqliteDatabase).not.toHaveBeenCalled();
   });
 });

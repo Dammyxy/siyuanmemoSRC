@@ -17,6 +17,7 @@ import {
   type RuntimeEnv,
 } from '@/application/backendMigration/runtimePolicy';
 import { FileService } from '@/infrastructure/services/FileService';
+import { IndexedDbTruthDeviceIdentityStore } from '@/infrastructure/persistence/identity/IndexedDbTruthDeviceIdentityStore';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { resolveTruthDeviceIdentity } from '@/application/factories/truthDeviceIdentity';
@@ -87,6 +88,7 @@ export interface CreateApplicationBackendRuntimeBundleOptions {
   resolveKernelWriterLeaseInstanceId?: () => string | undefined;
   resolveKernelWriterLeaseTtlMs?: () => number | undefined;
   resolveSiyuanBackendContainer?: () => string;
+  resolveSiyuanSystemId?: () => string | null;
   resolveWindowLocationHref?: () => string;
   resolveNavigatorUserAgent?: () => string;
   resolveDocumentBodyClass?: () => string;
@@ -165,6 +167,15 @@ export async function createApplicationBackendRuntimeBundle(
               return bridge.writeJSON(path, value);
             },
             listTruthFiles: (prefix) => bridge.truthFileStore?.listFiles?.(prefix) ?? Promise.resolve([]),
+            deleteTruthFile: (path) => {
+              if (bridge.truthFileStore?.deleteFile) {
+                return bridge.truthFileStore.deleteFile(path);
+              }
+              if (!bridge.deleteFile) {
+                return Promise.reject(new Error(`SrsBackendWorker truth delete unavailable for ${path}`));
+              }
+              return bridge.deleteFile(path);
+            },
             hasLegacyPetalSqliteDb: () => bridge.hasLegacyPetalSqliteDb?.() ?? Promise.resolve(false),
             readSyncConflictDatabaseSources: () => bridge.readSyncConflictDatabaseSources?.() ?? Promise.resolve([]),
             cleanupSyncConflictDatabaseSources: (sourceIds) => bridge.cleanupSyncConflictDatabaseSources?.(sourceIds) ?? Promise.resolve({
@@ -183,7 +194,11 @@ export async function createApplicationBackendRuntimeBundle(
             executeTopicDerivedCommand: options.executeTopicDerivedCommand,
           },
         });
-        const truthDeviceIdentity = await resolveTruthDeviceIdentity({ localStore: options.fileService });
+        const truthDeviceIdentity = await resolveTruthDeviceIdentity({
+          localStore: options.fileService,
+          identityStore: new IndexedDbTruthDeviceIdentityStore(),
+          hostFingerprint: (options.resolveSiyuanSystemId ?? resolveSiyuanSystemId)(),
+        });
         truthDeviceId = truthDeviceIdentity.deviceId;
         if (!truthDeviceId) {
           logger.warn('[ApplicationContext] TRUTH_DEVICE_ID_UNAVAILABLE: MessagePack truth writes are unavailable because local device identity is not persistent', {
@@ -315,6 +330,7 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
     readJSON: <T>(path: string) => fileService.readJSON<T>(path),
     writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
     listFiles: (prefix: string) => fileService.listFiles(prefix),
+    deleteFile: (path: string) => fileService.deleteFile(path),
   };
   return {
     truthFileStore,
@@ -426,6 +442,26 @@ function resolveSiyuanBackendContainer(): string {
     return container || 'unknown';
   } catch {
     return 'unknown';
+  }
+}
+
+function resolveSiyuanSystemId(): string | null {
+  try {
+    const system = (globalThis as unknown as {
+      window?: {
+        siyuan?: {
+          config?: {
+            system?: {
+              id?: unknown;
+            };
+          };
+        };
+      };
+    }).window?.siyuan?.config?.system;
+    const systemId = String(system?.id || '').trim();
+    return systemId || null;
+  } catch {
+    return null;
   }
 }
 

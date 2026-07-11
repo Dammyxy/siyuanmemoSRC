@@ -26,7 +26,7 @@ import {
 import { BACKEND_REVIEW_RPC_METHODS, type BackendReviewRpcMethod } from '../../../packages/contracts/src/backend-rpc';
 import type { ReviewFeedbackJournalStore } from '../../db/ReviewFeedbackJournalStore';
 import {
-  createMessagePackTruthSegmentStore,
+  type MessagePackTruthSegmentStore,
   type MessagePackTruthSegmentFileStore,
 } from '../../truth/MessagePackTruthSegmentStore';
 import { ReviewFeedbackTruthFlushRuntime } from '../../truth/ReviewFeedbackTruthFlushRuntime';
@@ -57,6 +57,21 @@ export interface BackendReviewRpcDatabase {
   listReviewEventsForTruthBackfill(limit?: number): Promise<ReviewSqlTruthBackfillRow[]>;
   patchReviewTruthBackfillProjectionRefs(patches: ReviewSqlTruthBackfillProjectionPatch[]): Promise<void>;
   countReviewEventsPendingTruthBackfill(): Promise<number>;
+  getTruthPromotionDiagnostics(): Promise<{
+    active: boolean;
+    shutdownStarted: boolean;
+    pendingMutationCount: number;
+    oldestPendingAgeMs: number | null;
+    journalSequenceFrontier: number;
+    truthCoverageFrontier: number;
+    retryReason: string | null;
+    lastSuccessfulPromotionAt: number | null;
+  } | null>;
+  getReviewTruthPublicationStore(input: {
+    deviceId: string;
+    generationId: string;
+    schemaVersion: number;
+  }): Promise<Pick<MessagePackTruthSegmentStore, 'appendRecords' | 'replayRecords'>>;
   updateSourceExistence(
     entries: Array<{ cardId?: string; blockId: string; exists: boolean }>,
     checkedAt: number,
@@ -173,9 +188,6 @@ export class BackendReviewRpcRuntime {
     if (!journalStore) {
       throw new Error('BACKEND_UNAVAILABLE: review.truth.flush requires Review feedback journal store');
     }
-    if (!this.options.truthFileStore) {
-      throw new Error('BACKEND_UNAVAILABLE: review.truth.flush requires truth segment file store');
-    }
     const deviceId = String(named.deviceId || '').trim();
     const generationId = String(named.generationId || '').trim();
     if (!deviceId) {
@@ -184,13 +196,11 @@ export class BackendReviewRpcRuntime {
     if (!generationId) {
       throw new Error('INVALID_REQUEST: review.truth.flush requires generationId');
     }
-    const truthStore = createMessagePackTruthSegmentStore({
-      fileStore: this.options.truthFileStore,
-      family: 'review-events',
+    const schemaVersion = Math.max(1, Math.floor(Number(named.schemaVersion) || MESSAGEPACK_TRUTH_SCHEMA_VERSION));
+    const truthStore = await this.options.database.getReviewTruthPublicationStore({
       deviceId,
       generationId,
-      schemaVersion: Math.max(1, Math.floor(Number(named.schemaVersion) || MESSAGEPACK_TRUTH_SCHEMA_VERSION)),
-      maxSegmentBytes: Math.max(256, Math.floor(Number(named.maxSegmentBytes) || 1024 * 1024)),
+      schemaVersion,
     });
     const runtime = new ReviewFeedbackTruthFlushRuntime({
       journalStore,
@@ -208,9 +218,6 @@ export class BackendReviewRpcRuntime {
       params,
       'review.truth.backfill requires named params',
     );
-    if (!this.options.truthFileStore) {
-      throw new Error('BACKEND_UNAVAILABLE: review.truth.backfill requires truth segment file store');
-    }
     const deviceId = String(named.deviceId || '').trim();
     const generationId = String(named.generationId || '').trim();
     if (!deviceId) {
@@ -220,13 +227,10 @@ export class BackendReviewRpcRuntime {
       throw new Error('INVALID_REQUEST: review.truth.backfill requires generationId');
     }
     const schemaVersion = Math.max(1, Math.floor(Number(named.schemaVersion) || MESSAGEPACK_TRUTH_SCHEMA_VERSION));
-    const truthStore = createMessagePackTruthSegmentStore({
-      fileStore: this.options.truthFileStore,
-      family: 'review-events',
+    const truthStore = await this.options.database.getReviewTruthPublicationStore({
       deviceId,
       generationId,
       schemaVersion,
-      maxSegmentBytes: Math.max(256, Math.floor(Number(named.maxSegmentBytes) || 1024 * 1024)),
     });
     const runtime = new ReviewSqlTruthBackfillRuntime({
       truthStore,
@@ -245,10 +249,27 @@ export class BackendReviewRpcRuntime {
   }
 
   async handleReviewTruthMaintenanceStatus(): Promise<BackendReviewTruthMaintenanceStatusResult> {
+    const truthPromotion = await this.options.database.getTruthPromotionDiagnostics();
     return {
       family: 'review-events',
       journal: await this.options.database.getReviewFeedbackJournalDiagnostics(),
       truthBackfill: await this.getReviewTruthBackfillDiagnostics(),
+      truthPromotion: truthPromotion
+        ? {
+          available: true,
+          ...truthPromotion,
+        }
+        : {
+          available: false,
+          active: false,
+          shutdownStarted: false,
+          pendingMutationCount: 0,
+          oldestPendingAgeMs: null,
+          journalSequenceFrontier: 0,
+          truthCoverageFrontier: 0,
+          retryReason: 'truth-promotion-unavailable',
+          lastSuccessfulPromotionAt: null,
+        },
     };
   }
 

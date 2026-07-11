@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnifiedStorageManager, type UnifiedCardStore } from '@/core/storage/UnifiedStorageManager';
-import type { UnifiedStorageXiuyuanCardDelta } from '@/core/storage/UnifiedStorageManager';
+import type { UnifiedStorageCardCrudMutation } from '@/core/storage/UnifiedStorageManager';
 import { CardState, CardType } from '@/types/card';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
 import { BlockId } from '../../domain/BlockId';
@@ -114,23 +114,23 @@ function createStoredDTO(params: {
   };
 }
 
-describe('XiuyuanRepository delta persistence routing', () => {
+describe('XiuyuanRepository Worker Card CRUD routing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getBlockAttrsMock.mockResolvedValue({});
     setBlockAttrsMock.mockResolvedValue(undefined);
   });
 
-  it('routes one upsert-only Xiuyuan save through delta persistence', async () => {
+  it('routes one upsert-only Xiuyuan save through one Worker batch', async () => {
     const storage = new UnifiedStorageManager();
     const repository = new XiuyuanRepository(storage);
     let persistedStore = createEmptyStore();
     const fullSave = vi.fn(async (store: UnifiedCardStore) => {
       persistedStore = deepClone(store);
     });
-    const deltaSave = vi.fn(async (_delta: UnifiedStorageXiuyuanCardDelta) => undefined);
+    const commitCardCrudBatch = vi.fn(async (_mutation: UnifiedStorageCardCrudMutation) => undefined);
     storage.setPersistenceCallbacks(fullSave, async () => deepClone(persistedStore), {
-      saveXiuyuanCardDelta: deltaSave,
+      commitCardCrudBatch,
     });
     expect((await storage.load()).ok).toBe(true);
 
@@ -138,22 +138,20 @@ describe('XiuyuanRepository delta persistence routing', () => {
     const result = await repository.save(xiuyuan);
 
     expect(result.ok).toBe(true);
-    expect(deltaSave).toHaveBeenCalledTimes(1);
+    expect(commitCardCrudBatch).toHaveBeenCalledTimes(1);
     expect(fullSave).not.toHaveBeenCalled();
-    expect(deltaSave.mock.calls[0]?.[0]).toMatchObject({
-      xiuyuans: {
-        [xiuyuan.getId().getValue()]: {
-          id: xiuyuan.getId().getValue(),
-          blockIDs: ['20260626000001-fast001'],
-        },
-      },
-      cardDTOs: {
-        'card-fast-001': {
-          id: 'card-fast-001',
-          blockId: '20260626000001-fast001',
-          xiuyuanID: xiuyuan.getId().getValue(),
-        },
-      },
+    expect(commitCardCrudBatch.mock.calls[0]?.[0]).toMatchObject({
+      upsertXiuyuans: [{
+        id: xiuyuan.getId().getValue(),
+        blockIDs: ['20260626000001-fast001'],
+      }],
+      upsertCards: [{
+        id: 'card-fast-001',
+        blockId: '20260626000001-fast001',
+        xiuyuanID: xiuyuan.getId().getValue(),
+      }],
+      deleteCardIds: [],
+      deleteXiuyuanIds: [],
     });
   });
 
@@ -164,26 +162,9 @@ describe('XiuyuanRepository delta persistence routing', () => {
     const fullSave = vi.fn(async (store: UnifiedCardStore) => {
       persistedStore = deepClone(store);
     });
-    const deltaSave = vi.fn(async (delta: UnifiedStorageXiuyuanCardDelta) => {
-      persistedStore = {
-        ...persistedStore,
-        version: delta.version,
-        xiuyuans: {
-          ...persistedStore.xiuyuans,
-          ...deepClone(delta.xiuyuans),
-        },
-        cards: {
-          ...persistedStore.cards,
-          ...deepClone(delta.cards),
-        },
-        cardDTOs: {
-          ...persistedStore.cardDTOs,
-          ...deepClone(delta.cardDTOs),
-        },
-      };
-    });
+    const commitCardCrudBatch = vi.fn(async (_mutation: UnifiedStorageCardCrudMutation) => undefined);
     storage.setPersistenceCallbacks(fullSave, async () => deepClone(persistedStore), {
-      saveXiuyuanCardDelta: deltaSave,
+      commitCardCrudBatch,
     });
     expect((await storage.load()).ok).toBe(true);
 
@@ -219,36 +200,23 @@ describe('XiuyuanRepository delta persistence routing', () => {
     const result = await repository.save(xiuyuan);
 
     expect(result.ok).toBe(true);
-    const delta = deltaSave.mock.calls[0]?.[0];
-    expect(delta?.xiuyuans[xiuyuan.getId().getValue()]?.meta?.nativeRiffImportReceipt).toEqual(receipt);
+    const mutation = commitCardCrudBatch.mock.calls[0]?.[0];
+    expect(mutation?.upsertXiuyuans[0]?.meta?.nativeRiffImportReceipt).toEqual(receipt);
     expect(readNativeRiffImportReceipt({
-      meta: delta?.cardDTOs[cardId]?.meta,
-    })).toEqual(receipt);
-
-    const reloadedStorage = new UnifiedStorageManager();
-    reloadedStorage.setPersistenceCallbacks(
-      async () => undefined,
-      async () => deepClone(persistedStore),
-    );
-    expect((await reloadedStorage.load()).ok).toBe(true);
-    expect(readNativeRiffImportReceipt({
-      meta: reloadedStorage.getXiuYuan(xiuyuan.getId().getValue())?.meta,
-    })).toEqual(receipt);
-    expect(readNativeRiffImportReceipt({
-      meta: reloadedStorage.getCardDTO(cardId)?.meta,
+      meta: mutation?.upsertCards.find((card) => card.id === cardId)?.meta,
     })).toEqual(receipt);
   });
 
-  it('routes batch upsert-only Xiuyuan saves through one delta persistence call', async () => {
+  it('routes batch upsert-only Xiuyuan saves through one Worker batch', async () => {
     const storage = new UnifiedStorageManager();
     const repository = new XiuyuanRepository(storage);
     let persistedStore = createEmptyStore();
     const fullSave = vi.fn(async (store: UnifiedCardStore) => {
       persistedStore = deepClone(store);
     });
-    const deltaSave = vi.fn(async (_delta: UnifiedStorageXiuyuanCardDelta) => undefined);
+    const commitCardCrudBatch = vi.fn(async (_mutation: UnifiedStorageCardCrudMutation) => undefined);
     storage.setPersistenceCallbacks(fullSave, async () => deepClone(persistedStore), {
-      saveXiuyuanCardDelta: deltaSave,
+      commitCardCrudBatch,
     });
     expect((await storage.load()).ok).toBe(true);
 
@@ -257,19 +225,19 @@ describe('XiuyuanRepository delta persistence routing', () => {
     const result = await repository.saveMany([first, second]);
 
     expect(result.ok).toBe(true);
-    expect(deltaSave).toHaveBeenCalledTimes(1);
+    expect(commitCardCrudBatch).toHaveBeenCalledTimes(1);
     expect(fullSave).not.toHaveBeenCalled();
-    expect(Object.keys(deltaSave.mock.calls[0]?.[0].xiuyuans ?? {}).sort()).toEqual([
+    expect(commitCardCrudBatch.mock.calls[0]?.[0].upsertXiuyuans.map((value) => value.id).sort()).toEqual([
       first.getId().getValue(),
       second.getId().getValue(),
     ].sort());
-    expect(Object.keys(deltaSave.mock.calls[0]?.[0].cardDTOs ?? {}).sort()).toEqual([
+    expect(commitCardCrudBatch.mock.calls[0]?.[0].upsertCards.map((value) => value.id).sort()).toEqual([
       'card-fast-002',
       'card-fast-003',
     ]);
   });
 
-  it('uses full save when saving would remove an existing persisted card', async () => {
+  it('includes removed existing cards in the same Worker batch', async () => {
     const storage = new UnifiedStorageManager();
     const repository = new XiuyuanRepository(storage);
     const xiuyuanId = must(XiuyuanId.create('xy-existing-delta-unsafe'));
@@ -308,9 +276,9 @@ describe('XiuyuanRepository delta persistence routing', () => {
     const fullSave = vi.fn(async (store: UnifiedCardStore) => {
       persistedStore = deepClone(store);
     });
-    const deltaSave = vi.fn(async (_delta: UnifiedStorageXiuyuanCardDelta) => undefined);
+    const commitCardCrudBatch = vi.fn(async (_mutation: UnifiedStorageCardCrudMutation) => undefined);
     storage.setPersistenceCallbacks(fullSave, async () => deepClone(persistedStore), {
-      saveXiuyuanCardDelta: deltaSave,
+      commitCardCrudBatch,
     });
     expect((await storage.load()).ok).toBe(true);
 
@@ -339,13 +307,15 @@ describe('XiuyuanRepository delta persistence routing', () => {
     const result = await repository.save(xiuyuan);
 
     expect(result.ok).toBe(true);
-    expect(deltaSave).not.toHaveBeenCalled();
-    expect(fullSave).toHaveBeenCalledTimes(1);
-    expect(persistedStore.cardDTOs?.[currentCardId]).toBeDefined();
-    expect(persistedStore.cardDTOs?.[staleCardId]).toBeUndefined();
+    expect(fullSave).not.toHaveBeenCalled();
+    expect(commitCardCrudBatch).toHaveBeenCalledTimes(1);
+    expect(commitCardCrudBatch).toHaveBeenCalledWith(expect.objectContaining({
+      upsertCards: [expect.objectContaining({ id: currentCardId })],
+      deleteCardIds: [staleCardId],
+    }));
   });
 
-  it('rolls back in-memory storage when delta persistence fails', async () => {
+  it('rolls back in-memory storage when Worker Card CRUD persistence fails', async () => {
     const storage = new UnifiedStorageManager();
     const repository = new XiuyuanRepository(storage);
     let persistedStore = createEmptyStore();
@@ -355,8 +325,8 @@ describe('XiuyuanRepository delta persistence routing', () => {
       },
       async () => deepClone(persistedStore),
       {
-        saveXiuyuanCardDelta: async () => {
-          throw new Error('delta write failed');
+        commitCardCrudBatch: async () => {
+          throw new Error('BACKEND_UNAVAILABLE: Worker Card CRUD write failed');
         },
       },
     );

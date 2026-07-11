@@ -30,11 +30,11 @@ import type {
   BackendProgressiveCommandExecuteResult,
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
-  BackendSyncConflictMergeRequest,
-  BackendSyncConflictMergeResult,
   BackendSyncConflictReloadResult,
   BackendSyncConflictSummarizeRequest,
   BackendSyncConflictSummarizeResult,
+  BackendTruthReconciliationRunRequest,
+  BackendTruthReconciliationRunResult,
   BackendTopicDerivedCommandExecuteRequest,
   BackendTopicDerivedCommandExecuteResult,
   P6OwnershipCommandRequest,
@@ -51,7 +51,9 @@ export interface BackendIntegrationClientFacet {
   domainSyncConflictSourcesCleanup(
     request: BackendDomainSyncConflictSourceCleanupRequest,
   ): Promise<BackendDomainSyncConflictSourceCleanupResult>;
-  mergeSyncConflicts(request: BackendSyncConflictMergeRequest): Promise<BackendSyncConflictMergeResult>;
+  reconcileCanonicalTruth(
+    request?: BackendTruthReconciliationRunRequest,
+  ): Promise<BackendTruthReconciliationRunResult>;
   auditReviewSyncDivergence(
     request?: BackendReviewSyncDivergenceAuditRequest,
   ): Promise<BackendReviewSyncDivergenceAuditResult>;
@@ -110,8 +112,10 @@ export class BackendIntegrationRpcClient implements BackendIntegrationClientFace
     );
   }
 
-  mergeSyncConflicts(request: BackendSyncConflictMergeRequest): Promise<BackendSyncConflictMergeResult> {
-    return this.rpcCaller.call<BackendSyncConflictMergeResult>('sync.conflict.merge', request);
+  reconcileCanonicalTruth(
+    request: BackendTruthReconciliationRunRequest = {},
+  ): Promise<BackendTruthReconciliationRunResult> {
+    return this.rpcCaller.call<BackendTruthReconciliationRunResult>('truth.reconciliation.run', request);
   }
 
   auditReviewSyncDivergence(

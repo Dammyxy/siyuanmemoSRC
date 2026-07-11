@@ -56,6 +56,74 @@ function createDurableReviewFeedbackResult(overrides: Record<string, unknown> = 
 }
 
 describe('SrsBackendClient', () => {
+  it('reads storage maintenance status through the core RPC client', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          operationId: 'legacy-import-v1',
+          migrationId: 'legacy-import-v1',
+          required: false,
+          status: 'completed',
+          completedBatches: 7,
+          totalBatches: 7,
+          lastMutationId: 'maintenance:legacy-import-v1:batch:6',
+          completedAt: 100,
+          error: null,
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.storageMaintenanceStatus({
+      operationId: 'legacy-import-v1',
+      migrationId: 'legacy-import-v1',
+    })).resolves.toMatchObject({
+      required: false,
+      status: 'completed',
+    });
+    expect(transport.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'storage.maintenance.status',
+      params: [{
+        operationId: 'legacy-import-v1',
+        migrationId: 'legacy-import-v1',
+      }],
+    }));
+  });
+
+  it('reads Native Riff import exclusion through the Card RPC facade', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          exclusion: {
+            version: 1,
+            blockId: 'native-riff-excluded-block',
+            excludedAt: 1_700_000_000_000,
+            source: 'legacy-blacklist',
+            reason: 'migrated-riff-blacklist',
+          },
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.findNativeRiffImportExclusion({
+      blockId: 'native-riff-excluded-block',
+    })).resolves.toMatchObject({
+      exclusion: {
+        blockId: 'native-riff-excluded-block',
+        source: 'legacy-blacklist',
+      },
+    });
+    expect(transport.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'card.nativeRiffImportExclusion.find',
+      params: [{ blockId: 'native-riff-excluded-block' }],
+    }));
+  });
+
   it('schedules background Review truth flush after committed feedback with pending truth', async () => {
     vi.useFakeTimers();
     try {
@@ -833,6 +901,98 @@ describe('SrsBackendClient', () => {
     });
     expect(client.backgroundWorkStatus({ kind: 'review-truth-backfill' })).toHaveLength(1);
     expect(client.backgroundWorkStatus(status.jobId)).toEqual(status);
+  });
+
+  it('registers pending Worker truth promotion in the background work registry', async () => {
+    const scheduled: Array<() => void> = [];
+    const registry = new KernelCompanionBackgroundWorkRegistry({
+      schedule: (run) => scheduled.push(run),
+    });
+    let maintenanceReads = 0;
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        if (request.method !== 'review.truth.maintenanceStatus') {
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }
+        maintenanceReads += 1;
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            family: 'review-events',
+            journal: {
+              fileName: 'review-feedback-journal.v1',
+              storage: 'non-siyuan',
+              version: 1,
+              pendingCount: 0,
+              pendingBytes: 0,
+              statusCounts: {},
+              appliedInMemoryCount: 0,
+              lastWrite: null,
+              lastReplay: null,
+              lastCheckpoint: null,
+            },
+            truthBackfill: {
+              family: 'review-events',
+              source: 'review_events',
+              storage: 'truth-segments',
+              pendingSqlRows: 0,
+              pendingSqlRowsCheckedAt: 1_700_000_000_000,
+              syncVisible: false,
+              last: null,
+              lastError: null,
+            },
+            truthPromotion: {
+              available: true,
+              active: maintenanceReads === 1,
+              shutdownStarted: false,
+              pendingMutationCount: maintenanceReads === 1 ? 2 : 0,
+              oldestPendingAgeMs: maintenanceReads === 1 ? 500 : null,
+              journalSequenceFrontier: 12,
+              truthCoverageFrontier: maintenanceReads === 1 ? 10 : 12,
+              retryReason: null,
+              lastSuccessfulPromotionAt: maintenanceReads === 1 ? null : 1_700_000_000_100,
+            },
+          },
+        };
+      }),
+    };
+    const client = new SrsBackendClient(transport, {
+      backgroundWorkRegistry: registry,
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+      },
+    });
+
+    await expect(client.schedulePendingReviewTruthFlush('startup')).resolves.toBe(true);
+    expect(scheduled).toHaveLength(1);
+    expect(registry.status()).toEqual([
+      expect.objectContaining({
+        kind: 'truth-promotion',
+        state: 'accepted',
+        diagnostics: expect.objectContaining({
+          pendingMutationCount: 2,
+          journalSequenceFrontier: 12,
+          truthCoverageFrontier: 10,
+        }),
+      }),
+    ]);
+
+    scheduled[0]();
+    await vi.waitFor(() => {
+      expect(registry.status()[0]).toMatchObject({
+        kind: 'truth-promotion',
+        state: 'completed',
+        diagnostics: expect.objectContaining({
+          pendingMutationCount: 0,
+          journalSequenceFrontier: 12,
+          truthCoverageFrontier: 12,
+          pollsAttempted: 1,
+        }),
+      });
+    });
   });
 
   it('dispose clears queued Review truth maintenance and prevents timer re-arm', async () => {
@@ -1702,21 +1862,25 @@ describe('SrsBackendClient', () => {
             };
           case 'review.feedback':
             return { jsonrpc: '2.0', id: request.id, error: { code: 'BACKEND_UNAVAILABLE', message: 'review not ready' } };
-          case 'sync.conflict.merge':
+          case 'truth.reconciliation.run':
             return {
               jsonrpc: '2.0',
               id: request.id,
               result: {
                 ok: true,
-                sources: 1,
-                mergedReviewEvents: 1,
-                ignoredReviewEvents: 0,
-                mergedCards: 1,
-                ignoredCards: 0,
-                skippedSources: [],
-                diagnostics: {
-                  reviewCardDivergences: [],
+                sourceCount: 2,
+                acceptedMutationIds: ['mutation-a', 'mutation-b'],
+                duplicateMutationIds: [],
+                blockedAggregateIds: [],
+                conflicts: [],
+                mergeDecisionCount: 0,
+                generationIds: {
+                  card: 'card-generation',
+                  queue: 'queue-generation',
+                  review: 'review-generation',
+                  domainSync: 'domain-sync-generation',
                 },
+                projectionRebuilt: true,
               },
             };
           case 'sync.reviewDivergence.audit':
@@ -2039,14 +2203,13 @@ describe('SrsBackendClient', () => {
       queueMode: 'formal',
       commitPolicy: 'write-schedule',
     })).rejects.toThrow('BACKEND_UNAVAILABLE: review not ready');
-    await expect(client.mergeSyncConflicts({
-      mergedAt: 1,
-      sources: [{ sourceId: 'conflict-a', bytes: new Uint8Array([1, 2, 3]) }],
+    await expect(client.reconcileCanonicalTruth({
+      reason: 'manual-test',
     })).resolves.toMatchObject({
       ok: true,
-      sources: 1,
-      mergedReviewEvents: 1,
-      mergedCards: 1,
+      sourceCount: 2,
+      acceptedMutationIds: ['mutation-a', 'mutation-b'],
+      projectionRebuilt: true,
     });
     await expect(client.auditReviewSyncDivergence({
       cardIds: ['card-1'],
@@ -2158,7 +2321,7 @@ describe('SrsBackendClient', () => {
       'autocard.execute',
       'autocard.executeBatch',
       'review.feedback',
-      'sync.conflict.merge',
+      'truth.reconciliation.run',
       'sync.reviewDivergence.audit',
       'sync.conflict.summarize',
       'sync.conflict.reload',
@@ -2217,8 +2380,7 @@ describe('SrsBackendClient', () => {
       commitPolicy: 'write-schedule',
     }]);
     expect(requests[18].params).toEqual([{
-      mergedAt: 1,
-      sources: [{ sourceId: 'conflict-a', bytes: new Uint8Array([1, 2, 3]) }],
+      reason: 'manual-test',
     }]);
     expect(requests[19].params).toEqual([{
       cardIds: ['card-1'],

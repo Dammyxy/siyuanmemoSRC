@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "delta": {
+    "sealedSegments": 192
+  },
+  "truth": {
+    "segments": 143,
+    "manifestReferencedSegments": 131,
+    "unreferencedSegments": 12
+  },
+  "temporaryProjection": {
+    "path": "siyuanmemo.db",
+    "bytes": 28835840
+  },
+  "identity": {
+    "indexedDbAuthority": "valid",
+    "localStorageAuthority": "valid",
+    "authoritiesMatch": true,
+    "temporaryMirror": "disposable"
+  },
+  "expectedDiagnostics": [
+    "delta-segment-growth-observed",
+    "truth-segment-growth-observed",
+    "temporary-projection-size-observed",
+    "identity-authority-matching"
+  ]
+}

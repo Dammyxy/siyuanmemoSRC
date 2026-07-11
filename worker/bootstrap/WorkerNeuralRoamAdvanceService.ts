@@ -21,8 +21,6 @@ import { CardState, CardType, type FSRSCard } from '@/types/card';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { DEFAULT_SETTINGS } from '@/types/settings';
 import { SqlNeuralRoamRouteRepository } from '@/infrastructure/persistence/sqlite/SqlNeuralRoamRouteRepository';
-import { SqlNeuralRoamRouteMigrationService } from '@/infrastructure/persistence/sqlite/SqlNeuralRoamRouteMigrationService';
-import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/SqlQueueStateRepository';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { applyWorkerNeuralRoamCommand } from './neuralRoamCommandPolicy';
 import {
@@ -100,7 +98,6 @@ export class WorkerNeuralRoamAdvanceService {
   private readonly queuePersistence: QueuePersistencePort;
   private readonly routeCatalog: NeuralRoamRouteCatalog;
   private readonly routeRepository: SqlNeuralRoamRouteRepository;
-  private routeMigrationPromise: Promise<void> | null = null;
 
   constructor(private readonly deps: WorkerNeuralRoamAdvanceServiceDeps) {
     this.graphQuery = {
@@ -251,7 +248,7 @@ export class WorkerNeuralRoamAdvanceService {
   }
 
   private async getQueue(sessionId: string | null): Promise<NeuralRoamQueue> {
-    await this.ensureRoutesMigrated();
+    await this.deps.database.init();
     const storageKey = this.storageKeyForSession(sessionId);
     let queue = this.queues.get(storageKey) ?? null;
     if (!queue) {
@@ -380,20 +377,6 @@ export class WorkerNeuralRoamAdvanceService {
       unavailableReason: reason,
       message,
     };
-  }
-
-  private async ensureRoutesMigrated(): Promise<void> {
-    if (!this.routeMigrationPromise) {
-      this.routeMigrationPromise = (async () => {
-        await this.deps.database.init();
-        const migration = new SqlNeuralRoamRouteMigrationService(
-          new SqlQueueStateRepository(this.deps.database as never),
-          this.routeRepository,
-        );
-        await migration.migrateIfNeeded();
-      })();
-    }
-    await this.routeMigrationPromise;
   }
 
   private async applyStartFromFocusRequest(

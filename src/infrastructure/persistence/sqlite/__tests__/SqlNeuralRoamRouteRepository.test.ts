@@ -3,8 +3,6 @@ import type { IFileService } from '@/infrastructure/services/FileService';
 import { DEFAULT_NEURAL_ROAM_ROUTE_ID, type NeuralRoamRouteState } from '@/core/queue/neural/routes';
 import { SqliteDatabaseService } from '../SqliteDatabaseService';
 import { SqlNeuralRoamRouteRepository } from '../SqlNeuralRoamRouteRepository';
-import { SqlNeuralRoamRouteMigrationService } from '../SqlNeuralRoamRouteMigrationService';
-import { SqlQueueStateRepository } from '../SqlQueueStateRepository';
 
 class MemorySqliteFileService implements Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'> {
   readonly json = new Map<string, unknown>();
@@ -180,40 +178,4 @@ describe('SqlNeuralRoamRouteRepository', () => {
     expect(page.entries.map((entry) => entry.eventId)).toEqual(['event-b']);
   });
 
-  it('migrates legacy neuralRoamQueue state into SQL route rows once', async () => {
-    const database = new SqliteDatabaseService(new MemorySqliteFileService());
-    await database.init();
-    const queueState = new SqlQueueStateRepository(database);
-    const routeRepository = new SqlNeuralRoamRouteRepository(database);
-    queueState.set('neuralRoamQueue', {
-      version: 6,
-      seedPool: [{
-        nodeId: 'concept-a',
-        nodeKind: 'concept',
-        priority: 0.5,
-        neighborsViewed: 0,
-        addedAt: 1,
-        nodePreview: 'Concept A',
-      }],
-      anchorPool: [],
-      session: {
-        displayPath: [],
-        currentPathIndex: -1,
-        navigationMode: 'explore',
-        bookmarkPathIndex: null,
-        history: [],
-        currentFocus: null,
-        currentSessionId: null,
-        visitedBlocks: [],
-        exhaustedFocuses: [],
-      },
-    });
-    const migration = new SqlNeuralRoamRouteMigrationService(queueState, routeRepository);
-
-    await expect(migration.migrateIfNeeded(100)).resolves.toEqual({ migrated: true, reason: 'migrated' });
-    await expect(migration.migrateIfNeeded(200)).resolves.toEqual({ migrated: false, reason: 'route-state-exists' });
-
-    const loaded = await routeRepository.loadState();
-    expect(loaded?.routes[0].seedPool.map((entry) => entry.nodeId)).toEqual(['concept-a']);
-  });
 });

@@ -10,6 +10,10 @@ describe('kernel relay contract', () => {
   it('declares every backend relay method used by ApplicationContext', () => {
     expect(KERNEL_RELAY_METHODS).toEqual(expect.arrayContaining([
       'review.feedback',
+      'card.crud.batchMutate',
+      'card.schedule.batchUpdate',
+      'queue.state.loadAll',
+      'queue.state.batchMutate',
       'domainSync.status',
       'domainSync.repair.preview',
       'domainSync.repair.apply',

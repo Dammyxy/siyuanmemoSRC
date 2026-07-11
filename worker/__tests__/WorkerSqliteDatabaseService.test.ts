@@ -3,6 +3,8 @@ import { encode } from '@msgpack/msgpack';
 import {
   LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH,
   MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+  type MessagePackCardAggregateChangesetTruthRecord,
+  type StorageDurabilityReceipt,
 } from '../../packages/contracts/src/backend-rpc';
 import { CardState, CardType } from '@/types/card';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
@@ -10,7 +12,11 @@ import {
   createInMemorySqlitePersistenceBridge,
   type SqlitePersistenceBridge,
 } from '../db/SqlitePersistenceBridge';
-import { createMessagePackTruthSegmentStore } from '../truth/MessagePackTruthSegmentStore';
+import {
+  createMessagePackTruthSegmentStore,
+  type MessagePackTruthRecord,
+} from '../truth/MessagePackTruthSegmentStore';
+import { MessagePackTruthSnapshotGenerationStore } from '../truth/MessagePackTruthSnapshotGenerationStore';
 import { RETIRED_LEGACY_UNIFIED_CARDS_SOURCE_PATH } from '../truth/LegacyUnifiedCardsMigrationReceipt';
 
 const SQLITE_DELTA_V2_MANIFEST = 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json';
@@ -91,11 +97,129 @@ async function seedCardMemoryTruth(
   }]);
 }
 
+function createGenerationCardSnapshotRecord(
+  cardId: string,
+  memory: {
+    due: number;
+    stability: number;
+    difficulty: number;
+    reps: number;
+    lapses: number;
+    state: CardState;
+    lastReview: number;
+    elapsedDays: number;
+    scheduledDays: number;
+  },
+  recordedAt: number,
+): MessagePackTruthRecord {
+  return {
+    id: `generation:${cardId}:${recordedAt}`,
+    family: 'card-memory-facts',
+    type: 'card-memory.snapshot-imported',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    createdAt: 1_700_000_000_000,
+    updatedAt: recordedAt,
+    source: {
+      cardId,
+      sourceBlockId: `block-${cardId}`,
+      legacySource: 'generation-recovery-test',
+    },
+    memory: {
+      ...memory,
+      priority: 42,
+      schedulerType: 'fsrs-v6',
+    },
+    payload: {
+      cardId,
+      xiuyuanId: `xy-${cardId}`,
+      blockId: `block-${cardId}`,
+      type: CardType.Item,
+      tags: ['truth', 'generation-recovery'],
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_700_000_000_000,
+      updatedAt: recordedAt,
+      meta: {
+        sourceHash: `source-hash-${cardId}`,
+      },
+    },
+  };
+}
+
+async function seedCompactableCardTruth(
+  bridge: InMemorySqliteBridge,
+  cardId = 'compactable-card',
+): Promise<void> {
+  const store = createMessagePackTruthSegmentStore({
+    fileStore: bridge.truthFileStore!,
+    family: 'card-memory-facts',
+    deviceId: WORKER_TRUTH_DEVICE_ID,
+    generationId: 'card-memory-facts-v1',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+  });
+  const record: MessagePackCardAggregateChangesetTruthRecord = {
+    family: 'card-memory-facts',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    type: 'card-aggregate.changeset.v1',
+    idempotencyKey: `card:${cardId}:1`,
+    mutationId: `mutation:${cardId}:1`,
+    aggregateId: cardId,
+    causalBaseRevision: null,
+    revision: `revision:${cardId}:1`,
+    journalSequence: 1,
+    logicalTime: 1,
+    recordedAt: 1,
+    card: {
+      id: cardId,
+      blockId: `block-${cardId}`,
+      xiuyuanId: null,
+      faceKey: null,
+      type: 'item',
+      priority: 10,
+      tags: [],
+      cardTypeMarker: null,
+      neuralRoamSeed: false,
+      skipped: false,
+      skipNote: null,
+      skipUntil: null,
+      sourceUrl: null,
+      extractedFrom: null,
+      createdAt: 1,
+      updatedAt: 1,
+      meta: null,
+    },
+    schedule: {
+      schedulerType: 'fsrs-v6',
+      due: 1,
+      stability: 1,
+      difficulty: 1,
+      reps: 0,
+      lapses: 0,
+      state: 0,
+      lastReview: 0,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      learningStep: null,
+      leechCount: 0,
+      isLeech: false,
+      aFactor: null,
+      riffCardId: null,
+      schedulerMeta: null,
+      postponeCount: 0,
+      lastPostponeDate: null,
+      rescheduleHistory: [],
+    },
+    tombstone: null,
+  };
+  await store.appendRecords([record]);
+}
+
 async function loadWorkerDatabaseFromBridge(
   bridge: SqlitePersistenceBridge,
 ): Promise<WorkerSqliteDatabaseService> {
   const database = new WorkerSqliteDatabaseService(bridge);
-  await database.load({ truthDeviceId: WORKER_TRUTH_DEVICE_ID });
+  await database.load({ truthDeviceId: WORKER_TRUTH_DEVICE_ID, identityEpoch: 'epoch-worker-test' });
   return database;
 }
 
@@ -125,6 +249,356 @@ describe('WorkerSqliteDatabaseService', () => {
     vi.useRealTimers();
   });
 
+  it('exposes combined storage inventory from Worker-owned persistence evidence', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await seedCardMemoryTruth(bridge, 'storage-inventory-card');
+    const database = await loadWorkerDatabaseFromBridge(bridge);
+
+    const inventory = await database.getStorageInventory();
+
+    expect(inventory.metrics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        family: 'card-memory-facts',
+        deviceId: WORKER_TRUTH_DEVICE_ID,
+        identityEpoch: 'epoch-worker-test',
+        files: 1,
+        currentGenerationId: 'card-memory-facts-v1',
+      }),
+      expect.objectContaining({
+        family: 'sqlite-delta',
+        deviceId: WORKER_TRUTH_DEVICE_ID,
+        identityEpoch: 'epoch-worker-test',
+      }),
+    ]));
+  });
+
+  it('exposes identity, receipt, promotion, coverage, budget, recovery, and reconciliation diagnostics together', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await seedCompactableCardTruth(bridge, 'combined-diagnostics-card');
+    const database = await loadWorkerDatabaseFromBridge(bridge);
+
+    await expect(database.getCombinedStorageDiagnostics()).resolves.toMatchObject({
+      identity: {
+        available: true,
+        deviceId: WORKER_TRUTH_DEVICE_ID,
+        identityEpoch: 'epoch-worker-test',
+      },
+      receipts: {
+        stageCounts: {
+          failed: null,
+          journaled: 0,
+          'truth-committed': 0,
+        },
+        latestRetryReason: null,
+      },
+      promotion: {
+        available: true,
+        pendingMutationCount: 0,
+        truthCoverageFrontier: 0,
+      },
+      coverage: {
+        available: true,
+        uncoveredMutationCount: 0,
+        lag: 0,
+      },
+      budget: {
+        version: 1,
+        level: 'normal',
+      },
+      recovery: {
+        status: 'ready',
+        disabledCapabilities: [],
+      },
+      reconciliation: {
+        status: 'never-run',
+        projectionRebuilt: false,
+      },
+      disabledCapabilities: [],
+    });
+
+    await expect(database.reconcileCanonicalTruth({
+      reason: 'combined-diagnostics-test',
+    })).resolves.toMatchObject({
+      ok: true,
+      projectionRebuilt: true,
+    });
+
+    await expect(database.getCombinedStorageDiagnostics()).resolves.toMatchObject({
+      reconciliation: {
+        status: 'succeeded',
+        reason: 'combined-diagnostics-test',
+        sourceCount: 1,
+        acceptedMutationCount: 1,
+        duplicateMutationCount: 0,
+        blockedAggregateIds: [],
+        conflictCount: 0,
+        projectionRebuilt: true,
+        lastError: null,
+      },
+      disabledCapabilities: [],
+    });
+  });
+
+  it('classifies startup identity, truth, delta, checkpoint, and temp projection evidence', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await seedCardMemoryTruth(bridge, 'startup-evidence-card');
+    const database = await loadWorkerDatabaseFromBridge(bridge);
+
+    expect(database.getStartupStorageEvidence()).toMatchObject({
+      version: 1,
+      identity: {
+        status: 'verified',
+        deviceId: WORKER_TRUTH_DEVICE_ID,
+        identityEpoch: 'epoch-worker-test',
+      },
+      manifests: {
+        status: 'verified',
+        count: 1,
+      },
+      generations: {
+        status: 'verified',
+        currentGenerationId: 'card-memory-facts-v1',
+      },
+      truthSegments: {
+        status: 'verified',
+        count: 1,
+      },
+      deltaCoverage: {
+        status: 'verified',
+        truthCoverageFrontier: 0,
+        uncoveredMutationCount: 0,
+      },
+      temporarySqlite: {
+        status: 'rebuilt',
+        reason: 'temp-projection-missing',
+      },
+      recoveryState: {
+        status: 'ready',
+        code: null,
+        lastVerifiedGenerationId: 'card-memory-facts-v1',
+        disabledCapabilities: [],
+      },
+    });
+  });
+
+  it('accepts configurable storage pressure budgets in Worker composition', async () => {
+    const database = new WorkerSqliteDatabaseService(
+      createInMemorySqlitePersistenceBridge(),
+      undefined,
+      {
+        storageBudgetPolicies: [{
+          family: 'sqlite-delta',
+          files: { target: 0, soft: 0, high: 0, hard: 0 },
+        }],
+      },
+    );
+    await database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-test',
+    });
+
+    await expect(database.getStorageInventory()).resolves.toMatchObject({
+      pressure: {
+        level: 'hard',
+        blockingMutationGrowth: false,
+        code: null,
+        metrics: [
+          expect.objectContaining({
+            family: 'sqlite-delta',
+            level: 'hard',
+            hardFiles: 0,
+          }),
+        ],
+      },
+    });
+  });
+
+  it('runs production truth compaction behind the Worker publication lock', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await seedCompactableCardTruth(bridge);
+    const database = await loadWorkerDatabaseFromBridge(bridge);
+
+    await expect(database.compactTruthStorage()).resolves.toMatchObject({
+      families: [
+        {
+          family: 'card-memory-facts',
+          status: 'compacted',
+          generationId: 'compact-card-memory-facts-1-1',
+          coveredJournalSequence: 1,
+        },
+        {
+          family: 'queue-facts',
+          status: 'noop',
+          generationId: null,
+        },
+      ],
+    });
+    expect(bridge.jsonSnapshot(
+      `truth/card-memory-facts/device-${WORKER_TRUTH_DEVICE_ID}/generation-fence.v1.json`,
+    )).toMatchObject({
+      current: {
+        generationId: 'compact-card-memory-facts-1-1',
+      },
+    });
+  });
+
+  it('runs one-time startup compaction before enforcing over-budget storage', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await seedCompactableCardTruth(bridge, 'startup-over-budget-card');
+    const database = new WorkerSqliteDatabaseService(
+      bridge,
+      undefined,
+      {
+        storageBudgetPolicies: [{
+          family: 'card-memory-facts',
+          files: { target: 0, soft: 1, high: 2, hard: 3 },
+        }],
+      },
+    );
+
+    await database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-test',
+    });
+
+    expect(bridge.jsonSnapshot(
+      `truth/card-memory-facts/device-${WORKER_TRUTH_DEVICE_ID}/generation-fence.v1.json`,
+    )).toMatchObject({
+      current: {
+        generationId: 'compact-card-memory-facts-1-1',
+      },
+    });
+  });
+
+  it('fails closed with STORAGE_PRESSURE when hard-pressure maintenance cannot publish', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(
+      bridge,
+      undefined,
+      {
+        storageBudgetPolicies: [{
+          family: 'card-memory-facts',
+          files: { target: 0, soft: 1, high: 1, hard: 1 },
+        }],
+      },
+    );
+    await database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-test',
+    });
+    await seedCompactableCardTruth(bridge, 'hard-pressure-card');
+    const originalWriteJSON = bridge.truthFileStore!.writeJSON.bind(bridge.truthFileStore);
+    bridge.truthFileStore!.writeJSON = async (path, data) => {
+      if (path.endsWith('/generation-fence.v1.json')) {
+        throw new Error('hard-pressure-publication-failed');
+      }
+      await originalWriteJSON(path, data);
+    };
+
+    await expect(database.commitQueueStateBatch({
+      mutationId: 'queue:hard-pressure-block',
+      mutations: [{
+        operation: 'set',
+        key: 'retrievalPracticeQueue',
+        value: ['hard-pressure-card'],
+      }],
+    })).rejects.toThrow('STORAGE_PRESSURE');
+
+    await expect(database.getStorageInventory()).resolves.toMatchObject({
+      pressure: {
+        level: 'hard',
+        blockingMutationGrowth: true,
+        code: 'STORAGE_PRESSURE',
+        reason: expect.stringContaining('hard-pressure-publication-failed'),
+      },
+    });
+    await expect(database.loadQueueState()).resolves.toEqual({});
+  });
+
+  it('schedules background maintenance without blocking mutations at soft pressure', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(
+      bridge,
+      undefined,
+      {
+        storageBudgetPolicies: [{
+          family: 'card-memory-facts',
+          files: { target: 0, soft: 1, high: 3, hard: 4 },
+        }],
+      },
+    );
+    await database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-test',
+    });
+    await seedCompactableCardTruth(bridge, 'soft-pressure-card');
+    vi.useFakeTimers();
+
+    await expect(database.commitQueueStateBatch({
+      mutationId: 'queue:soft-pressure-allowed',
+      mutations: [{
+        operation: 'set',
+        key: 'retrievalPracticeQueue',
+        value: ['soft-pressure-card'],
+      }],
+    })).resolves.toMatchObject({
+      updatedKeys: ['retrievalPracticeQueue'],
+    });
+    expect(bridge.jsonSnapshot(
+      `truth/card-memory-facts/device-${WORKER_TRUTH_DEVICE_ID}/generation-fence.v1.json`,
+    )).toBeNull();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    await vi.runAllTimersAsync();
+    await database.shutdown();
+
+    expect(bridge.jsonSnapshot(
+      `truth/card-memory-facts/device-${WORKER_TRUTH_DEVICE_ID}/generation-fence.v1.json`,
+    )).toMatchObject({
+      current: {
+        generationId: 'compact-card-memory-facts-1-1',
+      },
+    });
+  });
+
+  it('runs bounded maintenance synchronously before accepting high-pressure growth', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(
+      bridge,
+      undefined,
+      {
+        storageBudgetPolicies: [{
+          family: 'card-memory-facts',
+          files: { target: 0, soft: 1, high: 1, hard: 8 },
+        }],
+      },
+    );
+    await database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-test',
+    });
+    await seedCompactableCardTruth(bridge, 'high-pressure-card');
+
+    await expect(database.commitQueueStateBatch({
+      mutationId: 'queue:high-pressure-maintained',
+      mutations: [{
+        operation: 'set',
+        key: 'retrievalPracticeQueue',
+        value: ['high-pressure-card'],
+      }],
+    })).resolves.toMatchObject({
+      updatedKeys: ['retrievalPracticeQueue'],
+    });
+
+    expect(bridge.jsonSnapshot(
+      `truth/card-memory-facts/device-${WORKER_TRUTH_DEVICE_ID}/generation-fence.v1.json`,
+    )).toMatchObject({
+      current: {
+        generationId: 'compact-card-memory-facts-1-1',
+      },
+    });
+  });
+
   it('loads previously persisted database bytes with sql.js runtime', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
 
@@ -145,6 +619,353 @@ describe('WorkerSqliteDatabaseService', () => {
     );
 
     expect(row).toEqual({ value: 'persisted' });
+  });
+
+  it('returns the initialized unified projection snapshot from db.load', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await database.init();
+    await database.upsertCards([{
+      id: 'renderer-snapshot-card',
+      blockId: 'renderer-snapshot-block',
+      due: 1_700_000_000_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_699_900_000_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_699_800_000_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'renderer snapshot card' },
+    }]);
+
+    await expect(database.load()).resolves.toMatchObject({
+      ok: true,
+      initialized: true,
+      projectionSnapshot: {
+        version: 2,
+        cards: {
+          'renderer-snapshot-card': {
+            id: 'renderer-snapshot-card',
+            blockId: 'renderer-snapshot-block',
+          },
+        },
+      },
+    });
+  });
+
+  it('reads Native Riff import exclusions and reports missing records', async () => {
+    const database = await loadWorkerDatabaseFromBridge(
+      createInMemorySqlitePersistenceBridge(),
+    );
+    const exclusion = {
+      version: 1,
+      blockId: 'native-riff-excluded-block',
+      nativeCardId: 'native-riff-card',
+      deckId: 'native-riff-deck',
+      excludedAt: 1_700_000_000_000,
+      source: 'user',
+      reason: 'user-excluded',
+    };
+    database.run(
+      `INSERT INTO tombstones (
+        kind, id, deleted_at, deleted_by, payload_json
+      ) VALUES (?, ?, ?, ?, ?)`,
+      [
+        'native-riff-import-exclusion',
+        exclusion.blockId,
+        exclusion.excludedAt,
+        exclusion.source,
+        JSON.stringify(exclusion),
+      ],
+    );
+
+    await expect(database.findNativeRiffImportExclusion({
+      blockId: exclusion.blockId,
+    })).resolves.toEqual({ exclusion });
+    await expect(database.findNativeRiffImportExclusion({
+      blockId: 'native-riff-not-excluded',
+    })).resolves.toEqual({ exclusion: null });
+  });
+
+  it('rejects Native Riff import exclusion reads without blockId', async () => {
+    const database = await loadWorkerDatabaseFromBridge(
+      createInMemorySqlitePersistenceBridge(),
+    );
+
+    await expect(database.findNativeRiffImportExclusion({ blockId: '   ' }))
+      .rejects.toThrow('INVALID_REQUEST: card.nativeRiffImportExclusion.find requires blockId');
+  });
+
+  it('fails closed when Native Riff import exclusion evidence is invalid', async () => {
+    const database = await loadWorkerDatabaseFromBridge(
+      createInMemorySqlitePersistenceBridge(),
+    );
+    database.run(
+      `INSERT INTO tombstones (
+        kind, id, deleted_at, deleted_by, payload_json
+      ) VALUES (?, ?, ?, ?, ?)`,
+      [
+        'native-riff-import-exclusion',
+        'native-riff-corrupt-block',
+        1_700_000_000_000,
+        'user',
+        JSON.stringify({
+          version: 1,
+          blockId: 'different-block',
+          excludedAt: -1,
+          source: 'unknown',
+        }),
+      ],
+    );
+
+    await expect(database.findNativeRiffImportExclusion({
+      blockId: 'native-riff-corrupt-block',
+    })).rejects.toThrow(
+      'STORAGE_RECOVERY_REQUIRED: invalid native Riff import exclusion record',
+    );
+  });
+
+  it('commits Card/Schedule updates as one journaled Worker mutation', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = await loadWorkerDatabaseFromBridge(bridge);
+    const cardId = 'card-schedule-worker-1';
+
+    const result = await database.commitCardScheduleBatch({
+      mutationId: 'card-schedule:test-worker-1',
+      schedulingWriteSource: 'manual-reschedule',
+      cards: [{
+        id: cardId,
+        xiuyuanID: `xy-${cardId}`,
+        blockId: `block-${cardId}`,
+        due: 1_700_864_000_000,
+        stability: 10,
+        difficulty: 5,
+        reps: 4,
+        lapses: 0,
+        state: CardState.Review,
+        lastReview: 1_700_000_000_000,
+        elapsedDays: 10,
+        scheduledDays: 10,
+        priority: 50,
+        type: CardType.Item,
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: 1_600_000_000_000,
+        updatedAt: 1_700_000_000_000,
+        schedulerType: 'fsrs-v6',
+      }],
+    });
+
+    expect(result).toMatchObject({
+      updatedCardIds: [cardId],
+      durabilityReceipt: {
+        mutationId: 'card-schedule:test-worker-1',
+        family: 'card-schedule',
+        stage: 'journaled',
+        journalSequence: expect.any(Number),
+        affectedAggregates: [{
+          family: 'card-schedule',
+          aggregateId: cardId,
+        }],
+        requiredTruthOutputs: [{
+          family: 'card-schedule',
+          kind: 'changeset',
+          aggregateIds: [cardId],
+        }],
+      },
+    });
+    await expect(database.getCard(cardId)).resolves.toMatchObject({
+      id: cardId,
+      due: 1_700_864_000_000,
+      scheduledDays: 10,
+      schedulerType: 'fsrs-v6',
+    });
+  });
+
+  it('commits Card CRUD upserts and deletions as one journaled Worker mutation', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = await loadWorkerDatabaseFromBridge(bridge);
+    const oldCardId = 'card-crud-worker-old';
+    const newCardId = 'card-crud-worker-new';
+
+    await database.upsertCards([{
+      id: oldCardId,
+      xiuyuanID: 'xy-crud-worker-old',
+      blockId: 'block-crud-worker-old',
+      due: 1_700_000_000_000,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lapses: 0,
+      state: CardState.New,
+      lastReview: 0,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      priority: 50,
+      type: CardType.Item,
+      tags: [],
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_600_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    }]);
+    await database.runTransaction('seed-card-crud-xiuyuan', (db) => {
+      db.run(
+        'INSERT INTO xiuyuans (id, updated_at, payload_json) VALUES (?, ?, ?)',
+        [
+          'xy-crud-worker-old',
+          1_700_000_000_000,
+          JSON.stringify({
+            id: 'xy-crud-worker-old',
+            blockIDs: ['block-crud-worker-old'],
+            fields: [],
+            templateID: 'builtin-quick-card',
+            createdAt: 1_600_000_000_000,
+            updatedAt: 1_700_000_000_000,
+          }),
+        ],
+      );
+    });
+
+    const result = await database.commitCardCrudBatch({
+      mutationId: 'card-crud:test-worker-1',
+      upsertCards: [{
+        id: newCardId,
+        xiuyuanID: 'xy-crud-worker-new',
+        blockId: 'block-crud-worker-new',
+        due: 1_800_000_000_000,
+        stability: 0,
+        difficulty: 0,
+        reps: 0,
+        lapses: 0,
+        state: CardState.New,
+        lastReview: 0,
+        elapsedDays: 0,
+        scheduledDays: 0,
+        priority: 60,
+        type: CardType.Item,
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_000_000,
+      }],
+      upsertXiuyuans: [{
+        id: 'xy-crud-worker-new',
+        blockIDs: ['block-crud-worker-new'],
+        fields: [],
+        templateID: 'builtin-quick-card',
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_000_000,
+      }],
+      deleteCardIds: [oldCardId],
+      deleteXiuyuanIds: ['xy-crud-worker-old'],
+    });
+
+    expect(result).toMatchObject({
+      upsertedCardIds: [newCardId],
+      upsertedXiuyuanIds: ['xy-crud-worker-new'],
+      deletedCardIds: [oldCardId],
+      deletedXiuyuanIds: ['xy-crud-worker-old'],
+      durabilityReceipt: {
+        mutationId: 'card-crud:test-worker-1',
+        family: 'card-crud',
+        stage: 'journaled',
+        journalSequence: expect.any(Number),
+        requiredTruthOutputs: [{
+          family: 'card-crud',
+          kind: 'changeset',
+          aggregateIds: [newCardId],
+        }, {
+          family: 'card-crud',
+          kind: 'tombstone',
+          aggregateIds: [oldCardId],
+        }],
+      },
+    });
+    await expect(database.getCard(newCardId)).resolves.toMatchObject({
+      id: newCardId,
+      xiuyuanID: 'xy-crud-worker-new',
+    });
+    await expect(database.getCard(oldCardId)).resolves.toBeUndefined();
+    expect(database.getOne<{ id: string }>(
+      'SELECT id FROM xiuyuans WHERE id = ?',
+      ['xy-crud-worker-new'],
+    )).toEqual({ id: 'xy-crud-worker-new' });
+    expect(database.getOne<{ id: string }>(
+      'SELECT id FROM xiuyuans WHERE id = ?',
+      ['xy-crud-worker-old'],
+    )).toBeNull();
+    expect(database.getOne<{ id: string }>(
+      'SELECT id FROM tombstones WHERE kind = ? AND id = ?',
+      ['card', oldCardId],
+    )).toEqual({ id: oldCardId });
+  });
+
+  it('commits Queue set and delete changes as one journaled Worker mutation', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = await loadWorkerDatabaseFromBridge(bridge);
+
+    await database.commitQueueStateBatch({
+      mutationId: 'queue:test-worker-seed',
+      mutations: [{
+        operation: 'set',
+        key: 'finalDrillQueue',
+        value: ['card-old'],
+      }],
+    });
+
+    const result = await database.commitQueueStateBatch({
+      mutationId: 'queue:test-worker-1',
+      mutations: [{
+        operation: 'set',
+        key: 'retrievalPracticeQueue',
+        value: ['card-1', 'card-2'],
+      }, {
+        operation: 'delete',
+        key: 'finalDrillQueue',
+      }],
+    });
+
+    expect(result).toMatchObject({
+      updatedKeys: ['retrievalPracticeQueue'],
+      deletedKeys: ['finalDrillQueue'],
+      durabilityReceipt: {
+        mutationId: 'queue:test-worker-1',
+        family: 'queue',
+        stage: 'journaled',
+        journalSequence: expect.any(Number),
+        affectedAggregates: [{
+          family: 'queue',
+          aggregateId: 'finalDrillQueue',
+        }, {
+          family: 'queue',
+          aggregateId: 'retrievalPracticeQueue',
+        }],
+        requiredTruthOutputs: [{
+          family: 'queue',
+          kind: 'changeset',
+          aggregateIds: ['finalDrillQueue', 'retrievalPracticeQueue'],
+        }],
+      },
+    });
+    await expect(database.loadQueueState()).resolves.toEqual({
+      retrievalPracticeQueue: ['card-1', 'card-2'],
+    });
   });
 
   it('exposes transferable array buffer helper for binary bridge payloads', async () => {
@@ -222,6 +1043,401 @@ describe('WorkerSqliteDatabaseService', () => {
       LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH,
       expect.objectContaining({ status: 'reconciled' }),
     );
+  });
+
+  it('rebuilds a missing temp projection from verified truth plus uncovered delta', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const cardId = 'truth-plus-uncovered-delta-card';
+    await seedCardMemoryTruth(bridge, cardId);
+    const first = new WorkerSqliteDatabaseService(
+      bridge,
+      undefined,
+      { truthPromotionScheduleDelayMs: 60_000 },
+    );
+    await first.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-test',
+    });
+
+    await first.commitCardScheduleBatch({
+      mutationId: 'card-schedule:uncovered-rebuild',
+      schedulingWriteSource: 'manual-reschedule',
+      cards: [{
+        id: cardId,
+        xiuyuanID: `xy-${cardId}`,
+        blockId: `block-${cardId}`,
+        due: 1_800_000_000_000,
+        stability: 9,
+        difficulty: 4,
+        reps: 5,
+        lapses: 1,
+        state: CardState.Review,
+        lastReview: 1_799_000_000_000,
+        elapsedDays: 8,
+        scheduledDays: 9,
+        priority: 70,
+        type: CardType.Item,
+        tags: ['uncovered'],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_800_000_000_000,
+        schedulerType: 'fsrs-v6',
+      }],
+    });
+    await first.shutdown();
+    await bridge.deleteFile?.('siyuanmemo.db');
+
+    const recovered = await loadWorkerDatabaseFromBridge(bridge);
+
+    await expect(recovered.getCard(cardId)).resolves.toMatchObject({
+      id: cardId,
+      due: 1_800_000_000_000,
+      stability: 9,
+      difficulty: 4,
+      reps: 5,
+      lastReview: 1_799_000_000_000,
+      scheduledDays: 9,
+    });
+    expect(recovered.getStartupStorageEvidence()).toMatchObject({
+      temporarySqlite: {
+        status: 'rebuilt',
+        reason: 'temp-projection-missing',
+      },
+      recoveryState: {
+        status: 'ready',
+        code: null,
+      },
+    });
+  });
+
+  it('falls back to the previous verified generation and replays every later delta mutation', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const cardId = 'previous-generation-delta-recovery-card';
+    const generationStore = new MessagePackTruthSnapshotGenerationStore({
+      fileStore: bridge.truthFileStore!,
+      family: 'card-memory-facts',
+      deviceId: WORKER_TRUTH_DEVICE_ID,
+      schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    });
+    const previousState = {
+      due: 1_700_100_000_000,
+      stability: 2,
+      difficulty: 6,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_700_000_000_000,
+      elapsedDays: 1,
+      scheduledDays: 2,
+    };
+    const previous = await generationStore.publishGeneration({
+      generationId: 'compact-card-memory-facts-0-1',
+      expectedCurrentGenerationId: null,
+      records: [createGenerationCardSnapshotRecord(cardId, previousState, 1_700_000_000_000)],
+    });
+    const first = new WorkerSqliteDatabaseService(
+      bridge,
+      undefined,
+      { truthPromotionScheduleDelayMs: 60_000 },
+    );
+    await first.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-test',
+    });
+
+    const firstDeltaState = {
+      due: 1_800_100_000_000,
+      stability: 7,
+      difficulty: 5,
+      reps: 4,
+      lapses: 1,
+      state: CardState.Review,
+      lastReview: 1_799_000_000_000,
+      elapsedDays: 5,
+      scheduledDays: 7,
+    };
+    await first.commitCardScheduleBatch({
+      mutationId: 'card-schedule:previous-generation-replay:1',
+      schedulingWriteSource: 'manual-reschedule',
+      cards: [{
+        id: cardId,
+        xiuyuanID: `xy-${cardId}`,
+        blockId: `block-${cardId}`,
+        ...firstDeltaState,
+        priority: 60,
+        type: CardType.Item,
+        tags: ['delta-one'],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_800_100_000_000,
+        schedulerType: 'fsrs-v6',
+      }],
+    });
+    const current = await generationStore.publishGeneration({
+      generationId: 'compact-card-memory-facts-1-1',
+      expectedCurrentGenerationId: previous.generation.generationId,
+      records: [createGenerationCardSnapshotRecord(cardId, firstDeltaState, 1_800_100_000_000)],
+    });
+
+    const finalDeltaState = {
+      due: 1_900_100_000_000,
+      stability: 11,
+      difficulty: 3,
+      reps: 8,
+      lapses: 1,
+      state: CardState.Review,
+      lastReview: 1_899_000_000_000,
+      elapsedDays: 9,
+      scheduledDays: 11,
+    };
+    await first.commitCardScheduleBatch({
+      mutationId: 'card-schedule:previous-generation-replay:2',
+      schedulingWriteSource: 'manual-reschedule',
+      cards: [{
+        id: cardId,
+        xiuyuanID: `xy-${cardId}`,
+        blockId: `block-${cardId}`,
+        ...finalDeltaState,
+        priority: 80,
+        type: CardType.Item,
+        tags: ['delta-two'],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_900_100_000_000,
+        schedulerType: 'fsrs-v6',
+      }],
+    });
+    await first.shutdown();
+    const corruptSegmentPath = current.generation.manifest.segments[0].path;
+    const corruptBytes = await bridge.readBinary(corruptSegmentPath);
+    corruptBytes![0] ^= 0xff;
+    await bridge.writeBinary(corruptSegmentPath, corruptBytes!);
+    await bridge.deleteFile?.('siyuanmemo.db');
+
+    const recovered = await loadWorkerDatabaseFromBridge(bridge);
+
+    await expect(recovered.getCard(cardId)).resolves.toMatchObject({
+      id: cardId,
+      due: finalDeltaState.due,
+      stability: finalDeltaState.stability,
+      difficulty: finalDeltaState.difficulty,
+      reps: finalDeltaState.reps,
+      lastReview: finalDeltaState.lastReview,
+      scheduledDays: finalDeltaState.scheduledDays,
+    });
+    expect(recovered.getStartupStorageEvidence()).toMatchObject({
+      generations: {
+        currentGenerationId: 'compact-card-memory-facts-1-1',
+        previousGenerationId: 'compact-card-memory-facts-0-1',
+        selectedGenerationId: 'compact-card-memory-facts-0-1',
+        reason: expect.stringContaining('checksum-mismatch'),
+      },
+      recoveryState: {
+        status: 'ready',
+        lastVerifiedGenerationId: 'compact-card-memory-facts-0-1',
+        diagnosticReason: expect.stringContaining('checksum-mismatch'),
+      },
+    });
+    await expect(recovered.getTruthPromotionDiagnostics()).resolves.toMatchObject({
+      pendingMutationCount: 0,
+      truthCoverageFrontier: 2,
+      retryReason: null,
+    });
+    expect(await bridge.readBinary(corruptSegmentPath)).not.toBeNull();
+    expect(bridge.jsonSnapshot(generationStore.fencePath)).toMatchObject({
+      current: { generationId: 'compact-card-memory-facts-2-1' },
+      previous: { generationId: 'compact-card-memory-facts-0-1' },
+    });
+  });
+
+  it('discards a corrupt temp projection and rebuilds it from verified truth', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const cardId = 'corrupt-temp-projection-card';
+    await seedCardMemoryTruth(bridge, cardId);
+    await bridge.writeBinary('siyuanmemo.db', new Uint8Array([0xde, 0xad, 0xbe, 0xef]));
+
+    const recovered = await loadWorkerDatabaseFromBridge(bridge);
+
+    expect(recovered.getOne<{ id: string; block_id: string }>(
+      'SELECT id, block_id FROM cards WHERE id = ?',
+      [cardId],
+    )).toEqual({
+      id: cardId,
+      block_id: `block-${cardId}`,
+    });
+    expect(recovered.getStartupStorageEvidence()).toMatchObject({
+      temporarySqlite: {
+        status: 'rebuilt',
+        reason: 'temp-projection-corrupt',
+      },
+      recoveryState: {
+        status: 'ready',
+        code: null,
+      },
+    });
+  });
+
+  it('keeps the last projection readable and quarantines corrupt canonical truth across restart', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const cardId = 'corrupt-canonical-read-only-card';
+    await seedCardMemoryTruth(bridge, cardId);
+    const first = await loadWorkerDatabaseFromBridge(bridge);
+    await first.upsertCards([{
+      id: cardId,
+      blockId: `block-${cardId}`,
+      due: 1_700_000_000_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_699_900_000_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_699_800_000_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'corrupt canonical read-only card' },
+    }]);
+    first.run(
+      `INSERT OR REPLACE INTO domain_sync_processed_sources
+        (source_id, source_fingerprint, source_kind, path, processed_at,
+         imported_operations, ignored_operations, imported_review_events, ignored_review_events,
+         imported_cards, ignored_cards, skipped_reason, latest_sanity_status, metadata_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'siyuan-sync-conflict:stale-recovery-source',
+        'stale-recovery-fingerprint',
+        'unknown',
+        null,
+        1_700_000_000_000,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        'unknown',
+        null,
+        '{}',
+      ],
+    );
+    await first.persist();
+    expect(bridge.snapshot().bytes).not.toBeNull();
+    await first.shutdown();
+    await bridge.deleteFile?.('kernel-transaction-ingest.snapshot.json');
+    await bridge.deleteFile?.('kernel-transaction-actions.snapshot.json');
+
+    const manifestPath = `truth/card-memory-facts/card-memory-facts-v1/device-${WORKER_TRUTH_DEVICE_ID}/manifest.v1.json`;
+    const manifest = bridge.jsonSnapshot(manifestPath) as {
+      segments: Array<Record<string, unknown>>;
+    };
+    const corruptSegmentPath = String(manifest.segments[0].path);
+    await bridge.writeJSON!(manifestPath, {
+      ...manifest,
+      segments: manifest.segments.map((segment) => ({
+        ...segment,
+        checksum: 'sha256:corrupt',
+      })),
+    });
+    const truthFilesBeforeRecovery = await listTruthFiles(bridge);
+
+    const recovered = await loadWorkerDatabaseFromBridge(bridge);
+
+    await expect(recovered.getCard(cardId)).resolves.toMatchObject({
+      id: cardId,
+      blockId: `block-${cardId}`,
+    });
+    await expect(recovered.load()).resolves.toMatchObject({
+      projectionSnapshot: expect.objectContaining({
+        cards: expect.objectContaining({
+          [cardId]: expect.objectContaining({
+            id: cardId,
+          }),
+        }),
+      }),
+    });
+    expect(recovered.getStorageRecoveryState()).toMatchObject({
+      status: 'read-only-recovery-required',
+      code: 'STORAGE_RECOVERY_REQUIRED',
+      quarantinedPaths: expect.arrayContaining([
+        manifestPath,
+        corruptSegmentPath,
+      ]),
+      disabledCapabilities: expect.arrayContaining([
+        'formal-writes',
+        'review',
+        'maintenance',
+        'sync-upload',
+        'truth-promotion',
+      ]),
+      diagnosticReason: expect.stringContaining('TRUTH_VALIDATION_FAILED'),
+    });
+    const repairPlanCountBeforeDiagnostics = recovered.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_repair_plans',
+    )?.count ?? 0;
+    const staleSourceCountBeforeDiagnostics = recovered.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_processed_sources
+       WHERE source_id = ?`,
+      ['siyuan-sync-conflict:stale-recovery-source'],
+    )?.count ?? 0;
+    await expect(recovered.previewDomainSyncRepair()).resolves.toMatchObject({
+      ok: true,
+    });
+    await expect(recovered.listDomainSyncConflictSourceCleanupCandidates()).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(recovered.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_repair_plans',
+    )?.count).toBe(repairPlanCountBeforeDiagnostics);
+    expect(recovered.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_processed_sources
+       WHERE source_id = ?`,
+      ['siyuan-sync-conflict:stale-recovery-source'],
+    )?.count).toBe(staleSourceCountBeforeDiagnostics);
+    expect(() => recovered.run(
+      'UPDATE cards SET priority = priority + 1 WHERE id = ?',
+      [cardId],
+    )).toThrow('STORAGE_RECOVERY_REQUIRED');
+    await expect(recovered.applySourceExistenceSweepFromCandidates(
+      [],
+      [],
+      1_700_000_000_001,
+    )).rejects.toThrow('STORAGE_RECOVERY_REQUIRED');
+    const undoJournal = recovered.createReviewTransactionUndoJournal();
+    expect(() => undoJournal.append({} as never)).toThrow('STORAGE_RECOVERY_REQUIRED');
+    expect(() => undoJournal.consume({} as never)).toThrow('STORAGE_RECOVERY_REQUIRED');
+    await expect(recovered.persist()).rejects.toThrow('STORAGE_RECOVERY_REQUIRED');
+    await expect(recovered.promotePendingTruth()).rejects.toThrow('STORAGE_RECOVERY_REQUIRED');
+    await expect(listTruthFiles(bridge)).resolves.toEqual(truthFilesBeforeRecovery);
+
+    await recovered.shutdown();
+    expect(bridge.jsonSnapshot('kernel-transaction-ingest.snapshot.json')).toBeNull();
+    expect(bridge.jsonSnapshot('kernel-transaction-actions.snapshot.json')).toBeNull();
+    const restarted = await loadWorkerDatabaseFromBridge(bridge);
+    expect(restarted.getStorageRecoveryState()).toMatchObject({
+      status: 'read-only-recovery-required',
+      code: 'STORAGE_RECOVERY_REQUIRED',
+      quarantinedPaths: expect.arrayContaining([
+        manifestPath,
+        corruptSegmentPath,
+      ]),
+    });
+    await expect(restarted.getCard(cardId)).resolves.toMatchObject({ id: cardId });
   });
 
   it('uses existing truth and ignores retired legacy source divergence', async () => {
@@ -663,7 +1879,7 @@ describe('WorkerSqliteDatabaseService', () => {
       },
     });
     const first = new WorkerSqliteDatabaseService(bridge);
-    await first.load({ truthDeviceId: WORKER_TRUTH_DEVICE_ID });
+    await first.load({ truthDeviceId: WORKER_TRUTH_DEVICE_ID, identityEpoch: 'epoch-worker-test' });
     await first.upsertCards([{
       id: cardId,
       blockId: `block-${cardId}`,
@@ -701,6 +1917,22 @@ describe('WorkerSqliteDatabaseService', () => {
     });
 
     expect(feedback.committed).toBe(true);
+    expect(feedback.durabilityReceipt).toMatchObject({
+      mutationId: 'review-projection-applied-restart-key',
+      stage: 'journaled',
+      journalSequence: expect.any(Number),
+    });
+    const promotion = await first.promotePendingTruth();
+    expect(promotion).toMatchObject({
+      ok: true,
+      promotedMutationIds: ['review-projection-applied-restart-key'],
+      coveredJournalSequence: feedback.durabilityReceipt?.journalSequence,
+    });
+    await expect(first.resolveTruthDurabilityReceipt(feedback.durabilityReceipt!)).resolves.toMatchObject({
+      mutationId: 'review-projection-applied-restart-key',
+      stage: 'truth-committed',
+      truthGenerationId: expect.stringContaining('truth-promotion-'),
+    });
     const reviewedCard = await first.getCard(cardId);
     expect(reviewedCard?.reps).toBeGreaterThan(42);
     expect(first.getOne<{ count: number }>(
@@ -725,6 +1957,154 @@ describe('WorkerSqliteDatabaseService', () => {
       'SELECT COUNT(*) AS count FROM review_events WHERE commit_idempotency_key = ?',
       ['review-projection-applied-restart-key'],
     )?.count).toBe(1);
+  });
+
+  it('resumes uncovered journaled truth promotion after restart', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const cardId = 'truth-promotion-restart-card';
+    const reviewedAt = 1_779_188_950_000;
+    await seedCardMemoryTruth(bridge, cardId, {
+      memory: {
+        due: reviewedAt - 10_000,
+        lastReview: reviewedAt - 86_400_000,
+        reps: 4,
+        stability: 4,
+        difficulty: 5,
+        state: CardState.Review,
+      },
+    });
+    const first = new WorkerSqliteDatabaseService(bridge);
+    await first.load({ truthDeviceId: WORKER_TRUTH_DEVICE_ID, identityEpoch: 'epoch-worker-test' });
+    await first.upsertCards([{
+      id: cardId,
+      blockId: `block-${cardId}`,
+      due: reviewedAt - 10_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 4,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: reviewedAt - 86_400_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: reviewedAt - 7 * 86_400_000,
+      updatedAt: reviewedAt - 86_400_000,
+      meta: { content: 'truth promotion restart card' },
+    }]);
+
+    vi.useFakeTimers();
+    const feedback = await first.reviewFeedback({
+      cardId,
+      rating: 3,
+      reviewedAt,
+      queueType: 'retrieval-practice',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+      idempotencyKey: 'truth-promotion-restart-mutation',
+    });
+    await expect(first.getTruthPromotionDiagnostics()).resolves.toMatchObject({
+      pendingMutationCount: 1,
+      truthCoverageFrontier: 0,
+    });
+    await first.shutdown();
+    vi.useRealTimers();
+
+    const restarted = new WorkerSqliteDatabaseService(bridge);
+    await restarted.load({ truthDeviceId: WORKER_TRUTH_DEVICE_ID, identityEpoch: 'epoch-worker-test' });
+    await expect(restarted.getTruthPromotionDiagnostics()).resolves.toMatchObject({
+      pendingMutationCount: 0,
+      truthCoverageFrontier: feedback.durabilityReceipt?.journalSequence,
+    });
+    await expect(restarted.resolveTruthDurabilityReceipt(feedback.durabilityReceipt!)).resolves.toMatchObject({
+      stage: 'truth-committed',
+      mutationId: 'truth-promotion-restart-mutation',
+    });
+  });
+
+  it('automatically continues consecutive bounded truth-promotion batches', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const cardId = 'truth-promotion-bounded-card';
+    const reviewedAt = 1_779_188_975_000;
+    await seedCardMemoryTruth(bridge, cardId, {
+      memory: {
+        due: reviewedAt - 10_000,
+        lastReview: reviewedAt - 86_400_000,
+        reps: 4,
+        stability: 4,
+        difficulty: 5,
+        state: CardState.Review,
+      },
+    });
+    const database = new WorkerSqliteDatabaseService(bridge, undefined, {
+      truthPromotionMaxBatchSize: 2,
+      truthPromotionScheduleDelayMs: 1_000,
+    });
+    await database.load({ truthDeviceId: WORKER_TRUTH_DEVICE_ID, identityEpoch: 'epoch-worker-test' });
+    await database.upsertCards([{
+      id: cardId,
+      blockId: `block-${cardId}`,
+      due: reviewedAt - 10_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 4,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: reviewedAt - 86_400_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: reviewedAt - 7 * 86_400_000,
+      updatedAt: reviewedAt - 86_400_000,
+      meta: { content: 'truth promotion bounded card' },
+    }]);
+
+    vi.useFakeTimers();
+    const receipts: StorageDurabilityReceipt[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const result = await database.reviewFeedback({
+        cardId,
+        rating: 3,
+        reviewedAt: reviewedAt + index,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        idempotencyKey: `truth-promotion-bounded-${index + 1}`,
+      });
+      receipts.push(result.durabilityReceipt!);
+    }
+    await expect(database.getTruthPromotionDiagnostics()).resolves.toMatchObject({
+      pendingMutationCount: 3,
+      truthCoverageFrontier: 0,
+    });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    vi.useRealTimers();
+    await vi.waitFor(async () => {
+      await expect(database.getTruthPromotionDiagnostics()).resolves.toMatchObject({
+        active: false,
+        pendingMutationCount: 0,
+        truthCoverageFrontier: receipts[2].journalSequence,
+        retryReason: null,
+      });
+    });
+    for (const receipt of receipts) {
+      await expect(database.resolveTruthDurabilityReceipt(receipt)).resolves.toMatchObject({
+        stage: 'truth-committed',
+      });
+    }
   });
 
   it('previews domain sync repair without missing hash helper errors', async () => {
@@ -1086,7 +2466,7 @@ describe('WorkerSqliteDatabaseService', () => {
     });
   });
 
-  it('fails closed when sqlite delta log is corrupt', async () => {
+  it('enters read-only recovery when sqlite delta log is corrupt', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     await bridge.writeJSON!('sqlite-delta-log.v2.manifest.json', {
       version: 99,
@@ -1094,10 +2474,30 @@ describe('WorkerSqliteDatabaseService', () => {
     });
     const database = new WorkerSqliteDatabaseService(bridge);
 
-    await expect(database.init()).rejects.toThrow(/SQLite delta log unsupported/);
+    await expect(database.init()).resolves.toBeUndefined();
+    await expect(database.load()).resolves.toMatchObject({
+      ok: true,
+      initialized: true,
+    });
+    expect(database.getStorageRecoveryState()).toMatchObject({
+      status: 'read-only-recovery-required',
+      code: 'STORAGE_RECOVERY_REQUIRED',
+      quarantinedPaths: expect.arrayContaining([
+        'sqlite-delta-log.v2.manifest.json',
+      ]),
+      disabledCapabilities: expect.arrayContaining([
+        'formal-writes',
+        'review',
+        'sync-upload',
+      ]),
+      diagnosticReason: expect.stringContaining('SQLite delta log unsupported'),
+    });
+    await expect(database.setQueueStateValue('recovery-write', true)).rejects.toThrow(
+      'STORAGE_RECOVERY_REQUIRED',
+    );
   });
 
-  it('fails closed when sqlite delta replay references an unsupported table', async () => {
+  it('quarantines an uncovered delta mutation that cannot be replayed', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const now = Date.now();
     const entry = {
@@ -1146,93 +2546,424 @@ describe('WorkerSqliteDatabaseService', () => {
     });
     const database = new WorkerSqliteDatabaseService(bridge);
 
-    await expect(database.init()).rejects.toThrow(/SQLite delta replay unsupported table: delta_unsupported_fixture/);
+    await expect(database.init()).resolves.toBeUndefined();
+    expect(database.getStorageRecoveryState()).toMatchObject({
+      status: 'read-only-recovery-required',
+      code: 'STORAGE_RECOVERY_REQUIRED',
+      quarantinedPaths: expect.arrayContaining([
+        'sqlite-delta-log.v2.manifest.json',
+        'sqlite-delta-log.v2.open.msgpack',
+      ]),
+      diagnosticReason: expect.stringContaining(
+        'SQLite delta replay unsupported table: delta_unsupported_fixture',
+      ),
+    });
+    expect(await bridge.readBinary('sqlite-delta-log.v2.open.msgpack')).not.toBeNull();
   });
 
-  it('does not persist or append processed-source rows for no-op persisted main DB merge', async () => {
+  it('keeps read-only sync preflight off persisted SQLite and conflict copies', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(bridge.readBinary.bind(bridge));
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
     const database = new WorkerSqliteDatabaseService({
       ...bridge,
+      readBinary,
       writeBinary,
     });
     await database.init();
-    await database.upsertCards([{
-      id: 'noop-main-merge-card',
-      blockId: 'noop-main-merge-block',
-      due: 1_700_000_000_000,
-      stability: 4,
-      difficulty: 5,
-      reps: 1,
-      lapses: 0,
-      state: CardState.Review,
-      lastReview: 1_699_900_000_000,
-      elapsedDays: 1,
-      scheduledDays: 3,
-      priority: 40,
-      type: CardType.Item,
-      tags: [],
-      neuralRoamSeed: false,
-      leechCount: 0,
-      isLeech: false,
-      skipped: false,
-      createdAt: 1_699_800_000_000,
-      updatedAt: 1_700_000_000_000,
-      meta: { content: 'noop main merge card' },
-    }]);
-    await database.persist();
+    readBinary.mockClear();
+    writeBinary.mockClear();
 
-    const externalBridge = createInMemorySqlitePersistenceBridge();
-    await externalBridge.writeBinary('siyuanmemo.db', bridge.snapshot().bytes!);
-    const externalDatabase = new WorkerSqliteDatabaseService(externalBridge);
-    await externalDatabase.init();
-    await externalDatabase.runTransaction('seed.noop-processed-main-source', (db) => {
-      db.run(
-        `INSERT OR REPLACE INTO domain_sync_processed_sources
-          (source_id, source_fingerprint, source_kind, path, processed_at,
-           imported_operations, ignored_operations, imported_review_events, ignored_review_events,
-           imported_cards, ignored_cards, skipped_reason, latest_sanity_status, metadata_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          'siyuan-sync:siyuanmemo.db',
-          'external-noop-fingerprint',
-          'persisted-main-db',
-          null,
-          1_700_000_100_000,
-          0,
-          12,
-          0,
-          0,
-          0,
-          1,
-          null,
-          null,
-          '{}',
-        ],
-      );
-    });
-    await externalDatabase.persist();
-    await bridge.writeBinary('siyuanmemo.db', externalBridge.snapshot().bytes!);
-
-    const writesBeforeMerge = writeBinary.mock.calls.length;
-    const processedRowsBefore = database.getOne<{ count: number }>(
-      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE source_id = ?',
-      ['siyuan-sync:siyuanmemo.db'],
-    )?.count ?? 0;
-
-    const result = await database.mergeExternalDatabaseIfChanged(1_700_000_200_000);
+    const result = await database.mergeExternalDatabaseIfChanged(
+      1_700_000_200_000,
+      {
+        context: 'read-only-preflight',
+        skipMainDbRead: true,
+      },
+    );
 
     expect(result).toMatchObject({
       ok: true,
       checked: true,
       changed: false,
+      mainDbReadSkipped: true,
+      mainDbReadSkipReason: 'sqlite-conflict-copies-non-authoritative',
+      conflictSourceCount: 0,
       mergedCards: 0,
       mergedReviewEvents: 0,
     });
-    expect(writeBinary).toHaveBeenCalledTimes(writesBeforeMerge);
+    expect(readBinary).not.toHaveBeenCalled();
+    expect(writeBinary).not.toHaveBeenCalled();
+  });
+
+  it('rejects retired SQLite conflict-copy merge authority explicitly', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+
+    await expect(database.mergeSyncConflictDatabases({
+      mergedAt: 1_700_000_200_000,
+      sources: [{ sourceId: 'legacy-conflict-copy', bytes: new Uint8Array([1]) }],
+    })).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: SQLite conflict copies are non-authoritative; use truth.reconciliation.run',
+    );
+  });
+
+  it('imports bounded legacy storage batches through Worker maintenance authority', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = await loadWorkerDatabaseFromBridge(bridge);
+    const operation = {
+      operationId: 'initial-msgpack-json-import-v1',
+      migrationId: 'initial-msgpack-json-import-v1',
+      totalBatches: 5,
+    };
+
+    await database.applyStorageMaintenanceBatch({
+      ...operation,
+      batchIndex: 0,
+      batch: { kind: 'legacy-storage-import-begin', appliedAt: 1_700_000_000_000 },
+    });
+    await database.applyStorageMaintenanceBatch({
+      ...operation,
+      batchIndex: 1,
+      batch: { kind: 'legacy-unified-reset' },
+    });
+    await database.applyStorageMaintenanceBatch({
+      ...operation,
+      batchIndex: 2,
+      batch: {
+        kind: 'legacy-unified-records',
+        records: [{
+          kind: 'card',
+          id: 'legacy-worker-card',
+          card: {
+            id: 'legacy-worker-card',
+            blockId: 'legacy-worker-block',
+            xiuyuanID: 'legacy-worker-xiuyuan',
+            due: 1_700_000_100_000,
+            stability: 0,
+            difficulty: 0,
+            reps: 0,
+            lapses: 0,
+            state: CardState.New,
+            lastReview: 0,
+            elapsedDays: 0,
+            scheduledDays: 0,
+            priority: 50,
+            type: CardType.Item,
+            tags: [],
+            leechCount: 0,
+            isLeech: false,
+            skipped: false,
+            createdAt: 1_700_000_000_000,
+            updatedAt: 1_700_000_000_000,
+            schedulerType: 'fsrs-v6',
+          },
+        }],
+      },
+    });
+    await database.applyStorageMaintenanceBatch({
+      ...operation,
+      batchIndex: 3,
+      batch: {
+        kind: 'legacy-queue-records',
+        entries: [['legacyQueue', { ids: ['legacy-worker-card'] }]],
+      },
+    });
+    const completed = await database.applyStorageMaintenanceBatch({
+      ...operation,
+      batchIndex: 4,
+      batch: {
+        kind: 'legacy-unified-finalize',
+        version: 2,
+        syncMetadata: { source: 'legacy-worker-test' },
+        appliedAt: 1_700_000_000_100,
+      },
+    });
+
+    expect(completed).toMatchObject({
+      status: 'completed',
+      completedBatches: 5,
+      lastMutationId: 'maintenance:initial-msgpack-json-import-v1:batch:4',
+    });
+    await expect(database.getCard('legacy-worker-card')).resolves.toMatchObject({
+      id: 'legacy-worker-card',
+      blockId: 'legacy-worker-block',
+    });
+    await expect(database.loadQueueState()).resolves.toEqual({
+      legacyQueue: { ids: ['legacy-worker-card'] },
+    });
+
+    const duplicate = await database.applyStorageMaintenanceBatch({
+      ...operation,
+      batchIndex: 0,
+      batch: { kind: 'legacy-storage-import-begin', appliedAt: 1_700_000_000_200 },
+    });
+    expect(duplicate.status).toBe('completed');
+    expect(duplicate.completedBatches).toBe(5);
+  });
+
+  it('executes legacy review, arena, Native Riff, and neural-route migrations in Worker transactions', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = await loadWorkerDatabaseFromBridge(bridge);
+    const applySingleBatch = (
+      operationId: string,
+      batch: Parameters<WorkerSqliteDatabaseService['applyStorageMaintenanceBatch']>[0]['batch'],
+    ) => database.applyStorageMaintenanceBatch({
+      operationId,
+      migrationId: operationId,
+      batchIndex: 0,
+      totalBatches: 1,
+      batch,
+    });
+
+    await applySingleBatch('legacy-review-import-test-v1', {
+      kind: 'legacy-review-records',
+      records: [{
+        kind: 'review',
+        value: {
+          id: 'legacy-review-1',
+          cardId: 'legacy-card-1',
+          rating: 3,
+          state: CardState.Review,
+          scheduledDays: 3,
+          elapsedDays: 2,
+          review: 1_700_000_000_000,
+          stability: 4,
+          difficulty: 5,
+        },
+      }],
+    });
     expect(database.getOne<{ count: number }>(
-      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE source_id = ?',
-      ['siyuan-sync:siyuanmemo.db'],
-    )?.count).toBe(processedRowsBefore);
+      'SELECT COUNT(*) AS count FROM review_events WHERE id = ?',
+      ['legacy-review-1'],
+    )?.count).toBe(1);
+
+    await applySingleBatch('legacy-arena-import-test-v1', {
+      kind: 'legacy-arena-records',
+      records: [
+        {
+          kind: 'match',
+          value: {
+            id: 'legacy-arena-match-1',
+            domain: 'ai',
+            poolKey: 'ai::test',
+            createdAt: 1_700_000_000_010,
+            ai: {
+              exposureId: 'exposure-1',
+              sessionId: null,
+              packId: 'pack-1',
+              challengerPackIds: [],
+              skillId: null,
+              tabId: null,
+              eventType: 'exposure',
+              scoreDelta: 0,
+            },
+          },
+        },
+        {
+          kind: 'score',
+          value: {
+            id: 'legacy-arena-score-1',
+            domain: 'ai',
+            poolKey: 'ai::test',
+            createdAt: 1_700_000_000_020,
+            entries: [],
+          },
+        },
+        {
+          kind: 'attribution',
+          value: {
+            cardId: 'legacy-card-1',
+            poolKey: 'ai::test',
+            surface: 'standalone-dialog',
+            scenarioId: 'candidate-card-generation',
+            targetKind: 'item',
+            sourcePackId: 'pack-1',
+            sourcePackTitle: 'Pack 1',
+            exposureId: 'exposure-1',
+            createdAt: 1_700_000_000_030,
+            updatedAt: 1_700_000_000_030,
+            reviewCount: 0,
+            lastReviewAt: null,
+            lastOutcome: null,
+          },
+        },
+      ],
+    });
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM ai_arena_events WHERE id = ?',
+      ['legacy-arena-match-1'],
+    )?.count).toBe(1);
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM arena_score_snapshots WHERE id = ?',
+      ['legacy-arena-score-1'],
+    )?.count).toBe(1);
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM ai_card_attributions WHERE card_id = ?',
+      ['legacy-card-1'],
+    )?.count).toBe(1);
+
+    database.run('CREATE TABLE riff_sync (key TEXT PRIMARY KEY, value_json TEXT NOT NULL)');
+    database.run(
+      'INSERT INTO riff_sync (key, value_json) VALUES (?, ?)',
+      ['blacklist', JSON.stringify(['stored-block', 'direct-block'])],
+    );
+    await applySingleBatch('native-riff-retirement-test-v1', {
+      kind: 'native-riff-retirement',
+      blockIds: ['direct-block'],
+      appliedAt: 1_700_000_000_040,
+      includeStoredBlacklist: true,
+      dropLegacyTable: true,
+    });
+    expect(database.getAll<{ id: string }>(
+      `SELECT id FROM tombstones
+       WHERE kind = 'native-riff-import-exclusion'
+       ORDER BY id`,
+    )).toEqual([
+      { id: 'direct-block' },
+      { id: 'stored-block' },
+    ]);
+    expect(database.getOne<{ present: number }>(
+      `SELECT 1 AS present FROM sqlite_master
+       WHERE type = 'table' AND name = 'riff_sync'`,
+    )).toBeNull();
+
+    await applySingleBatch('legacy-neural-queue-seed-test-v1', {
+      kind: 'legacy-queue-records',
+      entries: [['neuralRoamQueue', {
+        version: 6,
+        seedPool: [{
+          nodeId: 'concept-a',
+          nodeKind: 'concept',
+          priority: 0.5,
+          neighborsViewed: 0,
+          addedAt: 1,
+          nodePreview: 'Concept A',
+        }],
+        anchorPool: [],
+        session: {
+          displayPath: [],
+          currentPathIndex: -1,
+          navigationMode: 'explore',
+          bookmarkPathIndex: null,
+          history: [],
+          currentFocus: null,
+          currentSessionId: null,
+          visitedBlocks: [],
+          exhaustedFocuses: [],
+        },
+      }]],
+    });
+    await applySingleBatch('neural-roam-route-migration-test-v1', {
+      kind: 'neural-roam-route-migration',
+      appliedAt: 1_700_000_000_050,
+    });
+    expect(database.getOne<{ route_id: string }>(
+      'SELECT route_id FROM neural_roam_routes LIMIT 1',
+    )?.route_id).toBe('default');
+    expect(database.getOne<{ node_id: string }>(
+      `SELECT node_id FROM neural_roam_route_pool_entries
+       WHERE route_id = 'default' AND kind = 'seed'
+       LIMIT 1`,
+    )?.node_id).toBe('concept-a');
+  });
+
+  it('rebuilds queue state and queue projection rows from canonical truth', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await database.load();
+    const generationId = 'reconciliation-queue-generation';
+    const projection = await database.rebuildSqlProjections({
+      rebuildId: 'reconcile-queue-projection',
+      cause: 'truth-reconciliation:test',
+      families: ['queue-projections'],
+      deviceId: WORKER_TRUTH_DEVICE_ID,
+      generationId,
+      schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+      truthRecords: [{
+        family: 'queue-facts',
+        schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+        type: 'queue-state.changeset.v1',
+        idempotencyKey: 'queue-state:manual:set',
+        mutationId: 'mutation-queue-state',
+        queueFamily: 'retrievalPracticeQueue',
+        causalBaseRevision: null,
+        revision: 'revision-queue-state',
+        journalSequence: 1,
+        logicalTime: 10,
+        recordedAt: 10,
+        members: null,
+        changes: null,
+        stateChange: {
+          operation: 'set',
+          key: 'retrievalPracticeQueue',
+          value: {
+            cardIds: ['card-queue-1'],
+          },
+        },
+      }, {
+        family: 'queue-facts',
+        schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+        type: 'queue-family.snapshot.v1',
+        idempotencyKey: 'queue-family:retrieval-practice:snapshot',
+        mutationId: 'mutation-queue-members',
+        queueFamily: 'retrieval-practice',
+        causalBaseRevision: null,
+        revision: 'revision-queue-members',
+        journalSequence: 2,
+        logicalTime: 20,
+        recordedAt: 20,
+        members: [{
+          cardId: 'card-queue-1',
+          due: 100,
+          priority: 75,
+          state: CardState.Review,
+          schedulerType: 'fsrs-v6',
+          membershipReason: 'reconciled',
+          sortKey: '0001',
+        }],
+        changes: null,
+      }],
+      truthManifest: {
+        version: 1,
+        path: `truth/queue-facts/${generationId}/device-${WORKER_TRUTH_DEVICE_ID}/manifest.v1.json`,
+        family: 'queue-facts',
+        deviceId: WORKER_TRUTH_DEVICE_ID,
+        generationId,
+        schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+        segments: [],
+        updatedAt: 20,
+      },
+      sourceReads: [],
+    });
+
+    expect(projection).toMatchObject({
+      status: 'ready',
+      families: [{
+        family: 'queue-projections',
+        status: 'ready',
+        rowsRead: 2,
+        rowsWritten: 2,
+      }],
+    });
+    expect(database.getOne<{ value_json: string }>(
+      'SELECT value_json FROM queue_state WHERE key = ?',
+      ['retrievalPracticeQueue'],
+    )?.value_json).toBe(JSON.stringify({
+      cardIds: ['card-queue-1'],
+    }));
+    expect(database.getAll<{
+      queue_type: string;
+      card_id: string;
+      membership_reason: string;
+      policy_hash: string;
+    }>(
+      `SELECT queue_type, card_id, membership_reason, policy_hash
+       FROM queue_projection_rows
+       ORDER BY queue_type, card_id`,
+    )).toEqual([{
+      queue_type: 'retrieval-practice',
+      card_id: 'card-queue-1',
+      membership_reason: 'reconciled',
+      policy_hash: `canonical-truth:${generationId}:revision-queue-members`,
+    }]);
   });
 });

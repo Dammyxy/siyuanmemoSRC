@@ -40,6 +40,7 @@ export interface MessagePackTruthSegmentFileStore {
   readBinary(fileName: string): Promise<Uint8Array | null>;
   writeBinary(fileName: string, bytes: Uint8Array): Promise<void>;
   listFiles?(prefix: string): Promise<string[]>;
+  deleteFile?(fileName: string): Promise<void>;
 }
 
 export type MessagePackTruthRecord = Record<string, unknown>;
@@ -91,6 +92,7 @@ export interface MessagePackTruthSegmentStoreOptions {
   generationId: string;
   schemaVersion: number;
   maxSegmentBytes?: number;
+  maxSegmentRecords?: number;
   basePath?: string;
 }
 
@@ -201,11 +203,31 @@ function normalizeSegmentBudget(value: number): number {
   return normalized;
 }
 
+function normalizeSegmentRecordBudget(value: number): number {
+  const normalized = Math.floor(Number(value));
+  if (!Number.isFinite(normalized) || normalized < 1) {
+    throw new Error(`Invalid MessagePack truth segment record budget: ${value}`);
+  }
+  return normalized;
+}
+
+function normalizeFormatVersion(value: unknown): number {
+  const normalized = Math.floor(Number(value));
+  return Number.isFinite(normalized) && normalized >= 0 ? normalized : 0;
+}
+
 function resolveFamilySegmentBudget(family: string, maxSegmentBytes?: number): number {
   if (maxSegmentBytes !== undefined && maxSegmentBytes !== null) {
     return normalizeSegmentBudget(maxSegmentBytes);
   }
   return getMessagePackTruthFamilyStoragePolicy(family as MessagePackTruthFamily).maxSegmentBytes;
+}
+
+function resolveFamilySegmentRecordBudget(family: string, maxSegmentRecords?: number): number {
+  if (maxSegmentRecords !== undefined && maxSegmentRecords !== null) {
+    return normalizeSegmentRecordBudget(maxSegmentRecords);
+  }
+  return getMessagePackTruthFamilyStoragePolicy(family as MessagePackTruthFamily).maxSegmentRecords;
 }
 
 function resolveFamilyTargetClosedSegments(family: string, maxClosedSegments?: number): number {
@@ -311,7 +333,7 @@ function normalizeManifest(value: unknown, fallback: MessagePackTruthSegmentMani
     ? value.segments
       .filter(isRecord)
       .map((entry) => ({
-        version: MESSAGEPACK_TRUTH_MANIFEST_VERSION,
+        version: normalizeFormatVersion(entry.version) as typeof MESSAGEPACK_TRUTH_MANIFEST_VERSION,
         family: String(entry.family || ''),
         deviceId: String(entry.deviceId || ''),
         generationId: String(entry.generationId || ''),
@@ -335,7 +357,7 @@ function normalizeManifest(value: unknown, fallback: MessagePackTruthSegmentMani
       .sort((left, right) => left.sequence - right.sequence)
     : [];
   return {
-    version: MESSAGEPACK_TRUTH_MANIFEST_VERSION,
+    version: normalizeFormatVersion(value.version) as typeof MESSAGEPACK_TRUTH_MANIFEST_VERSION,
     path: String(value.path || fallback.path),
     family: String(value.family || ''),
     deviceId: String(value.deviceId || ''),
@@ -358,7 +380,7 @@ function validateSegmentEnvelope(value: unknown): MessagePackTruthSegmentEnvelop
     return null;
   }
   return {
-    version: MESSAGEPACK_TRUTH_MANIFEST_VERSION,
+    version: normalizeFormatVersion(value.version) as typeof MESSAGEPACK_TRUTH_MANIFEST_VERSION,
     family: String(value.family || ''),
     deviceId: String(value.deviceId || ''),
     generationId: String(value.generationId || ''),
@@ -377,6 +399,7 @@ export class MessagePackTruthSegmentStore {
   private readonly generationId: string;
   private readonly schemaVersion: number;
   private readonly maxSegmentBytes: number;
+  private readonly maxSegmentRecords: number;
   private readonly basePath: string;
   private readonly manifestPath: string;
 
@@ -387,6 +410,7 @@ export class MessagePackTruthSegmentStore {
     this.generationId = normalizeIdentity(options.generationId, 'generation id');
     this.schemaVersion = normalizeSchemaVersion(options.schemaVersion);
     this.maxSegmentBytes = resolveFamilySegmentBudget(this.family, options.maxSegmentBytes);
+    this.maxSegmentRecords = resolveFamilySegmentRecordBudget(this.family, options.maxSegmentRecords);
     this.basePath = (options.basePath || 'truth').replace(/\\/g, '/').replace(/\/+$/g, '');
     if (!this.basePath || this.basePath.includes('..')) {
       throw new Error(`Invalid MessagePack truth base path: ${options.basePath}`);
@@ -579,7 +603,10 @@ export class MessagePackTruthSegmentStore {
     for (const record of records) {
       const candidateRecords = [...currentRecords, record];
       const candidate = this.buildCandidateSegment(candidateRecords, sequence);
-      if (candidate.bytes.byteLength <= this.maxSegmentBytes) {
+      if (
+        candidate.bytes.byteLength <= this.maxSegmentBytes
+        && candidateRecords.length <= this.maxSegmentRecords
+      ) {
         currentRecords = candidateRecords;
         continue;
       }
@@ -702,6 +729,14 @@ export class MessagePackTruthSegmentStore {
         path: entry.path,
         expected: MESSAGEPACK_TRUTH_MANIFEST_VERSION,
         actual: envelope.version,
+      });
+    }
+    if (entry.version !== MESSAGEPACK_TRUTH_MANIFEST_VERSION) {
+      diagnostics.push({
+        reason: 'unsupported-segment-version',
+        path: entry.path,
+        expected: MESSAGEPACK_TRUTH_MANIFEST_VERSION,
+        actual: entry.version,
       });
     }
     if (envelope.path !== entry.path) {

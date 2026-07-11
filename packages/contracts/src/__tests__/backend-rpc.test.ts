@@ -8,8 +8,18 @@ import {
   SIYUANMEMO_TRUTH_ROOT_PATH,
   SQL_PROJECTION_FAMILY_SCHEMAS,
   STORAGE_DIAGNOSTIC_KINDS,
+  STORAGE_DURABILITY_RECEIPT_VERSION,
   STORAGE_ERROR_CODES,
+  STORAGE_INVENTORY_RECORD_VERSION,
+  STORAGE_MUTATION_ENVELOPE_VERSION,
+  STORAGE_PRESSURE_RECORD_VERSION,
+  STORAGE_RECOVERY_STATE_VERSION,
   STORAGE_SLIMMING_FAMILY_POLICIES,
+  TRUTH_COVERAGE_WATERMARK_VERSION,
+  TRUTH_DEVICE_IDENTITY_RECORD_VERSION,
+  TRUTH_GENERATION_RECORD_VERSION,
+  isMessagePackCardAggregateTruthRecord,
+  isMessagePackQueueTruthRecord,
 } from '../backend-rpc';
 import type {
   BackendBrowserAggregateFocusRequest,
@@ -36,13 +46,193 @@ import type {
   BackendReviewTruthMaintenanceStatusResult,
   BackendStorageDiagnostic,
   BackendStorageErrorCode,
+  MessagePackCardAggregateSnapshotTruthRecord,
+  MessagePackCardAggregateTombstoneTruthRecord,
+  MessagePackQueueStateChangesetTruthRecord,
+  StorageDurabilityReceipt,
+  StorageInventoryRecord,
+  StorageMutationEnvelope,
+  StoragePressureRecord,
+  StorageRecoveryState,
+  TruthCoverageWatermark,
+  TruthDeviceIdentityRecordContract,
+  TruthGenerationRecord,
 } from '../backend-rpc';
+
+describe('storage durability contract versions', () => {
+  it('defines one explicit version for each durable storage boundary', () => {
+    expect({
+      mutationEnvelope: STORAGE_MUTATION_ENVELOPE_VERSION,
+      durabilityReceipt: STORAGE_DURABILITY_RECEIPT_VERSION,
+      truthGeneration: TRUTH_GENERATION_RECORD_VERSION,
+      coverageWatermark: TRUTH_COVERAGE_WATERMARK_VERSION,
+      storageInventory: STORAGE_INVENTORY_RECORD_VERSION,
+      storagePressure: STORAGE_PRESSURE_RECORD_VERSION,
+      recoveryState: STORAGE_RECOVERY_STATE_VERSION,
+      identityRecord: TRUTH_DEVICE_IDENTITY_RECORD_VERSION,
+    }).toEqual({
+      mutationEnvelope: 1,
+      durabilityReceipt: 1,
+      truthGeneration: 1,
+      coverageWatermark: 1,
+      storageInventory: 1,
+      storagePressure: 1,
+      recoveryState: 1,
+      identityRecord: 2,
+    });
+  });
+
+  it('serializes the shared mutation, receipt, generation, coverage, pressure, recovery, and identity shapes', () => {
+    const mutation = {
+      version: 1,
+      mutationId: 'mutation-1',
+      family: 'review',
+      deviceId: 'device-A',
+      identityEpoch: 'epoch-1',
+      journalSequence: 42,
+      createdAt: 100,
+      affectedAggregates: [{ family: 'card', aggregateId: 'card-1', causalBaseRevision: 'rev-1' }],
+      operations: [{ table: 'review_events', operation: 'insert', primaryKey: { id: 'review-1' }, row: { rating: 3 } }],
+      requiredTruthOutputs: [{ family: 'review-events', kind: 'event', aggregateIds: ['card-1'] }],
+    } satisfies StorageMutationEnvelope;
+    const receipt = {
+      version: 1,
+      mutationId: mutation.mutationId,
+      family: mutation.family,
+      stage: 'journaled',
+      journalSequence: 42,
+      affectedAggregates: mutation.affectedAggregates,
+      requiredTruthOutputs: mutation.requiredTruthOutputs,
+      truthGenerationId: null,
+      retry: { attemptCount: 0, nextAttemptAt: null, lastError: null },
+      diagnosticCode: null,
+      diagnosticMessage: null,
+      updatedAt: 101,
+    } satisfies StorageDurabilityReceipt;
+    const generation = {
+      version: 1,
+      generationId: 'generation-1',
+      previousGenerationId: null,
+      deviceId: 'device-A',
+      identityEpoch: 'epoch-1',
+      status: 'published',
+      families: [{ family: 'review-events', manifestPath: 'truth/review-events/manifest.v1.json', segmentPaths: [], checksum: 'sha256:test' }],
+      createdAt: 100,
+      verifiedAt: 102,
+      publishedAt: 103,
+    } satisfies TruthGenerationRecord;
+    const coverage = {
+      version: 1,
+      deviceId: 'device-A',
+      identityEpoch: 'epoch-1',
+      coveredJournalSequence: 42,
+      coveredMutationId: 'mutation-1',
+      truthGenerationId: 'generation-1',
+      updatedAt: 103,
+    } satisfies TruthCoverageWatermark;
+    const pressure = {
+      version: 1,
+      level: 'hard',
+      measuredAt: 104,
+      metrics: [{
+        family: 'delta',
+        deviceId: 'device-A',
+        identityEpoch: 'epoch-1',
+        level: 'hard',
+        files: 192,
+        bytes: 0,
+        oldestAgeMs: null,
+        targetFiles: 16,
+        softFiles: 32,
+        highFiles: 48,
+        hardFiles: 64,
+        targetBytes: null,
+        softBytes: null,
+        highBytes: null,
+        hardBytes: null,
+        targetOldestAgeMs: null,
+        softOldestAgeMs: null,
+        highOldestAgeMs: null,
+        hardOldestAgeMs: null,
+        targetGenerations: null,
+        softGenerations: null,
+        highGenerations: null,
+        hardGenerations: null,
+        reason: 'sealed segment hard limit reached',
+      }],
+      blockingMutationGrowth: true,
+      code: 'STORAGE_PRESSURE',
+      reason: 'uncovered mutations prevent safe reclamation',
+    } satisfies StoragePressureRecord;
+    const inventory = {
+      version: 1,
+      measuredAt: 104,
+      metrics: [{
+        family: 'sqlite-delta',
+        deviceId: 'device-A',
+        identityEpoch: 'epoch-1',
+        files: 4,
+        bytes: 4096,
+        oldestAgeMs: 500,
+        generationCount: 0,
+        currentGenerationId: null,
+        previousGenerationId: null,
+        uncoveredMutationCount: 1,
+        compactionStatus: 'blocked-uncovered',
+      }],
+      pressure,
+    } satisfies StorageInventoryRecord;
+    const recovery = {
+      version: 1,
+      status: 'read-only-recovery-required',
+      code: 'STORAGE_RECOVERY_REQUIRED',
+      lastVerifiedGenerationId: 'generation-1',
+      replayFromJournalSequence: 43,
+      quarantinedPaths: ['truth/corrupt.msgpack'],
+      disabledCapabilities: ['review', 'edit', 'sync-upload'],
+      diagnosticReason: 'uncovered delta failed verification',
+      updatedAt: 105,
+    } satisfies StorageRecoveryState;
+    const identity = {
+      version: 2,
+      deviceId: 'device-A',
+      identityEpoch: 'epoch-1',
+      hostFingerprint: 'host-A',
+      createdAt: 1,
+      lastSeenAt: 2,
+    } satisfies TruthDeviceIdentityRecordContract;
+
+    expect(JSON.parse(JSON.stringify({
+      mutation,
+      receipt,
+      generation,
+      coverage,
+      inventory,
+      pressure,
+      recovery,
+      identity,
+    })))
+      .toMatchObject({
+        mutation: { mutationId: 'mutation-1', journalSequence: 42 },
+        receipt: { stage: 'journaled' },
+        generation: { status: 'published' },
+        coverage: { coveredJournalSequence: 42 },
+        inventory: {
+          metrics: [{ family: 'sqlite-delta', uncoveredMutationCount: 1 }],
+        },
+        pressure: { level: 'hard', code: 'STORAGE_PRESSURE' },
+        recovery: { code: 'STORAGE_RECOVERY_REQUIRED' },
+        identity: { version: 2, identityEpoch: 'epoch-1' },
+      });
+  });
+});
 
 describe('MessagePack truth first-family schema contracts', () => {
   it('defines explicit schemas for first migrated truth families', () => {
     expect(MESSAGEPACK_TRUTH_FAMILY_SCHEMAS.map((schema) => schema.family)).toEqual([
       'review-events',
       'card-memory-facts',
+      'queue-facts',
       'domain-sync-operations',
       'ai-session-payload-refs',
       'semantic-arena-payload-refs',
@@ -114,6 +304,154 @@ describe('MessagePack truth first-family schema contracts', () => {
       review: { action: 'rating', rating: 3 },
       memory: { projectionGeneration: 12 },
     });
+  });
+
+  it('defines Card Aggregate snapshot and tombstone truth with causal revision evidence', () => {
+    const snapshot = {
+      family: 'card-memory-facts',
+      schemaVersion: 1,
+      type: 'card-aggregate.snapshot.v1',
+      idempotencyKey: 'card-snapshot:card-a:revision-2',
+      mutationId: 'mutation-2',
+      aggregateId: 'card-a',
+      causalBaseRevision: 'revision-1',
+      revision: 'revision-2',
+      journalSequence: 2,
+      logicalTime: 2_000,
+      recordedAt: 2_000,
+      card: {
+        id: 'card-a',
+        blockId: 'block-a',
+        xiuyuanId: 'xiuyuan-a',
+        faceKey: { ruleId: 'item', faceIndex: 0 },
+        type: 'item',
+        priority: 10,
+        tags: ['topic'],
+        cardTypeMarker: null,
+        neuralRoamSeed: false,
+        skipped: false,
+        skipNote: null,
+        skipUntil: null,
+        sourceUrl: null,
+        extractedFrom: null,
+        createdAt: 1_000,
+        updatedAt: 2_000,
+        meta: null,
+      },
+      schedule: {
+        schedulerType: 'fsrs-v6',
+        due: 3_000,
+        stability: 4.5,
+        difficulty: 5.5,
+        reps: 3,
+        lapses: 1,
+        state: 2,
+        lastReview: 2_000,
+        elapsedDays: 2,
+        scheduledDays: 7,
+        learningStep: null,
+        leechCount: 0,
+        isLeech: false,
+        aFactor: null,
+        riffCardId: null,
+        schedulerMeta: null,
+        postponeCount: 0,
+        lastPostponeDate: null,
+        rescheduleHistory: [],
+      },
+      tombstone: null,
+    } satisfies MessagePackCardAggregateSnapshotTruthRecord;
+    const tombstone = {
+      family: 'card-memory-facts',
+      schemaVersion: 1,
+      type: 'card-aggregate.tombstone.v1',
+      idempotencyKey: 'card-tombstone:card-a:revision-3',
+      mutationId: 'mutation-3',
+      aggregateId: 'card-a',
+      causalBaseRevision: 'revision-2',
+      revision: 'revision-3',
+      journalSequence: 3,
+      logicalTime: 3_000,
+      recordedAt: 3_000,
+      card: null,
+      schedule: null,
+      tombstone: {
+        deletedAt: 3_000,
+        deletedByMutationId: 'mutation-3',
+        deletedByDeviceId: 'device-A',
+        identityEpoch: 'epoch-A',
+        reason: 'user-delete',
+      },
+    } satisfies MessagePackCardAggregateTombstoneTruthRecord;
+
+    expect(isMessagePackCardAggregateTruthRecord(snapshot)).toBe(true);
+    expect(isMessagePackCardAggregateTruthRecord(tombstone)).toBe(true);
+    expect(isMessagePackCardAggregateTruthRecord({
+      ...snapshot,
+      revision: '',
+    })).toBe(false);
+    expect(JSON.parse(JSON.stringify({ snapshot, tombstone }))).toMatchObject({
+      snapshot: {
+        aggregateId: 'card-a',
+        causalBaseRevision: 'revision-1',
+        revision: 'revision-2',
+        card: { blockId: 'block-a' },
+        schedule: { schedulerType: 'fsrs-v6', state: 2 },
+        tombstone: null,
+      },
+      tombstone: {
+        aggregateId: 'card-a',
+        causalBaseRevision: 'revision-2',
+        revision: 'revision-3',
+        card: null,
+        schedule: null,
+        tombstone: {
+          deletedByMutationId: 'mutation-3',
+          deletedByDeviceId: 'device-A',
+          identityEpoch: 'epoch-A',
+        },
+      },
+    });
+  });
+
+  it('validates opaque Queue state changesets and rejects non-JSON state values', () => {
+    const changeset = {
+      family: 'queue-facts',
+      schemaVersion: 1,
+      type: 'queue-state.changeset.v1',
+      idempotencyKey: 'queue-state:mutation-4:retrievalPracticeQueue:set',
+      mutationId: 'mutation-4',
+      queueFamily: 'retrievalPracticeQueue',
+      causalBaseRevision: null,
+      revision: 'device-A:epoch-A:4:mutation-4:retrievalPracticeQueue',
+      journalSequence: 4,
+      logicalTime: 4_000,
+      recordedAt: 4_000,
+      members: null,
+      changes: null,
+      stateChange: {
+        operation: 'set',
+        key: 'retrievalPracticeQueue',
+        value: ['card-a', { cardId: 'card-b', priority: 2 }],
+      },
+    } satisfies MessagePackQueueStateChangesetTruthRecord;
+
+    expect(isMessagePackQueueTruthRecord(changeset)).toBe(true);
+    expect(isMessagePackQueueTruthRecord({
+      ...changeset,
+      stateChange: {
+        ...changeset.stateChange,
+        value: undefined,
+      },
+    })).toBe(false);
+    expect(isMessagePackQueueTruthRecord({
+      ...changeset,
+      stateChange: {
+        operation: 'delete',
+        key: 'otherQueue',
+        value: null,
+      },
+    })).toBe(false);
   });
 });
 
@@ -367,6 +705,17 @@ describe('backend SQL projection rebuild contract', () => {
         last: null,
         lastError: null,
       },
+      truthPromotion: {
+        available: true,
+        active: false,
+        shutdownStarted: false,
+        pendingMutationCount: 4,
+        oldestPendingAgeMs: 2_500,
+        journalSequenceFrontier: 18,
+        truthCoverageFrontier: 14,
+        retryReason: null,
+        lastSuccessfulPromotionAt: 1_700_000_000_000,
+      },
     } satisfies BackendReviewTruthMaintenanceStatusResult;
 
     expect(JSON.parse(JSON.stringify(status))).toMatchObject({
@@ -380,6 +729,11 @@ describe('backend SQL projection rebuild contract', () => {
       truthBackfill: {
         source: 'review_events',
         pendingSqlRows: 3,
+      },
+      truthPromotion: {
+        pendingMutationCount: 4,
+        journalSequenceFrontier: 18,
+        truthCoverageFrontier: 14,
       },
     });
   });
@@ -524,6 +878,8 @@ describe('backend SQL projection rebuild contract', () => {
       'TRUTH_VALIDATION_FAILED',
       'PROJECTION_REBUILD_FAILED',
       'SOURCE_READ_UNAVAILABLE',
+      'STORAGE_PRESSURE',
+      'STORAGE_RECOVERY_REQUIRED',
     ]));
     expect(STORAGE_DIAGNOSTIC_KINDS).toEqual(expect.arrayContaining([
       'legacy-petal-db-ignored',

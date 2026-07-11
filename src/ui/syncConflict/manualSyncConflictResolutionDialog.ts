@@ -56,19 +56,14 @@ function fmtSize(value: number): string {
 function resultMessage(result: SyncConflictDirectionApplyResult, i18n: Record<string, string>): string {
   if (result.kind === 'smartMerge') {
     return (i18n.syncConflictResolutionSmartMergeDone
-      || '智能合并完成：来源 {sources}，新增复习 {reviewEvents}，更新卡片 {cards}')
-      .replace('{sources}', String(result.merge.sources))
-      .replace('{reviewEvents}', String(result.merge.mergedReviewEvents))
-      .replace('{cards}', String(result.merge.mergedCards));
+      || '真值对账完成：来源 {sources}，接纳变更 {mutations}，冲突聚合 {conflicts}')
+      .replace('{sources}', String(result.reconciliation.sourceCount))
+      .replace('{mutations}', String(result.reconciliation.acceptedMutationIds.length))
+      .replace('{conflicts}', String(result.reconciliation.blockedAggregateIds.length));
   }
   if (result.kind === 'keepCurrentLocal') {
     return i18n.syncConflictResolutionKeepCurrentDone
       || '已保留当前本地库，冲突文件未改动。';
-  }
-  if (result.kind === 'replaceWithConflictCopy') {
-    return (i18n.syncConflictResolutionReplaceDone
-      || '替换完成，备份路径：{backupPath}')
-      .replace('{backupPath}', result.backupPath);
   }
   return i18n.syncConflictResolutionCanceled || '已取消处理';
 }
@@ -509,11 +504,13 @@ function renderPreview(
           </table>
         </div>
       `}
+      <div class="b3-card b3-card--info" style="margin: 8px 0; padding: 10px;">
+        ${escapeHtml(i18n.syncConflictCanonicalTruthNotice || 'SQLite 冲突副本仅作诊断证据，不再作为业务真值或替换来源。处理操作将对设备真值进行因果对账。')}
+      </div>
       <div class="fn__flex" style="justify-content: flex-end; gap: 8px; margin-top: 12px;">
         <button class="b3-button b3-button--cancel" data-action="cancel">${escapeHtml(i18n.cancel || '取消')}</button>
         <button class="b3-button b3-button--outline" data-action="keep-current">${escapeHtml(i18n.syncConflictResolutionKeepCurrent || '保留当前本地库')}</button>
-        <button class="b3-button" data-action="smart-merge" ${preview.sources.some((source) => source.parseStatus === 'ok') ? '' : 'disabled'}>${escapeHtml(i18n.syncConflictResolutionSmartMerge || '智能合并')}</button>
-        <button class="b3-button b3-button--error" data-action="replace" ${preview.sources.some((source) => source.parseStatus === 'ok') ? '' : 'disabled'}>${escapeHtml(i18n.syncConflictResolutionReplace || '使用选中的冲突副本')}</button>
+        <button class="b3-button" data-action="smart-merge">${escapeHtml(i18n.syncConflictResolutionSmartMerge || '运行真值对账')}</button>
       </div>
     </div>
   `;
@@ -634,7 +631,7 @@ export async function openManualSyncConflictResolutionDialog(
     dialogHeight: 'auto',
   });
 
-  async function run(action: 'smart-merge' | 'keep-current' | 'replace' | 'cancel'): Promise<void> {
+  async function run(action: 'smart-merge' | 'keep-current' | 'cancel'): Promise<void> {
     try {
       if (action === 'cancel') {
         dialog.destroy();
@@ -648,40 +645,11 @@ export async function openManualSyncConflictResolutionDialog(
         return;
       }
       if (action === 'smart-merge') {
-        const readable = preview.sources.filter((source) => source.parseStatus === 'ok').map((source) => source.sourceId);
-        const result = await context.applySyncConflictDirectionResolution({ kind: 'smartMerge', sourceIds: readable });
+        const result = await context.applySyncConflictDirectionResolution({ kind: 'smartMerge' });
         dialog.destroy();
         showMessage(resultMessage(result, i18n), 5000, 'info');
         return;
       }
-      const sourceId = selectedSourceId(dialog);
-      if (!sourceId) {
-        showMessage(i18n.syncConflictResolutionSelectSource || '请选择一个可读取的冲突副本', 3000, 'error');
-        return;
-      }
-      const confirmText = (i18n.syncConflictResolutionReplaceConfirm
-        || '确认用 {sourceId} 替换当前本地数据库？系统会先创建备份。')
-        .replace('{sourceId}', sourceId);
-      const confirmed = await openPluginConfirmation({
-        title: i18n.syncConflictResolutionReplaceConfirmTitle || '确认替换冲突副本',
-        body: confirmText,
-        confirmLabel: i18n.syncConflictResolutionReplace || '使用选中的冲突副本',
-        cancelLabel: i18n.cancel || '取消',
-        danger: true,
-        rows: [
-          { label: i18n.syncConflictResolutionSource || '来源', value: sourceId },
-        ],
-      });
-      if (!confirmed) {
-        return;
-      }
-      const result = await context.applySyncConflictDirectionResolution({
-        kind: 'replaceWithConflictCopy',
-        sourceId,
-        confirmed: true,
-      });
-      dialog.destroy();
-      showMessage(resultMessage(result, i18n), 7000, 'info');
     } catch (error) {
       logger.error('Manual sync conflict direction failed:', error);
       showMessage(error instanceof Error ? error.message : String(error), 7000, 'error');
@@ -892,7 +860,7 @@ export async function openManualSyncConflictResolutionDialog(
     });
   }
 
-  for (const action of ['smart-merge', 'keep-current', 'replace', 'cancel'] as const) {
+  for (const action of ['smart-merge', 'keep-current', 'cancel'] as const) {
     dialog.element.querySelector(`[data-action="${action}"]`)?.addEventListener('click', () => {
       void run(action);
     });

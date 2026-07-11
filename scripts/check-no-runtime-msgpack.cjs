@@ -31,6 +31,10 @@ const allowedRules = [
     reason: 'SQLite initial migration reads old msgpack storage as migration source',
   },
   {
+    file: 'src/application/services/LegacyStorageMigrationSourcePlanner.ts',
+    reason: 'explicit lazy migration planner reads retired msgpack sources only for pending Worker maintenance operations',
+  },
+  {
     file: 'src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts',
     reason: 'bounded SQLite delta v2 MessagePack segment adapter',
   },

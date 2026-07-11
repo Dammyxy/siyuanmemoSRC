@@ -19,7 +19,15 @@ import {
 } from '@/core/storage/UnifiedStorageManager';
 import { createLegacyStorageLoader } from '@/core/storage/UnifiedStoragePersistence';
 import { SchedulerRouter, RescheduleService } from '@/core/scheduler';
-import { UnifiedStorageCardUpdateAdapter } from '@/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter';
+import { WorkerCardScheduleUpdateAdapter } from '@/application/adapters/WorkerCardScheduleUpdateAdapter';
+import { WorkerCardCrudMutationAdapter } from '@/application/adapters/WorkerCardCrudMutationAdapter';
+import { WorkerCardCrudStorageAdapter } from '@/application/adapters/WorkerCardCrudStorageAdapter';
+import { WorkerSrsCardSemanticsRepairRepository } from '@/application/adapters/WorkerSrsCardSemanticsRepairRepository';
+import { runStartupWorkerStorageMaintenance } from '@/application/services/StartupWorkerStorageMaintenance';
+import {
+  LegacyStorageMigrationSourcePlanner,
+  runPendingLegacyStorageMigrations,
+} from '@/application/services/LegacyStorageMigrationSourcePlanner';
 import { SiyuanErrorNotificationAdapter } from '@/infrastructure/notifications/SiyuanErrorNotificationAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { DialogManager } from '@/application/managers/DialogManager';
@@ -57,7 +65,6 @@ import {
 import { ReviewAttemptKernel } from '@/application/usecases/review/ReviewAttemptKernel';
 import { CardApplicationService } from '@/application/services/CardApplicationService';
 import { CardReadModel } from '@/infrastructure/queries/CardReadModel';
-import { SqlCardReadModel } from '@/infrastructure/queries/SqlCardReadModel';
 import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import type { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
@@ -65,7 +72,6 @@ import type { CardEditorApplicationService } from '@/application/services/CardEd
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
 import type { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
-import { NeuralRoamRouteCatalog } from '@/core/queue/neural/routes';
 import {
   SyncConflictDirectionResolutionService,
   type SyncConflictDirectionApplyResult,
@@ -95,18 +101,6 @@ import { EventBus } from '@/core/shared/domain/events/EventBus';
 import { FileService } from '@/infrastructure/services/FileService';
 import { QueuePersistenceService } from '@/infrastructure/services/QueuePersistenceService';
 import { executeWriterRelayCommand } from '@/application/commands/writerRelayCommandDispatcher';
-import {
-  SqlArenaRepository,
-  SqliteDatabaseService,
-  SqliteMigrationService,
-  SqlNeuralRoamRouteMigrationService,
-  SqlNeuralRoamRouteRepository,
-  SqlQueueStateRepository,
-  SqlReviewLogRepository,
-  SqlUnifiedStorageRepository,
-  SqlXiuyuanReadRepository,
-} from '@/infrastructure/persistence/sqlite';
-import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
 import { ReviewQueuePreparationService } from '@/application/services/ReviewQueuePreparationService';
@@ -148,7 +142,6 @@ import {
   NativeRiffLocalStorageAdapter,
   resolveNativeRiffImportSemanticFaces,
 } from '@/infrastructure/persistence/NativeRiffLocalStorageAdapter';
-import { SqlNativeRiffImportExclusionRepository } from '@/infrastructure/persistence/sqlite/SqlNativeRiffImportExclusionRepository';
 import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { SiyuanNeuralRoamGraphQueryAdapter } from '@/infrastructure/siyuan/SiyuanNeuralRoamGraphQueryAdapter';
@@ -195,6 +188,17 @@ import type { BackendMigrationRuntimePolicy } from '@/application/backendMigrati
 import type {
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
+  BackendCardCrudBatchMutateRequest,
+  BackendCardCrudBatchMutateResult,
+  BackendCardScheduleBatchUpdateRequest,
+  BackendCardScheduleBatchUpdateResult,
+  BackendQueueStateBatchMutateRequest,
+  BackendQueueStateBatchMutateResult,
+  BackendQueueStateLoadAllResult,
+  BackendStorageMaintenanceApplyBatchRequest,
+  BackendStorageMaintenanceApplyBatchResult,
+  BackendStorageMaintenanceStatusRequest,
+  BackendStorageMaintenanceStatusResult,
   BackendDomainSyncRepairApplyRequest,
   BackendDomainSyncRepairApplyResult,
   BackendDomainSyncRepairPreviewRequest,
@@ -204,7 +208,6 @@ import type {
   BackendDomainSyncConflictSourceCleanupCandidatesResult,
   BackendDomainSyncConflictSourceCleanupRequest,
   BackendDomainSyncConflictSourceCleanupResult,
-  BackendSyncConflictMergeResult,
   BackendKernelTransactionActionType,
 } from '../../packages/contracts/src/backend-rpc';
 
@@ -213,26 +216,6 @@ const APPLICATION_CONTEXT_DISPOSE_STEP_TIMEOUT_MS = 2_000;
 const REVIEW_TRUTH_FLUSH_DISPOSE_TIMEOUT_MS = 1_500;
 
 type I18nDictionary = Record<string, string>;
-
-function createSqlProjectionFileService(fileService: FileService) {
-  return {
-    readJSON: <T>(fileName: string) => fileService.readJSON<T>(fileName),
-    writeJSON: (fileName: string, data: unknown) => fileService.writeJSON(fileName, data),
-    readBinary: (fileName: string) => fileName === SQLITE_DB_FILE
-      ? fileService.readTempProjectionBinary(fileName)
-      : fileService.readBinary(fileName),
-    writeBinary: (
-      fileName: string,
-      bytes: Uint8Array,
-      options?: { diagnostics?: Record<string, unknown> },
-    ) => fileName === SQLITE_DB_FILE
-      ? fileService.writeTempProjectionBinary(fileName, bytes, options)
-      : fileService.writeBinary(fileName, bytes, options),
-    deleteFile: (fileName: string) => fileName === SQLITE_DB_FILE
-      ? Promise.resolve()
-      : fileService.deleteFile(fileName),
-  };
-}
 
 function escapeSqlLiteral(value: string): string {
   return value.replace(/'/g, "''");
@@ -292,16 +275,6 @@ interface ApplicationServiceRegistry {
 
 type ServiceName = keyof ApplicationServiceRegistry;
 type ServiceFactory<K extends ServiceName> = (context: ApplicationContext) => ApplicationServiceRegistry[K];
-
-interface SqlPersistenceBundle {
-  database: SqliteDatabaseService;
-  unified: SqlUnifiedStorageRepository;
-  queue: SqlQueueStateRepository;
-  neuralRoamRoutes: SqlNeuralRoamRouteRepository;
-  reviewLogs: SqlReviewLogRepository;
-  arena: SqlArenaRepository;
-  xiuyuanRead: SqlXiuyuanReadRepository;
-}
 
 type DisposableSrsBackendTransport = ApplicationBackendRuntimeTransport;
 type DisposalErrorCollector = Array<{ service: string; error: unknown }>;
@@ -374,7 +347,6 @@ export class ApplicationContext {
   private kernelTransactionIngestHandler?: KernelTransactionIngestHandler;
   private kernelTransactionActionPump?: KernelTransactionActionPump;
   private progressiveExcerptCompletionRepairTimer?: ReturnType<typeof setTimeout>;
-  private sqlPersistence?: SqlPersistenceBundle;
   private srsBackendClient: SrsBackendClient | null = null;
   private srsBackendTransport: DisposableSrsBackendTransport | null = null;
   private frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
@@ -462,7 +434,6 @@ export class ApplicationContext {
       unifiedDataSourceManager: UnifiedDataSourceManager;
       blockMenuHandler: BlockMenuHandler;
       sharedEventBus?: EventBus;  // ✅ 新增：共享的 EventBus 实例
-      sqlPersistence?: SqlPersistenceBundle;
       transactionWebSocketService?: TransactionWebSocketService;
       srsBackendClient?: SrsBackendClient | null;
       srsBackendTransport?: DisposableSrsBackendTransport | null;
@@ -484,7 +455,6 @@ export class ApplicationContext {
     this.unifiedDataSourceManager = services.unifiedDataSourceManager;
     this.blockMenuHandler = services.blockMenuHandler;
     this.transactionWebSocketService = services.transactionWebSocketService;
-    this.sqlPersistence = services.sqlPersistence;
     this.srsBackendClient = services.srsBackendClient ?? null;
     this.srsBackendTransport = services.srsBackendTransport ?? null;
     this.frontendInstanceRuntime = services.frontendInstanceRuntime ?? null;
@@ -512,12 +482,12 @@ export class ApplicationContext {
       unifiedDataSourceManager: () => this.unifiedDataSourceManager,
       frontendInstanceRuntime: () => this.frontendInstanceRuntime,
       followerCommandClient: () => this.followerCommandClient,
-      browserDeckReadPort: () => this.sqlPersistence?.unified ?? null,
+      browserDeckReadPort: () => null,
     });
     this.autoCardKernelXiuyuanServiceBundle = createAutoCardKernelXiuyuanServiceBundle({
       plugin: this.config.plugin,
       getUnifiedStorage: () => this.unifiedStorageManager,
-      getSqlXiuyuanReadRepository: () => this.sqlPersistence?.xiuyuanRead ?? null,
+      getSqlXiuyuanReadRepository: () => null,
       getCardTypeDetectionService: () => this.getCardTypeDetectionService(),
       getEventBus: () => this.getEventBus(),
     });
@@ -562,7 +532,10 @@ export class ApplicationContext {
       return new FileService(context.getPlugin() as unknown as SiyuanMemoPlugin);
     });
     this.registerServiceFactory('queuePersistenceService', (context) => {
-      const service = new QueuePersistenceService(context.sqlPersistence?.queue ?? null);
+      const service = new QueuePersistenceService({
+        loadAll: () => context.executeQueueStateLoadAll(),
+        batchMutate: (request) => context.executeQueueStateBatchMutate(request),
+      });
       // 🔧 修复：延迟初始化（在首次使用前）
       // 注意：init() 会在 ApplicationContext.init() 中调用
       return service;
@@ -593,7 +566,7 @@ export class ApplicationContext {
       return new DocTreeReviewScopeService(
         new ManagerSiyuanAdapter(),
         context.getStorage(),
-        context.sqlPersistence?.unified ?? null,
+        context.getUnifiedStorage(),
       );
     });
 
@@ -604,21 +577,39 @@ export class ApplicationContext {
     });
 
     this.registerServiceFactory('srsCardSemanticsRepairService', (context) => {
+      const storage = context.getUnifiedStorage();
       return new SrsCardSemanticsRepairService({
-        repository: context.sqlPersistence?.unified ?? null,
-        cardMirror: context.getCardService(),
+        repository: new WorkerSrsCardSemanticsRepairRepository({
+          storage,
+          execute: (request) => context.executeCardCrudBatchMutate(request),
+        }),
+        cardMirror: {
+          batchUpdateCardsWithoutEvents: async (cards) => {
+            storage.applyWorkerCommittedCardProjection(cards);
+            return {
+              ok: true,
+              value: {
+                updatedCardIds: cards.map((card) => card.id),
+              },
+            };
+          },
+        },
       });
     });
 
     this.registerServiceFactory('nativeRiffImportModule', (context) => {
-      const database = context.sqlPersistence?.database;
-      if (!database) {
+      const backendClient = context.srsBackendClient;
+      if (!backendClient) {
         throw new Error('NATIVE_RIFF_IMPORT_STORAGE_UNAVAILABLE');
       }
       const blockQuery = new HostBlockQuerySiyuanAdapter();
       const localStorage = new NativeRiffLocalStorageAdapter(
         context.getUnifiedStorage(),
-        new SqlNativeRiffImportExclusionRepository(database),
+        {
+          hasExclusion: async (blockId) => Boolean(
+            (await backendClient.findNativeRiffImportExclusion({ blockId })).exclusion,
+          ),
+        },
         blockQuery,
       );
       return new NativeRiffImportModule({
@@ -636,13 +627,17 @@ export class ApplicationContext {
     });
 
     this.registerServiceFactory('nativeRiffAdoptionModule', (context) => {
-      const database = context.sqlPersistence?.database;
-      if (!database) {
+      const backendClient = context.srsBackendClient;
+      if (!backendClient) {
         throw new Error('NATIVE_RIFF_ADOPTION_STORAGE_UNAVAILABLE');
       }
       const localStorage = new NativeRiffLocalStorageAdapter(
         context.getUnifiedStorage(),
-        new SqlNativeRiffImportExclusionRepository(database),
+        {
+          hasExclusion: async (blockId) => Boolean(
+            (await backendClient.findNativeRiffImportExclusion({ blockId })).exclusion,
+          ),
+        },
         new HostBlockQuerySiyuanAdapter(),
       );
       return new NativeRiffAdoptionModule({
@@ -782,7 +777,7 @@ export class ApplicationContext {
 
     this.registerServiceFactory('reviewLogService', (context) => {
       const fileService = context.getFileService();
-      return new ReviewLogService(fileService, context.sqlPersistence?.reviewLogs ?? null);
+      return new ReviewLogService(fileService, null);
     });
 
     this.registerServiceFactory('reviewCommitUseCase', (context) => {
@@ -823,7 +818,7 @@ export class ApplicationContext {
     this.registerServiceFactory('arenaStoreService', () => {
       return new ArenaStoreService(
         this.getFileService(),
-        this.sqlPersistence?.arena ?? null,
+        null,
       );
     });
 
@@ -966,7 +961,7 @@ export class ApplicationContext {
       const xiuyuanRepo = new XiuyuanRepository(
         context.getUnifiedStorage(),  // ✅ 使用 UnifiedStorageManager
         cardTypeDetectionService,      // ✅ 注入 CardTypeDetectionService
-        context.sqlPersistence?.xiuyuanRead ?? null,
+        null,
       );
 
       // 创建领域服务
@@ -1000,13 +995,12 @@ export class ApplicationContext {
 
       // ✅ 创建 Read Model（基础设施层）
       const unifiedStorage = context.getUnifiedStorage();
-      const cardReadModel = context.sqlPersistence
-        ? new SqlCardReadModel(context.sqlPersistence.unified)
-        : new CardReadModel(unifiedStorage);
+      const cardReadModel = new CardReadModel(unifiedStorage);
       
       // 创建应用服务
       const scheduleService = new CardScheduleService();
-      const deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(unifiedStorage, {
+      const cardCrudStorage = new WorkerCardCrudStorageAdapter(unifiedStorage);
+      const deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(cardCrudStorage, {
         siyuanApi: cardDeletionSiyuanApi,
       });
       
@@ -1017,7 +1011,7 @@ export class ApplicationContext {
         updateCardUseCase,
         cardReadModel,  // ✅ 传入 Read Model 接口
         scheduleService,
-        unifiedStorage,  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
+        cardCrudStorage,
         deleteFSRSCardUseCase
       );
     });
@@ -1206,328 +1200,7 @@ export class ApplicationContext {
     await measureRuntimePerformance('startup', 'storage-manager.init', () => storageManager.init());
     const fileService = new FileService(config.plugin as unknown as SiyuanMemoPlugin);
     const legacyPersistence = createLegacyStorageLoader(config.plugin);
-    let sqlPersistence: SqlPersistenceBundle | undefined;
-    let unifiedSave!: (data: UnifiedCardStore) => Promise<void>;
-    let unifiedLoad = legacyPersistence.load;
-    let unifiedDeltaPersistence: UnifiedStorageDeltaPersistenceCallbacks = {};
-
-    try {
-      await measureRuntimePerformance('startup', 'sqlite.init-and-migrate', async () => {
-        const sqlFileService = createSqlProjectionFileService(fileService);
-        const database = new SqliteDatabaseService(sqlFileService, SQLITE_DB_FILE, {
-          persistOnInit: false,
-          enableDeltaPersistence: true,
-          checkpointStorageClass: 'volatile-projection',
-          dropStoredDatabaseOnSchemaMismatch: true,
-        });
-        await database.init();
-        const unified = new SqlUnifiedStorageRepository(database);
-        const queue = new SqlQueueStateRepository(database);
-        const neuralRoamRoutes = new SqlNeuralRoamRouteRepository(database);
-        const reviewLogs = new SqlReviewLogRepository(database);
-        const arena = new SqlArenaRepository(database);
-        const xiuyuanRead = new SqlXiuyuanReadRepository(database);
-        const migrationService = new SqliteMigrationService(
-          database,
-          fileService,
-          { unified, queue, reviewLogs, arena },
-          legacyPersistence.load,
-        );
-        await migrationService.migrateIfNeeded();
-        const routeMigrationService = new SqlNeuralRoamRouteMigrationService(queue, neuralRoamRoutes);
-        await routeMigrationService.migrateIfNeeded();
-        sqlPersistence = { database, unified, queue, neuralRoamRoutes, reviewLogs, arena, xiuyuanRead };
-        unifiedSave = (data) => unified.saveStore(data);
-        unifiedLoad = (reason) => unified.loadStore(reason);
-        unifiedDeltaPersistence = {
-          saveXiuyuanCardDelta: (delta) => unified.saveXiuyuanCardDelta(delta),
-        };
-      });
-      logger.info('[ApplicationContext] ✅ SQLite storage active');
-    } catch (error) {
-      logger.error('[ApplicationContext] SQLite migration/init failed; refusing storage continuation:', error);
-      const startupError = new Error('STORAGE_UNAVAILABLE: SQLite migration/init failed');
-      (startupError as Error & { cause?: unknown }).cause = error;
-      throw startupError;
-    }
-    
-    // 🆕 1.1 初始化统一存储管理器
-    const unifiedStorageManager = new UnifiedStorageManager();
-    unifiedStorageManager.setPersistenceCallbacks(unifiedSave, unifiedLoad, unifiedDeltaPersistence);
-    
-    // 尝试加载数据，如果文件不存在则初始化为空
-    const loadResult = await measureRuntimePerformance(
-      'startup',
-      'unified-storage.load',
-      () => unifiedStorageManager.load(),
-    );
-    if (isErr(loadResult)) {
-      logger.error('[ApplicationContext] Failed to load UnifiedStorageManager, aborting startup to protect data:', loadResult.error);
-      throw new Error(`[ApplicationContext] Failed to load unified storage: ${loadResult.error.message}`);
-    } else {
-      const stats = unifiedStorageManager.getStats();
-      logger.info('[ApplicationContext] ✅ UnifiedStorageManager loaded:', {
-        xiuyuans: stats.totalXiuYuans,
-        cards: stats.totalCards,
-      });
-
-      const migratedLegacyFSRSCount = unifiedStorageManager.migrateLegacyFSRSV5SchedulerType();
-      const normalizedMalformedScheduleCount = unifiedStorageManager.normalizeMalformedReviewScheduling();
-      if (migratedLegacyFSRSCount > 0 || normalizedMalformedScheduleCount > 0) {
-        logger.info('[ApplicationContext] Persisting unified storage scheduling normalization:', {
-          migratedLegacyFSRSCount,
-          normalizedMalformedScheduleCount,
-        });
-        const migrationSaveResult = await measureRuntimePerformance(
-          'startup',
-          'unified-storage.schedule-normalization-save',
-          () => unifiedStorageManager.save(),
-          { migratedLegacyFSRSCount, normalizedMalformedScheduleCount },
-        );
-        if (isErr(migrationSaveResult)) {
-          logger.error('[ApplicationContext] Failed to persist scheduling normalization:', migrationSaveResult.error);
-          throw new Error(`[ApplicationContext] Failed to persist scheduling normalization: ${migrationSaveResult.error.message}`);
-        }
-      }
-      
-      // 🔧 修复：检查并创建缺失的 Xiuyuan（历史遗留数据迁移）
-      const allCards = unifiedStorageManager.getAllCards();
-      const orphanCards = allCards.filter(card => !card.meta?.xiuyuanID);
-      incrementRuntimePerformanceCounter('startup', 'orphan-card-count', orphanCards.length);
-      
-      if (orphanCards.length > 0) {
-        await measureRuntimePerformance('startup', 'unified-storage.orphan-card-repair', async () => {
-        logger.warn(`[ApplicationContext] Found ${orphanCards.length} orphan cards without Xiuyuan, creating Xiuyuans...`);
-        
-        // 动态导入所需的类
-        const { XiuyuanId } = await import('@/core/xiuyuan/domain/XiuyuanId');
-        const { BlockId } = await import('@/core/xiuyuan/domain/BlockId');
-        const { TemplateId } = await import('@/core/xiuyuan/domain/TemplateId');
-        const { Priority } = await import('@/core/xiuyuan/domain/Priority');
-        const { CardFace } = await import('@/core/xiuyuan/domain/CardFace');
-        const { Xiuyuan } = await import('@/core/xiuyuan/domain/Xiuyuan');
-        const { CardId } = await import('@/core/xiuyuan/domain/CardId');
-        const { ScheduleInfo } = await import('@/core/xiuyuan/domain/ScheduleInfo');
-        const { Card } = await import('@/core/xiuyuan/domain/Card');
-        
-        const repairedXiuyuans = [];
-        for (const orphanCard of orphanCards) {
-          try {
-            // 为每个孤儿卡片创建 Xiuyuan
-            const xiuyuanIdStr = `xy_migrated_${orphanCard.id}`;
-            const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
-            const blockIdResult = BlockId.create(orphanCard.blockId);
-            const templateIdResult = TemplateId.create('builtin-riff-sync');
-            const priorityResult = Priority.create(orphanCard.priority || 50);
-            const cardFaceResult = CardFace.create({
-              question: `Card ${orphanCard.id}`,
-              answer: '',
-              questionBlockId: orphanCard.blockId,
-              answerBlockId: orphanCard.blockId
-            });
-            
-            if (!xiuyuanIdResult.ok || !blockIdResult.ok || !templateIdResult.ok || !cardFaceResult.ok) {
-              logger.error(`[ApplicationContext] Failed to create value objects for card ${orphanCard.id}`);
-              continue;
-            }
-            
-            // 创建 Xiuyuan
-            const xiuyuanResult = Xiuyuan.create({
-              id: xiuyuanIdResult.value,
-              blockIDs: [blockIdResult.value],
-              templateID: templateIdResult.value,
-              faces: [cardFaceResult.value],
-              priority: priorityResult.ok ? priorityResult.value : Priority.createDefault(),
-              meta: { schedulerType: 'fsrs-v6' }
-            });
-            
-            if (!xiuyuanResult.ok) {
-              logger.error(`[ApplicationContext] Failed to create Xiuyuan for card ${orphanCard.id}`);
-              continue;
-            }
-            
-            const xiuyuan = xiuyuanResult.value;
-            
-            // 创建 Card 实体
-            const cardIdResult = CardId.create(orphanCard.id);
-            const scheduleInfoResult = ScheduleInfo.create({
-              due: new Date(orphanCard.due),
-              stability: orphanCard.stability,
-              difficulty: orphanCard.difficulty,
-              reps: orphanCard.reps,
-              lapses: orphanCard.lapses,
-              state: orphanCard.state,
-              lastReview: new Date(orphanCard.lastReview || Date.now()),
-              elapsedDays: orphanCard.elapsedDays || 0,
-              scheduledDays: orphanCard.scheduledDays || 0,
-              learning_step: 0
-            });
-            
-            if (!cardIdResult.ok || !scheduleInfoResult.ok) {
-              logger.error(`[ApplicationContext] Failed to create Card entity for ${orphanCard.id}`);
-              continue;
-            }
-            
-            const cardResult = Card.create({
-              id: cardIdResult.value,
-              xiuyuanId: xiuyuanIdResult.value,
-              faceIndex: 0,
-              scheduleInfo: scheduleInfoResult.value,
-              createdAt: new Date(orphanCard.createdAt || Date.now()),
-              updatedAt: new Date(orphanCard.updatedAt || Date.now())
-            });
-            
-            if (!cardResult.ok) {
-              logger.error(`[ApplicationContext] Failed to create Card for ${orphanCard.id}`);
-              continue;
-            }
-            
-            // 添加 Card 到 Xiuyuan
-            const addResult = xiuyuan.addCard(cardResult.value);
-            if (!addResult.ok) {
-              logger.error(`[ApplicationContext] Failed to add Card to Xiuyuan for ${orphanCard.id}`);
-              continue;
-            }
-            
-            repairedXiuyuans.push(xiuyuan);
-          } catch (error) {
-            logger.error(`[ApplicationContext] Error fixing orphan card ${orphanCard.id}:`, error);
-          }
-        }
-        
-        let fixedCount = 0;
-        if (repairedXiuyuans.length > 0) {
-          const xiuyuanRepo = new XiuyuanRepository(unifiedStorageManager);
-          const saveResult = await xiuyuanRepo.saveMany(repairedXiuyuans);
-
-          if (isErr(saveResult)) {
-            logger.error('[ApplicationContext] Failed to batch save orphan-card Xiuyuans:', saveResult.error);
-          } else {
-            fixedCount = repairedXiuyuans.length;
-            logger.info(`[ApplicationContext] ✅ Fixed ${fixedCount}/${orphanCards.length} orphan cards`);
-          }
-        }
-        incrementRuntimePerformanceCounter('startup', 'orphan-card-repaired', fixedCount);
-        }, { orphanCardCount: orphanCards.length });
-      }
-    }
-    
-    const settings = storageManager.getSettings();
-    
-    // 2. 自动修复无效日期（首次加载时）
-    try {
-      const repairResult = await measureRuntimePerformance(
-        'startup',
-        'storage-manager.repair-invalid-dates',
-        () => storageManager.repairInvalidDates(),
-      );
-      if (repairResult.fixed > 0) {
-        logger.info(`[ApplicationContext] 🔧 Repaired ${repairResult.fixed}/${repairResult.total} cards with invalid dates`);
-      }
-    } catch (err) {
-      logger.error('[ApplicationContext] Failed to repair invalid dates:', err);
-    }
-    
-    // 3. 创建 CardApplicationService 相关组件
-    // ✅ DDD 架构修复：使用 UnifiedStorageManager 创建 XiuyuanRepository
-    // 确保所有地方使用统一的数据访问层，避免数据不一致
-    
-    // ✅ 创建 CardTypeDetectionService
-    let settingsServiceRef: SettingsService | undefined;
-    const cardTypeDetectionServiceTemp = new CardTypeDetectionService({
-      resolveFlashcardConfig: () => {
-        try {
-          return settingsServiceRef?.getSettings().quickCard?.flashcard ?? DEFAULT_SETTINGS.quickCard.flashcard;
-        } catch {
-          return DEFAULT_SETTINGS.quickCard.flashcard;
-        }
-      },
-    });
-    
-    const xiuyuanRepoTemp = new XiuyuanRepository(
-      unifiedStorageManager,
-      cardTypeDetectionServiceTemp,  // ✅ 注入 CardTypeDetectionService
-      sqlPersistence?.xiuyuanRead ?? null,
-    );
-    
-    // 创建领域服务
-    const cardCreationService = new CardCreationService();
-    const cardDeletionService = new CardDeletionService();
-    const cardScheduleService = new CardScheduleService();
-    const cardCreationSiyuanApi = new CardCreationSiyuanAdapter();
-    const cardDeletionSiyuanApi = new CardDeletionSiyuanAdapter();
-    
-    // ⚠️ 注意：此时 context 还未创建，所以先创建一个临时的 EventBus
-    const sharedEventBus = new EventBus(false);
-    
-    // ✅ 创建 InMemoryDeletionTracker（在创建用例之前）
-    const { InMemoryDeletionTracker } = await import('@/core/xiuyuan/infrastructure/InMemoryDeletionTracker');
-    const deletionTracker = new InMemoryDeletionTracker();
-    logger.info('[ApplicationContext] Created InMemoryDeletionTracker for early initialization');
-    
-    // 创建用例
-    const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService, sharedEventBus, {
-      siyuanApi: cardCreationSiyuanApi,
-    });
-    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus, {
-      siyuanApi: cardDeletionSiyuanApi,
-      deletionTracker,
-    });
-    const deleteCardsUseCase = new DeleteCardsUseCase(
-      xiuyuanRepoTemp,
-      cardDeletionService,
-      sharedEventBus,
-      deletionTracker,
-      { siyuanApi: cardDeletionSiyuanApi }
-    );
-    const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
-    
-    // ✅ 创建 Read Model（基础设施层）
-    const cardReadModel = sqlPersistence
-      ? new SqlCardReadModel(sqlPersistence.unified)
-      : new CardReadModel(unifiedStorageManager);
-    const deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(unifiedStorageManager, {
-      siyuanApi: cardDeletionSiyuanApi,
-    });
-    
-    // ✅ 创建 CardApplicationService（使用 UnifiedStorageManager）
-    const cardApplicationService = new CardApplicationService(
-      createCardUseCase,
-      deleteCardUseCase,
-      deleteCardsUseCase,  // ✅ 添加批量删除用例
-      updateCardUseCase,
-      cardReadModel,  // ✅ 传入 Read Model 接口
-      cardScheduleService,
-      unifiedStorageManager,  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
-      deleteFSRSCardUseCase
-    );
-    
-    // 4. 初始化 ReviewLogService / RescheduleService（使用新架构）
-    // static create() 阶段还没有 context 实例，先创建调度写入所需的日志服务，
-    // context 创建后再注册回服务容器，避免启动期走不存在的实例 getter。
-    const reviewLogService = new ReviewLogService(fileService, sqlPersistence?.reviewLogs ?? null);
-    const schedulerCardUpdater = new UnifiedStorageCardUpdateAdapter(
-      unifiedStorageManager,
-      reviewLogService,
-      sqlPersistence?.unified ?? null
-    );
-    const schedulerErrorNotifier = new SiyuanErrorNotificationAdapter();
-    const rescheduleService = new RescheduleService(
-      unifiedStorageManager,
-      schedulerCardUpdater,
-      schedulerErrorNotifier
-    );
-    
-    // 5. 初始化调度器路由（使用新架构）
-    const schedulerRouter = new SchedulerRouter(
-      {
-        defaultScheduler: settings.scheduler?.defaultScheduler || 'fsrs-v6',
-        fsrsParams: settings.fsrs,
-      },
-      schedulerCardUpdater
-    );
     const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
-
     type AutoCardHostCallback = CreateApplicationBackendRuntimeBundleOptions['executeAutoCard'];
     type AutoCardBatchHostCallback = NonNullable<
       CreateApplicationBackendRuntimeBundleOptions['executeAutoCardBatch']
@@ -1594,6 +1267,239 @@ export class ApplicationContext {
       backendMigrationRuntimePolicy,
       backendStartupError,
     } = backendRuntimeBundle;
+    const executeStorageMaintenanceBatch = async (
+      request: BackendStorageMaintenanceApplyBatchRequest,
+    ): Promise<BackendStorageMaintenanceApplyBatchResult> => {
+      if (!srsBackendClient) {
+        throw new Error('BACKEND_UNAVAILABLE: storage maintenance requires backend Worker');
+      }
+      if (!backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
+        return srsBackendClient.applyStorageMaintenanceBatch(request);
+      }
+      if (!frontendInstanceRuntime) {
+        throw new Error('BACKEND_UNAVAILABLE: storage maintenance requires writer relay runtime');
+      }
+      if (frontendInstanceRuntime.getMode() === 'writer') {
+        await frontendInstanceRuntime.ensureWritable();
+        return srsBackendClient.applyStorageMaintenanceBatch(request);
+      }
+      if (!followerCommandClient) {
+        throw new Error('BACKEND_UNAVAILABLE: storage maintenance relay unavailable in follower mode');
+      }
+      return followerCommandClient.submitAndWait<BackendStorageMaintenanceApplyBatchResult>({
+        instanceId: frontendInstanceRuntime.getInstanceId(),
+        method: 'storage.maintenance.applyBatch',
+        params: request,
+      });
+    };
+    const executeStorageMaintenanceStatus = async (
+      request: BackendStorageMaintenanceStatusRequest,
+    ): Promise<BackendStorageMaintenanceStatusResult> => {
+      if (!srsBackendClient) {
+        throw new Error('BACKEND_UNAVAILABLE: storage maintenance requires backend Worker');
+      }
+      if (!backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
+        return srsBackendClient.storageMaintenanceStatus(request);
+      }
+      if (!frontendInstanceRuntime) {
+        throw new Error('BACKEND_UNAVAILABLE: storage maintenance requires writer relay runtime');
+      }
+      if (frontendInstanceRuntime.getMode() === 'writer') {
+        await frontendInstanceRuntime.ensureWritable();
+        return srsBackendClient.storageMaintenanceStatus(request);
+      }
+      if (!followerCommandClient) {
+        throw new Error('BACKEND_UNAVAILABLE: storage maintenance relay unavailable in follower mode');
+      }
+      return followerCommandClient.submitAndWait<BackendStorageMaintenanceStatusResult>({
+        instanceId: frontendInstanceRuntime.getInstanceId(),
+        method: 'storage.maintenance.status',
+        params: request,
+      });
+    };
+    const migrationResult = await measureRuntimePerformance(
+      'startup',
+      'storage-migration.worker-apply',
+      () => runPendingLegacyStorageMigrations({
+        planner: new LegacyStorageMigrationSourcePlanner(
+          fileService,
+          legacyPersistence.load,
+        ),
+        readStatus: executeStorageMaintenanceStatus,
+        executeBatch: executeStorageMaintenanceBatch,
+        writeBackup: (fileName, data) => fileService.writeJSON(fileName, data),
+      }),
+    );
+    if (
+      migrationResult.requiredOperationIds.length > 0
+      && frontendInstanceRuntime?.getMode() === 'follower'
+      && srsBackendClient
+    ) {
+      await measureRuntimePerformance(
+        'startup',
+        'storage-migration.follower-worker-reload',
+        () => srsBackendClient.reloadDatabase(),
+      );
+    }
+    const unifiedLoad = async (): Promise<UnifiedCardStore> => {
+      if (!srsBackendClient) {
+        throw new Error('BACKEND_UNAVAILABLE: unified storage projection requires backend Worker');
+      }
+      const loadResult = await srsBackendClient.loadDatabase();
+      return loadResult.projectionSnapshot as UnifiedCardStore;
+    };
+    let cardCrudMutationAdapter: WorkerCardCrudMutationAdapter | null = null;
+    const unifiedDeltaPersistence: UnifiedStorageDeltaPersistenceCallbacks = {
+      commitCardCrudBatch: async (mutation) => {
+        if (!cardCrudMutationAdapter) {
+          throw new Error('BACKEND_UNAVAILABLE: Card CRUD writer is not ready');
+        }
+        await cardCrudMutationAdapter.commit(mutation);
+      },
+    };
+
+    // 🆕 1.1 初始化统一存储管理器
+    const unifiedStorageManager = new UnifiedStorageManager();
+    unifiedStorageManager.setReadPersistenceCallbacks(unifiedLoad, unifiedDeltaPersistence);
+    
+    // 尝试加载数据，如果文件不存在则初始化为空
+    const loadResult = await measureRuntimePerformance(
+      'startup',
+      'unified-storage.load',
+      () => unifiedStorageManager.load(),
+    );
+    if (isErr(loadResult)) {
+      logger.error('[ApplicationContext] Failed to load UnifiedStorageManager, aborting startup to protect data:', loadResult.error);
+      throw new Error(`[ApplicationContext] Failed to load unified storage: ${loadResult.error.message}`);
+    } else {
+      const stats = unifiedStorageManager.getStats();
+      logger.info('[ApplicationContext] ✅ UnifiedStorageManager loaded:', {
+        xiuyuans: stats.totalXiuYuans,
+        cards: stats.totalCards,
+      });
+
+    }
+    
+    const settings = storageManager.getSettings();
+    
+    // 3. 创建 CardApplicationService 相关组件
+    // ✅ DDD 架构修复：使用 UnifiedStorageManager 创建 XiuyuanRepository
+    // 确保所有地方使用统一的数据访问层，避免数据不一致
+    
+    // ✅ 创建 CardTypeDetectionService
+    let settingsServiceRef: SettingsService | undefined;
+    const cardTypeDetectionServiceTemp = new CardTypeDetectionService({
+      resolveFlashcardConfig: () => {
+        try {
+          return settingsServiceRef?.getSettings().quickCard?.flashcard ?? DEFAULT_SETTINGS.quickCard.flashcard;
+        } catch {
+          return DEFAULT_SETTINGS.quickCard.flashcard;
+        }
+      },
+    });
+    
+    const xiuyuanRepoTemp = new XiuyuanRepository(
+      unifiedStorageManager,
+      cardTypeDetectionServiceTemp,  // ✅ 注入 CardTypeDetectionService
+      null,
+    );
+    
+    // 创建领域服务
+    const cardCreationService = new CardCreationService();
+    const cardDeletionService = new CardDeletionService();
+    const cardScheduleService = new CardScheduleService();
+    const cardCreationSiyuanApi = new CardCreationSiyuanAdapter();
+    const cardDeletionSiyuanApi = new CardDeletionSiyuanAdapter();
+    
+    // ⚠️ 注意：此时 context 还未创建，所以先创建一个临时的 EventBus
+    const sharedEventBus = new EventBus(false);
+    
+    // ✅ 创建 InMemoryDeletionTracker（在创建用例之前）
+    const { InMemoryDeletionTracker } = await import('@/core/xiuyuan/infrastructure/InMemoryDeletionTracker');
+    const deletionTracker = new InMemoryDeletionTracker();
+    logger.info('[ApplicationContext] Created InMemoryDeletionTracker for early initialization');
+    
+    // 创建用例
+    const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService, sharedEventBus, {
+      siyuanApi: cardCreationSiyuanApi,
+    });
+    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus, {
+      siyuanApi: cardDeletionSiyuanApi,
+      deletionTracker,
+    });
+    const deleteCardsUseCase = new DeleteCardsUseCase(
+      xiuyuanRepoTemp,
+      cardDeletionService,
+      sharedEventBus,
+      deletionTracker,
+      { siyuanApi: cardDeletionSiyuanApi }
+    );
+    const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
+    
+    // ✅ 创建 Read Model（基础设施层）
+    const cardReadModel = new CardReadModel(unifiedStorageManager);
+    const cardCrudStorage = new WorkerCardCrudStorageAdapter(unifiedStorageManager);
+    const deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(cardCrudStorage, {
+      siyuanApi: cardDeletionSiyuanApi,
+    });
+    
+    // ✅ 创建 CardApplicationService（使用 UnifiedStorageManager）
+    const cardApplicationService = new CardApplicationService(
+      createCardUseCase,
+      deleteCardUseCase,
+      deleteCardsUseCase,  // ✅ 添加批量删除用例
+      updateCardUseCase,
+      cardReadModel,  // ✅ 传入 Read Model 接口
+      cardScheduleService,
+      cardCrudStorage,
+      deleteFSRSCardUseCase
+    );
+    
+    // 4. 初始化 ReviewLogService / RescheduleService（使用新架构）
+    // static create() 阶段还没有 context 实例，先创建调度写入所需的日志服务，
+    // context 创建后再注册回服务容器，避免启动期走不存在的实例 getter。
+    const reviewLogService = new ReviewLogService(fileService, null);
+    const executeCardScheduleBatch = async (
+      request: BackendCardScheduleBatchUpdateRequest,
+    ): Promise<BackendCardScheduleBatchUpdateResult> => {
+      if (!srsBackendClient) {
+        throw new Error('BACKEND_UNAVAILABLE: card.schedule.batchUpdate requires backend Worker');
+      }
+      if (!backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
+        return srsBackendClient.cardScheduleBatchUpdate(request);
+      }
+      if (!frontendInstanceRuntime) {
+        throw new Error('BACKEND_UNAVAILABLE: card.schedule.batchUpdate requires writer relay runtime');
+      }
+      if (frontendInstanceRuntime.getMode() === 'writer') {
+        await frontendInstanceRuntime.ensureWritable();
+        return srsBackendClient.cardScheduleBatchUpdate(request);
+      }
+      if (!followerCommandClient) {
+        throw new Error('BACKEND_UNAVAILABLE: card.schedule.batchUpdate relay is unavailable in follower mode');
+      }
+      return followerCommandClient.submitAndWait<BackendCardScheduleBatchUpdateResult>({
+        instanceId: frontendInstanceRuntime.getInstanceId(),
+        method: 'card.schedule.batchUpdate',
+        params: request,
+      });
+    };
+    const schedulerCardUpdater = new WorkerCardScheduleUpdateAdapter({
+      execute: executeCardScheduleBatch,
+    }, reviewLogService);
+    const schedulerErrorNotifier = new SiyuanErrorNotificationAdapter();
+    const rescheduleService = new RescheduleService(
+      unifiedStorageManager,
+      schedulerCardUpdater,
+      schedulerErrorNotifier,
+    );
+    const schedulerRouter = new SchedulerRouter(
+      {
+        defaultScheduler: settings.scheduler?.defaultScheduler || 'fsrs-v6',
+        fsrsParams: settings.fsrs,
+      },
+      schedulerCardUpdater,
+    );
 
     // 创建 CardCreationHelper
     const cardCreationHelper = new CardCreationHelper(cardApplicationService);
@@ -1631,7 +1537,6 @@ export class ApplicationContext {
       unifiedDataSourceManager,
       blockMenuHandler,
       sharedEventBus,  // ✅ 传入 sharedEventBus
-      sqlPersistence,
       transactionWebSocketService: undefined,  // 将在下面初始化
       srsBackendClient,
       srsBackendTransport,
@@ -1651,6 +1556,27 @@ export class ApplicationContext {
         openNeuralRoamDialogPort,
       ],
     });
+    cardCrudMutationAdapter = new WorkerCardCrudMutationAdapter({
+      execute: (request) => context.executeCardCrudBatchMutate(request),
+    });
+    const startupMaintenanceDiagnostics = await measureRuntimePerformance(
+      'startup',
+      'worker-storage-maintenance',
+      () => runStartupWorkerStorageMaintenance({
+        storage: unifiedStorageManager,
+        executeScheduleBatch: executeCardScheduleBatch,
+      }),
+    );
+    incrementRuntimePerformanceCounter(
+      'startup',
+      'orphan-card-count',
+      startupMaintenanceDiagnostics.orphanRepair.discoveredCardCount,
+    );
+    incrementRuntimePerformanceCounter(
+      'startup',
+      'orphan-card-repaired',
+      startupMaintenanceDiagnostics.orphanRepair.repairedCardCount,
+    );
     
     context.serviceContainer.set('fileService', fileService);
     context.serviceContainer.set('reviewLogService', reviewLogService);
@@ -1767,11 +1693,6 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] ✅ ReviewScopeCardCreationSyncService initialized');
     
     unifiedDataSourceManager.setQueuePersistence(queuePersistenceService);
-    if (sqlPersistence?.neuralRoamRoutes) {
-      unifiedDataSourceManager.setNeuralRoamRouteCatalog(new NeuralRoamRouteCatalog({
-        repository: sqlPersistence.neuralRoamRoutes,
-      }));
-    }
     logger.info('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode and QueuePersistence');
     
     await measureRuntimePerformance(
@@ -2286,13 +2207,13 @@ export class ApplicationContext {
     return this.srsBackendClient;
   }
 
-  async mergeSyncConflictDatabasesNow(mergedAt = Date.now()): Promise<BackendSyncConflictMergeResult> {
+  async mergeSyncConflictDatabasesNow(): Promise<BackendTruthReconciliationRunResult> {
     const backendClient = this.getSrsBackendClient();
     if (!backendClient) {
-      throw new Error('BACKEND_UNAVAILABLE: sync conflict merge requires SRS backend');
+      throw new Error('BACKEND_UNAVAILABLE: truth reconciliation requires SRS backend');
     }
-    const service = new SyncConflictMergeApplicationService(this.getFileService(), backendClient);
-    return service.mergeNow({ mergedAt });
+    const service = new SyncConflictMergeApplicationService(backendClient);
+    return service.mergeNow();
   }
 
   async auditReviewSyncDivergence(
@@ -2462,6 +2383,91 @@ export class ApplicationContext {
         return client.submitAndWait<TResult>(request, timeoutMs);
       },
     };
+  }
+
+  private async executeCardCrudBatchMutate(
+    request: BackendCardCrudBatchMutateRequest,
+  ): Promise<BackendCardCrudBatchMutateResult> {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: card.crud.batchMutate requires backend Worker');
+    }
+    if (!this.backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
+      return backendClient.cardCrudBatchMutate(request);
+    }
+    const runtime = this.getFrontendInstanceRuntime();
+    if (!runtime) {
+      throw new Error('BACKEND_UNAVAILABLE: card.crud.batchMutate requires writer relay runtime');
+    }
+    if (runtime.getMode() === 'writer') {
+      await runtime.ensureWritable();
+      return backendClient.cardCrudBatchMutate(request);
+    }
+    const followerClient = this.getFollowerCommandClient();
+    if (!followerClient) {
+      throw new Error('BACKEND_UNAVAILABLE: card.crud.batchMutate relay is unavailable in follower mode');
+    }
+    return followerClient.submitAndWait<BackendCardCrudBatchMutateResult>({
+      instanceId: runtime.getInstanceId(),
+      method: 'card.crud.batchMutate',
+      params: request,
+    });
+  }
+
+  private async executeQueueStateLoadAll(): Promise<BackendQueueStateLoadAllResult> {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: queue.state.loadAll requires backend Worker');
+    }
+    if (!this.backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
+      return backendClient.queueStateLoadAll();
+    }
+    const runtime = this.getFrontendInstanceRuntime();
+    if (!runtime) {
+      throw new Error('BACKEND_UNAVAILABLE: queue.state.loadAll requires writer relay runtime');
+    }
+    if (runtime.getMode() === 'writer') {
+      await runtime.ensureWritable();
+      return backendClient.queueStateLoadAll();
+    }
+    const followerClient = this.getFollowerCommandClient();
+    if (!followerClient) {
+      throw new Error('BACKEND_UNAVAILABLE: queue.state.loadAll relay is unavailable in follower mode');
+    }
+    return followerClient.submitAndWait<BackendQueueStateLoadAllResult>({
+      instanceId: runtime.getInstanceId(),
+      method: 'queue.state.loadAll',
+      params: {},
+    });
+  }
+
+  private async executeQueueStateBatchMutate(
+    request: BackendQueueStateBatchMutateRequest,
+  ): Promise<BackendQueueStateBatchMutateResult> {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: queue.state.batchMutate requires backend Worker');
+    }
+    if (!this.backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
+      return backendClient.queueStateBatchMutate(request);
+    }
+    const runtime = this.getFrontendInstanceRuntime();
+    if (!runtime) {
+      throw new Error('BACKEND_UNAVAILABLE: queue.state.batchMutate requires writer relay runtime');
+    }
+    if (runtime.getMode() === 'writer') {
+      await runtime.ensureWritable();
+      return backendClient.queueStateBatchMutate(request);
+    }
+    const followerClient = this.getFollowerCommandClient();
+    if (!followerClient) {
+      throw new Error('BACKEND_UNAVAILABLE: queue.state.batchMutate relay is unavailable in follower mode');
+    }
+    return followerClient.submitAndWait<BackendQueueStateBatchMutateResult>({
+      instanceId: runtime.getInstanceId(),
+      method: 'queue.state.batchMutate',
+      params: request,
+    });
   }
 
   getBackendMigrationOwnershipMap(): MigratedStateFamily[] {
@@ -2735,7 +2741,7 @@ export class ApplicationContext {
    * 1. 停止 TransactionWebSocketService
    * 2. 停止 HybridSyncService 和定时器
    * 3. 销毁所有已创建的服务（按创建顺序的逆序）
-   * 4. 保存存储管理器数据
+   * 4. 协调 Worker quiescence 并释放 backend runtime
    * 5. 清空服务容器和工厂
    * 6. 标记为已销毁
    * 
@@ -2745,10 +2751,9 @@ export class ApplicationContext {
    * - 资源保证：即使发生错误，也会尽力释放所有资源
    * 
    * @returns Promise<void>
-   * @throws Error - 如果关键资源释放失败（如存储保存失败）
+   * @throws Error - 如果关键资源释放失败
    */
-  async dispose(options?: { persistStorage?: boolean }): Promise<void> {
-    const shouldPersistStorage = options?.persistStorage !== false;
+  async dispose(_options?: { persistStorage?: boolean }): Promise<void> {
     // 幂等性：如果已经销毁，直接返回
     if (this.disposed) {
       return;
@@ -2837,35 +2842,7 @@ export class ApplicationContext {
         callbackPort.dispose();
       }
       
-      // 5. Save storage data only when explicitly allowed
-      if (shouldPersistStorage) {
-        try {
-          logger.info('[ApplicationContext] Saving storage data...');
-          const saveResult = await this.unifiedStorageManager.save();  // ✅ 使用新架构 UnifiedStorageManager
-          if (isErr(saveResult)) {
-            throw new Error(saveResult.error.message || 'Unknown error');
-          }
-          logger.info('[ApplicationContext] Storage data saved successfully');
-        } catch (error) {
-          logger.error('[ApplicationContext] Critical error: Failed to save storage data:', error);
-          errors.push({ service: 'unifiedStorageManager.save', error });
-          throw new Error(`Failed to save storage data during disposal: ${error}`);
-        }
-      } else {
-        logger.info('[ApplicationContext] Skipping storage save during disposal (persistStorage=false)');
-      }
-
-      if (this.sqlPersistence) {
-        try {
-          this.sqlPersistence.database.dispose();
-          logger.info('[ApplicationContext] ✅ SQLite database closed without implicit checkpoint');
-        } catch (error) {
-          logger.error('[ApplicationContext] Error closing SQLite database:', error);
-          errors.push({ service: 'sqliteDatabase', error });
-        }
-      }
-
-      // 6. 清空服务容器和工厂
+      // 5. 清空服务容器和工厂
       this.serviceContainer.clear();
       this.serviceFactories.clear();
       

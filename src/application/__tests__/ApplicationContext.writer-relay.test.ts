@@ -409,6 +409,316 @@ describe('ApplicationContext writer relay command dispatch', () => {
     });
   });
 
+  it('dispatches card.schedule.batchUpdate to the writer backend client', async () => {
+    const cardScheduleBatchUpdate = vi.fn(async () => ({
+      updatedCardIds: ['card-relay-1'],
+    }));
+    const client = {
+      cardScheduleBatchUpdate,
+    } as unknown as {
+      cardScheduleBatchUpdate: (request: unknown) => Promise<unknown>;
+    };
+    const request = {
+      mutationId: 'card-schedule:relay-1',
+      schedulingWriteSource: 'manual-reschedule',
+      cards: [{
+        id: 'card-relay-1',
+        due: 1_786_000_000_000,
+      }],
+    };
+
+    const result = await executeWriterRelayCommand(client, {
+      method: 'card.schedule.batchUpdate',
+      params: request,
+    });
+
+    expect(cardScheduleBatchUpdate).toHaveBeenCalledWith(request);
+    expect(result).toEqual({
+      updatedCardIds: ['card-relay-1'],
+    });
+  });
+
+  it('dispatches card.crud.batchMutate to the writer backend client', async () => {
+    const cardCrudBatchMutate = vi.fn(async () => ({
+      durabilityReceipt: {
+        mutationId: 'card-crud:relay-1',
+        family: 'card-crud',
+        stage: 'journaled',
+      },
+    }));
+    const client = {
+      cardCrudBatchMutate,
+    } as unknown as {
+      cardCrudBatchMutate: (request: unknown) => Promise<unknown>;
+    };
+    const request = {
+      mutationId: 'card-crud:relay-1',
+      upsertCards: [],
+      upsertXiuyuans: [],
+      deleteCardIds: ['card-relay-1'],
+      deleteXiuyuanIds: [],
+    };
+
+    const result = await executeWriterRelayCommand(client, {
+      method: 'card.crud.batchMutate',
+      params: request,
+    });
+
+    expect(cardCrudBatchMutate).toHaveBeenCalledWith(request);
+    expect(result).toMatchObject({
+      durabilityReceipt: {
+        mutationId: 'card-crud:relay-1',
+        family: 'card-crud',
+        stage: 'journaled',
+      },
+    });
+  });
+
+  it('dispatches storage.maintenance.status to the writer backend client', async () => {
+    const storageMaintenanceStatus = vi.fn(async () => ({
+      operationId: 'legacy-storage-import-v1',
+      migrationId: 'legacy-storage-import-v1',
+      required: true,
+      status: 'running',
+      nextBatchIndex: 2,
+      completedBatchCount: 2,
+      totalBatchCount: 4,
+      backupWritten: true,
+      lastError: null,
+    }));
+    const client = {
+      storageMaintenanceStatus,
+    } as unknown as {
+      storageMaintenanceStatus: (request: unknown) => Promise<unknown>;
+    };
+    const request = {
+      operationId: 'legacy-storage-import-v1',
+      migrationId: 'legacy-storage-import-v1',
+    };
+
+    const result = await executeWriterRelayCommand(client, {
+      method: 'storage.maintenance.status',
+      params: request,
+    });
+
+    expect(storageMaintenanceStatus).toHaveBeenCalledWith(request);
+    expect(result).toMatchObject({
+      status: 'running',
+      nextBatchIndex: 2,
+      backupWritten: true,
+    });
+  });
+
+  it('guards writer Card CRUD and relays follower Card CRUD', async () => {
+    const ensureWritable = vi.fn(async () => undefined);
+    const cardCrudBatchMutate = vi.fn(async () => ({
+      durabilityReceipt: {
+        mutationId: 'card-crud:writer-1',
+        family: 'card-crud',
+        stage: 'journaled',
+      },
+    }));
+    const submitAndWait = vi.fn(async () => ({
+      durabilityReceipt: {
+        mutationId: 'card-crud:follower-1',
+        family: 'card-crud',
+        stage: 'journaled',
+      },
+    }));
+    const context = Object.create(ApplicationContext.prototype) as ApplicationContext & {
+      backendMigrationRuntimePolicy: {
+        capabilities: { writerRelayRequiredForBackendWrites: boolean };
+      };
+      executeCardCrudBatchMutate(request: unknown): Promise<unknown>;
+      getSrsBackendClient(): unknown;
+      getFrontendInstanceRuntime(): unknown;
+      getFollowerCommandClient(): unknown;
+    };
+    context.backendMigrationRuntimePolicy = {
+      capabilities: { writerRelayRequiredForBackendWrites: true },
+    };
+    context.getSrsBackendClient = () => ({ cardCrudBatchMutate });
+    context.getFrontendInstanceRuntime = () => ({
+      getMode: () => 'writer',
+      getInstanceId: () => 'writer-1',
+      ensureWritable,
+    });
+    context.getFollowerCommandClient = () => null;
+
+    await context.executeCardCrudBatchMutate({
+      mutationId: 'card-crud:writer-1',
+      upsertCards: [],
+      upsertXiuyuans: [],
+      deleteCardIds: ['card-writer-1'],
+      deleteXiuyuanIds: [],
+    });
+
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(cardCrudBatchMutate).toHaveBeenCalledTimes(1);
+
+    context.getFrontendInstanceRuntime = () => ({
+      getMode: () => 'follower',
+      getInstanceId: () => 'follower-1',
+    });
+    context.getFollowerCommandClient = () => ({ submitAndWait });
+    const followerRequest = {
+      mutationId: 'card-crud:follower-1',
+      upsertCards: [],
+      upsertXiuyuans: [],
+      deleteCardIds: ['card-follower-1'],
+      deleteXiuyuanIds: [],
+    };
+    await context.executeCardCrudBatchMutate(followerRequest);
+
+    expect(submitAndWait).toHaveBeenCalledWith({
+      instanceId: 'follower-1',
+      method: 'card.crud.batchMutate',
+      params: followerRequest,
+    });
+    expect(cardCrudBatchMutate).toHaveBeenCalledTimes(1);
+
+    context.getSrsBackendClient = () => null;
+    await expect(context.executeCardCrudBatchMutate(followerRequest))
+      .rejects.toThrow('BACKEND_UNAVAILABLE: card.crud.batchMutate requires backend Worker');
+  });
+
+  it('dispatches Queue state reads and mutations to the writer backend client', async () => {
+    const queueStateLoadAll = vi.fn(async () => ({
+      values: { retrievalPracticeQueue: ['card-1'] },
+    }));
+    const queueStateBatchMutate = vi.fn(async () => ({
+      updatedKeys: ['retrievalPracticeQueue'],
+      deletedKeys: [],
+    }));
+    const client = {
+      queueStateLoadAll,
+      queueStateBatchMutate,
+    };
+    const request = {
+      mutationId: 'queue:relay-1',
+      mutations: [{
+        operation: 'set' as const,
+        key: 'retrievalPracticeQueue',
+        value: ['card-1'],
+      }],
+    };
+
+    await expect(executeWriterRelayCommand(client, {
+      method: 'queue.state.loadAll',
+      params: {},
+    })).resolves.toEqual({
+      values: { retrievalPracticeQueue: ['card-1'] },
+    });
+    await expect(executeWriterRelayCommand(client, {
+      method: 'queue.state.batchMutate',
+      params: request,
+    })).resolves.toMatchObject({
+      updatedKeys: ['retrievalPracticeQueue'],
+    });
+
+    expect(queueStateLoadAll).toHaveBeenCalledTimes(1);
+    expect(queueStateBatchMutate).toHaveBeenCalledWith(request);
+  });
+
+  it('guards local Queue state access with writer authority', async () => {
+    const ensureWritable = vi.fn(async () => undefined);
+    const queueStateLoadAll = vi.fn(async () => ({ values: {} }));
+    const queueStateBatchMutate = vi.fn(async () => ({
+      updatedKeys: ['queue-a'],
+      deletedKeys: [],
+    }));
+    const context = Object.create(ApplicationContext.prototype) as ApplicationContext & {
+      backendMigrationRuntimePolicy: {
+        capabilities: { writerRelayRequiredForBackendWrites: boolean };
+      };
+      executeQueueStateLoadAll(): Promise<unknown>;
+      executeQueueStateBatchMutate(request: unknown): Promise<unknown>;
+      getSrsBackendClient(): unknown;
+      getFrontendInstanceRuntime(): unknown;
+      getFollowerCommandClient(): unknown;
+    };
+    context.backendMigrationRuntimePolicy = {
+      capabilities: { writerRelayRequiredForBackendWrites: true },
+    };
+    context.getSrsBackendClient = () => ({
+      queueStateLoadAll,
+      queueStateBatchMutate,
+    });
+    context.getFrontendInstanceRuntime = () => ({
+      getMode: () => 'writer',
+      getInstanceId: () => 'writer-1',
+      ensureWritable,
+    });
+    context.getFollowerCommandClient = () => null;
+
+    await context.executeQueueStateLoadAll();
+    await context.executeQueueStateBatchMutate({
+      mutationId: 'queue:writer-1',
+      mutations: [{ operation: 'delete', key: 'queue-a' }],
+    });
+
+    expect(ensureWritable).toHaveBeenCalledTimes(2);
+    expect(queueStateLoadAll).toHaveBeenCalledTimes(1);
+    expect(queueStateBatchMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('relays follower Queue state access and fails closed without a backend Worker', async () => {
+    const submitAndWait = vi.fn(async (request: { method: string }) => (
+      request.method === 'queue.state.loadAll'
+        ? { values: { 'queue-a': ['card-1'] } }
+        : { updatedKeys: ['queue-a'], deletedKeys: [] }
+    ));
+    const backendClient = {
+      queueStateLoadAll: vi.fn(),
+      queueStateBatchMutate: vi.fn(),
+    };
+    const context = Object.create(ApplicationContext.prototype) as ApplicationContext & {
+      backendMigrationRuntimePolicy: {
+        capabilities: { writerRelayRequiredForBackendWrites: boolean };
+      };
+      executeQueueStateLoadAll(): Promise<unknown>;
+      executeQueueStateBatchMutate(request: unknown): Promise<unknown>;
+      getSrsBackendClient(): unknown;
+      getFrontendInstanceRuntime(): unknown;
+      getFollowerCommandClient(): unknown;
+    };
+    context.backendMigrationRuntimePolicy = {
+      capabilities: { writerRelayRequiredForBackendWrites: true },
+    };
+    context.getSrsBackendClient = () => backendClient;
+    context.getFrontendInstanceRuntime = () => ({
+      getMode: () => 'follower',
+      getInstanceId: () => 'follower-1',
+    });
+    context.getFollowerCommandClient = () => ({ submitAndWait });
+
+    await context.executeQueueStateLoadAll();
+    await context.executeQueueStateBatchMutate({
+      mutationId: 'queue:follower-1',
+      mutations: [{ operation: 'delete', key: 'queue-a' }],
+    });
+
+    expect(submitAndWait).toHaveBeenNthCalledWith(1, {
+      instanceId: 'follower-1',
+      method: 'queue.state.loadAll',
+      params: {},
+    });
+    expect(submitAndWait).toHaveBeenNthCalledWith(2, {
+      instanceId: 'follower-1',
+      method: 'queue.state.batchMutate',
+      params: {
+        mutationId: 'queue:follower-1',
+        mutations: [{ operation: 'delete', key: 'queue-a' }],
+      },
+    });
+    expect(backendClient.queueStateLoadAll).not.toHaveBeenCalled();
+    expect(backendClient.queueStateBatchMutate).not.toHaveBeenCalled();
+
+    context.getSrsBackendClient = () => null;
+    await expect(context.executeQueueStateLoadAll())
+      .rejects.toThrow('BACKEND_UNAVAILABLE: queue.state.loadAll requires backend Worker');
+  });
+
   it('dispatches agent.tool.execute to application hook instead of backend client', async () => {
     const executeAgentTool = vi.fn(async (request: unknown) => ({
       ok: true,

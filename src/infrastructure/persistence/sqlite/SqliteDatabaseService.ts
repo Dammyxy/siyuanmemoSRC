@@ -19,9 +19,18 @@ import {
   SqliteDeltaCheckpointLayer,
   type SqliteDeltaDiagnosticsContext,
   type SqliteDeltaDiagnostics,
+  type SqliteDeltaCompactionResult,
   type SqliteDeltaHotPathDiagnostics,
+  type SqliteJournaledMutationEntry,
   type SqliteCheckpointStorageClass,
+  type SqliteDeltaStartupEvidence,
+  type SqliteDeltaStorageInventory,
 } from './SqliteDeltaCheckpoint';
+import {
+  STORAGE_DURABILITY_RECEIPT_VERSION,
+  type StorageDurabilityReceipt,
+  type StorageMutationEnvelope,
+} from '../../../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('SqliteDatabaseService');
 const SQLITE_CORRUPT_OPEN_SEGMENT_REPAIR_REASON = 'corrupt-open-segment-checkpoint-repair';
@@ -36,6 +45,8 @@ type TransactionOptions = {
   persist?: boolean;
   label?: string;
   diagnosticRecorder?: TransactionDiagnosticRecorder;
+  mutationEnvelope?: StorageMutationEnvelope;
+  onDurabilityReceipt?: (receipt: StorageDurabilityReceipt) => void;
 };
 type PersistOptions = {
   force?: boolean;
@@ -48,6 +59,13 @@ type SqliteDatabaseServiceOptions = {
   enableDeltaPersistence?: boolean;
   checkpointStorageClass?: SqliteCheckpointStorageClass;
   dropStoredDatabaseOnSchemaMismatch?: boolean;
+  beforeMutation?: (input: {
+    label: string;
+    mutationEnvelope?: StorageMutationEnvelope;
+  }) => Promise<void>;
+};
+type SqliteDatabaseInitOptions = {
+  skipDeltaReplay?: boolean;
 };
 type SqliteFileService = {
   readJSON<T>(
@@ -247,7 +265,7 @@ export class SqliteDatabaseService {
       : null;
   }
 
-  async init(): Promise<void> {
+  async init(options: SqliteDatabaseInitOptions = {}): Promise<void> {
     if (this.initialized) {
       return;
     }
@@ -292,7 +310,11 @@ export class SqliteDatabaseService {
       this.detectFts5Support();
       this.seedAlgorithmRegistry();
     }
-    if (this.deltaLayer && !droppedStoredDatabaseOnSchemaMismatch) {
+    if (
+      this.deltaLayer
+      && !droppedStoredDatabaseOnSchemaMismatch
+      && options.skipDeltaReplay !== true
+    ) {
       await this.deltaLayer.replayPending(this.requireDb());
       if (await this.deltaLayer.hasPendingDeltas()) {
         this.dirtySincePersist = true;
@@ -323,6 +345,12 @@ export class SqliteDatabaseService {
   ): Promise<T> {
     const db = this.requireDb();
     const shouldPersist = options.persist !== false;
+    if (this.transactionDepth === 0) {
+      await this.options.beforeMutation?.({
+        label,
+        mutationEnvelope: options.mutationEnvelope,
+      });
+    }
     if (this.transactionDepth > 0) {
       const changeMark = this.captureDatabaseChangeMark();
       const result = await writer(db);
@@ -375,7 +403,7 @@ export class SqliteDatabaseService {
       committed = true;
       this.transactionDepth = 0;
       let persistAfterCommit = (shouldPersist || this.pendingPersist)
-        && (transactionMutated || this.dirtySincePersist);
+        && (transactionMutated || this.dirtySincePersist || Boolean(options.mutationEnvelope));
       this.pendingPersist = false;
       if (transactionMutated) {
         this.dirtySincePersist = true;
@@ -391,6 +419,7 @@ export class SqliteDatabaseService {
               label,
               capture: deltaCaptureResult,
               schemaChanged,
+              mutationEnvelope: options.mutationEnvelope,
               diagnosticRecorder: options.diagnosticRecorder,
               diagnostics: {
                 cause: label,
@@ -404,9 +433,29 @@ export class SqliteDatabaseService {
               mode: deltaResult.mode,
               reason: 'reason' in deltaResult ? deltaResult.reason : null,
             });
+            if (options.mutationEnvelope && deltaResult.mode !== 'delta') {
+              throw new Error(
+                `BACKEND_UNAVAILABLE: mutation ${options.mutationEnvelope.mutationId} did not reach complete delta durability: ${deltaResult.mode}`,
+              );
+            }
             if (deltaResult.mode === 'delta' || deltaResult.mode === 'skipped') {
               this.dirtySincePersist = false;
               persistAfterCommit = false;
+              if (options.mutationEnvelope && deltaResult.mode === 'delta') {
+                const persistedEnvelope = deltaResult.entry.mutationEnvelope;
+                const persistedReceipt = deltaResult.entry.durabilityReceipt;
+                if (!persistedEnvelope
+                  || persistedEnvelope.mutationId !== options.mutationEnvelope.mutationId
+                  || persistedEnvelope.journalSequence == null
+                  || !persistedReceipt
+                  || persistedReceipt.mutationId !== persistedEnvelope.mutationId
+                  || persistedReceipt.journalSequence !== persistedEnvelope.journalSequence) {
+                  throw new Error(
+                    `BACKEND_UNAVAILABLE: mutation ${options.mutationEnvelope.mutationId} delta verification did not return its envelope`,
+                  );
+                }
+                options.onDurabilityReceipt?.(persistedReceipt);
+              }
             } else {
               const checkpointReason = `${label}:${deltaResult.reason}`;
               skipRestoreOnPersistFailure = isCorruptOpenSegmentRepairCheckpointReason(checkpointReason);
@@ -674,6 +723,32 @@ export class SqliteDatabaseService {
     return this.deltaLayer ? this.deltaLayer.getDiagnostics() : null;
   }
 
+  async getSqliteDeltaStorageInventory(): Promise<SqliteDeltaStorageInventory | null> {
+    return this.deltaLayer ? this.deltaLayer.getStorageInventory() : null;
+  }
+
+  async getSqliteDeltaStartupEvidence(
+    truthCoverageFrontier: number | null,
+  ): Promise<SqliteDeltaStartupEvidence | null> {
+    return this.deltaLayer
+      ? this.deltaLayer.inspectStartupEvidence(truthCoverageFrontier)
+      : null;
+  }
+
+  async compactSqliteDelta(input: {
+    coveredJournalSequence: number;
+    retainSealedSegments?: number;
+  }): Promise<SqliteDeltaCompactionResult | null> {
+    return this.deltaLayer ? this.deltaLayer.compactCoveredSegments(input) : null;
+  }
+
+  async listJournaledMutations(input: {
+    afterJournalSequence?: number;
+    limit?: number;
+  } = {}): Promise<SqliteJournaledMutationEntry[]> {
+    return this.deltaLayer ? this.deltaLayer.listJournaledMutations(input) : [];
+  }
+
   getSqliteDeltaHotPathDiagnostics(): SqliteDeltaHotPathDiagnostics | null {
     return this.deltaLayer ? this.deltaLayer.getHotPathDiagnostics() : null;
   }
@@ -687,6 +762,9 @@ export class SqliteDatabaseService {
       this.lastPersistedFingerprint = await fingerprintBytes(binaryBytes);
       this.dirtySincePersist = false;
       return { bytes: binaryBytes, legacyEnvelope: null };
+    }
+    if (binaryBytes) {
+      throw new Error(`SQLITE_PROJECTION_CORRUPT: invalid SQLite header for ${this.dbFile}`);
     }
 
     const envelope = await this.fileService.readJSON<SqliteEnvelope>(this.dbFile);

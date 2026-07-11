@@ -27,6 +27,39 @@ afterEach(() => {
 });
 
 describe('audit-plugin-storage', () => {
+  it('pins the observed storage-growth and identity baseline as a deterministic fixture', () => {
+    const fixturePath = path.join(__dirname, '..', '__fixtures__', 'storage-growth-baseline.v1.json');
+    const baseline = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+
+    expect(baseline).toEqual({
+      version: 1,
+      delta: { sealedSegments: 192 },
+      truth: {
+        segments: 143,
+        manifestReferencedSegments: 131,
+        unreferencedSegments: 12,
+      },
+      temporaryProjection: {
+        path: 'siyuanmemo.db',
+        bytes: 27.5 * 1024 * 1024,
+      },
+      identity: {
+        indexedDbAuthority: 'valid',
+        localStorageAuthority: 'valid',
+        authoritiesMatch: true,
+        temporaryMirror: 'disposable',
+      },
+      expectedDiagnostics: [
+        'delta-segment-growth-observed',
+        'truth-segment-growth-observed',
+        'temporary-projection-size-observed',
+        'identity-authority-matching',
+      ],
+    });
+    expect(baseline.truth.segments - baseline.truth.manifestReferencedSegments)
+      .toBe(baseline.truth.unreferencedSegments);
+  });
+
   it('classifies active storage contract files separately from cleanup candidates', () => {
     expect(classifyStoragePath('siyuanmemo.db')).toMatchObject({
       classification: 'forbidden-legacy-petal-db',

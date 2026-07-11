@@ -112,13 +112,7 @@ export class UpdateFSRSCardUseCase {
   }
 
   private async persistUpdatedCard(card: FSRSCard): Promise<void> {
-    if (typeof this.storage.updateCard === 'function') {
-      const updateResult = await this.storage.updateCard(card);
-      throwOnFailedStorageOperation(updateResult, `Failed to update card: ${card.id}`);
-      return;
-    }
-
-    this.storage.setCard(card);
-    await this.storage.saveCards();
+    const updateResult = await this.storage.updateCard(card);
+    throwOnFailedStorageOperation(updateResult, `Failed to update card: ${card.id}`);
   }
 }

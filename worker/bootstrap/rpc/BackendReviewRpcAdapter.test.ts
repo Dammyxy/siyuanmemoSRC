@@ -62,6 +62,7 @@ function createDatabase(reviewFeedback: BackendReviewRpcDatabase['reviewFeedback
     listReviewEventsForTruthBackfill: vi.fn(async () => []),
     patchReviewTruthBackfillProjectionRefs: vi.fn(async () => undefined),
     countReviewEventsPendingTruthBackfill: vi.fn(async () => 0),
+    getTruthPromotionDiagnostics: vi.fn(async () => null),
     updateSourceExistence: vi.fn(),
   };
 }
@@ -84,6 +85,16 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
       lastCheckpoint: null,
     });
     vi.mocked(database.countReviewEventsPendingTruthBackfill).mockResolvedValueOnce(3);
+    vi.mocked(database.getTruthPromotionDiagnostics).mockResolvedValueOnce({
+      active: true,
+      shutdownStarted: false,
+      pendingMutationCount: 4,
+      oldestPendingAgeMs: 2_500,
+      journalSequenceFrontier: 18,
+      truthCoverageFrontier: 14,
+      retryReason: 'manifest-write-interrupted',
+      lastSuccessfulPromotionAt: NOW - 5_000,
+    });
     const review = new BackendReviewRpcRuntime({
       database,
       reviewKernel: null,
@@ -112,9 +123,20 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
         last: null,
         lastError: null,
       },
+      truthPromotion: {
+        available: true,
+        active: true,
+        pendingMutationCount: 4,
+        oldestPendingAgeMs: 2_500,
+        journalSequenceFrontier: 18,
+        truthCoverageFrontier: 14,
+        retryReason: 'manifest-write-interrupted',
+        lastSuccessfulPromotionAt: NOW - 5_000,
+      },
     });
     expect(database.getReviewFeedbackJournalDiagnostics).toHaveBeenCalledOnce();
     expect(database.countReviewEventsPendingTruthBackfill).toHaveBeenCalledOnce();
+    expect(database.getTruthPromotionDiagnostics).toHaveBeenCalledOnce();
     expect(database.mergeExternalDatabaseIfChanged).not.toHaveBeenCalled();
     expect(database.reviewFeedback).not.toHaveBeenCalled();
   });

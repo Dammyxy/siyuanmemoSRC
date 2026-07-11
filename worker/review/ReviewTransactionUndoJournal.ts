@@ -1,6 +1,9 @@
 import type { FSRSCard } from '@/types/card';
 import type { QueueType } from '@/types/unified-data-source';
-import type { BackendReviewFeedbackQueueImpact } from '../../packages/contracts/src/backend-rpc';
+import type {
+  BackendReviewFeedbackQueueImpact,
+  StorageDurabilityReceipt,
+} from '../../packages/contracts/src/backend-rpc';
 
 export type ReviewTransactionUndoOperation = 'answer' | 'skip';
 export type ReviewTransactionUndoJournalStatus = 'open' | 'undone';
@@ -35,6 +38,7 @@ export interface ReviewTransactionUndoJournalEntry {
   status: ReviewTransactionUndoJournalStatus;
   undoneAt: number | null;
   scheduleRestoreApplied?: boolean;
+  durabilityReceipt?: StorageDurabilityReceipt | null;
 }
 
 export interface ReviewTransactionUndoJournalConsumeRequest {

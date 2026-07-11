@@ -15,7 +15,10 @@ import type {
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
   MessagePackReviewEventTruthRecord,
+  StorageDurabilityReceipt,
+  StorageMutationEnvelope,
 } from '../../packages/contracts/src/backend-rpc';
+import { STORAGE_MUTATION_ENVELOPE_VERSION } from '../../packages/contracts/src/backend-rpc';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
 import { createLogger } from '@/utils/logger';
@@ -34,6 +37,8 @@ type ReviewFeedbackRuntime = Pick<RuntimeSqliteDatabaseService, 'run' | 'getOne'
     options?: {
       persist?: boolean;
       diagnosticRecorder?: (step: string, durationMs: number, extra?: Record<string, unknown>) => void;
+      mutationEnvelope?: StorageMutationEnvelope;
+      onDurabilityReceipt?: (receipt: StorageDurabilityReceipt) => void;
     },
   ): Promise<T>;
 };
@@ -76,6 +81,7 @@ export type WorkerReviewFeedbackQueueImpactInput = {
 export type WorkerReviewFeedbackPersistenceReceipt = {
   result: BackendReviewFeedbackResult;
   queueImpactInput: WorkerReviewFeedbackQueueImpactInput | null;
+  durabilityReceipt: StorageDurabilityReceipt | null;
 };
 
 type ReviewLedgerDuplicateCommit = {
@@ -103,20 +109,66 @@ export class WorkerReviewCardMutationPersistenceModule {
     repository: ReviewFeedbackRepository;
     runtime: ReviewFeedbackRuntime;
     domainSyncLedger?: DomainSyncLedger;
+    storageIdentity: {
+      deviceId: string;
+      identityEpoch: string;
+    };
   }) {}
 
   async commitReviewFeedback(
     input: WorkerReviewFeedbackMutationInput,
     onTruthCandidate?: (candidate: WorkerReviewFeedbackTruthCandidate) => void,
   ): Promise<WorkerReviewFeedbackPersistenceReceipt> {
-    return await this.measureReviewFeedbackStep('transaction', input, () => this.deps.runtime.runTransaction('review.feedback', async () => (
+    let durabilityReceipt: StorageDurabilityReceipt | null = null;
+    const persistenceReceipt = await this.measureReviewFeedbackStep('transaction', input, () => this.deps.runtime.runTransaction('review.feedback', async () => (
       this.commitReviewAnswerTransaction(input, onTruthCandidate)
     ), {
       persist: input.commitPolicy === 'write-schedule',
+      mutationEnvelope: this.buildMutationEnvelope(input),
+      onDurabilityReceipt: (receipt) => {
+        durabilityReceipt = receipt;
+      },
       diagnosticRecorder: (step, durationMs, extra) => (
         this.recordReviewFeedbackTransactionDiagnosticStep(step, input, durationMs, extra)
       ),
     }));
+    if (input.commitPolicy === 'write-schedule'
+      && persistenceReceipt.result.committed
+      && durabilityReceipt === null) {
+      throw new Error(
+        `BACKEND_UNAVAILABLE: review mutation ${input.idempotencyKey ?? input.cardId} did not receive a journaled receipt`,
+      );
+    }
+    return {
+      ...persistenceReceipt,
+      durabilityReceipt,
+    };
+  }
+
+  private buildMutationEnvelope(input: WorkerReviewFeedbackMutationInput): StorageMutationEnvelope {
+    const mutationId = input.idempotencyKey
+      ?? `review-feedback:${input.cardId}:${input.reviewedAt}:${input.rating}`;
+    return {
+      version: STORAGE_MUTATION_ENVELOPE_VERSION,
+      mutationId,
+      family: 'review',
+      deviceId: this.deps.storageIdentity.deviceId,
+      identityEpoch: this.deps.storageIdentity.identityEpoch,
+      journalSequence: null,
+      createdAt: input.reviewedAt,
+      affectedAggregates: [{
+        family: 'card-schedule',
+        aggregateId: input.cardId,
+        causalBaseRevision: null,
+      }],
+      operations: [],
+      requiredTruthOutputs: [
+        { family: 'review', kind: 'event', aggregateIds: [input.cardId] },
+        { family: 'card-schedule', kind: 'changeset', aggregateIds: [input.cardId] },
+        { family: 'queue', kind: 'changeset', aggregateIds: [input.queueType] },
+        { family: 'review', kind: 'metadata', aggregateIds: [input.cardId] },
+      ],
+    };
   }
 
   private async commitReviewAnswerTransaction(
@@ -162,6 +214,7 @@ export class WorkerReviewCardMutationPersistenceModule {
           undoJournalPersisted: duplicateUndoPersisted,
         },
         queueImpactInput: null,
+        durabilityReceipt: null,
       };
     }
 
@@ -281,6 +334,7 @@ export class WorkerReviewCardMutationPersistenceModule {
         undoJournalPersisted: Boolean(input.transactionUndoJournalEntry && commitResult.committed),
       },
       queueImpactInput,
+      durabilityReceipt: null,
     };
   }
 

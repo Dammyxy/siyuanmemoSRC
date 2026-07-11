@@ -26,6 +26,12 @@ const runtimeBundleMocks = vi.hoisted(() => ({
     error: vi.fn(),
     debug: vi.fn(),
   },
+  resolveTruthDeviceIdentity: vi.fn(async () => ({
+    deviceId: 'truth-device-1',
+    source: 'authority-copies',
+    localStatePath: 'truth-device-id.v1.json',
+    error: null,
+  })),
 }));
 
 vi.mock('@/utils/logger', () => ({
@@ -64,12 +70,7 @@ vi.mock('@/application/backendMigration/runtimePolicy', () => ({
 }));
 
 vi.mock('@/application/factories/truthDeviceIdentity', () => ({
-  resolveTruthDeviceIdentity: vi.fn(async () => ({
-    deviceId: 'truth-device-1',
-    source: 'local-store',
-    localStatePath: 'truth-device-id.v1.json',
-    error: null,
-  })),
+  resolveTruthDeviceIdentity: runtimeBundleMocks.resolveTruthDeviceIdentity,
 }));
 
 vi.mock('@/application/clients/BrowserSrsBackendWorkerTransport', () => ({
@@ -149,6 +150,7 @@ function createRuntimeBundleOptions() {
     resolveKernelWriterLeaseInstanceId: () => 'writer-instance-1',
     resolveKernelWriterLeaseTtlMs: () => 5000,
     resolveSiyuanBackendContainer: () => 'browser',
+    resolveSiyuanSystemId: () => 'host-system-1',
     resolveWindowLocationHref: () => 'http://localhost/',
     resolveNavigatorUserAgent: () => 'vitest',
     resolveDocumentBodyClass: () => '',
@@ -163,8 +165,10 @@ describe('createApplicationBackendRuntimeBundle', () => {
     runtimeBundleMocks.frontendRuntimes.length = 0;
     runtimeBundleMocks.transports.length = 0;
     Object.values(runtimeBundleMocks.logger).forEach((fn) => fn.mockClear());
+    runtimeBundleMocks.resolveTruthDeviceIdentity.mockClear();
 
-    const bundle = await createApplicationBackendRuntimeBundle(createRuntimeBundleOptions());
+    const options = createRuntimeBundleOptions();
+    const bundle = await createApplicationBackendRuntimeBundle(options);
 
     expect(bundle.backendStartupError).toBeNull();
     expect(bundle.srsBackendClient).toBeTruthy();
@@ -177,6 +181,11 @@ describe('createApplicationBackendRuntimeBundle', () => {
     });
     expect(runtimeBundleMocks.backendClients[0].schedulePendingReviewTruthFlush)
       .toHaveBeenCalledWith('startup');
+    expect(runtimeBundleMocks.resolveTruthDeviceIdentity).toHaveBeenCalledWith(expect.objectContaining({
+      localStore: options.fileService,
+      hostFingerprint: 'host-system-1',
+      identityStore: expect.anything(),
+    }));
     expect(runtimeBundleMocks.logger.warn).not.toHaveBeenCalledWith(
       '[ApplicationContext] Frontend instance runtime unavailable; backend write families fail closed with explicit unavailable',
       expect.anything(),

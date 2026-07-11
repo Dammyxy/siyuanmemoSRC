@@ -292,7 +292,7 @@ const runtimePaths = [
       },
       {
         file: 'src/application/services/CardApplicationService.ts',
-        tokens: ['async batchDeleteCards', 'async batchUpdateCardsWithoutEvents', 'persistChanges'],
+        tokens: ['async batchDeleteCards', 'async batchUpdateCardsWithoutEvents', 'batchUpdateCards(cardsToUpdate'],
         reason: 'card batch mutations must persist through CardApplicationService instead of UI/local storage writes',
       },
     ],
@@ -324,13 +324,13 @@ const runtimePaths = [
     ],
   },
   {
-    id: 'sync-conflict-merge',
+    id: 'truth-reconciliation',
     status: 'active',
     anchors: [
       {
         file: 'packages/contracts/src/backend-rpc.ts',
-        tokens: ['sync.conflict.merge', 'BackendSyncConflictMergeRequest', 'BackendSyncConflictMergeResult'],
-        reason: 'sync conflict merge must stay in the shared backend contract',
+        tokens: ['truth.reconciliation.run', 'BackendTruthReconciliationRunRequest', 'BackendTruthReconciliationRunResult'],
+        reason: 'canonical truth reconciliation must stay in the shared backend contract',
       },
       {
         file: 'worker/bootstrap/rpc/BackendRpcRegistry.ts',
@@ -339,8 +339,8 @@ const runtimePaths = [
       },
       {
         file: 'worker/bootstrap/rpc/BackendSyncRpcAdapter.ts',
-        tokens: ['sync.conflict.merge', 'context.sync.database.mergeSyncConflictDatabases'],
-        reason: 'sync adapter must dispatch sync conflict merge to the database owner',
+        tokens: ['truth.reconciliation.run', 'context.sync.database.reconcileCanonicalTruth'],
+        reason: 'sync adapter must dispatch canonical truth reconciliation to the database owner',
       },
       {
         file: 'worker/bootstrap/BackendKernel.ts',
@@ -349,18 +349,18 @@ const runtimePaths = [
       },
       {
         file: 'worker/db/SqliteDatabaseService.ts',
-        tokens: ['async mergeSyncConflictDatabases', 'runTransaction(\'sync.conflict.merge\'', 'invalidateQueueProjectionsForSyncConflictMerge'],
-        reason: 'sync conflict merge must import cards/review events and invalidate projections in one SQL transaction',
+        tokens: ['async reconcileCanonicalTruth', 'new WorkerTruthReconciliationRuntime', 'rebuildSqlProjectionsFromTruth'],
+        reason: 'reconciliation must publish verified canonical truth before rebuilding SQL projections',
       },
       {
         file: 'src/application/services/SyncConflictMergeApplicationService.ts',
-        tokens: ['export class SyncConflictMergeApplicationService', 'mergeSyncConflicts'],
-        reason: 'application conflict merge must be a thin command module over the backend owner',
+        tokens: ['export class SyncConflictMergeApplicationService', 'reconcileCanonicalTruth'],
+        reason: 'manual reconciliation must be a thin command module over the backend owner',
       },
       {
         file: 'src/application/ApplicationContext.ts',
-        tokens: ['mergeSyncConflictDatabasesNow', 'BACKEND_UNAVAILABLE: sync conflict merge requires SRS backend', 'new SyncConflictMergeApplicationService'],
-        reason: 'composition root must fail closed and route sync conflict merge through backend worker',
+        tokens: ['mergeSyncConflictDatabasesNow', 'BACKEND_UNAVAILABLE: truth reconciliation requires SRS backend', 'new SyncConflictMergeApplicationService'],
+        reason: 'composition root must fail closed and route reconciliation through backend worker',
       },
     ],
   },

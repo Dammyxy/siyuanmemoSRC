@@ -55,20 +55,6 @@ import type { CardApplicationStoragePort, CardStorageUpdateOptions } from '@/cor
 
 const logger = createLogger('CardApplicationService');
 
-type BatchUpsertWithoutEventsResult = {
-  successCount: number;
-  failedCount: number;
-  successCardIds: string[];
-  failedCardIds: string[];
-};
-
-type BatchCreateCardsWithoutEventsResult = {
-  createdCount: number;
-  failedCount: number;
-  createdCardIds: string[];
-  failedCardIds: string[];
-};
-
 type BatchUpdateCardsWithoutEventsResult = {
   updatedCount: number;
   failedCount: number;
@@ -447,103 +433,6 @@ export class CardApplicationService {
     }
   }
   
-  /**
-   * 保存卡片到存储
-   * 
-   * @param card - 卡片对象
-   * 
-   * @description
-   * 这是一个便捷方法，用于简化从 CardService 和 AutoCardHandler 的迁移。
-   * 
-   * ⚠️ 注意：此方法直接操作 UnifiedStorageManager，绕过了 DDD 架构。
-   * 建议使用 Use Cases 进行写操作。
-   * 
-   * @deprecated 建议使用 updateCard() 或相应的 Use Case
-   * 
-   * @example
-   * ```typescript
-   * const card = createDefaultCard(blockId);
-   * cardService.setCard(card);
-   * await cardService.saveCards();
-   * ```
-   */
-  setCard(card: FSRSCard): void {
-    void card;
-    throw new Error('setCard() is deprecated. Please use updateCard() or appropriate Use Case.');
-  }
-  
-  /**
-   * 移除卡片
-   * 
-   * @param cardId - 卡片 ID
-   * 
-   * @description
-   * 这是一个便捷方法，用于简化从 CardService 和 AutoCardHandler 的迁移。
-   * 
-   * ⚠️ 注意：此方法直接操作 UnifiedStorageManager，绕过了 DDD 架构。
-   * 建议使用 deleteCard() Use Case。
-   * 
-   * @deprecated 建议使用 deleteCard() Use Case
-   * 
-   * @example
-   * ```typescript
-   * await cardService.deleteCard({ cardId: 'card-123' });
-   * ```
-   */
-  removeCard(cardId: string): void {
-    void cardId;
-    throw new Error('removeCard() is deprecated. Please use deleteCard() Use Case.');
-  }
-  
-  /**
-   * 保存所有卡片到持久化存储
-   * 
-   * @description
-   * 这是一个便捷方法，用于简化从 CardService 和 AutoCardHandler 的迁移。
-   * 
-   * ⚠️ 注意：此方法直接操作 UnifiedStorageManager，绕过了 DDD 架构。
-   * 
-   * @deprecated 建议使用 Use Cases，它们会自动保存
-   * 
-   * @example
-   * ```typescript
-   * // 不推荐
-   * cardService.setCard(card1);
-   * await cardService.saveCards();
-   * 
-   * // 推荐
-   * await cardService.updateCard({ ... });
-   * ```
-   */
-  async saveCards(): Promise<void> {
-    logger.warn('saveCards() is deprecated. Persist through unified storage.');
-    await this.persistChanges('saveCards');
-  }
-
-  private async persistChanges(context: string): Promise<void> {
-    if (typeof this.unifiedStorage.save === 'function') {
-      const result = await this.unifiedStorage.save();
-      if (
-        typeof result === 'object' &&
-        result !== null &&
-        'ok' in result &&
-        (result as { ok: boolean }).ok === false
-      ) {
-        const errorMessage =
-          (result as { error?: { message?: string } }).error?.message || 'Failed to persist cards';
-        throw new Error(`[${context}] ${errorMessage}`);
-      }
-      return;
-    }
-
-    if (typeof this.unifiedStorage.saveCards === 'function') {
-      await this.unifiedStorage.saveCards();
-      return;
-    }
-
-    throw new Error(`[${context}] No persistence method available on unifiedStorage`);
-  }
-
   private normalizeBatchCards(cards: unknown[]): FSRSCard[] {
     const deduped = new Map<string, FSRSCard>();
 
@@ -558,72 +447,6 @@ export class CardApplicationService {
     }
 
     return Array.from(deduped.values());
-  }
-
-  private async upsertCardWithoutEvents(
-    card: FSRSCard,
-    options: CardStorageUpdateOptions = {},
-  ): Promise<void> {
-    const updater = this.unifiedStorage.updateCard;
-    if (typeof updater === 'function') {
-      const result = await updater.call(this.unifiedStorage, card, options);
-      if (
-        typeof result === 'object' &&
-        result !== null &&
-        'ok' in result &&
-        (result as { ok: boolean }).ok === false
-      ) {
-        const errorMessage =
-          (result as { error?: { message?: string } }).error?.message || `Failed to update card ${card.id}`;
-        throw new Error(errorMessage);
-      }
-      return;
-    }
-
-    this.unifiedStorage.setCard(card);
-  }
-
-  private async runBatchUpsertWithoutEvents(params: {
-    cards: unknown[];
-    context: string;
-    shouldUpsert?: (card: FSRSCard) => boolean;
-    updateOptions?: CardStorageUpdateOptions;
-  }): Promise<BatchUpsertWithoutEventsResult> {
-    const normalizedCards = this.normalizeBatchCards(params.cards);
-    let successCount = 0;
-    let failedCount = 0;
-    const successCardIds: string[] = [];
-    const failedCardIds: string[] = [];
-
-    for (const card of normalizedCards) {
-      if (params.shouldUpsert && !params.shouldUpsert(card)) {
-        failedCount++;
-        failedCardIds.push(card.id);
-        logger.warn(`${params.context}: skip card because target not found`, {
-          cardId: card.id,
-        });
-        continue;
-      }
-
-      try {
-        await this.upsertCardWithoutEvents(card, params.updateOptions);
-        successCount++;
-        successCardIds.push(card.id);
-      } catch (error) {
-        failedCount++;
-        failedCardIds.push(card.id);
-        logger.error(`${params.context}: failed to upsert card`, {
-          cardId: card.id,
-          error,
-        });
-      }
-    }
-
-    if (successCount > 0) {
-      await this.persistChanges(params.context);
-    }
-
-    return { successCount, failedCount, successCardIds, failedCardIds };
   }
 
   /**
@@ -665,41 +488,6 @@ export class CardApplicationService {
   }
 
   /**
-   * 批量创建卡片（不触发领域事件）
-   *
-   * 用于同步服务等需要批量创建卡片的场景。
-   * 注意：此方法不会触发领域事件，适用于从外部数据源同步。
-   *
-   * @param cards FSRSCard 列表
-   * @returns 创建结果
-   */
-  async batchCreateCardsWithoutEvents(cards: unknown[]): Promise<{ ok: true; value: BatchCreateCardsWithoutEventsResult } | { ok: false; error: Error }> {
-    if (!cards || cards.length === 0) {
-      return {
-        ok: true,
-        value: {
-          createdCount: 0,
-          failedCount: 0,
-          createdCardIds: [],
-          failedCardIds: [],
-        },
-      };
-    }
-
-    const {
-      successCount: createdCount,
-      failedCount,
-      successCardIds: createdCardIds,
-      failedCardIds,
-    } = await this.runBatchUpsertWithoutEvents({
-      cards,
-      context: 'batchCreateCardsWithoutEvents',
-    });
-
-    return { ok: true, value: { createdCount, failedCount, createdCardIds, failedCardIds } };
-  }
-
-  /**
    * 批量更新卡片（不触发领域事件）
    *
    * 用于同步服务等需要批量更新卡片的场景。
@@ -724,19 +512,37 @@ export class CardApplicationService {
       };
     }
 
-    const {
-      successCount: updatedCount,
-      failedCount,
-      successCardIds: updatedCardIds,
-      failedCardIds,
-    } = await this.runBatchUpsertWithoutEvents({
-      cards,
-      context: 'batchUpdateCardsWithoutEvents',
-      shouldUpsert: (card) => Boolean(this.unifiedStorage.getCard(card.id)),
-      updateOptions: options,
-    });
+    const normalizedCards = this.normalizeBatchCards(cards);
+    const cardsToUpdate = normalizedCards.filter((card) => Boolean(this.unifiedStorage.getCard(card.id)));
+    const failedCardIds = normalizedCards
+      .filter((card) => !this.unifiedStorage.getCard(card.id))
+      .map((card) => card.id);
 
-    return { ok: true, value: { updatedCount, failedCount, updatedCardIds, failedCardIds } };
+    if (cardsToUpdate.length > 0) {
+      const updateResult = await this.unifiedStorage.batchUpdateCards(cardsToUpdate, options);
+      if (
+        typeof updateResult === 'object'
+        && updateResult !== null
+        && 'ok' in updateResult
+        && (updateResult as { ok: boolean }).ok === false
+      ) {
+        return {
+          ok: false,
+          error: (updateResult as { error?: Error }).error
+            ?? new Error('batchUpdateCardsWithoutEvents failed'),
+        };
+      }
+    }
+
+    return {
+      ok: true,
+      value: {
+        updatedCount: cardsToUpdate.length,
+        failedCount: failedCardIds.length,
+        updatedCardIds: cardsToUpdate.map((card) => card.id),
+        failedCardIds,
+      },
+    };
   }
 
 }

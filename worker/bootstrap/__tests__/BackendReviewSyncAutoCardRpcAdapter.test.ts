@@ -72,7 +72,7 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
       family: entry.family,
       owner: entry.owner,
     }))).toEqual([
-      { method: 'sync.conflict.merge', family: 'sync', owner: 'BackendSyncRpcAdapter' },
+      { method: 'truth.reconciliation.run', family: 'domain-sync', owner: 'BackendSyncRpcAdapter' },
       { method: 'sync.reviewDivergence.audit', family: 'sync', owner: 'BackendSyncRpcAdapter' },
       { method: 'sync.conflict.summarize', family: 'sync', owner: 'BackendSyncRpcAdapter' },
       { method: 'sync.conflict.reload', family: 'sync', owner: 'BackendSyncRpcAdapter' },
@@ -170,11 +170,15 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
   });
 
   it('keeps review truth backfill fail-closed when truth storage is absent', async () => {
+    const database = createReviewDatabase();
+    vi.mocked(database.getReviewTruthPublicationStore).mockRejectedValue(
+      new Error('BACKEND_UNAVAILABLE: review.truth.backfill requires truth segment file store'),
+    );
     const dispatcher = new BackendRpcDispatcher(
       createBackendRpcHandlerRegistry(BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS),
     );
     const context: BackendReviewRpcHandlerContext = {
-      review: new BackendReviewRpcRuntime({ database: createReviewDatabase() }),
+      review: new BackendReviewRpcRuntime({ database }),
     };
 
     await expect(dispatch(dispatcher, context, 'review.truth.backfill', {
@@ -283,7 +287,7 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
     });
   });
 
-  it('routes sync/domain-sync methods through the Sync adapter with preflight merge preserved', async () => {
+  it('rejects legacy SQLite merge RPC and routes canonical reconciliation through the Sync adapter', async () => {
     const database = createSyncDatabase();
     const dispatcher = new BackendRpcDispatcher(
       createBackendRpcHandlerRegistry(BACKEND_SYNC_RPC_HANDLER_REGISTRATIONS),
@@ -294,12 +298,24 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
 
     await expect(dispatch(dispatcher, context, 'sync.conflict.merge', {
       sources: [],
-      mergedAt: 100,
+    })).resolves.toMatchObject({
+      error: {
+        code: 'METHOD_NOT_FOUND',
+        message: 'Unknown method: sync.conflict.merge',
+      },
+    });
+    await expect(dispatch(dispatcher, context, 'truth.reconciliation.run', {
+      reason: 'manual-test',
     })).resolves.toMatchObject({
       result: {
         ok: true,
-        sources: 0,
+        sourceCount: 2,
+        blockedAggregateIds: [],
+        projectionRebuilt: true,
       },
+    });
+    expect(database.reconcileCanonicalTruth).toHaveBeenCalledWith({
+      reason: 'manual-test',
     });
     await expect(dispatch(dispatcher, context, 'domainSync.status', {
       context: 'review-feedback-preflight',
@@ -426,6 +442,7 @@ function createReviewDatabase(): BackendReviewRpcDatabase {
     mergeExternalDatabaseIfChanged: vi.fn(async () => ({})),
     markReviewFeedbackOwnPersistedMainDbClean: vi.fn(),
     getReviewFeedbackJournalStore: vi.fn(() => null),
+    getReviewTruthPublicationStore: vi.fn(async () => null),
     getReviewFeedbackJournalDiagnostics: vi.fn(async () => ({
       fileName: 'review-feedback-journal.v1',
       storage: 'non-siyuan',
@@ -447,17 +464,21 @@ function createReviewDatabase(): BackendReviewRpcDatabase {
 
 function createSyncDatabase(): BackendSyncRpcDatabase {
   return {
-    mergeSyncConflictDatabases: vi.fn(async (): Promise<BackendSyncConflictMergeResult> => ({
-      ok: true,
-      sources: 0,
-      mergedReviewEvents: 0,
-      ignoredReviewEvents: 0,
-      mergedCards: 0,
-      ignoredCards: 0,
-      skippedSources: [],
-      diagnostics: {
-        reviewCardDivergences: [],
+    reconcileCanonicalTruth: vi.fn(async () => ({
+      ok: true as const,
+      sourceCount: 2,
+      acceptedMutationIds: ['mutation-A', 'mutation-B'],
+      duplicateMutationIds: [],
+      blockedAggregateIds: [],
+      conflicts: [],
+      mergeDecisionCount: 0,
+      generationIds: {
+        card: 'reconcile-card-memory-facts-test',
+        queue: null,
+        review: 'review-events-v1',
+        domainSync: 'domain-sync-operations-v1',
       },
+      projectionRebuilt: true,
     })),
     auditReviewSyncDivergence: vi.fn(async () => ({
       ok: true as const,

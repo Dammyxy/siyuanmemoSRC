@@ -7,12 +7,16 @@ import {
   createMessagePackTruthSegmentStore,
   type MessagePackTruthSegmentFileStore,
 } from '../../truth/MessagePackTruthSegmentStore';
+import { MessagePackTruthSnapshotGenerationStore } from '../../truth/MessagePackTruthSnapshotGenerationStore';
 import type { BackendStorageDiagnostic } from '../../../packages/contracts/src/backend-rpc';
 
 const BOOTSTRAP_OPTIONS: WorkerStorageBootstrapOptions = {
   truthDeviceId: 'device-local',
+  identityEpoch: 'epoch-local',
+  truthSchemaVersion: 1,
   cardTruthGenerationId: 'card-memory-facts-v1',
   reviewTruthGenerationId: 'review-events-v1',
+  queueTruthGenerationId: 'queue-facts-v1',
 };
 
 class MemoryTruthFileStore implements MessagePackTruthSegmentFileStore {
@@ -123,7 +127,126 @@ describe('StorageBootstrapRuntime', () => {
     expect(result.truthProjectionInput?.truthRecords).toHaveLength(1);
   });
 
-  it('surfaces truth validation failure instead of continuing from invalid truth', async () => {
+  it('classifies current and previous snapshot generation fence evidence', async () => {
+    const truthFileStore = new MemoryTruthFileStore();
+    const generationStore = new MessagePackTruthSnapshotGenerationStore({
+      fileStore: truthFileStore,
+      family: 'card-memory-facts',
+      deviceId: BOOTSTRAP_OPTIONS.truthDeviceId!,
+      schemaVersion: BOOTSTRAP_OPTIONS.truthSchemaVersion,
+    });
+    const previous = await generationStore.publishGeneration({
+      generationId: 'compact-card-memory-facts-0-1',
+      expectedCurrentGenerationId: null,
+      records: [{
+        id: 'snapshot:previous',
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'card-memory.snapshot-imported',
+        idempotencyKey: 'snapshot:previous',
+        logicalTime: 1,
+        recordedAt: 1,
+        cardId: 'previous-card',
+      }],
+    });
+    await generationStore.publishGeneration({
+      generationId: 'compact-card-memory-facts-1-1',
+      expectedCurrentGenerationId: previous.generation.generationId,
+      records: [{
+        id: 'snapshot:current',
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'card-memory.snapshot-imported',
+        idempotencyKey: 'snapshot:current',
+        logicalTime: 2,
+        recordedAt: 2,
+        cardId: 'current-card',
+      }],
+    });
+    const runtime = createRuntime({
+      truthFileStore,
+      projectionBytes: new Uint8Array([1]),
+    });
+
+    const result = await runtime.bootstrap(BOOTSTRAP_OPTIONS);
+
+    expect(result.truthProjectionInput).toMatchObject({
+      currentGenerationId: 'compact-card-memory-facts-1-1',
+      previousGenerationId: 'compact-card-memory-facts-0-1',
+      selectedGenerationId: 'compact-card-memory-facts-1-1',
+      generationFallbackReason: null,
+      quarantinedPaths: [],
+    });
+  });
+
+  it('recovers from the previous verified generation when the current generation is corrupt', async () => {
+    const truthFileStore = new MemoryTruthFileStore();
+    const generationStore = new MessagePackTruthSnapshotGenerationStore({
+      fileStore: truthFileStore,
+      family: 'card-memory-facts',
+      deviceId: BOOTSTRAP_OPTIONS.truthDeviceId!,
+      schemaVersion: BOOTSTRAP_OPTIONS.truthSchemaVersion,
+    });
+    const previous = await generationStore.publishGeneration({
+      generationId: 'compact-card-memory-facts-0-1',
+      expectedCurrentGenerationId: null,
+      records: [{
+        id: 'snapshot:previous-card',
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'card-memory.snapshot-imported',
+        idempotencyKey: 'snapshot:previous-card',
+        logicalTime: 1,
+        recordedAt: 1,
+        cardId: 'previous-card',
+      }],
+    });
+    const current = await generationStore.publishGeneration({
+      generationId: 'compact-card-memory-facts-1-1',
+      expectedCurrentGenerationId: previous.generation.generationId,
+      records: [{
+        id: 'snapshot:current-card',
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'card-memory.snapshot-imported',
+        idempotencyKey: 'snapshot:current-card',
+        logicalTime: 2,
+        recordedAt: 2,
+        cardId: 'current-card',
+      }],
+    });
+    const corruptSegmentPath = current.generation.manifest.segments[0].path;
+    const corruptBytes = truthFileStore.binary.get(corruptSegmentPath)!;
+    corruptBytes[0] ^= 0xff;
+    const runtime = createRuntime({
+      truthFileStore,
+      projectionBytes: null,
+    });
+
+    const result = await runtime.bootstrap(BOOTSTRAP_OPTIONS);
+
+    expect(result.truthProjectionInput).toMatchObject({
+      primaryGenerationId: 'compact-card-memory-facts-0-1',
+      currentGenerationId: 'compact-card-memory-facts-1-1',
+      previousGenerationId: 'compact-card-memory-facts-0-1',
+      selectedGenerationId: 'compact-card-memory-facts-0-1',
+      generationFallbackReason: expect.stringContaining('checksum-mismatch'),
+    });
+    expect(result.truthProjectionInput?.truthRecords.map((record) => record.id)).toEqual([
+      'snapshot:previous-card',
+    ]);
+    expect(truthFileStore.json.get(generationStore.fencePath)).toMatchObject({
+      current: {
+        generationId: 'compact-card-memory-facts-1-1',
+      },
+      previous: {
+        generationId: 'compact-card-memory-facts-0-1',
+      },
+    });
+    expect(truthFileStore.binary.has(corruptSegmentPath)).toBe(true);
+  });
+
+  it('classifies invalid canonical truth for read-only recovery without deleting evidence', async () => {
     const truthFileStore = new MemoryTruthFileStore();
     await seedCardTruth(truthFileStore);
     const manifestPath = 'truth/card-memory-facts/card-memory-facts-v1/device-device-local/manifest.v1.json';
@@ -136,9 +259,18 @@ describe('StorageBootstrapRuntime', () => {
     });
     const runtime = createRuntime({ truthFileStore });
 
-    await expect(runtime.bootstrap(BOOTSTRAP_OPTIONS)).rejects.toThrow(
-      'TRUTH_VALIDATION_FAILED: MessagePack truth validation failed: checksum-mismatch',
-    );
+    const result = await runtime.bootstrap(BOOTSTRAP_OPTIONS);
+
+    expect(result).toMatchObject({
+      truthAvailable: false,
+      truthValidationError: 'TRUTH_VALIDATION_FAILED: MessagePack truth validation failed: checksum-mismatch',
+      projectionRebuildRequired: false,
+      truthProjectionInput: null,
+      quarantinedPaths: expect.arrayContaining([
+        manifestPath,
+      ]),
+    });
+    expect(truthFileStore.json.has(manifestPath)).toBe(true);
   });
 
   it('records ignored legacy petal database diagnostic through bootstrap interface', async () => {

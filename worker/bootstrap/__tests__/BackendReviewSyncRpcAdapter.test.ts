@@ -4268,17 +4268,17 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
     const kernel = new BackendKernel({ database });
     const response = await kernel.handle({
-      id: 'persist-after-external-sync',
+      id: 'reload-after-external-sync',
       jsonrpc: '2.0',
-      method: 'db.persist',
+      method: 'db.reload',
       params: [],
     });
-    expect(response).toEqual({
-      id: 'persist-after-external-sync',
+    expect(response).toMatchObject({
+      id: 'reload-after-external-sync',
       jsonrpc: '2.0',
       result: {
         ok: true,
-        persisted: true,
+        reloaded: true,
         dbFile: 'siyuanmemo.db',
       },
     });
@@ -4366,18 +4366,18 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
     const kernel = new BackendKernel({ database });
     const response = await kernel.handle({
-      id: 'persist-after-conflict-sync',
+      id: 'reload-after-conflict-sync',
       jsonrpc: '2.0',
-      method: 'db.persist',
+      method: 'db.reload',
       params: [],
     });
 
-    expect(response).toEqual({
-      id: 'persist-after-conflict-sync',
+    expect(response).toMatchObject({
+      id: 'reload-after-conflict-sync',
       jsonrpc: '2.0',
       result: {
         ok: true,
-        persisted: true,
+        reloaded: true,
         dbFile: 'siyuanmemo.db',
       },
     });
@@ -8459,7 +8459,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
     database.dispose();
     const restartedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
-    await restartedDatabase.load({ truthDeviceId: 'device-A' });
+    await restartedDatabase.load({ truthDeviceId: 'device-A', identityEpoch: 'epoch-A' });
     const restartedKernel = new BackendKernel({
       database: restartedDatabase,
       truthFileStore: persistenceBridge.truthFileStore,

@@ -14,6 +14,10 @@ import {
   type MessagePackTruthSegmentManifest,
 } from '../truth/MessagePackTruthSegmentStore';
 import {
+  MessagePackTruthSnapshotGenerationStore,
+  type MessagePackTruthVerifiedGenerationReplay,
+} from '../truth/MessagePackTruthSnapshotGenerationStore';
+import {
   createReconciledLegacyUnifiedCardsMigrationReceipt,
   readLegacyUnifiedCardsMigrationReceipt,
   reconcileLegacyUnifiedCardsMigrationReceipt,
@@ -25,13 +29,18 @@ const logger = createLogger('StorageBootstrapRuntime');
 
 export interface WorkerStorageBootstrapOptions {
   truthDeviceId: string | null;
+  identityEpoch: string | null;
+  truthSchemaVersion: number;
   cardTruthGenerationId: string;
   reviewTruthGenerationId: string;
+  queueTruthGenerationId: string;
   maxSegmentBytes?: number;
 }
 
 export interface WorkerStorageBootstrapState {
   truthAvailable: boolean;
+  truthValidationError: string | null;
+  quarantinedPaths: string[];
   projectionRebuildRequired: boolean;
   projectionRebuildReason: string | null;
   truthProjectionInput: StartupTruthProjectionInput | null;
@@ -43,12 +52,32 @@ export interface StartupTruthProjectionInput {
   truthManifest: MessagePackTruthSegmentManifest;
   primaryDeviceId: string;
   primaryGenerationId: string;
+  manifestCount: number;
+  segmentCount: number;
+  currentGenerationId: string;
+  previousGenerationId: string | null;
+  selectedGenerationId: string;
+  generationFallbackReason: string | null;
+  quarantinedPaths: string[];
 }
 
 interface TruthManifestTarget {
   family: MessagePackTruthFamily;
   deviceId: string;
   generationId: string;
+}
+
+interface StartupGenerationEvidence {
+  currentGenerationId: string | null;
+  previousGenerationId: string | null;
+  selectedGenerationId: string | null;
+  generationFallbackReason: string | null;
+  selectedGenerationIds: Partial<Record<'card-memory-facts' | 'queue-facts', string>>;
+  selectedGenerations: Partial<Record<
+    'card-memory-facts' | 'queue-facts',
+    MessagePackTruthVerifiedGenerationReplay
+  >>;
+  quarantinedPaths: string[];
 }
 
 export interface StorageBootstrapRuntimeDependencies {
@@ -61,7 +90,7 @@ export interface StorageBootstrapRuntimeDependencies {
   addStorageDiagnostic(diagnostic: BackendStorageDiagnostic): void;
   projectionRuntime?: {
     dispose(): void;
-    init(): Promise<void>;
+    init(options?: { skipDeltaReplay?: boolean }): Promise<void>;
     suppressPersistedProjectionRead<T>(task: () => Promise<T>): Promise<T>;
   };
 }
@@ -74,11 +103,28 @@ export class StorageBootstrapRuntime {
   async bootstrap(options: WorkerStorageBootstrapOptions): Promise<WorkerStorageBootstrapState> {
     await this.recordIgnoredLegacyPetalSqliteDbDiagnostic();
     const projectionBytesBeforeStartup = await this.readProjectionBytesForStartupProbe();
-    const truthProjectionInput = await this.readStartupTruthProjectionInput(options);
+    let truthProjectionInput: StartupTruthProjectionInput | null = null;
+    try {
+      truthProjectionInput = await this.readStartupTruthProjectionInput(options);
+    } catch (error) {
+      if (!isStorageError(error, 'TRUTH_VALIDATION_FAILED')) {
+        throw error;
+      }
+      return {
+        truthAvailable: false,
+        truthValidationError: errorMessage(error),
+        quarantinedPaths: await this.collectQuarantinedTruthPaths(options, error),
+        projectionRebuildRequired: false,
+        projectionRebuildReason: null,
+        truthProjectionInput: null,
+        projectionBytesBeforeStartup,
+      };
+    }
     if (truthProjectionInput) {
-      await this.reconcileTruthWithoutReceipt(options, truthProjectionInput);
       return {
         truthAvailable: true,
+        truthValidationError: null,
+        quarantinedPaths: truthProjectionInput.quarantinedPaths,
         projectionRebuildRequired: !projectionBytesBeforeStartup,
         projectionRebuildReason: projectionBytesBeforeStartup ? 'sql-stale' : 'temp-projection-missing',
         truthProjectionInput,
@@ -88,6 +134,8 @@ export class StorageBootstrapRuntime {
 
     return {
       truthAvailable: false,
+      truthValidationError: null,
+      quarantinedPaths: [],
       projectionRebuildRequired: false,
       projectionRebuildReason: null,
       truthProjectionInput: null,
@@ -95,7 +143,17 @@ export class StorageBootstrapRuntime {
     };
   }
 
-  async reinitializeTempProjectionRuntimeAfterLoadFailure(error: unknown): Promise<void> {
+  async reconcileVerifiedTruthWithoutReceipt(
+    options: WorkerStorageBootstrapOptions,
+    truthProjectionInput: StartupTruthProjectionInput,
+  ): Promise<void> {
+    await this.reconcileTruthWithoutReceipt(options, truthProjectionInput);
+  }
+
+  async reinitializeTempProjectionRuntimeAfterLoadFailure(
+    error: unknown,
+    options?: { skipDeltaReplay?: boolean },
+  ): Promise<void> {
     if (!this.deps.projectionRuntime) {
       throw storageError(
         'PROJECTION_REBUILD_FAILED',
@@ -105,7 +163,7 @@ export class StorageBootstrapRuntime {
     await this.deps.projectionRuntime.suppressPersistedProjectionRead(async () => {
       this.deps.projectionRuntime?.dispose();
       try {
-        await this.deps.projectionRuntime?.init();
+        await this.deps.projectionRuntime?.init(options);
       } catch (reinitError) {
         throw storageError(
           'PROJECTION_REBUILD_FAILED',
@@ -121,6 +179,34 @@ export class StorageBootstrapRuntime {
     } catch {
       return null;
     }
+  }
+
+  private async collectQuarantinedTruthPaths(
+    options: WorkerStorageBootstrapOptions,
+    error: unknown,
+  ): Promise<string[]> {
+    const paths = new Set(extractEvidencePaths(errorMessage(error)));
+    if (!this.deps.truthFileStore?.listFiles) {
+      return [...paths].sort();
+    }
+    const deviceMarker = options.truthDeviceId
+      ? `/device-${options.truthDeviceId}/`
+      : null;
+    for (const family of ['card-memory-facts', 'review-events', 'queue-facts'] as const) {
+      try {
+        const listed = await this.deps.truthFileStore.listFiles(`truth/${family}`);
+        for (const path of listed) {
+          const normalized = String(path || '').replace(/\\/g, '/').trim();
+          if (!normalized || (deviceMarker && !normalized.includes(deviceMarker))) {
+            continue;
+          }
+          paths.add(normalized);
+        }
+      } catch {
+        continue;
+      }
+    }
+    return [...paths].sort();
   }
 
   private async recordIgnoredLegacyPetalSqliteDbDiagnostic(): Promise<void> {
@@ -164,13 +250,35 @@ export class StorageBootstrapRuntime {
       return null;
     }
 
-    const targets = await this.discoverStartupTruthManifestTargets(options);
+    const generationEvidence = await this.inspectStartupGenerationEvidence(options);
+    const targets = await this.discoverStartupTruthManifestTargets(options, generationEvidence);
     const manifests: MessagePackTruthSegmentManifest[] = [];
     const truthRecords: MessagePackTruthRecord[] = [];
     let primaryDeviceId = options.truthDeviceId;
-    let primaryGenerationId = options.cardTruthGenerationId;
+    let primaryGenerationId = generationEvidence.selectedGenerationId
+      ?? options.cardTruthGenerationId;
+
+    for (const selectedGeneration of Object.values(generationEvidence.selectedGenerations)) {
+      if (!selectedGeneration) {
+        continue;
+      }
+      manifests.push(selectedGeneration.manifest);
+      truthRecords.push(...selectedGeneration.records);
+      primaryDeviceId ||= selectedGeneration.manifest.deviceId;
+    }
 
     for (const target of targets) {
+      const selectedGeneration = target.family === 'card-memory-facts'
+        || target.family === 'queue-facts'
+        ? generationEvidence.selectedGenerations[target.family]
+        : null;
+      if (
+        selectedGeneration
+        && selectedGeneration.reference.generationId === target.generationId
+        && selectedGeneration.manifest.deviceId === target.deviceId
+      ) {
+        continue;
+      }
       const truthStore = createMessagePackTruthSegmentStore({
         fileStore: this.deps.truthFileStore,
         family: target.family,
@@ -191,9 +299,19 @@ export class StorageBootstrapRuntime {
           continue;
         }
         manifests.push(replay.manifest);
-        truthRecords.push(...replay.records);
+        const selectedCoverage = selectedGeneration
+          ? selectedGeneration.records.reduce(
+              (maximum, record) => Math.max(maximum, recordJournalSequence(record)),
+              0,
+            )
+          : 0;
+        truthRecords.push(...(
+          selectedGeneration
+            ? replay.records.filter((record) => recordJournalSequence(record) > selectedCoverage)
+            : replay.records
+        ));
         primaryDeviceId ||= replay.manifest.deviceId;
-        if (target.family === 'card-memory-facts') {
+        if (target.family === 'card-memory-facts' && !selectedGeneration) {
           primaryGenerationId = replay.manifest.generationId;
         }
       } catch (error) {
@@ -217,11 +335,108 @@ export class StorageBootstrapRuntime {
       truthManifest,
       primaryDeviceId: primaryDeviceId ?? manifests[0].deviceId,
       primaryGenerationId,
+      manifestCount: manifests.length,
+      segmentCount: manifests.reduce((total, manifest) => total + manifest.segments.length, 0),
+      currentGenerationId: generationEvidence.currentGenerationId ?? primaryGenerationId,
+      previousGenerationId: generationEvidence.previousGenerationId,
+      selectedGenerationId: generationEvidence.selectedGenerationId ?? primaryGenerationId,
+      generationFallbackReason: generationEvidence.generationFallbackReason,
+      quarantinedPaths: generationEvidence.quarantinedPaths,
+    };
+  }
+
+  private async inspectStartupGenerationEvidence(
+    options: WorkerStorageBootstrapOptions,
+  ): Promise<StartupGenerationEvidence> {
+    if (!this.deps.truthFileStore || !options.truthDeviceId) {
+      return {
+        currentGenerationId: null,
+        previousGenerationId: null,
+        selectedGenerationId: null,
+        generationFallbackReason: null,
+        selectedGenerationIds: {},
+        selectedGenerations: {},
+        quarantinedPaths: [],
+      };
+    }
+    const orphanPaths: string[] = [];
+    const fallbackReasons: string[] = [];
+    const selectedGenerationIds: StartupGenerationEvidence['selectedGenerationIds'] = {};
+    const selectedGenerations: StartupGenerationEvidence['selectedGenerations'] = {};
+    let currentGenerationId: string | null = null;
+    let previousGenerationId: string | null = null;
+    let selectedGenerationId: string | null = null;
+    for (const family of ['card-memory-facts', 'queue-facts'] as const) {
+      try {
+        const generationStore = new MessagePackTruthSnapshotGenerationStore({
+          fileStore: this.deps.truthFileStore,
+          family,
+          deviceId: options.truthDeviceId,
+          schemaVersion: options.truthSchemaVersion,
+          maxSegmentBytes: options.maxSegmentBytes,
+        });
+        const inspection = await generationStore.inspectGenerations();
+        orphanPaths.push(...inspection.orphanPaths);
+        let selectedReference = inspection.fence.current;
+        let selectedGeneration: MessagePackTruthVerifiedGenerationReplay | null = null;
+        if (inspection.fence.current) {
+          try {
+            selectedGeneration = await generationStore.replayVerifiedGeneration(
+              inspection.fence.current,
+            );
+          } catch (currentError) {
+            if (!inspection.fence.previous) {
+              throw new Error(
+                `current snapshot generation ${inspection.fence.current.generationId} invalid and no previous generation is available: ${errorMessage(currentError)}`,
+              );
+            }
+            try {
+              selectedGeneration = await generationStore.replayVerifiedGeneration(
+                inspection.fence.previous,
+              );
+            } catch (previousError) {
+              throw new Error(
+                `current snapshot generation ${inspection.fence.current.generationId} invalid: ${errorMessage(currentError)}; previous snapshot generation ${inspection.fence.previous.generationId} invalid: ${errorMessage(previousError)}`,
+              );
+            }
+            selectedReference = inspection.fence.previous;
+            fallbackReasons.push(
+              `${family}:${inspection.fence.current.generationId}->${inspection.fence.previous.generationId}:${errorMessage(currentError)}`,
+            );
+          }
+        }
+        if (selectedReference) {
+          selectedGenerationIds[family] = selectedReference.generationId;
+        }
+        if (selectedGeneration) {
+          selectedGenerations[family] = selectedGeneration;
+        }
+        if (family === 'card-memory-facts') {
+          currentGenerationId = inspection.fence.current?.generationId ?? null;
+          previousGenerationId = inspection.fence.previous?.generationId ?? null;
+          selectedGenerationId = selectedReference?.generationId ?? null;
+        }
+      } catch (error) {
+        throw storageError(
+          'TRUTH_VALIDATION_FAILED',
+          `snapshot generation evidence invalid: ${errorMessage(error)}`,
+        );
+      }
+    }
+    return {
+      currentGenerationId,
+      previousGenerationId,
+      selectedGenerationId,
+      generationFallbackReason: fallbackReasons.length > 0 ? fallbackReasons.join('; ') : null,
+      selectedGenerationIds,
+      selectedGenerations,
+      quarantinedPaths: Array.from(new Set(orphanPaths)).sort(),
     };
   }
 
   private async discoverStartupTruthManifestTargets(
     options: WorkerStorageBootstrapOptions,
+    generationEvidence: StartupGenerationEvidence,
   ): Promise<TruthManifestTarget[]> {
     const targets: TruthManifestTarget[] = [];
     const defaultDeviceId = normalizeString(options.truthDeviceId);
@@ -237,11 +452,16 @@ export class StorageBootstrapRuntime {
           deviceId: defaultDeviceId,
           generationId: options.reviewTruthGenerationId,
         },
+        {
+          family: 'queue-facts',
+          deviceId: defaultDeviceId,
+          generationId: options.queueTruthGenerationId,
+        },
       );
     }
 
     if (this.deps.truthFileStore?.listFiles) {
-      for (const family of ['card-memory-facts', 'review-events'] as const) {
+      for (const family of ['review-events'] as const) {
         try {
           const paths = await this.deps.truthFileStore.listFiles(`truth/${family}`);
           for (const path of paths) {
@@ -313,6 +533,24 @@ function storageError(code: BackendStorageErrorCode, message: string): Error & {
   error.name = 'BackendStorageError';
   error.code = code;
   return error;
+}
+
+function isStorageError(error: unknown, code: BackendStorageErrorCode): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && (error as { code?: unknown }).code === code
+  );
+}
+
+function extractEvidencePaths(message: string): string[] {
+  return Array.from(new Set(
+    message
+      .match(/(?:truth|sqlite-delta)[/\\][A-Za-z0-9_.\-/\\]+(?:\.json|\.msgpack)/g)
+      ?.map((path) => path.replace(/\\/g, '/'))
+      ?? [],
+  ));
 }
 
 function buildReconciledMigrationReceiptFamilies(
@@ -410,6 +648,10 @@ function dedupeTruthManifestTargets(targets: TruthManifestTarget[]): TruthManife
 
 function normalizeString(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+function recordJournalSequence(record: MessagePackTruthRecord): number {
+  return Math.max(0, Math.floor(Number(record.journalSequence) || 0));
 }
 
 function errorMessage(error: unknown): string {

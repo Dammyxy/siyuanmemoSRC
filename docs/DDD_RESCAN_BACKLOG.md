@@ -1,8 +1,178 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-10 (Round 701)
+Last update: 2026-07-11 (Round 716)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-11 - Close storage diagnostics and truth ownership documentation
+
+- Task: Complete OpenSpec `harden-truth-storage-growth-and-device-identity` tasks 10.1-10.3.
+- Touched slice: combined Worker storage diagnostics, ADR-002, active architecture map, domain context glossary, debt ledger, and OpenSpec task ledger.
+- Debt fixed now: one diagnostics surface now reports stable identity, receipt stages, promotion lag/frontiers, canonical coverage, inventory/budget pressure, startup recovery, reconciliation result, and disabled capabilities without inventing pre-journal failure history. ADR/context/architecture now define finite delta history, disposable SQLite, verified-generation recovery, read-only recovery gates, device/epoch ownership, canonical reconciliation, and retirement of SQLite conflict-copy authority.
+- Debt deferred: policy defaults for segment count/bytes, promotion batch size, maintenance cadence, and large-dataset throughput remain tuning work after production profiling. Live two-window host smoke remains release validation even though writer/follower authority is covered by focused runtime tests.
+- Why deferred: these values are operational policy, not file-format or ownership contracts; hard-coding them without real large-store traces would create false certainty.
+- Next safe step: add the end-to-end storage lifecycle integration suite and run final boundary/build/OpenSpec/smoke gates.
+- Validation: 129 focused tests pass across identity, writer/follower relay, backend client, Worker storage/recovery, lifecycle integration, and reconciliation. Full boundary/hidden-fallback/writer-authority/runtime-hygiene checks, production build, strict OpenSpec validation, and `git diff --check` pass.
+
+### 2026-07-11 - Publish canonical truth reconciliation generations
+
+- Task: Continue OpenSpec `harden-truth-storage-growth-and-device-identity` through recovery closure and reconciliation tasks 9.2-9.7, plus the canonical publication half of 9.8.
+- Touched slice: Worker truth reconciliation, immutable generation fencing, Review/domain-sync truth publication, SQLite projection rebuild, Card/Queue/Review conflict write gates, backend RPC contracts/adapters/client catalog, and focused tests.
+- Debt fixed now: synchronized device and identity-epoch manifests are loaded without claiming foreign namespaces; equivalent mutation IDs dedupe, independent aggregates merge, Review facts union, tombstones win causally, same-aggregate unsafe concurrency creates durable conflict decisions, and only distinct Queue member changes auto-merge. Reconciliation publishes verified Card/Queue generations and append-only Review/domain-sync evidence before rebuilding supported Card and Review SQLite projections. Conflicted Card/Queue aggregates reject later formal writes.
+- Debt deferred: no SQLite conflict-copy domain authority remains. Remaining work is policy tuning and release-time live host smoke, not a second reconciliation path.
+- Why deferred: two live SiYuan windows and real sync transport require deployed host processes; automated suites cover canonical publication, old epochs, duplicate mutation, explicit conflicts, projection rebuild, and publication failure.
+- Next safe step: preserve `truth.reconciliation.run` as the only domain entrypoint and keep SQLite conflict copies limited to diagnostic/cleanup evidence.
+- Validation: 85 focused reconciliation, RPC contract, adapter, and client tests pass. Production build passes; existing i18n and Sass warnings remain non-blocking.
+
+### 2026-07-11 - Rebuild projections and recover previous truth generations
+
+- Task: Complete OpenSpec `harden-truth-storage-growth-and-device-identity` tasks 8.2-8.3.
+- Touched slice: Worker startup bootstrap, SQLite projection loading, snapshot generation verification/selection, truth compaction fencing, startup recovery diagnostics, focused restart tests, architecture, progress docs, and task ledger.
+- Debt fixed now: missing temporary SQLite rebuilds from verified canonical truth plus intact uncovered delta, while an invalid non-empty SQLite file now fails as `SQLITE_PROJECTION_CORRUPT` and is discarded before the same deterministic rebuild. Snapshot startup no longer replays and merges every discovered generation. It verifies the fenced current descriptor, manifest checksum, and segments; if current fails, it selects only the verified previous generation, records the fallback reason, applies later source changesets by journal sequence, replays every later delta mutation, and resumes pending truth promotion. Recovery compaction publishes a new verified current generation with the verified previous generation retained, while the damaged former current files remain undeleted orphan evidence.
+- Debt deferred: canonical or uncovered-delta verification failure still needs explicit read-only `STORAGE_RECOVERY_REQUIRED`, formal write/sync-upload gates, capability diagnostics, and complete quarantine/export behavior under tasks 8.4-8.7.
+- Why deferred: tasks 8.2-8.3 close recoverable projection and generation failures. Unrecoverable evidence requires a separate capability state machine so no catch path can silently continue normal writes.
+- Next safe step: implement task 8.4 by converting truth/delta validation failures into a versioned read-only recovery state, then enforce the task 8.5 write gates before adding task 8.6 quarantine handling.
+- Validation: 108 focused tests pass across SQLite delta durability, Worker startup/restart, projection rebuild, generation verification/fallback, recovery compaction, and startup evidence. `pnpm build`, full `pnpm run check:boundaries`, strict OpenSpec validation, and `git diff --check` pass; existing i18n, Sass, and sql.js FTS5 warnings remain non-blocking.
+
+### 2026-07-11 - Classify startup storage recovery evidence
+
+- Task: Complete OpenSpec `harden-truth-storage-growth-and-device-identity` task 8.1.
+- Touched slice: Worker startup bootstrap, truth manifest/segment replay evidence, snapshot generation fences, SQLite delta/checkpoint inspection, recovery-state classification, backend diagnostics, focused tests, architecture, and progress docs.
+- Debt fixed now: startup now produces one versioned evidence record instead of inferring health from a loadable temp database. It classifies matching device identity, verified truth manifests and segment counts, current/previous Card generation references, orphan generation paths, verified SQLite delta files and entries, truth coverage frontier, uncovered mutation count, checkpoint metadata, and temp SQLite present/missing/corrupt/rebuilt state. Missing or corrupt projections preserve their cause through deterministic rebuild, and `diagnostics.status.storage.recovery` exposes the resulting `StorageRecoveryState`.
+- Debt deferred: projection rebuild still needs an explicit proof that uncovered delta is replayed after canonical truth without being overwritten; previous-generation fallback, recovery-required read-only mode, write gates, and quarantine remain tasks 8.2-8.7.
+- Why deferred: task 8.1 establishes auditable startup inputs and a stable recovery state contract. Selecting fallback generations and changing runtime capability availability require separate state-machine transitions and restart tests.
+- Next safe step: implement task 8.2 with an ordered reconstruction test proving verified canonical truth is applied first and intact uncovered delta is replayed afterward into the disposable projection.
+- Validation: 81 focused tests pass across startup evidence, bootstrap truth/generation classification, Worker SQLite startup/pressure/restart behavior, delta compaction/format compatibility, backend diagnostics, and RPC contracts. `pnpm build` passes; existing i18n, Sass, and sql.js FTS5 warnings remain non-blocking.
+
+### 2026-07-11 - Enforce bounded Worker storage pressure maintenance
+
+- Task: Complete OpenSpec `harden-truth-storage-growth-and-device-identity` tasks 7.2-7.8.
+- Touched slice: storage budget classification, Worker inventory, truth/delta compaction and retention, one-time upgrade baseline, runtime mutation-envelope preflight, Worker pressure maintenance scheduling, focused tests, architecture, and progress docs.
+- Debt fixed now: storage growth now has measured normal/soft/high/hard policy rather than diagnostics-only evidence. Existing over-budget installations first run one idempotent startup promotion/compaction baseline. Every outer Worker transaction carrying a mutation envelope passes one central pre-BEGIN pressure gate: soft pressure schedules background maintenance, high pressure performs bounded synchronous promotion plus truth/delta compaction, and unreclaimed hard pressure fails closed with `STORAGE_PRESSURE` before SQL or delta growth. Current and previous verified snapshot generations remain recoverable; obsolete generations and covered delta are deleted only after fenced publication, while uncovered mutations are relocated and verified before source deletion.
+- Debt deferred: startup canonical-evidence classification, projection rebuild/recovery-required write gates, and multi-device truth reconciliation remain OpenSpec sections 8-9. Budget defaults still require real large-dataset profiling.
+- Why deferred: section 7 bounds steady-state growth and safe reclamation. Recovery state and synchronized aggregate conflict policy need separate startup and reconciliation state machines rather than more pressure branches.
+- Next safe step: implement task 8.1 startup evidence classification over identity, fences, generations, canonical segments, delta coverage, checkpoints, and the disposable SQLite projection.
+- Validation: 51 focused tests pass across Worker storage pressure/inventory, one-time baseline, soft/high/hard mutation gating, truth compaction interruption, generation retention, uncovered delta relocation, and safe deletion. `pnpm build` and full `pnpm run check:boundaries` pass; existing i18n, Sass, and sql.js FTS5 warnings remain non-blocking.
+
+### 2026-07-11 - Add Worker storage inventory diagnostics
+
+- Task: Complete OpenSpec `harden-truth-storage-growth-and-device-identity` task 7.1.
+- Touched slice: versioned storage inventory/pressure contracts, SQLite delta manifest inventory, `WorkerStorageInventory`, Worker database diagnostics composition, backend `diagnostics.status`, focused tests, architecture, and progress docs.
+- Debt fixed now: storage growth is no longer inferred from ad hoc files. Worker diagnostics now report per-family/per-device segment counts, encoded bytes, oldest age, current/previous generation IDs, active identity epoch, temporary projection bytes, and uncovered promotion mutation count. SQLite delta inventory reads only its normalized manifest, and uncovered mutations explicitly block delta compaction evidence instead of being hidden behind aggregate pending bytes.
+- Debt deferred: configurable count/byte/age budgets and real normal/soft/high/hard classification remain task 7.2; truth/delta compaction, relocation, retention, and hard pressure write gates remain tasks 7.3-7.8.
+- Why deferred: task 7.1 establishes one measured evidence contract. Maintenance policy must consume that contract separately so thresholds do not leak into file discovery or manifest parsing.
+- Next safe step: implement task 7.2 as a pure configurable pressure classifier over `StorageInventoryRecord`, then wire its result back into diagnostics before starting compaction.
+- Validation: focused inventory, SQLite delta format/inventory, Worker database, backend kernel, and contract suites pass; production build passes. Existing i18n, Sass, and sql.js FTS5 warnings remain non-blocking.
+
+### 2026-07-11 - Close renderer storage writers and enforce family authority
+
+- Task: Complete OpenSpec `harden-truth-storage-growth-and-device-identity` tasks 6.7-6.8.
+- Touched slice: `ApplicationContext` storage composition/disposal, Worker projection hydration, Native Riff exclusion read RPC, semantic repair Worker adapter, Card RPC/client/contracts, Worker SQLite read validation, storage writer authority script/tests, architecture, and progress docs.
+- Debt fixed now: production renderer composition has zero `sqlPersistence`, renderer `SqliteDatabaseService`/`SqlUnifiedStorageRepository` construction, `UnifiedStorageManager.save()`, `saveStore()`, `db.persist`, or shutdown whole-database save calls. Native Riff exclusions read through Worker authority and invalid evidence fails closed; semantic repair commits once through `card.crud.batchMutate` and only mirrors the committed result into renderer memory. The writer authority gate now proves exact command/handler evidence for Review, Card/Schedule, Queue, Card CRUD, import/repair, renderer projection, and kernel companion, with no approved renderer writer exceptions.
+- Debt deferred: storage inventory, configurable pressure budgets, truth/delta compaction, finite retention, recovery classification, and multi-device reconciliation remain OpenSpec sections 7-9.
+- Why deferred: tasks 6.7-6.8 close ownership and fallback ambiguity. Growth control and recovery require new measured storage policy/state machines rather than more composition deletion.
+- Next safe step: implement task 7.1 storage inventory metrics by family/device, then use that measured contract for budget classification in 7.2.
+- Validation: focused Card RPC/client/Worker SQLite and writer-authority suites pass with 84 tests; production build passes; production-source scans find no renderer SQL or whole-store persistence callers. Existing i18n, Sass, and sql.js FTS5 warnings remain non-blocking.
+
+### 2026-07-11 - Complete Worker-owned storage maintenance cutover
+
+- Task: Complete OpenSpec `harden-truth-storage-growth-and-device-identity` task 6.6.
+- Touched slice: storage maintenance RPC contracts/status/apply path, `WorkerStorageMaintenanceOperationRuntime`, Worker SQLite migration transactions, lazy `LegacyStorageMigrationSourcePlanner`, `ApplicationContext` startup/writer-follower routing, renderer migration deletion, writer/msgpack/fallback gates, focused tests, architecture, and progress docs.
+- Debt fixed now: legacy unified Card/Xiuyuan/tombstone, Queue, Review/Drill/Reschedule, Arena, Native Riff retirement, algorithm-state backfill/repair, Neural Roam route migration, startup schedule normalization, and orphan-card repair now execute as explicit bounded Worker operations with stable mutation IDs, durable per-operation progress, idempotent restart resume, backup retry, and typed diagnostics. Startup queries Worker markers before reading any legacy source; completed installations perform zero legacy store/Queue/Arena/Review-file reads. Renderer migration writers were removed, follower windows only relay and reload projection after an applied operation, and backend unavailability fails closed before renderer SQLite initialization.
+- Debt deferred: renderer write-capable `SqliteDatabaseService`, `UnifiedStorageManager.save()`, `saveStore()`, explicit `db.persist`, and shutdown whole-database persistence remain task 6.7; single-writer regression consolidation remains task 6.8.
+- Why deferred: task 6.6 establishes idempotent bulk maintenance authority. Deleting the remaining renderer SQL/whole-store composition is a separate production-composition cut that needs its own caller inventory and regression gate.
+- Next safe step: remove renderer write-capable SQL and whole-database save/shutdown paths under task 6.7, then tighten the writer inventory to zero under task 6.8.
+- Validation: 155 focused Vitest tests pass across ApplicationContext startup/disposal/relay, migration planning and progress, Worker maintenance/SQLite, RPC/client/contracts, Neural Roam repository, and msgpack gate fixtures. `pnpm build` and full `pnpm run check:boundaries` pass; build retains existing non-blocking i18n and Sass warnings.
+
+### 2026-07-11 - Start Worker-owned startup maintenance cutover
+
+- Task: Apply the first bounded slice of OpenSpec `harden-truth-storage-growth-and-device-identity` task 6.6.
+- Touched slice: startup schedule normalization, orphan-card repair, `StartupWorkerStorageMaintenance`, Worker Card/Schedule and Card CRUD command reuse, `ApplicationContext` startup ordering, focused tests, writer checks, and architecture/progress documentation.
+- Debt fixed now: schedule normalization no longer calls renderer `UnifiedStorageManager.save()`. It runs only after backend runtime and writer/follower routing exist, sends bounded `card.schedule.batchUpdate` commands with stable maintenance mutation IDs, validates Worker durability receipts, exposes batch progress, and restores the local projection snapshot on failure. Orphan-card repair now runs after Card CRUD Worker binding, uses bounded batches, and fails closed instead of attempting the repair before the Worker writer exists. The unrelated legacy `StorageManager.repairInvalidDates()` startup writer was removed from production composition.
+- Debt deferred: `SqliteMigrationService` still imports legacy unified store, Queue, Review logs, Arena, native-Riff retirement, and algorithm-state repair through renderer SQL. Renderer write-capable SQLite construction, `saveStore()`, shutdown save, and `db.persist` remain tasks 6.6-6.7.
+- Why deferred: legacy import spans multiple mutation families and needs a Worker-owned import command plus durable migration marker before the renderer migration transaction can be deleted.
+- Next safe step: add the Worker legacy-import command and migrate `SqliteMigrationService` into a read-only source planner; then complete task 6.6 and proceed directly to renderer writer removal in 6.7.
+- Validation: 4 focused files passed with 36 tests. Storage-writer, backend-runtime, and hidden-fallback checks passed. `build:app` passed with existing Sass warnings. The broader pre-existing `ApplicationContext.backend-worker-runtime.test.ts` suite still has its known disposal/source-assertion failures in the dirty worktree.
+
+### 2026-07-11 - Cut Card CRUD persistence to Worker authority
+
+- Task: Apply OpenSpec `harden-truth-storage-growth-and-device-identity` task 6.5.
+- Touched slice: Card CRUD ports/use cases/application service, `WorkerCardCrudStorageAdapter`, `UnifiedStorageManager` Card/Xiuyuan mutation projection, Worker Card RPC, writer/follower relay, `ApplicationContext`, contracts, focused tests, architecture, and the OpenSpec task ledger.
+- Debt fixed now: FSRS update/delete and Xiuyuan Card CRUD persist through one `card.crud.batchMutate` Worker command with one mutation ID, one SQLite transaction, replayable tombstones, and a validated `journaled` or `truth-committed` receipt. Batch updates and deletes no longer loop through per-card persistence or call `setCard`, `removeCard`, `saveCards`, full save, or renderer SQL delta fallback. Writer mode refreshes the kernel lease before the Worker call; follower mode relays the command; unavailable runtime returns explicit `BACKEND_UNAVAILABLE` and restores the local projection.
+- Debt deferred: Import/migration/bulk repair still uses whole-store-oriented helpers; renderer write-capable SQLite composition, `UnifiedStorageManager.save()`, `saveStore()`, and shutdown persistence remain tasks 6.6-6.7.
+- Why deferred: Bulk maintenance needs its own idempotent Worker command and progress contract before whole-store persistence can be deleted safely.
+- Next safe step: Convert import, migration, repair, and whole-store maintenance to explicit Worker commands under task 6.6.
+- Validation: 5 focused Vitest files passed with 43 tests across Card CRUD adapter/use case/service, writer/follower relay, and kernel relay contracts. Production build passed with existing non-blocking i18n and Sass warnings.
+
+### 2026-07-10 - Cut Queue persistence to Worker authority
+
+- Task: Apply OpenSpec `harden-truth-storage-growth-and-device-identity` task 6.4.
+- Touched slice: Queue backend RPC contracts/registry/client, writer relay, `ApplicationContext` Queue executor, `QueuePersistenceService`, Worker SQLite Queue transaction, Queue canonical truth encoding/replay/validation, focused tests, writer inventory, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: Formal Queue state set/delete now uses `queue.state.batchMutate` through writer authority or follower relay. Worker commits deduped `queue_state` changes plus one replayable delta, returns a matching `queue` durability receipt, and schedules ordered truth promotion. Queue truth now stores exact opaque JSON-compatible values and delete evidence as `queue-state.changeset.v1`, so canonical truth no longer publishes empty Queue changesets. Renderer Queue persistence is cache-only after Worker acknowledgement; `SqlQueueStateRepository` is no longer production-composed.
+- Debt deferred: Card CRUD, import/migration/repair, remaining write-capable renderer SQLite composition, whole-store save, and shutdown save remain tasks 6.5-6.7.
+- Why deferred: Those families require separate typed Worker commands and removal of their own legacy writers. Queue cutover stays bounded to `queue_state` ownership and canonical Queue truth.
+- Next safe step: Cut Card CRUD writes to Worker authority under task 6.5 with explicit unavailable behavior and no renderer fallback.
+- Validation: 8 focused Vitest files passed with 117 tests across Queue truth/contracts, Worker SQLite/publication, Queue RPC/service/client, and writer/follower relay behavior. `pnpm build`, full boundary/writer-authority/hidden-fallback/kernel-owner/SRS hygiene checks, strict OpenSpec validation, and `git diff --check` passed. The broader pre-existing `ApplicationContext.backend-worker-runtime.test.ts` suite still has unrelated disposal/source-assertion failures in the dirty worktree.
+
+### 2026-07-10 - Cut Card Schedule writes to Worker authority
+
+- Task: Apply OpenSpec `harden-truth-storage-growth-and-device-identity` task 6.3.
+- Touched slice: Card/Schedule backend RPC contracts and registry, `SrsBackendClient`, writer relay, `WorkerCardScheduleUpdateAdapter`, `ApplicationContext` scheduler composition, Worker SQLite Card/Schedule transaction, focused tests, writer inventory, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: Formal scheduler and reschedule batches now use one `card.schedule.batchUpdate` Worker command in writer and follower windows. Worker validates canonical scheduling state, applies last-write-wins per card ID, commits Card/Schedule rows plus one complete replayable delta, returns only a matching `card-schedule` durability receipt, and schedules ordered truth promotion. Renderer `UnifiedStorageCardUpdateAdapter`, direct Card/Schedule repository upsert, and persistence fallback were removed; `BACKEND_UNAVAILABLE` now propagates without local write fallback.
+- Debt deferred: Queue membership/priority, Card CRUD, import/migration/repair, renderer SQLite composition, whole-store save, and shutdown save remain tasks 6.4-6.7.
+- Why deferred: Each mutation family needs its own typed Worker contract, receipt invariants, unavailable behavior, and legacy-writer deletion. Mixing Queue or CRUD into Card/Schedule would widen atomicity and rollback scope.
+- Next safe step: Cut Queue membership and priority writes through Worker authority under task 6.4, preserving Card/Schedule as a closed single-writer family.
+- Validation: 8 focused Vitest files passed with 108 tests, including Worker transaction, adapter unavailable, writer relay, client catalog, and registry coverage. Storage writer authority, full boundary/hidden-fallback/kernel-owner/SRS hygiene checks, production build, strict OpenSpec validation, and `git diff --check` passed. Build retains existing non-blocking i18n and Sass warnings.
+
+### 2026-07-10 - Inventory writers and close Review authority
+
+- Task: Apply OpenSpec `harden-truth-storage-growth-and-device-identity` tasks 6.1-6.2.
+- Touched slice: Section 6 writer inventory, renderer writer-authority guard, Worker Review session undo adapter contract, focused Review tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: Every temporary renderer SQL, whole-store, and `db.persist` exception now has a named site, mutation family, occurrence budget, and removal task in a test-enforced shrinking inventory. Review answer/session feedback already commits Card Schedule, Review Ledger, domain-sync evidence, undo evidence, and required queue impact through the Worker mutation/receipt path. Worker-backed undo now preserves its verified `journaled` durability receipt through `WorkerReviewSessionQueueRuntime` instead of exposing only restored in-memory state.
+- Debt deferred: Card/Schedule formal updates, queue membership/priority, Card CRUD, renderer startup import/repair, write-capable renderer SQLite composition, whole-store save, and shutdown save remain tasks 6.3-6.7.
+- Why deferred: Section 6 removes one mutation family at a time. Combining remaining renderer families into the Review closure would recreate an untestable broad cutover and risk hidden dual-write behavior.
+- Next safe step: Cut Card/Schedule formal writes to typed Worker commands under task 6.3, then remove their renderer repository mutation path in the same slice.
+- Validation: 7 focused Vitest files passed with 74 tests. Storage writer guard, full boundary/hidden-fallback checks, SRS runtime hygiene, production build, and `git diff --check` passed. Build retains existing non-blocking i18n and Sass warnings.
+
+### 2026-07-10 - Add ordered truth promotion and coverage
+
+- Task: Apply OpenSpec `harden-truth-storage-growth-and-device-identity` tasks 4.1-4.8 through the Worker-owned truth path.
+- Touched slice: Worker SQLite lifecycle, truth promotion/publication/state modules, Review truth maintenance RPC, shared background-work registry/status read model, Worker shutdown entry, focused contracts/client/Worker tests, ADR-002, and `ARCHITECTURE.md`.
+- Debt fixed now: Journaled mutations promote in consecutive bounded journal-sequence batches through one Worker publication gate. Required Review, Card/Schedule, and Queue outputs use stable output idempotency keys; partial family or manifest failure preserves coverage and retries without duplicate logical records. Coverage advances receipts to `truth-committed` only after all outputs replay-verify and one bounded state file persists. Startup resumes uncovered delta; successful batches auto-continue; failures delay retry; shutdown waits active publication before clearing host effects. Promotion lag/frontiers/retry are exposed through maintenance status and tracked as read-only `truth-promotion` background work.
+- Debt deferred: Card Aggregate/Queue canonical schemas, compactable generations, dual-threshold partitioning, orphan retention policy, and full reconstruction remain section 5. Legacy Review flush/backfill remains a serialized migration maintenance path until canonical Review records are fully produced from mutation promotion.
+- Why deferred: Section 4 establishes ordering, exclusivity, coverage, and lifecycle mechanics. Snapshot schemas and generation compaction require separate format/rebuild invariants and should not be mixed into the promotion lock change.
+- Next safe step: Implement section 5 Card Aggregate and Queue canonical truth schemas, then prove reconstruction from verified truth plus uncovered delta.
+- Validation: 100 focused tests pass across contracts, background work, client scheduling, Worker DB restart/continuation, promotion/publication/state, and Review RPC. `pnpm run check:boundaries`, production build, strict OpenSpec validation, and `git diff --check` pass; build retains existing non-blocking i18n/Sass warnings.
+
+### 2026-07-10 - Add atomic Review mutation receipts
+
+- Task: Apply OpenSpec `harden-truth-storage-growth-and-device-identity` tasks 3.1-3.6 through the existing Worker Review and SQLite delta path.
+- Touched slice: backend storage contracts/load identity, Worker Review answer and session undo transactions, SQLite delta envelope/manifest/receipt format, focused Review/undo/delta tests, ADR-002, and `ARCHITECTURE.md`.
+- Debt fixed now: Review answer and undo now use stable mutation IDs with real device identity/epoch. One delta entry contains every captured durable table operation, a manifest-persisted monotonic journal sequence, and a persistent `journaled` receipt. Receipt emission occurs only after SQL commit plus verified segment/manifest publication. Duplicate commands reuse the original receipt/sequence; segment, partial manifest, and delta failures emit no receipt and restore the temporary projection. Multi-table replay is covered.
+- Debt deferred: `truth-committed` promotion, coverage watermarks, receipt stage advancement, compaction, and storage-pressure enforcement remain sections 4 and 7. Non-Review mutation families still need the same envelope contract during family cutover.
+- Why deferred: Canonical truth publication needs the ordered single-writer promotion Module; adding a second post-commit receipt store now would recreate a false atomicity gap.
+- Next safe step: Implement section 4 ordered Truth Promotion Module consuming journaled entries by journal sequence and advancing the embedded receipt state only after all required truth outputs verify.
+- Validation: Focused Review runtime, SQLite delta, storage bootstrap, contracts, and SQL undo suites pass; production build passes with existing non-blocking i18n/Sass warnings. Final boundary and OpenSpec gates run with this task delta.
+
+### 2026-07-10 - Freeze storage baseline contracts and writer guards
+
+- Task: Apply OpenSpec `harden-truth-storage-growth-and-device-identity` tasks 1.1-1.4 before atomic mutation receipt work.
+- Touched slice: shared backend storage contracts, deterministic growth fixture, MessagePack truth and SQLite delta version readers, kernel queue snapshot restore, renderer/kernel writer-authority scripts, focused tests, ADR-002, and `ARCHITECTURE.md`.
+- Debt fixed now: Pinned the 192 sealed delta / 143 truth / 131 manifest-referenced / 27.5 MiB temp projection baseline plus matching identity authorities. Added versioned mutation, receipt, generation, coverage, pressure, recovery, and identity contracts. Future truth, delta, snapshot, and identity versions now fail closed. New renderer SQL/truth/manifest/whole-DB writers and kernel DB/delta/truth ownership now fail static gates.
+- Debt deferred: Approved renderer `SqliteDatabaseService`, `UnifiedStorageManager.save()`, `saveStore()`, and `db.persist` call counts remain explicit section 6 migration debt; runtime promotion, compaction, pressure enforcement, and recovery state implementation remain sections 3-9.
+- Why deferred: Removing current writers requires family-by-family Worker command cutover and atomic receipts; deleting them before those production paths exist would remove durability rather than consolidate it.
+- Next safe step: Implement section 3 mutation envelope and two-stage receipt through the existing Worker transaction/delta path, starting with one Review command tracer bullet.
+- Validation: 80 focused tests pass across contracts, baseline audit, writer guards, truth/delta versions, kernel snapshots, and identity; `pnpm run check:boundaries`, production build, strict OpenSpec validation, and `git diff --check` pass. Build retains only existing non-blocking i18n/Sass warnings.
+
+### 2026-07-10 - Stabilize truth device identity authority
+
+- Task: Apply OpenSpec `harden-truth-storage-growth-and-device-identity` tasks 2.1-2.8 before wider truth promotion and storage-budget work.
+- Touched slice: application truth identity port/resolver, IndexedDB identity adapter, backend runtime composition, Review truth diagnostics contract, focused tests, ADR-002, and `ARCHITECTURE.md`.
+- Debt fixed now: Replaced temp-file identity authority with matching versioned IndexedDB + localStorage records. Missing copies repair before truth writes; malformed/future records, authority disagreement, and versioned/legacy/temp conflicts fail closed. Legacy v1/local temp identities migrate without changing device directory. SiYuan `System.ID` is fingerprint-only and host changes preserve device ID/epoch. Complete authority loss creates a new device ID and epoch; temp mirror failures no longer block valid authority.
+- Debt deferred: Discovery and reconciliation of prior read-only device/epoch namespaces remain in OpenSpec section 9; identity diagnostics can be folded into the combined storage status surface under task 10.1.
+- Why deferred: Namespace reconciliation requires canonical mutation/aggregate merge evidence and must not be guessed from identity storage alone.
+- Next safe step: Define baseline storage contracts and guards, then introduce atomic mutation envelopes/receipts before truth promotion.
+- Validation: 20 identity resolver tests and 2 IndexedDB adapter tests pass; backend runtime factory tests pass; focused static identity composition assertion passes; production app build passes.
 
 ### 2026-07-10 - Deepen Review and projection runtime Interfaces
 

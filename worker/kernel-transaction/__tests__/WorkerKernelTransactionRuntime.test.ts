@@ -159,6 +159,32 @@ describe('WorkerKernelTransactionRuntime', () => {
     });
   });
 
+  it('fails closed on a future ingest queue snapshot version', async () => {
+    const fileService = createFileService();
+    fileService.json.set('kernel-transaction-ingest.snapshot.json', {
+      version: 2,
+      queue: [],
+    });
+    const { runtime } = createRuntime({ fileService });
+
+    await expect(runtime.restoreSnapshots())
+      .rejects
+      .toThrow('Unsupported kernel ingest queue snapshot version: 2');
+  });
+
+  it('fails closed on a future action queue snapshot version', async () => {
+    const fileService = createFileService();
+    fileService.json.set('kernel-transaction-actions.snapshot.json', {
+      version: 2,
+      actions: [],
+    });
+    const { runtime } = createRuntime({ fileService });
+
+    await expect(runtime.restoreSnapshots())
+      .rejects
+      .toThrow('Unsupported kernel action queue snapshot version: 2');
+  });
+
   it('requeues kernel transaction actions back onto the front of the queue', async () => {
     const { runtime } = createRuntime({
       now: () => 1_700_000_000_000,

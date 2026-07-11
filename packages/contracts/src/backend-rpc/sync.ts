@@ -12,15 +12,15 @@ import type {
   BackendReviewSyncDivergenceAuditResult,
   BackendRpcMethod,
   BackendRpcMethodContract,
-  BackendSyncConflictMergeRequest,
-  BackendSyncConflictMergeResult,
   BackendSyncConflictReloadResult,
   BackendSyncConflictSummarizeRequest,
   BackendSyncConflictSummarizeResult,
+  BackendTruthReconciliationRunRequest,
+  BackendTruthReconciliationRunResult,
 } from '../backend-rpc';
 
 export const BACKEND_SYNC_RPC_METHODS = [
-  'sync.conflict.merge',
+  'truth.reconciliation.run',
   'sync.reviewDivergence.audit',
   'sync.conflict.summarize',
   'sync.conflict.reload',
@@ -34,10 +34,10 @@ export const BACKEND_SYNC_RPC_METHODS = [
 export type BackendSyncRpcMethod = typeof BACKEND_SYNC_RPC_METHODS[number];
 
 export type BackendSyncRpcMethodContractMap = {
-  readonly 'sync.conflict.merge': BackendRpcMethodContract<
-    'sync.conflict.merge',
-    BackendSyncConflictMergeRequest,
-    BackendSyncConflictMergeResult
+  readonly 'truth.reconciliation.run': BackendRpcMethodContract<
+    'truth.reconciliation.run',
+    BackendTruthReconciliationRunRequest,
+    BackendTruthReconciliationRunResult
   >;
   readonly 'sync.reviewDivergence.audit': BackendRpcMethodContract<
     'sync.reviewDivergence.audit',
@@ -82,7 +82,7 @@ export type BackendSyncRpcMethodContractMap = {
 };
 
 export const BACKEND_SYNC_RPC_METHOD_FAMILY_CATALOG = [
-  { method: 'sync.conflict.merge', family: 'sync', clientExposure: 'facade' },
+  { method: 'truth.reconciliation.run', family: 'domain-sync', clientExposure: 'facade' },
   { method: 'sync.reviewDivergence.audit', family: 'sync', clientExposure: 'facade' },
   { method: 'sync.conflict.summarize', family: 'sync', clientExposure: 'facade' },
   { method: 'sync.conflict.reload', family: 'sync', clientExposure: 'facade' },

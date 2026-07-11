@@ -13,6 +13,7 @@ function createStorage(card: FSRSCard): DeleteFSRSCardStoragePort {
     setCard: vi.fn(),
     saveCards: vi.fn(async () => undefined),
     deleteCard: vi.fn(async () => ok(undefined)),
+    deleteCards: vi.fn(async () => ok(undefined)),
   };
 }
 
@@ -29,6 +30,17 @@ function createBatchStorage(cards: FSRSCard[]): DeleteFSRSCardStoragePort {
         return err(new Error(`Card not found: ${cardId}`));
       }
       cardsById.delete(cardId);
+      return ok(undefined);
+    }),
+    deleteCards: vi.fn(async (cardIds: readonly string[]) => {
+      for (const cardId of cardIds) {
+        if (!cardsById.has(cardId)) {
+          return err(new Error(`Card not found: ${cardId}`));
+        }
+      }
+      for (const cardId of cardIds) {
+        cardsById.delete(cardId);
+      }
       return ok(undefined);
     }),
     runWriteTransaction: vi.fn(async (_label: string, operation: (transaction: unknown) => Promise<unknown>) => (
@@ -62,7 +74,7 @@ describe('DeleteFSRSCardUseCase local-only deletion', () => {
     expect(result.ok ? result.value : undefined).toEqual({ deleted: true });
   });
 
-  it('batch-deletes local FSRS cards without Xiuyuan index using one save and one attrs cleanup per block', async () => {
+  it('batch-deletes local FSRS cards through one Worker command and one attrs cleanup per block', async () => {
     const cards = [
       { ...card, id: 'card-a', xiuyuanID: '', blockId: 'block-shared' },
       { ...card, id: 'card-b', xiuyuanID: undefined, blockId: 'block-shared' },
@@ -86,19 +98,10 @@ describe('DeleteFSRSCardUseCase local-only deletion', () => {
       deletedCardIds: ['card-a', 'card-b'],
       failedCardIds: [],
     });
-    expect(storage.runWriteTransaction).toHaveBeenCalledTimes(1);
-    expect(storage.deleteCard).toHaveBeenCalledTimes(2);
-    expect(storage.deleteCard).toHaveBeenNthCalledWith(
-      1,
-      'card-a',
-      expect.objectContaining({ suppressAutosave: true }),
-    );
-    expect(storage.deleteCard).toHaveBeenNthCalledWith(
-      2,
-      'card-b',
-      expect.objectContaining({ suppressAutosave: true }),
-    );
-    expect(storage.saveCards).toHaveBeenCalledTimes(1);
+    expect(storage.deleteCards).toHaveBeenCalledTimes(1);
+    expect(storage.deleteCards).toHaveBeenCalledWith(['card-a', 'card-b']);
+    expect(storage.deleteCard).not.toHaveBeenCalled();
+    expect(storage.saveCards).not.toHaveBeenCalled();
     expect(siyuanApi.getBlockAttrs).toHaveBeenCalledTimes(1);
     expect(siyuanApi.setBlockAttrs).toHaveBeenCalledTimes(1);
   });
