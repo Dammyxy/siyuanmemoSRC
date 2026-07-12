@@ -188,6 +188,46 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
             throw error;
         }
     }
+
+    public override async getReadOnlyRecoveryCards(): Promise<FSRSCard[]> {
+        await this.ensureInitialLoad();
+        const now = Date.now();
+        const dayStartHour = this.getDayStartHour();
+        const dayEnd = getCurrentDayEnd(dayStartHour);
+        const cardTypeFilter = ['item', 'concept', 'descriptor', 'topic', 'incremental', 'webpage'] as const;
+        const baseCards = await this.manager.getCards({
+            cardType: [...cardTypeFilter],
+            dueDate: { lte: new Date(dayEnd) },
+            includeSuspended: false,
+        });
+        const manualCount = this.manualCards.size();
+        let manualCards: FSRSCard[] = [];
+        if (manualCount > 0) {
+            if (manualCount > IncrementalLearningQueue.MANUAL_PREFETCH_THRESHOLD) {
+                const cardPool = await this.manager.getCards({
+                    cardType: [...cardTypeFilter],
+                });
+                manualCards = await this.resolveManuallyAddedCardsForReadOnlyRecovery(logger, { cardPool });
+            } else {
+                manualCards = await this.resolveManuallyAddedCardsForReadOnlyRecovery(logger);
+            }
+        }
+
+        const orderedCards = SrsV2QueuePolicy.buildIncrementalLearningQueue({
+            baseCards,
+            manualCards,
+            now,
+            dayEnd,
+            newCardsPerDay: this.getNewCardsPerDay(),
+            reviewsPerDay: this.getReviewsPerDay(),
+            priorityRandomness: this.getPriorityRandomness(),
+            stableSalt: `${this.type}:${dayEnd}`,
+            isBlacklisted: (card) => this.temporaryBlacklist.has(card.id) || this.temporaryBlacklist.has(card.blockId),
+            isDismissed: isCardDismissed,
+        });
+
+        return this.cloneResolvedCards(this.applyCustomOrder(orderedCards));
+    }
     
     /**
      * 添加卡片到队列

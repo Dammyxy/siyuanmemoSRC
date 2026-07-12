@@ -76,6 +76,16 @@ implements WorkerStorageMaintenancePersistence {
         error TEXT
       )
     `);
+    this.database.run(`
+      CREATE TABLE IF NOT EXISTS storage_maintenance_receipts (
+        operation_id TEXT PRIMARY KEY,
+        receipt_version TEXT NOT NULL,
+        maintenance_kind TEXT NOT NULL,
+        pre_success_frontier_json TEXT NOT NULL,
+        post_success_frontier_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
   }
 
   read(operationId: string): WorkerStorageMaintenanceOperationRecord | null {

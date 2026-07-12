@@ -1,3 +1,4 @@
+import { withScopedCjsBrowserGlobals } from '@/utils/cjsBrowserGlobals';
 import type { SrsBackendTransport } from '@/application/clients/SrsBackendClient';
 import BackendWorker from '../../../worker/bootstrap/backend-worker.entry.ts?worker&inline';
 import type {
@@ -28,18 +29,37 @@ import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnost
 const logger = createLogger('BrowserSrsBackendWorkerTransport');
 const REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS = 120;
 const DEFAULT_HOST_EFFECT_TIMEOUT_MS = 5_000;
-const LONG_BACKEND_COMMAND_REQUEST_TIMEOUT_MS = 300_000;
-const LONG_BACKEND_COMMAND_HOST_EFFECT_TIMEOUT_MS = 300_000;
-const LONG_BACKEND_COMMAND_METHODS = new Set<string>([
-  'storage.projection.rebuild',
+type BackendOperationTimeoutClassification =
+  | 'status-read'
+  | 'startup-readiness'
+  | 'maintenance-mutation'
+  | 'projection-rebuild'
+  | 'generic-request'
+  | 'generic-host-effect';
+
+interface BackendOperationTimeoutPolicy {
+  readonly timeoutMs: number;
+  readonly classification: BackendOperationTimeoutClassification;
+}
+
+const BACKEND_OPERATION_TIMEOUT_POLICY_BY_METHOD = new Map<string, BackendOperationTimeoutPolicy>([
+  ['storage.maintenance.status', { timeoutMs: 5_000, classification: 'status-read' }],
+  ['db.load', { timeoutMs: 60_000, classification: 'startup-readiness' }],
+  ['db.reload', { timeoutMs: 60_000, classification: 'startup-readiness' }],
+  ['storage.maintenance.applyBatch', { timeoutMs: 45_000, classification: 'maintenance-mutation' }],
+  ['storage.projection.rebuild', { timeoutMs: 120_000, classification: 'projection-rebuild' }],
 ]);
 const REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT = 5;
 const PENDING_WORK_DIAGNOSTIC_LIMIT = 10;
 const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
+  'db.load',
+  'db.reload',
   'browser.deck.page',
   'browser.stats',
   'browser.deck.documentCounts',
   'review.session.feedback',
+  'storage.maintenance.applyBatch',
+  'storage.maintenance.status',
   'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
@@ -156,9 +176,11 @@ export interface BrowserSrsBackendWorkerPendingProbeDiagnostic {
 }
 
 function createDefaultBackendWorker(): Worker {
-  return new BackendWorker({
-    name: 'SiYuanMemoBackendWorker',
-  });
+  return withScopedCjsBrowserGlobals(() => (
+    new BackendWorker({
+      name: 'SiYuanMemoBackendWorker',
+    })
+  ));
 }
 
 function toErrorMessage(error: unknown): string {
@@ -167,6 +189,14 @@ function toErrorMessage(error: unknown): string {
 
 function unavailable(message: string): Error {
   return new Error(`BACKEND_UNAVAILABLE: ${message}`);
+}
+
+function backendWorkerCompatibilityError(error: unknown): Error {
+  const message = toErrorMessage(error);
+  if (message.startsWith('BACKEND_UNAVAILABLE: backend Worker CJS bootstrap')) {
+    return new Error(message);
+  }
+  return unavailable(`backend Worker compatibility error: ${message}`);
 }
 
 function toStructuredCloneSafe<T>(value: T, seen = new WeakMap<object, unknown>()): T {
@@ -242,7 +272,8 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     const requestId = `req-${++this.requestSeq}`;
     const queuedAt = Date.now();
     const cardId = this.extractReviewFeedbackCardId(request);
-    const requestTimeoutMs = this.resolveRequestTimeoutMs(request);
+    const timeoutPolicy = this.resolveRequestTimeoutPolicy(request);
+    const requestTimeoutMs = timeoutPolicy.timeoutMs;
     const pending = new Promise<BackendRpcResponse>((resolve, reject) => {
       const generation = this.generation;
       const timer = setTimeout(() => {
@@ -252,7 +283,15 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         }
         this.pendingRequests.delete(requestId);
         this.requestTimeouts += 1;
-        const error = unavailable(`backend worker request timed out after ${requestTimeoutMs}ms`);
+        const elapsedMs = Math.max(0, Date.now() - queuedAt);
+        const error = unavailable(
+          `backend worker request timed out after ${requestTimeoutMs}ms`
+          + ` operation=${request.method}`
+          + ' phase=worker-response'
+          + ` elapsedMs=${elapsedMs}`
+          + ` timeoutMs=${requestTimeoutMs}`
+          + ` classification=${timeoutPolicy.classification}`,
+        );
         current.reject(error);
         this.markWorkerUnhealthy(error, generation, { terminate: true });
       }, requestTimeoutMs);
@@ -455,11 +494,21 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   }
 
   private executeHostEffectWithDeadline(effect: BackendWorkerHostEffect): Promise<unknown> {
-    const timeoutMs = this.resolveHostEffectTimeoutMs(effect);
+    const timeoutPolicy = this.resolveHostEffectTimeoutPolicy(effect);
+    const timeoutMs = timeoutPolicy.timeoutMs;
+    const startedAt = Date.now();
     let timer: ReturnType<typeof setTimeout> | null = null;
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        reject(unavailable(`backend worker host effect ${effect.kind} timed out after ${timeoutMs}ms`));
+        const elapsedMs = Math.max(0, Date.now() - startedAt);
+        reject(unavailable(
+          `backend worker host effect ${effect.kind} timed out after ${timeoutMs}ms`
+          + ` operation=${this.getHostEffectOperationName(effect)}`
+          + ` phase=${this.getHostEffectTimeoutPhase(effect)}`
+          + ` elapsedMs=${elapsedMs}`
+          + ` timeoutMs=${timeoutMs}`
+          + ` classification=${timeoutPolicy.classification}`,
+        ));
       }, timeoutMs);
     });
     return Promise.race([
@@ -470,24 +519,6 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         clearTimeout(timer);
       }
     });
-  }
-
-  private resolveHostEffectTimeoutMs(effect: BackendWorkerHostEffect): number {
-    const baseTimeoutMs = this.hostEffectTimeoutMs;
-    if (!this.isLongBackendCommandHostEffect(effect)) {
-      return baseTimeoutMs;
-    }
-    return Math.max(baseTimeoutMs, LONG_BACKEND_COMMAND_HOST_EFFECT_TIMEOUT_MS);
-  }
-
-  private isLongBackendCommandHostEffect(effect: BackendWorkerHostEffect): boolean {
-    return 'requestMethod' in effect
-      && typeof effect.requestMethod === 'string'
-      && LONG_BACKEND_COMMAND_METHODS.has(effect.requestMethod)
-      && (
-        effect.kind.startsWith('sqlite.')
-        || effect.kind.startsWith('truth.')
-      );
   }
 
   private async executeHostEffect(effect: BackendWorkerHostEffect): Promise<unknown> {
@@ -1053,7 +1084,6 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     this.generation = generation;
     this.health = 'starting';
     this.lastStartedAt = Date.now();
-    this.worker = this.options.workerFactory?.() ?? createDefaultBackendWorker();
     this.ready = new Promise((resolve, reject) => {
       this.resolveReady = resolve;
       this.rejectReady = reject;
@@ -1061,6 +1091,12 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     this.ready.catch(() => {
       // Request/probe callers receive this rejection through their own await.
     });
+    try {
+      this.worker = this.options.workerFactory?.() ?? createDefaultBackendWorker();
+    } catch (error) {
+      this.markWorkerConstructionUnavailable(backendWorkerCompatibilityError(error), generation);
+      return;
+    }
     this.worker.onmessage = (event: MessageEvent<BackendWorkerToMainMessage>) => {
       if (generation !== this.generation) {
         return;
@@ -1082,6 +1118,19 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       this.rejectReady?.(error);
       this.markWorkerUnhealthy(error, generation, { terminate: true });
     }, this.startupTimeoutMs);
+  }
+
+  private markWorkerConstructionUnavailable(error: Error, generation: number): void {
+    if (this.closed || generation !== this.generation) {
+      return;
+    }
+    this.worker = null;
+    this.health = 'unavailable';
+    this.lastTerminalError = error.message;
+    this.clearStartupTimer();
+    this.rejectReady?.(error);
+    this.rejectPendingForGeneration(generation, error);
+    this.rejectProbesForGeneration(generation, error);
   }
 
   private markWorkerUnhealthy(error: Error, generation: number, options: { terminate: boolean }): void {
@@ -1176,12 +1225,47 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     return Math.max(1, Math.floor(Number(this.options.hostEffectTimeoutMs ?? DEFAULT_HOST_EFFECT_TIMEOUT_MS)));
   }
 
-  private resolveRequestTimeoutMs(request: BackendRpcRequest): number {
+  private resolveRequestTimeoutPolicy(request: BackendRpcRequest): BackendOperationTimeoutPolicy {
     const baseTimeoutMs = this.requestTimeoutMs;
-    if (!LONG_BACKEND_COMMAND_METHODS.has(request.method)) {
-      return baseTimeoutMs;
+    return BACKEND_OPERATION_TIMEOUT_POLICY_BY_METHOD.get(request.method) ?? {
+      timeoutMs: baseTimeoutMs,
+      classification: 'generic-request',
+    };
+  }
+
+  private resolveHostEffectTimeoutPolicy(effect: BackendWorkerHostEffect): BackendOperationTimeoutPolicy {
+    const operationName = this.getHostEffectOperationName(effect);
+    const operationPolicy = operationName === 'unknown'
+      ? null
+      : BACKEND_OPERATION_TIMEOUT_POLICY_BY_METHOD.get(operationName) ?? null;
+    return operationPolicy ?? {
+      timeoutMs: this.hostEffectTimeoutMs,
+      classification: 'generic-host-effect',
+    };
+  }
+
+  private getHostEffectOperationName(effect: BackendWorkerHostEffect): string {
+    if (
+      'requestMethod' in effect
+      && typeof effect.requestMethod === 'string'
+      && effect.requestMethod.trim().length > 0
+      && (effect.kind.startsWith('sqlite.') || effect.kind.startsWith('truth.'))
+    ) {
+      return effect.requestMethod;
     }
-    return Math.max(baseTimeoutMs, LONG_BACKEND_COMMAND_REQUEST_TIMEOUT_MS);
+    return 'unknown';
+  }
+
+  private getHostEffectTimeoutPhase(effect: BackendWorkerHostEffect): string {
+    const substep = 'substep' in effect && typeof effect.substep === 'string' && effect.substep.trim().length > 0
+      ? effect.substep.trim()
+      : null;
+    const purpose = 'purpose' in effect && typeof effect.purpose === 'string' && effect.purpose.trim().length > 0
+      ? effect.purpose.trim()
+      : null;
+    return ['host-effect', effect.kind, substep ?? purpose]
+      .filter((part): part is string => typeof part === 'string' && part.length > 0)
+      .join(':');
   }
 
   private get probeTimeoutMs(): number {

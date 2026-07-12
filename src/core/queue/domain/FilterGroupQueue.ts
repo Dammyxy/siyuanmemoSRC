@@ -251,6 +251,19 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             throw error;
         }
     }
+
+    public override async getReadOnlyRecoveryCards(): Promise<FSRSCard[]> {
+        await this.ensureInitialLoad();
+        const filteredCards = await this.manager.getCards({
+            ...this.cardFilter,
+            includeSuspended: false,
+        });
+        const manualCards = await this.resolveManuallyAddedCardsForReadOnlyRecovery(logger);
+        return this.buildDynamicQueueCardsReadOnly(filteredCards, manualCards, {
+            logger,
+            baseCardsLabel: 'filtered cards from manager',
+        });
+    }
     
     /**
      * 添加卡片到队列

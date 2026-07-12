@@ -140,6 +140,69 @@ function createStorageProjectionRebuildRequest(id = 1): BackendRpcRequest {
   };
 }
 
+function createDbLoadRequest(id = 1): BackendRpcRequest {
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'db.load',
+    params: [{
+      truthDeviceId: 'device-test',
+      identityEpoch: 'epoch-test',
+      reviewTruthGenerationId: 'review-events-v1',
+    }],
+  };
+}
+
+function createDbReloadRequest(id = 1): BackendRpcRequest {
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'db.reload',
+    params: [{
+      truthDeviceId: 'device-test',
+      identityEpoch: 'epoch-test',
+      reviewTruthGenerationId: 'review-events-v1',
+    }],
+  };
+}
+
+function createStorageMaintenanceStatusRequest(id = 1): BackendRpcRequest {
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'storage.maintenance.status',
+    params: [{
+      operationId: `status-${id}`,
+      kind: 'startup-storage-maintenance',
+      receiptVersion: 'startup-storage-maintenance-receipt-v2',
+      scope: {
+        pluginInstallationId: 'plugin-test',
+        identityEpoch: 'epoch-test',
+        maintenanceInputVersion: 'startup-maintenance-input-v1',
+      },
+    }],
+  };
+}
+
+function createStorageMaintenanceApplyBatchRequest(id = 1): BackendRpcRequest {
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'storage.maintenance.applyBatch',
+    params: [{
+      operationId: `apply-${id}`,
+      kind: 'startup-storage-maintenance',
+      batchId: `batch-${id}`,
+      scope: {
+        pluginInstallationId: 'plugin-test',
+        identityEpoch: 'epoch-test',
+        maintenanceInputVersion: 'startup-maintenance-input-v1',
+      },
+      operations: [],
+    }],
+  };
+}
+
 function createBrowserDeckPageRequest(id = 1): BackendRpcRequest {
   return {
     jsonrpc: BACKEND_RPC_VERSION,
@@ -150,6 +213,50 @@ function createBrowserDeckPageRequest(id = 1): BackendRpcRequest {
       page: { startRow: 0, endRow: 50 },
     }],
   };
+}
+
+async function expectOperationRequestTimeout(
+  request: BackendRpcRequest,
+  timeoutMs: number,
+  classification: string,
+): Promise<void> {
+  const worker = new FakeWorker();
+  const transport = new BrowserSrsBackendWorkerTransport({
+    workerFactory: () => worker as unknown as Worker,
+    hostEffects: {},
+    requestTimeoutMs: 300_000,
+    maxRestartAttempts: 0,
+  });
+  worker.emit({ kind: 'ready' });
+
+  const pending = transport.request(request);
+  await Promise.resolve();
+  const assertion = expect(pending).rejects.toThrow(
+    `BACKEND_UNAVAILABLE: backend worker request timed out after ${timeoutMs}ms`
+    + ` operation=${request.method}`
+    + ' phase=worker-response'
+    + ` elapsedMs=${timeoutMs}`
+    + ` timeoutMs=${timeoutMs}`
+    + ` classification=${classification}`,
+  );
+
+  await vi.advanceTimersByTimeAsync(timeoutMs - 1);
+  await Promise.resolve();
+  expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+    health: 'healthy',
+    requestTimeouts: 0,
+    pendingRequests: 1,
+  }));
+
+  await vi.advanceTimersByTimeAsync(1);
+  await assertion;
+  expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+    health: 'unavailable',
+    requestTimeouts: 1,
+    pendingRequests: 0,
+  }));
+  expect(worker.terminated).toHaveBeenCalledTimes(1);
+  transport.dispose();
 }
 
 describe('BrowserSrsBackendWorkerTransport', () => {
@@ -201,6 +308,117 @@ describe('BrowserSrsBackendWorkerTransport', () => {
 
     await expect(pending).resolves.toEqual(response);
     transport.dispose();
+  });
+
+  it('bridges browser Worker globals before constructing the bundled inline worker in CJS runtime', async () => {
+    const originalWindow = (globalThis as typeof globalThis & { window?: unknown }).window;
+    const originalWorker = (globalThis as typeof globalThis & { Worker?: unknown }).Worker;
+    const originalBlob = (globalThis as typeof globalThis & { Blob?: unknown }).Blob;
+    const originalUrl = globalThis.URL;
+    const worker = new FakeWorker();
+    class WindowWorker extends FakeWorker {
+      constructor(_url: string | URL, _options?: WorkerOptions) {
+        super();
+        return worker;
+      }
+    }
+
+    try {
+      delete (globalThis as typeof globalThis & { Worker?: unknown }).Worker;
+      delete (globalThis as typeof globalThis & { Blob?: unknown }).Blob;
+      const invalidUrl = {} as typeof URL;
+      (globalThis as typeof globalThis & { URL?: unknown }).URL = invalidUrl;
+      (globalThis as typeof globalThis & { window?: unknown }).window = {
+        Worker: WindowWorker,
+        Blob: originalBlob,
+        URL: originalUrl,
+      };
+
+      const transport = new BrowserSrsBackendWorkerTransport({
+        hostEffects: {},
+      });
+      const request = createRequest(12);
+      const pending = transport.request(request);
+
+      worker.emit({ kind: 'ready' });
+      await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+      expect(worker.posted[0]).toEqual(expect.objectContaining({
+        kind: 'request',
+        request,
+      }));
+
+      worker.emit({
+        kind: 'response',
+        requestId: (worker.posted[0] as { requestId: string }).requestId,
+        response: {
+          jsonrpc: BACKEND_RPC_VERSION,
+          id: 12,
+          result: { ok: true },
+        },
+      });
+
+      await expect(pending).resolves.toMatchObject({
+        result: { ok: true },
+      });
+      expect((globalThis as typeof globalThis & { Worker?: unknown }).Worker).toBeUndefined();
+      expect((globalThis as typeof globalThis & { Blob?: unknown }).Blob).toBeUndefined();
+      expect(globalThis.URL).toBe(invalidUrl);
+      transport.dispose();
+    } finally {
+      (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
+      if (typeof originalWorker === 'undefined') {
+        delete (globalThis as typeof globalThis & { Worker?: unknown }).Worker;
+      } else {
+        (globalThis as typeof globalThis & { Worker?: unknown }).Worker = originalWorker;
+      }
+      if (typeof originalBlob === 'undefined') {
+        delete (globalThis as typeof globalThis & { Blob?: unknown }).Blob;
+      } else {
+        (globalThis as typeof globalThis & { Blob?: unknown }).Blob = originalBlob;
+      }
+      globalThis.URL = originalUrl;
+    }
+  });
+
+  it('reports explicit backend Worker compatibility errors when construction fails', async () => {
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => {
+        throw new TypeError('Worker constructor unavailable');
+      },
+      hostEffects: {},
+    });
+
+    await expect(transport.request(createRequest(13))).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: backend Worker compatibility error: Worker constructor unavailable',
+    );
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'unavailable',
+      generation: 1,
+      restartCount: 0,
+      pendingRequests: 0,
+      lastTerminalError: 'BACKEND_UNAVAILABLE: backend Worker compatibility error: Worker constructor unavailable',
+    }));
+  });
+
+  it('preserves explicit CJS bootstrap descriptor failures without renderer database fallback', async () => {
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => {
+        throw new Error('BACKEND_UNAVAILABLE: backend Worker CJS bootstrap cannot define globalThis.Blob');
+      },
+      hostEffects: {},
+      maxRestartAttempts: 1,
+    });
+
+    await expect(transport.request(createRequest(14))).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: backend Worker CJS bootstrap cannot define globalThis.Blob',
+    );
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'unavailable',
+      generation: 1,
+      restartCount: 0,
+      pendingRequests: 0,
+      lastTerminalError: 'BACKEND_UNAVAILABLE: backend Worker CJS bootstrap cannot define globalThis.Blob',
+    }));
   });
 
   it('sends review feedback request timing to the worker', async () => {
@@ -1147,7 +1365,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       ok: false,
       error: {
         code: 'BACKEND_UNAVAILABLE',
-        message: 'BACKEND_UNAVAILABLE: backend worker host effect sqlite.readSyncConflictDatabaseSources timed out after 20ms',
+        message: 'BACKEND_UNAVAILABLE: backend worker host effect sqlite.readSyncConflictDatabaseSources timed out after 20ms operation=unknown phase=host-effect:sqlite.readSyncConflictDatabaseSources elapsedMs=20 timeoutMs=20 classification=generic-host-effect',
       },
     });
     expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
@@ -1770,7 +1988,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     const pending = transport.request(createRequest(66));
     await Promise.resolve();
     expect(transport.getDiagnostics().pendingRequests).toBe(1);
-    const assertion = expect(pending).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker request timed out after 20ms');
+    const assertion = expect(pending).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker request timed out after 20ms operation=system.health phase=worker-response elapsedMs=20 timeoutMs=20 classification=generic-request');
 
     await vi.advanceTimersByTimeAsync(20);
 
@@ -1781,6 +1999,34 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       pendingRequests: 0,
     }));
     expect(worker.terminated).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses operation-specific request timeout policies instead of a shared five-minute override', async () => {
+    await expectOperationRequestTimeout(
+      createStorageMaintenanceStatusRequest(101),
+      5_000,
+      'status-read',
+    );
+    await expectOperationRequestTimeout(
+      createDbLoadRequest(102),
+      60_000,
+      'startup-readiness',
+    );
+    await expectOperationRequestTimeout(
+      createDbReloadRequest(103),
+      60_000,
+      'startup-readiness',
+    );
+    await expectOperationRequestTimeout(
+      createStorageMaintenanceApplyBatchRequest(104),
+      45_000,
+      'maintenance-mutation',
+    );
+    await expectOperationRequestTimeout(
+      createStorageProjectionRebuildRequest(105),
+      120_000,
+      'projection-rebuild',
+    );
   });
 
   it('uses the extended backend request timeout for projection rebuild commands', async () => {
@@ -1832,6 +2078,62 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     const response: BackendRpcResponse = {
       jsonrpc: BACKEND_RPC_VERSION,
       id: 67,
+      result: { ok: true },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+    });
+    await expect(pending).resolves.toEqual(response);
+    transport.dispose();
+  });
+
+  it('uses the extended backend request timeout for startup database load commands', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      requestTimeoutMs: 20,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const request = createDbLoadRequest(70);
+    const pending = transport.request(request);
+    let settled = false;
+    void pending.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+    await Promise.resolve();
+    expect(worker.posted).toEqual([
+      expect.objectContaining({
+        kind: 'request',
+        request,
+      }),
+    ]);
+
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'healthy',
+      requestTimeouts: 0,
+      pendingRequests: 1,
+      pendingRequestSummaries: [
+        expect.objectContaining({
+          method: 'db.load',
+          generation: 1,
+          posted: true,
+        }),
+      ],
+    }));
+
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 70,
       result: { ok: true },
     };
     worker.emit({
@@ -1944,6 +2246,230 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('keeps SQLite host effects alive while startup database load is pending', async () => {
+    const worker = new FakeWorker();
+    const readBinary = vi.fn(() => new Promise<Uint8Array | null>((resolve) => {
+      setTimeout(() => resolve(null), 25);
+    }));
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { readBinary },
+      hostEffectTimeoutMs: 20,
+      requestTimeoutMs: 50,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const request = createDbLoadRequest(71);
+    const pending = transport.request(request);
+    await Promise.resolve();
+    expect(worker.posted).toEqual([
+      expect.objectContaining({
+        kind: 'request',
+        request,
+      }),
+    ]);
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-db-load-read',
+      effect: {
+        kind: 'sqlite.readBinary',
+        path: 'siyuanmemo.db',
+        requestMethod: 'db.load',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+
+    expect(worker.posted).toHaveLength(1);
+    expect(readBinary).toHaveBeenCalledWith('siyuanmemo.db');
+
+    await vi.advanceTimersByTimeAsync(5);
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    expect(worker.posted[1]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-db-load-read',
+      ok: true,
+      result: null,
+    });
+
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 71,
+      result: { ok: true },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+    });
+    await expect(pending).resolves.toEqual(response);
+    transport.dispose();
+  });
+
+  it('uses operation-specific host-effect timeouts with safe phase classifications', async () => {
+    const worker = new FakeWorker();
+    const readJSON = vi.fn(() => new Promise<unknown>(() => undefined));
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { readJSON },
+      hostEffectTimeoutMs: 300_000,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-status-receipt',
+      effect: {
+        kind: 'sqlite.readJSON',
+        path: 'storage-maintenance-receipt.json',
+        requestMethod: 'storage.maintenance.status',
+        substep: 'receipt-status',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(worker.posted[0]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-status-receipt',
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: backend worker host effect sqlite.readJSON timed out after 5000ms operation=storage.maintenance.status phase=host-effect:sqlite.readJSON:receipt-status elapsedMs=5000 timeoutMs=5000 classification=status-read',
+      },
+    });
+    transport.dispose();
+  });
+
+  it('keeps db.load host effects on readiness budget and names the blocking phase', async () => {
+    const worker = new FakeWorker();
+    const readBinary = vi.fn(() => new Promise<Uint8Array | null>(() => undefined));
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { readBinary },
+      hostEffectTimeoutMs: 20,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-db-load-phase',
+      effect: {
+        kind: 'sqlite.readBinary',
+        path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-398.msgpack',
+        requestMethod: 'db.load',
+        substep: 'truth-delta-validation',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+    expect(worker.posted).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(59_980);
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(worker.posted[0]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-db-load-phase',
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: backend worker host effect sqlite.readBinary timed out after 60000ms operation=db.load phase=host-effect:sqlite.readBinary:truth-delta-validation elapsedMs=60000 timeoutMs=60000 classification=startup-readiness',
+      },
+    });
+    transport.dispose();
+  });
+
+  it('times out maintenance apply host effects on mutation budget with explicit classification', async () => {
+    const worker = new FakeWorker();
+    const writeBinary = vi.fn(() => new Promise<void>(() => undefined));
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { writeBinary },
+      hostEffectTimeoutMs: 300_000,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-apply-batch',
+      effect: {
+        kind: 'sqlite.writeBinary',
+        path: 'siyuanmemo.db',
+        bytes: new Uint8Array([4, 5, 6]),
+        requestMethod: 'storage.maintenance.applyBatch',
+        substep: 'maintenance-commit',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(worker.posted[0]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-apply-batch',
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: backend worker host effect sqlite.writeBinary timed out after 45000ms operation=storage.maintenance.applyBatch phase=host-effect:sqlite.writeBinary:maintenance-commit elapsedMs=45000 timeoutMs=45000 classification=maintenance-mutation',
+      },
+    });
+    transport.dispose();
+  });
+
+  it('does not publish a terminal applyBatch response after the mutation request timeout fires', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      requestTimeoutMs: 300_000,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const request = createStorageMaintenanceApplyBatchRequest(106);
+    const pending = transport.request(request);
+    await Promise.resolve();
+    const requestId = (worker.posted[0] as { requestId: string }).requestId;
+    const assertion = expect(pending).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: backend worker request timed out after 45000ms'
+      + ' operation=storage.maintenance.applyBatch'
+      + ' phase=worker-response'
+      + ' elapsedMs=45000'
+      + ' timeoutMs=45000'
+      + ' classification=maintenance-mutation',
+    );
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    await assertion;
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'unavailable',
+      requestTimeouts: 1,
+      pendingRequests: 0,
+    }));
+
+    worker.emit({
+      kind: 'response',
+      requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 106,
+        result: { status: 'completed' },
+      },
+    });
+    await Promise.resolve();
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      pendingRequests: 0,
+      lastTerminalError: expect.stringContaining('classification=maintenance-mutation'),
+    }));
+    transport.dispose();
+  });
+
   it('keeps diagnostics for worker error and dispose pending cleanup', async () => {
     const worker = new FakeWorker();
     const transport = new BrowserSrsBackendWorkerTransport({
@@ -2037,7 +2563,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
 
     const pending = transport.request(createRequest(88));
     await Promise.resolve();
-    const assertion = expect(pending).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker request timed out after 20ms');
+    const assertion = expect(pending).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker request timed out after 20ms operation=system.health phase=worker-response elapsedMs=20 timeoutMs=20 classification=generic-request');
     await vi.advanceTimersByTimeAsync(20);
     await assertion;
     await vi.advanceTimersByTimeAsync(1);

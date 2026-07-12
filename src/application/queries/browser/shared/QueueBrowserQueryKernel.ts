@@ -75,6 +75,10 @@ type QueueProjectionSnapshotReadModelState = QueueProjectionSnapshot & {
   stale?: unknown;
 };
 
+type QueueBrowserQueryKernelOptions = {
+  isReadOnlyRecoveryQueueStateAllowed?: () => boolean;
+};
+
 export type QueueProjectionBrowserReadModelError = Error & {
   browserReadModelState?: Exclude<BrowserReadModelReadState, 'ready'>;
   browserReadModelDiagnosticKind?: BrowserReadModelDiagnostic['kind'];
@@ -107,6 +111,7 @@ export class QueueBrowserQueryKernel {
     private readonly manager: IUnifiedDataSourceManagerFacade,
     private readonly siyuanApi: Pick<BrowserQuerySiyuanPort, 'sql'> | null = null,
     private readonly sourceExistencePort: BrowserDeckReadPort | null = null,
+    private readonly options: QueueBrowserQueryKernelOptions = {},
   ) {}
 
   async buildSnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult> {
@@ -146,7 +151,16 @@ export class QueueBrowserQueryKernel {
 
     const route = this.resolveQueueRoute(queueId);
     if (route.projectionBacked) {
-      const snapshotRows = await this.readProjectionSnapshotRows(route, false);
+      let snapshotRows: QueueSnapshotRow[];
+      try {
+        snapshotRows = await this.readProjectionSnapshotRows(route, false);
+      } catch (error) {
+        const recoveryRows = await this.tryReadOnlyRecoveryBrowserRows(route, error);
+        if (!recoveryRows) {
+          throw error;
+        }
+        return this.orderBrowserRowsByIds(recoveryRows, orderedIds);
+      }
       const snapshotRowById = this.buildSnapshotRowLookup(snapshotRows);
       const rows = await this.readProjectionCardsBySnapshotIds(route, orderedIds, false);
       const browserRows = await this.markMissingRows(rows.map((card) => {
@@ -255,7 +269,16 @@ export class QueueBrowserQueryKernel {
     query: QueueBrowserSnapshotQuery,
     route: QueueReadModelRoute,
   ): Promise<QueueBrowserSnapshotResult> {
-    const projectionSnapshot = await this.readProjectionSnapshot(route, Boolean(query.forceRefresh));
+    let projectionSnapshot: QueueProjectionSnapshot;
+    try {
+      projectionSnapshot = await this.readProjectionSnapshot(route, Boolean(query.forceRefresh));
+    } catch (error) {
+      const recoverySnapshot = await this.tryBuildReadOnlyRecoverySnapshot(query, route, error);
+      if (recoverySnapshot) {
+        return recoverySnapshot;
+      }
+      throw error;
+    }
     const rows = projectionSnapshot.rows;
     const markedRows = await this.markSnapshotMissingRows(rows);
     const filteredRows = applyQueueFiltersToSnapshotRows(
@@ -408,6 +431,94 @@ export class QueueBrowserQueryKernel {
     }
 
     return route.queue.getCardsBySnapshotIds(orderedIds, forceRefresh);
+  }
+
+  private async tryReadOnlyRecoveryBrowserRows(
+    route: QueueReadModelRoute,
+    error: unknown,
+  ): Promise<BrowserCard[] | null> {
+    if (!this.options.isReadOnlyRecoveryQueueStateAllowed?.()) {
+      return null;
+    }
+    if (!this.isProjectionRefreshOrRepairError(error)) {
+      return null;
+    }
+    if (typeof route.queue.getReadOnlyRecoveryCards !== 'function') {
+      return null;
+    }
+
+    const cards = await route.queue.getReadOnlyRecoveryCards();
+    const rows = cards.map((card, index) => mapQueueFsrsCardToBrowserCard(card, {
+      firstReviewMode: isRetrievalBrowserQueue(route.queueId) ? 'created-or-last' : 'last-review',
+      queueIndex: index + 1,
+    }));
+    return this.markMissingRows(rows);
+  }
+
+  private async tryBuildReadOnlyRecoverySnapshot(
+    query: QueueBrowserSnapshotQuery,
+    route: QueueReadModelRoute,
+    error: unknown,
+  ): Promise<QueueBrowserSnapshotResult | null> {
+    const rows = await this.tryReadOnlyRecoveryBrowserRows(route, error);
+    if (!rows) {
+      return null;
+    }
+    const readOwner = this.buildReadOnlyRecoveryReadOwner(route);
+    const filteredRows = this.applyQueueBrowserFilters(rows, query);
+    const sortedRows = sortBrowserRows(filteredRows, query.sortModel || []);
+    return {
+      rows: sortedRows.map((row) => this.toLiteRowFromBrowserCard(row)),
+      total: sortedRows.length,
+      readOwner,
+      queryFingerprint: this.buildQueueQueryFingerprint(query, readOwner),
+      generation: null,
+    };
+  }
+
+  private isProjectionRefreshOrRepairError(error: unknown): boolean {
+    const tagged = (error as QueueProjectionBrowserReadModelError | null | undefined)?.browserReadModelState;
+    if (tagged === 'preparing' || tagged === 'repair-required') {
+      return true;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('QUEUE_PROJECTION_UNAVAILABLE')
+      || message.includes('QUEUE_PROJECTION_NOT_READY')
+      || message.includes('QUEUE_PROJECTION_REPAIR_REQUIRED');
+  }
+
+  private buildReadOnlyRecoveryReadOwner(route: QueueReadModelRoute): BrowserReadOwnerMetadata {
+    return {
+      kind: 'read-only-recovery-queue-state',
+      queueId: route.queueId,
+      queueType: route.queueType,
+      projectionBacked: false,
+      readPath: 'read-only-recovery-local-queue',
+      state: 'read-only-recovery-required',
+      reason: 'startup-read-only-recovery',
+      unavailableReason: route.readOwner.unavailableReason ?? null,
+    };
+  }
+
+  private orderBrowserRowsByIds(rows: BrowserCard[], orderedIds: string[]): BrowserCard[] {
+    const rowById = new Map<string, BrowserCard>();
+    for (const row of rows) {
+      const id = String(row.id || '').trim();
+      const fsrsCardId = String(row.fsrsCardId || '').trim();
+      const blockId = String(row.blockId || '').trim();
+      if (id) {
+        rowById.set(id, row);
+      }
+      if (fsrsCardId) {
+        rowById.set(fsrsCardId, row);
+      }
+      if (blockId) {
+        rowById.set(blockId, row);
+      }
+    }
+    return orderedIds
+      .map((id) => rowById.get(id))
+      .filter((row): row is BrowserCard => Boolean(row));
   }
 
   private async readLocalBrowserQueueRows(route: QueueReadModelRoute): Promise<BrowserCard[]> {

@@ -38,9 +38,11 @@ import {
 } from '@/utils/siyuanMenuComponentFallbacks';
 import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 import {
+  beginStartupPerformanceAttempt,
   initializeRuntimePerformanceDiagnosticsFromSession,
   installRuntimePerformanceDiagnosticsGlobal,
   measureRuntimePerformance,
+  reportStartupSlowProfile,
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import '@/index.scss';
@@ -225,6 +227,16 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.logger.info('Plugin loading...');
     installRuntimePerformanceDiagnosticsGlobal();
     initializeRuntimePerformanceDiagnosticsFromSession();
+    beginStartupPerformanceAttempt();
+    const startupStartedAt = typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now();
+    const resolveStartupDurationMs = (): number => {
+      const endedAt = typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+      return Math.max(0, endedAt - startupStartedAt);
+    };
     const finishOnloadSpan = startRuntimePerformanceSpan('startup', 'plugin.onload');
     this.isInitialized = false;
     this.context = undefined;
@@ -259,9 +271,6 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         () => ApplicationContext.create({ plugin: this, i18n: this.i18n || {}, frontendKind: frontEnd }),
         { frontend: frontEnd },
       );
-      this.contextReady.resolve(this.getContext());
-      this.isInitialized = true;
-      
       // ✅ 只有在初始化成功后才注册事件处理器
       this.imageOcclusionHandler = new ImageOcclusionHandler(this);
       this.progressiveExcerptHotkeyHandler = new ProgressiveExcerptHotkeyHandler(this.getContext());
@@ -284,6 +293,10 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         }
         this.registerBlockToolSlash();
       }, { frontend: frontEnd });
+      const context = this.getContext();
+      this.isInitialized = true;
+      this.contextReady.resolve(context);
+      context.startPostReadyStartupMaintenance('plugin.onload-ready');
     } catch (err) {
       this.contextReady.reject(err);
       this.context = undefined;
@@ -298,6 +311,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         ok: false,
         errorName: err instanceof Error ? err.name : 'Error',
       });
+      reportStartupSlowProfile({ startupDurationMs: resolveStartupDurationMs() });
       return;
     }
 
@@ -312,6 +326,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       isMobile: this.isMobile,
       status: 'loaded',
     });
+    reportStartupSlowProfile({ startupDurationMs: resolveStartupDurationMs() });
   }
 
   onLayoutReady(): void {

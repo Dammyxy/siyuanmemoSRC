@@ -12,15 +12,16 @@ export type BrowserReadOwnerKind =
   | 'sql-card-universe'
   | 'queue-projection'
   | 'block-id-intersection'
-  | 'explicit-local-queue';
+  | 'explicit-local-queue'
+  | 'read-only-recovery-queue-state';
 
 export type BrowserReadOwnerMetadata = {
   kind: BrowserReadOwnerKind;
   queueId?: BrowserQueueId;
   queueType?: QueueType;
   projectionBacked?: boolean;
-  readPath?: QueueProjectionReadPath | 'local-queue';
-  state?: QueueProjectionRolloutState | 'local-queue';
+  readPath?: QueueProjectionReadPath | 'local-queue' | 'read-only-recovery-local-queue';
+  state?: QueueProjectionRolloutState | 'local-queue' | 'read-only-recovery-required';
   reason?: string | null;
   unavailableReason?: string | null;
 };

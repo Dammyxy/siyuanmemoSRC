@@ -259,6 +259,24 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         return normalized;
     }
 
+    protected cloneResolvedCards(cards: FSRSCard[]): FSRSCard[] {
+        return normalizeToFSRSCard(cards).map((card) => ({
+            ...card,
+            tags: [...(card.tags ?? [])],
+            meta: card.meta && typeof card.meta === 'object'
+                ? { ...(card.meta as Record<string, unknown>) }
+                : card.meta,
+        }));
+    }
+
+    public async getReadOnlyRecoveryCards(): Promise<FSRSCard[]> {
+        await this.ensureInitialLoad();
+        if (!this.cardsTrusted) {
+            return [];
+        }
+        return this.cloneResolvedCards(this.cards);
+    }
+
     protected invalidateCachedCards(): void {
         this.cardsTrusted = false;
         this.invalidateSnapshotRows();

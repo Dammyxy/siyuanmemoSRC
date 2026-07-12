@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>harden-startup-readiness-and-background-maintenance correction log</title>
+</head>
+<body>
+  <h1>启动就绪与后台维护修正记录</h1>
+  <section>
+    <h2>本轮修正</h2>
+    <ul>
+      <li>把 startup maintenance receipt scope 收口到 Worker `db.load` / `db.reload` 返回的 deferred descriptor frontier。</li>
+      <li>frontier 只包含 durable scope 与安全标量：`pluginInstallationId`、`identityEpoch`、`inputVersion`、`frontierHash`、recovery status、journal sequence frontier、truth coverage frontier。</li>
+      <li>`ApplicationContext` 只在 descriptor 字段完整时派生 `StartupMaintenanceReceiptScope`，否则走 bounded full path。</li>
+      <li>移除 core storage 层 startup receipt identity 泄漏：不再保留 `StartupMaintenanceStoreIdentity` / `getStartupMaintenanceStoreIdentity()`。</li>
+    </ul>
+  </section>
+  <section>
+    <h2>追加修正：status 读路径</h2>
+    <ul>
+      <li>发现 `storage.maintenance.status` 虽然免除了 storage-refresh preflight，但未加载 Worker 时仍会走完整 `WorkerSqliteDatabaseService.init()`。</li>
+      <li>这会提前消费 startup identity disposition，并可能把一个应是 cheap receipt metadata read 的请求推入投影初始化链路。</li>
+      <li>修正为未 initialized 时使用临时 SQLite metadata runtime，只读取 `storage_maintenance_operations` / migration marker 状态。</li>
+      <li>新增 warm restart 覆盖：完成过的 startup receipt 可在 `db.load` 前读到；随后 `db.load` 仍用传入的 verified `identityEpoch` 返回 normal readiness 与 deferred descriptor frontier。</li>
+    </ul>
+  </section>
+  <section>
+    <h2>追加修正：post-success frontier receipt</h2>
+    <ul>
+      <li>发现按 pre-scan frontier 或逐 phase status 分别判断完成，会在 startup maintenance 改变 frontier 后误判下次启动可跳过。</li>
+      <li>修正为 `startup-storage-maintenance-receipt-v2`：receipt operation/migration id 由 post-success frontier 生成，并持久化 pre-success / post-success frontier。</li>
+      <li>生产 coordinator 复用同一个 initial status snapshot 决定 schedule normalization 与 orphan repair；缺失、格式错误、版本/epoch/installation 不匹配、frontier 改变或 phase failure 都回到 bounded full path。</li>
+      <li>Worker apply path 只接受完整 v2 receipt，且要求请求 operation/migration id 与 post-success frontier 完全一致；receipt 写入失败不让 startup 失败，但会迫使下次启动重新扫描。</li>
+    </ul>
+  </section>
+  <section>
+    <h2>已确认漂移</h2>
+    <ul>
+      <li>CJS inline Worker 仍有 import-time globals 历史债，需要在 task 9.x 继续改成 lazy scoped bootstrap。</li>
+      <li>此前 blanket 300s timeout 属于掩盖启动阻塞的债，需要在 task 6.x 拆成 operation-specific timeout budgets。</li>
+      <li>core storage receipt identity 泄漏已在本轮收口到 application/Worker descriptor frontier。</li>
+      <li>receipt scope 已存在但生产 coordinator 未完整消费；本轮已接入 `ApplicationContext.startPostReadyStartupMaintenance()` 到 `StartupWorkerStorageMaintenance`。</li>
+    </ul>
+  </section>
+  <section>
+    <h2>用户启动错误归类</h2>
+    <p>`SQLite delta segment checksum mismatch: sqlite-delta/v2/sqlite-delta-log.v2.sealed-398.msgpack` 与 `STORAGE_PRESSURE ... files=221 &gt;= hard=64; bytes=40722594 &gt;= hard=4194304` 属于 read-only recovery / storage-pressure fail-closed 路径；插件初始化不能因此崩溃。最终证明仍需要 SiYuan clean restart smoke。</p>
+  </section>
+  <section>
+    <h2>仍未完成</h2>
+    <ul>
+      <li>schedule normalization 与 orphan-card repair 的独立同步/可延后分类。</li>
+      <li>pending external merge dirty marker。</li>
+      <li>registry lifecycle dedupe / unload cancellation。</li>
+      <li>operation-specific timeout budgets 与 lazy scoped CJS bootstrap。</li>
+      <li>live SiYuan restart 与 warm restart acceptance。</li>
+    </ul>
+  </section>
+</body>
+</html>

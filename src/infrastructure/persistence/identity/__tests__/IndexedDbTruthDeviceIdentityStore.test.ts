@@ -98,6 +98,39 @@ describe('IndexedDbTruthDeviceIdentityStore', () => {
     await expect(store.readRecord()).resolves.toEqual(record);
   });
 
+  it('uses browser window indexedDB when CJS global indexedDB is absent', async () => {
+    const originalWindow = (globalThis as typeof globalThis & { window?: unknown }).window;
+    const originalIndexedDb = (globalThis as typeof globalThis & { indexedDB?: unknown }).indexedDB;
+    const indexedDbFactory = createFakeIndexedDbFactory();
+    const record: TruthDeviceIdentityRecord = {
+      version: 2,
+      deviceId: 'device-window-indexeddb',
+      identityEpoch: 'epoch-window',
+      hostFingerprint: 'host-window',
+      createdAt: 10,
+      lastSeenAt: 20,
+    };
+
+    try {
+      delete (globalThis as typeof globalThis & { indexedDB?: unknown }).indexedDB;
+      (globalThis as typeof globalThis & { window?: unknown }).window = {
+        indexedDB: indexedDbFactory,
+      };
+      const store = new IndexedDbTruthDeviceIdentityStore();
+
+      await store.writeRecord(record);
+
+      await expect(store.readRecord()).resolves.toEqual(record);
+    } finally {
+      if (typeof originalIndexedDb === 'undefined') {
+        delete (globalThis as typeof globalThis & { indexedDB?: unknown }).indexedDB;
+      } else {
+        (globalThis as typeof globalThis & { indexedDB?: unknown }).indexedDB = originalIndexedDb;
+      }
+      (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
+    }
+  });
+
   it('returns a deterministic unavailable error when IndexedDB is absent', async () => {
     const store = new IndexedDbTruthDeviceIdentityStore(null);
 

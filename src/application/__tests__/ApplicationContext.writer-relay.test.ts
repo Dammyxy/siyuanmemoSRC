@@ -620,7 +620,7 @@ describe('ApplicationContext writer relay command dispatch', () => {
     expect(queueStateBatchMutate).toHaveBeenCalledWith(request);
   });
 
-  it('guards local Queue state access with writer authority', async () => {
+  it('keeps Queue state reads direct while guarding Queue state mutations with writer authority', async () => {
     const ensureWritable = vi.fn(async () => undefined);
     const queueStateLoadAll = vi.fn(async () => ({ values: {} }));
     const queueStateBatchMutate = vi.fn(async () => ({
@@ -657,19 +657,18 @@ describe('ApplicationContext writer relay command dispatch', () => {
       mutations: [{ operation: 'delete', key: 'queue-a' }],
     });
 
-    expect(ensureWritable).toHaveBeenCalledTimes(2);
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
     expect(queueStateLoadAll).toHaveBeenCalledTimes(1);
     expect(queueStateBatchMutate).toHaveBeenCalledTimes(1);
   });
 
-  it('relays follower Queue state access and fails closed without a backend Worker', async () => {
-    const submitAndWait = vi.fn(async (request: { method: string }) => (
-      request.method === 'queue.state.loadAll'
-        ? { values: { 'queue-a': ['card-1'] } }
-        : { updatedKeys: ['queue-a'], deletedKeys: [] }
-    ));
+  it('keeps follower Queue state reads direct and relays only Queue state mutations', async () => {
+    const submitAndWait = vi.fn(async () => ({
+      updatedKeys: ['queue-a'],
+      deletedKeys: [],
+    }));
     const backendClient = {
-      queueStateLoadAll: vi.fn(),
+      queueStateLoadAll: vi.fn(async () => ({ values: { 'queue-a': ['card-1'] } })),
       queueStateBatchMutate: vi.fn(),
     };
     const context = Object.create(ApplicationContext.prototype) as ApplicationContext & {
@@ -692,18 +691,16 @@ describe('ApplicationContext writer relay command dispatch', () => {
     });
     context.getFollowerCommandClient = () => ({ submitAndWait });
 
-    await context.executeQueueStateLoadAll();
+    await expect(context.executeQueueStateLoadAll()).resolves.toEqual({
+      values: { 'queue-a': ['card-1'] },
+    });
     await context.executeQueueStateBatchMutate({
       mutationId: 'queue:follower-1',
       mutations: [{ operation: 'delete', key: 'queue-a' }],
     });
 
-    expect(submitAndWait).toHaveBeenNthCalledWith(1, {
-      instanceId: 'follower-1',
-      method: 'queue.state.loadAll',
-      params: {},
-    });
-    expect(submitAndWait).toHaveBeenNthCalledWith(2, {
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(submitAndWait).toHaveBeenCalledWith({
       instanceId: 'follower-1',
       method: 'queue.state.batchMutate',
       params: {
@@ -711,12 +708,47 @@ describe('ApplicationContext writer relay command dispatch', () => {
         mutations: [{ operation: 'delete', key: 'queue-a' }],
       },
     });
-    expect(backendClient.queueStateLoadAll).not.toHaveBeenCalled();
+    expect(backendClient.queueStateLoadAll).toHaveBeenCalledTimes(1);
     expect(backendClient.queueStateBatchMutate).not.toHaveBeenCalled();
 
     context.getSrsBackendClient = () => null;
     await expect(context.executeQueueStateLoadAll())
       .rejects.toThrow('BACKEND_UNAVAILABLE: queue.state.loadAll requires backend Worker');
+  });
+
+  it('does not block startup Queue state reads on an unavailable writer lease', async () => {
+    const submitAndWait = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
+    });
+    const backendClient = {
+      queueStateLoadAll: vi.fn(async () => ({ values: { startupQueue: ['card-1'] } })),
+      queueStateBatchMutate: vi.fn(),
+    };
+    const context = Object.create(ApplicationContext.prototype) as ApplicationContext & {
+      backendMigrationRuntimePolicy: {
+        capabilities: { writerRelayRequiredForBackendWrites: boolean };
+      };
+      executeQueueStateLoadAll(): Promise<unknown>;
+      getSrsBackendClient(): unknown;
+      getFrontendInstanceRuntime(): unknown;
+      getFollowerCommandClient(): unknown;
+    };
+    context.backendMigrationRuntimePolicy = {
+      capabilities: { writerRelayRequiredForBackendWrites: true },
+    };
+    context.getSrsBackendClient = () => backendClient;
+    context.getFrontendInstanceRuntime = () => ({
+      getMode: () => 'follower',
+      getInstanceId: () => 'startup-follower',
+    });
+    context.getFollowerCommandClient = () => ({ submitAndWait });
+
+    await expect(context.executeQueueStateLoadAll()).resolves.toEqual({
+      values: { startupQueue: ['card-1'] },
+    });
+
+    expect(backendClient.queueStateLoadAll).toHaveBeenCalledTimes(1);
+    expect(submitAndWait).not.toHaveBeenCalled();
   });
 
   it('dispatches agent.tool.execute to application hook instead of backend client', async () => {

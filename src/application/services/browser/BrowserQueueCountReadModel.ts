@@ -2,6 +2,7 @@ import type {
   QueueType,
   IUnifiedDataSourceManagerFacade,
   QueueProjectionSnapshot,
+  IReviewQueue,
 } from '@/types/unified-data-source';
 import {
   isNeuralBrowserQueue,
@@ -21,8 +22,15 @@ export interface BrowserQueueCountReadModel {
   readCount(request: BrowserQueueCountReadRequest): Promise<number>;
 }
 
+export interface BrowserQueueCountReadModelOptions {
+  isReadOnlyRecoveryQueueStateAllowed?: () => boolean;
+}
+
 export class ProjectionBrowserQueueCountReadModel implements BrowserQueueCountReadModel {
-  constructor(private readonly manager: IUnifiedDataSourceManagerFacade) {}
+  constructor(
+    private readonly manager: IUnifiedDataSourceManagerFacade,
+    private readonly options: BrowserQueueCountReadModelOptions = {},
+  ) {}
 
   async readCount(request: BrowserQueueCountReadRequest): Promise<number> {
     const queueType = resolveQueueTypeForBrowserQueueId(request.queueId);
@@ -63,10 +71,19 @@ export class ProjectionBrowserQueueCountReadModel implements BrowserQueueCountRe
       const result = await this.manager.readQueueProjection({ type: 'snapshot', queueType });
       if (result.type !== 'snapshot' || result.status !== 'ready' || !result.snapshot) {
         const status = result.type === 'snapshot' ? result.status : 'unavailable';
-        throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: ${queueId} queue projection snapshot ${status}`);
+        const projectionError = new Error(`QUEUE_PROJECTION_UNAVAILABLE: ${queueId} queue projection snapshot ${status}`);
+        const recoveryCount = await this.tryReadOnlyRecoveryQueueCount(queueType, queueId, projectionError);
+        if (recoveryCount !== null) {
+          return recoveryCount;
+        }
+        throw projectionError;
       }
       return this.resolveProjectionVisibleCount(result.snapshot);
     } catch (error) {
+      const recoveryCount = await this.tryReadOnlyRecoveryQueueCount(queueType, queueId, error);
+      if (recoveryCount !== null) {
+        return recoveryCount;
+      }
       const reason = error instanceof Error ? error.message : String(error);
       const unavailable = new Error(
         reason
@@ -76,6 +93,37 @@ export class ProjectionBrowserQueueCountReadModel implements BrowserQueueCountRe
       (unavailable as Error & { cause?: unknown }).cause = error;
       throw unavailable;
     }
+  }
+
+  private async tryReadOnlyRecoveryQueueCount(
+    queueType: QueueType,
+    queueId: BrowserQueueId,
+    error: unknown,
+  ): Promise<number | null> {
+    if (!this.options.isReadOnlyRecoveryQueueStateAllowed?.()) {
+      return null;
+    }
+    if (!this.isProjectionRefreshOrRepairError(error)) {
+      return null;
+    }
+    const queue = this.manager.getQueue(queueType) as IReviewQueue;
+    if (typeof queue.getReadOnlyRecoveryCards !== 'function') {
+      return null;
+    }
+    const cards = await queue.getReadOnlyRecoveryCards();
+    logger.debug('QUEUE_COUNT_READ_ONLY_RECOVERY: using explicit recovery queue state', {
+      queueId,
+      queueType,
+      count: cards.length,
+    });
+    return Math.max(0, cards.length);
+  }
+
+  private isProjectionRefreshOrRepairError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('QUEUE_PROJECTION_UNAVAILABLE')
+      || message.includes('QUEUE_PROJECTION_NOT_READY')
+      || message.includes('QUEUE_PROJECTION_REPAIR_REQUIRED');
   }
 
   private resolveProjectionVisibleCount(snapshot: QueueProjectionSnapshot): number {

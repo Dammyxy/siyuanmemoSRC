@@ -441,7 +441,14 @@ function sameIdentityRecord(
 
 function resolveGlobalStorage(): TruthDeviceIdentityStorage | null {
   try {
-    return typeof globalThis !== 'undefined' ? globalThis.localStorage : null;
+    if (typeof globalThis === 'undefined') {
+      return null;
+    }
+    const runtimeGlobal = globalThis as typeof globalThis & {
+      localStorage?: TruthDeviceIdentityStorage;
+      window?: { localStorage?: TruthDeviceIdentityStorage };
+    };
+    return runtimeGlobal.localStorage ?? runtimeGlobal.window?.localStorage ?? null;
   } catch {
     return null;
   }

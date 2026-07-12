@@ -880,6 +880,7 @@ describe('backend SQL projection rebuild contract', () => {
       'SOURCE_READ_UNAVAILABLE',
       'STORAGE_PRESSURE',
       'STORAGE_RECOVERY_REQUIRED',
+      'STORAGE_MAINTENANCE_EXTERNAL_INPUT_DIRTY',
     ]));
     expect(STORAGE_DIAGNOSTIC_KINDS).toEqual(expect.arrayContaining([
       'legacy-petal-db-ignored',
@@ -888,6 +889,7 @@ describe('backend SQL projection rebuild contract', () => {
       'repaired-scheduling-memory',
       'skipped-non-formal-review-log',
       'projection-rebuild-status',
+      'external-input-dirty',
     ]));
     expect(JSON.parse(JSON.stringify(diagnostic))).toMatchObject({
       kind: 'legacy-petal-db-ignored',

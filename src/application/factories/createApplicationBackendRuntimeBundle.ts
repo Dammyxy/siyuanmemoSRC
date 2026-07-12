@@ -20,18 +20,31 @@ import { FileService } from '@/infrastructure/services/FileService';
 import { IndexedDbTruthDeviceIdentityStore } from '@/infrastructure/persistence/identity/IndexedDbTruthDeviceIdentityStore';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
-import { resolveTruthDeviceIdentity } from '@/application/factories/truthDeviceIdentity';
+import {
+  resolveTruthDeviceIdentity,
+  type TruthDeviceIdentityResolution,
+} from '@/application/factories/truthDeviceIdentity';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import type { NeuralRoamNodeTypeResolverPort } from '@/core/queue/domain/ports';
 import type { NeuralRoamCardFacts } from '@/core/queue/neural/NeuralRoamCardFacts';
 import { createLogger } from '@/utils/logger';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
-import { MESSAGEPACK_TRUTH_SCHEMA_VERSION } from '../../../packages/contracts/src/backend-rpc';
+import {
+  MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+  type BackendDbLoadResult,
+  type BackendReviewTruthDeviceDiagnostics,
+  type BackendStartupIdentityDisposition,
+} from '../../../packages/contracts/src/backend-rpc';
 import type { SqlitePersistenceBridge } from '../../../worker/db/SqlitePersistenceBridge';
 
 const logger = createLogger('ApplicationContext');
 const REVIEW_TRUTH_GENERATION_ID = `review-events-v${MESSAGEPACK_TRUTH_SCHEMA_VERSION}`;
 const SQLITE_PROJECTION_DB_FILE = 'siyuanmemo.db';
+const REVIEW_TRUTH_MUTATION_IDENTITY_SOURCES = new Set<BackendReviewTruthDeviceDiagnostics['source']>([
+  'authority-copies',
+  'indexeddb-repaired-localStorage',
+  'localStorage-repaired-indexeddb',
+]);
 
 export type ApplicationBackendRuntimeTransport = SrsBackendTransport & {
   dispose?: () => void;
@@ -50,6 +63,7 @@ export interface ApplicationBackendRuntimeBundle {
   kernelSidecarClient: KernelSidecarClient;
   backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
   backendStartupError: string | null;
+  initialLoadResult: BackendDbLoadResult | null;
 }
 
 type NeuralRoamGraphQueryHost = {
@@ -127,7 +141,7 @@ export async function createApplicationBackendRuntimeBundle(
   let frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
   let followerCommandClient: FollowerCommandClient | null = null;
   let backendStartupError: string | null = null;
-  let truthDeviceId: string | null = null;
+  let initialLoadResult: BackendDbLoadResult | null = null;
 
   if (backendMigrationRuntimePolicy.capabilities.backendWorkerAvailable) {
     try {
@@ -199,25 +213,32 @@ export async function createApplicationBackendRuntimeBundle(
           identityStore: new IndexedDbTruthDeviceIdentityStore(),
           hostFingerprint: (options.resolveSiyuanSystemId ?? resolveSiyuanSystemId)(),
         });
-        truthDeviceId = truthDeviceIdentity.deviceId;
-        if (!truthDeviceId) {
-          logger.warn('[ApplicationContext] TRUTH_DEVICE_ID_UNAVAILABLE: MessagePack truth writes are unavailable because local device identity is not persistent', {
+        const startupIdentityDisposition = createStartupIdentityDisposition(truthDeviceIdentity);
+        if (!startupIdentityDisposition.writable) {
+          logger.warn('[ApplicationContext] STORAGE_RECOVERY_REQUIRED: MessagePack truth writes are unavailable because startup identity disposition is not writable', {
             source: truthDeviceIdentity.source,
             localStatePath: truthDeviceIdentity.localStatePath,
+            deviceId: truthDeviceIdentity.deviceId,
+            identityEpoch: truthDeviceIdentity.identityEpoch ?? null,
+            disposition: startupIdentityDisposition.status,
+            retryable: startupIdentityDisposition.retryable,
             error: truthDeviceIdentity.error,
           });
         } else {
           logger.info('[ApplicationContext] MessagePack truth device identity ready', {
             source: truthDeviceIdentity.source,
             localStatePath: truthDeviceIdentity.localStatePath,
-            deviceId: truthDeviceIdentity.deviceId,
+            deviceId: startupIdentityDisposition.deviceId,
+            identityEpoch: startupIdentityDisposition.identityEpoch,
           });
         }
         srsBackendClient = new SrsBackendClient(srsBackendTransport, {
+          startupIdentityDisposition,
           reviewTruthDevice: truthDeviceIdentity,
-          reviewTruthFlush: truthDeviceId
+          reviewTruthFlush: startupIdentityDisposition.writable
             ? {
-                deviceId: truthDeviceId,
+                deviceId: startupIdentityDisposition.deviceId!,
+                identityEpoch: startupIdentityDisposition.identityEpoch!,
                 generationId: REVIEW_TRUTH_GENERATION_ID,
                 schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
               }
@@ -227,10 +248,7 @@ export async function createApplicationBackendRuntimeBundle(
             || frontendInstanceRuntime?.getMode() === 'writer'
           ),
         });
-        await srsBackendClient.loadDatabase();
-        if (truthDeviceId && !backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
-          void srsBackendClient.schedulePendingReviewTruthFlush('startup');
-        }
+        initialLoadResult = await srsBackendClient.loadDatabase();
       });
       logger.info('[ApplicationContext] ✅ SRS backend browser Worker transport bootstrap enabled by feature flag');
     } catch (error) {
@@ -279,9 +297,6 @@ export async function createApplicationBackendRuntimeBundle(
         });
         followerCommandClient = new FollowerCommandClient(kernelSidecarClient);
         await frontendInstanceRuntime.start();
-        if (truthDeviceId && frontendInstanceRuntime.getMode() === 'writer') {
-          void backendClient.schedulePendingReviewTruthFlush('startup');
-        }
       });
       logger.info('[ApplicationContext] ✅ Frontend instance runtime started for kernel writer lease', {
         instanceId: frontendInstanceRuntime.getInstanceId(),
@@ -303,6 +318,53 @@ export async function createApplicationBackendRuntimeBundle(
     kernelSidecarClient,
     backendMigrationRuntimePolicy,
     backendStartupError,
+    initialLoadResult,
+  };
+}
+
+function createStartupIdentityDisposition(
+  resolution: TruthDeviceIdentityResolution,
+): BackendStartupIdentityDisposition {
+  const deviceId = normalizeOptionalBackendString(resolution.deviceId) ?? null;
+  const identityEpoch = normalizeOptionalBackendString(resolution.identityEpoch) ?? null;
+  if (
+    deviceId
+    && identityEpoch
+    && REVIEW_TRUTH_MUTATION_IDENTITY_SOURCES.has(resolution.source)
+  ) {
+    return {
+      version: 1,
+      status: 'verified',
+      writable: true,
+      retryable: false,
+      deviceId,
+      identityEpoch,
+      source: resolution.source,
+      reason: null,
+    };
+  }
+  if (resolution.source === 'unavailable') {
+    return {
+      version: 1,
+      status: 'read-only-authority-unavailable',
+      writable: false,
+      retryable: true,
+      deviceId,
+      identityEpoch,
+      source: resolution.source,
+      reason: `IDENTITY_AUTHORITY_UNAVAILABLE: ${resolution.error ?? 'identity authority unavailable'}`,
+    };
+  }
+  return {
+    version: 1,
+    status: 'read-only-recovery-required',
+    writable: false,
+    retryable: false,
+    deviceId,
+    identityEpoch,
+    source: resolution.source,
+    reason: resolution.error
+      ?? `Truth Device Identity source is not verified for startup truth mutation: ${resolution.source}`,
   };
 }
 

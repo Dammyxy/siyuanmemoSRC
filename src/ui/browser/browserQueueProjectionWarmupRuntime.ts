@@ -131,6 +131,11 @@ function canRepairWarmupStatus(status: BrowserQueueProjectionWarmupStatus): bool
   return status.status !== 'ready' && REPAIRABLE_WARMUP_CAUSES.has(status.cause);
 }
 
+function isNonRetryableWarmupRepairError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.startsWith('STORAGE_RECOVERY_REQUIRED:');
+}
+
 function isReviewPressureActive(
   pressure: BrowserQueueProjectionReviewPressure | null | undefined,
 ): pressure is BrowserQueueProjectionReviewPressure {
@@ -332,6 +337,15 @@ export function createBrowserQueueProjectionWarmupRuntime(
         if (shouldSuppressRepairDuringReview(queueId, queueType, scope, reviewPressure)) {
           continue;
         }
+        if (canRepairWarmupStatus(status) && service.canRepairQueueReadModel?.() === false) {
+          deps.logger.trace?.('[SiYuanMemo][SRSBrowser] Queue projection warmup repair skipped; startup is not writable', {
+            queueId,
+            queueType,
+            reason,
+            cause: status.cause,
+          });
+          continue;
+        }
         if (canRepairWarmupStatus(status) && typeof service.repairQueueReadModel === 'function') {
           try {
             const repaired = await measureRuntimePerformance(
@@ -360,13 +374,18 @@ export function createBrowserQueueProjectionWarmupRuntime(
             }
             continue;
           } catch (repairError) {
+            const nonRetryable = isNonRetryableWarmupRepairError(repairError);
             deps.logger.warn?.('[SiYuanMemo][SRSBrowser] Queue projection warmup repair failed', {
               queueId,
               queueType,
               reason,
               cause: status.cause,
               error: repairError instanceof Error ? repairError.message : String(repairError),
+              nonRetryable,
             });
+            if (nonRetryable) {
+              continue;
+            }
           }
         }
         const retryDelayMs = resolveRetryDelayMs(status);

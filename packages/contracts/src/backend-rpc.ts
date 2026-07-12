@@ -419,6 +419,7 @@ export const STORAGE_ERROR_CODES = [
   'SOURCE_READ_UNAVAILABLE',
   'STORAGE_PRESSURE',
   'STORAGE_RECOVERY_REQUIRED',
+  'STORAGE_MAINTENANCE_EXTERNAL_INPUT_DIRTY',
 ] as const;
 
 export type BackendStorageErrorCode = typeof STORAGE_ERROR_CODES[number];
@@ -430,6 +431,7 @@ export const STORAGE_DIAGNOSTIC_KINDS = [
   'repaired-scheduling-memory',
   'skipped-non-formal-review-log',
   'projection-rebuild-status',
+  'external-input-dirty',
 ] as const;
 
 export type BackendStorageDiagnosticKind = typeof STORAGE_DIAGNOSTIC_KINDS[number];
@@ -526,14 +528,24 @@ export interface BackendUnifiedStorageSnapshot {
   };
 }
 
-export interface BackendDbLoadResult {
-  ok: true;
-  initialized: boolean;
-  dbFile: string;
-  projectionSnapshot: BackendUnifiedStorageSnapshot;
+export type BackendStartupIdentityDispositionStatus =
+  | 'verified'
+  | 'read-only-recovery-required'
+  | 'read-only-authority-unavailable';
+
+export interface BackendStartupIdentityDisposition {
+  version: 1;
+  status: BackendStartupIdentityDispositionStatus;
+  writable: boolean;
+  retryable: boolean;
+  deviceId: string | null;
+  identityEpoch: string | null;
+  source: BackendReviewTruthDeviceDiagnostics['source'] | 'not-provided';
+  reason: string | null;
 }
 
 export interface BackendDbLoadRequest {
+  startupIdentityDisposition?: BackendStartupIdentityDisposition | null;
   truthDeviceId?: string | null;
   identityEpoch?: string | null;
   cardTruthGenerationId?: string | null;
@@ -542,10 +554,67 @@ export interface BackendDbLoadRequest {
   maxSegmentBytes?: number | null;
 }
 
+export type BackendStartupReadinessStatus =
+  | 'ready'
+  | 'read-only-authority-unavailable'
+  | 'read-only-recovery-required'
+  | 'read-only-storage-pressure';
+
+export interface BackendStartupReadinessDisposition {
+  status: BackendStartupReadinessStatus;
+  identity: BackendStartupIdentityDisposition | null;
+  projectionReadable: boolean;
+  writable: boolean;
+  recovery: StorageRecoveryState | null;
+}
+
+export type BackendDeferredStartupWorkKind =
+  | 'startup-storage-maintenance'
+  | 'truth-promotion';
+
+export interface BackendDeferredStartupWorkStatusReference {
+  kind: 'kernel-companion-background-work';
+  workKind: BackendDeferredStartupWorkKind;
+}
+
+export interface BackendStorageMaintenanceFrontier {
+  pluginInstallationId: string | null;
+  identityEpoch: string | null;
+  inputVersion: string;
+  frontierHash: string | null;
+  recoveryStatus: StorageRecoveryState['status'] | null;
+  journalSequenceFrontier: number | null;
+  truthCoverageFrontier: number | null;
+  externalInputDirtyGeneration: number;
+  pendingExternalMerge: boolean;
+}
+
+export interface BackendDeferredStartupWorkDescriptor {
+  version: 1;
+  kind: BackendDeferredStartupWorkKind;
+  owner: 'application-context';
+  phase: 'post-ready';
+  reason: string;
+  safeToDefer: true;
+  statusReference: BackendDeferredStartupWorkStatusReference;
+  frontier: BackendStorageMaintenanceFrontier;
+}
+
+export interface BackendDbLoadResult {
+  ok: true;
+  initialized: boolean;
+  dbFile: string;
+  projectionSnapshot: BackendUnifiedStorageSnapshot;
+  readiness?: BackendStartupReadinessDisposition;
+  deferredWork?: BackendDeferredStartupWorkDescriptor[];
+}
+
 export interface BackendDbReloadResult {
   ok: true;
   reloaded: true;
   dbFile: string;
+  readiness?: BackendStartupReadinessDisposition;
+  deferredWork?: BackendDeferredStartupWorkDescriptor[];
 }
 
 export type BackendLegacyUnifiedImportRecord =
@@ -634,6 +703,14 @@ export type BackendStorageMaintenanceBatch =
   | {
       kind: 'neural-roam-route-migration';
       appliedAt: number;
+    }
+  | {
+      kind: 'startup-maintenance-receipt';
+      appliedAt: number;
+      receiptVersion: string;
+      maintenanceKind: BackendDeferredStartupWorkKind;
+      preSuccessFrontier: BackendStorageMaintenanceFrontier;
+      postSuccessFrontier: BackendStorageMaintenanceFrontier;
     };
 
 export interface BackendStorageMaintenanceApplyBatchRequest {
@@ -659,6 +736,7 @@ export interface BackendStorageMaintenanceStatusResult {
   lastMutationId: string | null;
   completedAt: number | null;
   error: string | null;
+  currentFrontier?: BackendStorageMaintenanceFrontier | null;
 }
 
 export interface BackendStorageMaintenanceApplyBatchResult {
@@ -1777,6 +1855,7 @@ export type MessagePackTruthRecord =
 
 export interface BackendReviewFeedbackTruthFlushRequest {
   deviceId: string;
+  identityEpoch: string;
   generationId: string;
   schemaVersion?: number;
   maxSegmentBytes?: number;
@@ -1805,6 +1884,7 @@ export interface BackendReviewFeedbackTruthFlushDiagnostics {
 
 export interface BackendReviewTruthBackfillRequest {
   deviceId: string;
+  identityEpoch: string;
   generationId: string;
   schemaVersion?: number;
   maxSegmentBytes?: number;

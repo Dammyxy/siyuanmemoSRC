@@ -26,6 +26,35 @@ describe('BackendCoreRpcAdapter', () => {
             ok: true,
             initialized: true,
             dbFile: 'siyuanmemo.db',
+            readiness: {
+              status: 'ready' as const,
+              projectionReadable: true,
+              writable: true,
+              recovery: null,
+            },
+            deferredWork: [{
+              version: 1 as const,
+              kind: 'startup-storage-maintenance' as const,
+              owner: 'application-context' as const,
+              phase: 'post-ready' as const,
+              reason: 'db.load',
+              safeToDefer: true as const,
+              statusReference: {
+                kind: 'kernel-companion-background-work' as const,
+                workKind: 'startup-storage-maintenance' as const,
+              },
+              frontier: {
+                pluginInstallationId: null,
+                identityEpoch: null,
+                inputVersion: 'startup-maintenance-input-v1',
+                frontierHash: null,
+                recoveryStatus: null,
+                journalSequenceFrontier: null,
+                truthCoverageFrontier: null,
+                externalInputDirtyGeneration: 0,
+                pendingExternalMerge: false,
+              },
+            }],
             projectionSnapshot: {
               version: 2,
               xiuyuans: {},
@@ -39,6 +68,35 @@ describe('BackendCoreRpcAdapter', () => {
             ok: true,
             reloaded: true,
             dbFile: 'siyuanmemo.db',
+            readiness: {
+              status: 'ready' as const,
+              projectionReadable: true,
+              writable: true,
+              recovery: null,
+            },
+            deferredWork: [{
+              version: 1 as const,
+              kind: 'startup-storage-maintenance' as const,
+              owner: 'application-context' as const,
+              phase: 'post-ready' as const,
+              reason: 'db.reload',
+              safeToDefer: true as const,
+              statusReference: {
+                kind: 'kernel-companion-background-work' as const,
+                workKind: 'startup-storage-maintenance' as const,
+              },
+              frontier: {
+                pluginInstallationId: null,
+                identityEpoch: null,
+                inputVersion: 'startup-maintenance-input-v1',
+                frontierHash: null,
+                recoveryStatus: null,
+                journalSequenceFrontier: null,
+                truthCoverageFrontier: null,
+                externalInputDirtyGeneration: 0,
+                pendingExternalMerge: false,
+              },
+            }],
           })),
           getStorageMaintenanceStatus: vi.fn(async (request) => ({
             operationId: request.operationId,
@@ -79,11 +137,46 @@ describe('BackendCoreRpcAdapter', () => {
         initialized: true,
       },
     });
-    await expect(dispatchCore(dispatcher, context, 'db.load')).resolves.toMatchObject({
-      result: { ok: true, initialized: true, dbFile: 'siyuanmemo.db' },
+    await expect(dispatchCore(dispatcher, context, 'db.load', [])).resolves.toMatchObject({
+      result: {
+        ok: true,
+        initialized: true,
+        dbFile: 'siyuanmemo.db',
+        readiness: {
+          status: 'ready',
+          projectionReadable: true,
+          writable: true,
+        },
+        deferredWork: [{
+          kind: 'startup-storage-maintenance',
+          owner: 'application-context',
+          statusReference: {
+            kind: 'kernel-companion-background-work',
+            workKind: 'startup-storage-maintenance',
+          },
+        }],
+      },
     });
-    await expect(dispatchCore(dispatcher, context, 'db.reload')).resolves.toMatchObject({
-      result: { ok: true, reloaded: true, dbFile: 'siyuanmemo.db' },
+    await expect(dispatchCore(dispatcher, context, 'db.reload', [])).resolves.toMatchObject({
+      result: {
+        ok: true,
+        reloaded: true,
+        dbFile: 'siyuanmemo.db',
+        readiness: {
+          status: 'ready',
+          projectionReadable: true,
+          writable: true,
+        },
+        deferredWork: [{
+          kind: 'startup-storage-maintenance',
+          owner: 'application-context',
+          reason: 'db.reload',
+          statusReference: {
+            kind: 'kernel-companion-background-work',
+            workKind: 'startup-storage-maintenance',
+          },
+        }],
+      },
     });
     await expect(dispatchCore(
       dispatcher,
@@ -221,6 +314,192 @@ describe('BackendCoreRpcAdapter', () => {
         },
       });
     }
+  });
+
+  it('unwraps JSON-RPC positional params before passing db.load identity into the database', async () => {
+    const load = vi.fn(async () => ({
+      ok: true,
+      initialized: true,
+      dbFile: 'siyuanmemo.db',
+      readiness: {
+        status: 'ready' as const,
+        projectionReadable: true,
+        writable: true,
+        recovery: null,
+      },
+      deferredWork: [],
+      projectionSnapshot: {
+        version: 2,
+        xiuyuans: {},
+        cards: {},
+        cardDTOs: {},
+        deletedCardDTOs: {},
+        deletedXiuyuans: {},
+      },
+    }));
+    const context: BackendCoreRpcHandlerContext = {
+      core: {
+        database: {
+          getStatus: () => ({ initialized: false }),
+          load,
+          reloadFromDisk: vi.fn(async () => ({
+            ok: true,
+            reloaded: true,
+            dbFile: 'siyuanmemo.db',
+          })),
+          getStorageMaintenanceStatus: vi.fn(),
+          applyStorageMaintenanceBatch: vi.fn(),
+        },
+        readDiagnosticsStatus: vi.fn(async () => createDiagnosticsStatus()),
+        getPrivateAuditEventCount: () => 0,
+      },
+    };
+    const dispatcher = new BackendRpcDispatcher(
+      createBackendRpcHandlerRegistry(BACKEND_CORE_RPC_HANDLER_REGISTRATIONS),
+    );
+
+    await dispatchCore(dispatcher, context, 'db.load', [{
+      truthDeviceId: 'truth-device-1',
+      identityEpoch: 'epoch-1',
+      reviewTruthGenerationId: 'review-events-v1',
+    }]);
+
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({
+      truthDeviceId: 'truth-device-1',
+      identityEpoch: 'epoch-1',
+      reviewTruthGenerationId: 'review-events-v1',
+    }));
+  });
+
+  it('unwraps JSON-RPC positional params before passing db.reload identity into the database', async () => {
+    const reloadFromDisk = vi.fn(async () => ({
+      ok: true,
+      reloaded: true,
+      dbFile: 'siyuanmemo.db',
+      readiness: {
+        status: 'ready' as const,
+        projectionReadable: true,
+        writable: true,
+        recovery: null,
+      },
+      deferredWork: [],
+    }));
+    const context: BackendCoreRpcHandlerContext = {
+      core: {
+        database: {
+          getStatus: () => ({ initialized: true }),
+          load: vi.fn(async () => ({
+            ok: true,
+            initialized: true,
+            dbFile: 'siyuanmemo.db',
+            readiness: {
+              status: 'ready' as const,
+              projectionReadable: true,
+              writable: true,
+              recovery: null,
+            },
+            deferredWork: [],
+            projectionSnapshot: {
+              version: 2,
+              xiuyuans: {},
+              cards: {},
+              cardDTOs: {},
+              deletedCardDTOs: {},
+              deletedXiuyuans: {},
+            },
+          })),
+          reloadFromDisk,
+          getStorageMaintenanceStatus: vi.fn(),
+          applyStorageMaintenanceBatch: vi.fn(),
+        },
+        readDiagnosticsStatus: vi.fn(async () => createDiagnosticsStatus()),
+        getPrivateAuditEventCount: () => 0,
+      },
+    };
+    const dispatcher = new BackendRpcDispatcher(
+      createBackendRpcHandlerRegistry(BACKEND_CORE_RPC_HANDLER_REGISTRATIONS),
+    );
+
+    await dispatchCore(dispatcher, context, 'db.reload', [{
+      truthDeviceId: 'truth-device-reload',
+      identityEpoch: 'epoch-reload',
+      cardTruthGenerationId: 'card-memory-facts-v2',
+    }]);
+
+    expect(reloadFromDisk).toHaveBeenCalledWith(expect.objectContaining({
+      truthDeviceId: 'truth-device-reload',
+      identityEpoch: 'epoch-reload',
+      cardTruthGenerationId: 'card-memory-facts-v2',
+    }));
+  });
+
+  it.each([
+    { method: 'db.load' as const, params: { truthDeviceId: 'legacy-direct-shape' }, message: 'db.load expects positional [request] params' },
+    { method: 'db.load' as const, params: ['not-an-object'], message: 'db.load request must be an object' },
+    { method: 'db.load' as const, params: [{ truthDeviceId: 123 }], message: 'db.load request.truthDeviceId must be string or null' },
+    { method: 'db.reload' as const, params: { truthDeviceId: 'legacy-direct-shape' }, message: 'db.reload expects positional [request] params' },
+    { method: 'db.reload' as const, params: [['nested-array']], message: 'db.reload request must be an object' },
+    { method: 'db.reload' as const, params: [{ truthSchemaVersion: '1' }], message: 'db.reload request.truthSchemaVersion must be finite number or null' },
+  ])('rejects malformed $method params explicitly', async ({ method, params, message }) => {
+    const load = vi.fn();
+    const reloadFromDisk = vi.fn();
+    const context: BackendCoreRpcHandlerContext = {
+      core: {
+        database: {
+          getStatus: () => ({ initialized: false }),
+          load,
+          reloadFromDisk,
+          getStorageMaintenanceStatus: vi.fn(),
+          applyStorageMaintenanceBatch: vi.fn(),
+        },
+        readDiagnosticsStatus: vi.fn(async () => createDiagnosticsStatus()),
+        getPrivateAuditEventCount: () => 0,
+      },
+    };
+    const dispatcher = new BackendRpcDispatcher(
+      createBackendRpcHandlerRegistry(BACKEND_CORE_RPC_HANDLER_REGISTRATIONS),
+    );
+
+    await expect(dispatchCore(dispatcher, context, method, params)).resolves.toMatchObject({
+      error: {
+        code: 'INVALID_REQUEST',
+        message,
+      },
+    });
+    expect(load).not.toHaveBeenCalled();
+    expect(reloadFromDisk).not.toHaveBeenCalled();
+  });
+
+  it('lets db.load initialize the backend with mutation identity before storage preflight', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    const loadResponse = await kernel.handle({
+      id: 'load-with-identity',
+      jsonrpc: '2.0',
+      method: 'db.load',
+      params: [{
+        truthDeviceId: 'truth-device-1',
+        identityEpoch: 'epoch-1',
+        reviewTruthGenerationId: 'review-events-v1',
+      }],
+    });
+
+    expect(loadResponse).toMatchObject({
+      id: 'load-with-identity',
+      jsonrpc: '2.0',
+      result: {
+        ok: true,
+        initialized: true,
+      },
+    });
+    await expect(database.getCombinedStorageDiagnostics()).resolves.toMatchObject({
+      identity: {
+        available: true,
+        deviceId: 'truth-device-1',
+        identityEpoch: 'epoch-1',
+      },
+    });
   });
 });
 

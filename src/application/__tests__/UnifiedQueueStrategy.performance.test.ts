@@ -329,6 +329,7 @@ function createQueueStub(
     type: queueType,
     getType: () => queueType,
     getCards: vi.fn(async () => liveCards.map((card) => ({ ...card }))),
+    getReadOnlyRecoveryCards: vi.fn(async () => liveCards.map((card) => ({ ...card }))),
     getSnapshotRows: vi.fn(async () => liveCards.map((card, index) => buildQueueSnapshotRow(card, {
       queueIndex: index + 1,
     }))),
@@ -517,6 +518,170 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(queue.getSnapshotRows).toHaveBeenCalledTimes(1);
     expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(projectionRows.map((row) => row.id), true);
     expect(getCardsSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses read-only recovery queue state for projection-backed review cards and counters', async () => {
+    const card = createCard({ id: 'recovery-card', blockId: 'recovery-block' });
+    const queue = createQueueStub(QueueType.FilterGroup, [card]);
+    (queue.getSnapshotRows as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('QUEUE_PROJECTION_NOT_READY: filter-group projection stale'),
+    );
+    (queue.getCardsBySnapshotIds as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('projection hydration must not run during recovery'),
+    );
+    (queue.getCounterSnapshot as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('counter projection must not run during recovery'),
+    );
+    (queue.getCards as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('normal cards read must not run during recovery'),
+    );
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getQueueProjectionRolloutDiagnostics: vi.fn((queueType?: QueueType) => queueType === QueueType.FilterGroup ? [{
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+        nextCoverageTask: null,
+      }] : []),
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => ({
+          isStartupWriteCapable: () => false,
+        }),
+      })),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(QueueType.FilterGroup, manager as never, eventBus as never, null);
+
+    const counterSnapshot = await strategy.getCounterSnapshot();
+    const next = await strategy.next();
+
+    expect(counterSnapshot).toMatchObject({
+      remaining: 1,
+      due: 1,
+      total: 1,
+      source: 'reconciled',
+    });
+    expect(next?.id).toBe(card.id);
+    expect(queue.getReadOnlyRecoveryCards).toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+    expect(queue.getCounterSnapshot).not.toHaveBeenCalled();
+    expect(queue.getCards).not.toHaveBeenCalled();
+  });
+
+  it('uses read-only recovery queue state instead of worker Review session for admitted projection queues', async () => {
+    const card = createCard({ id: 'recovery-retrieval-card', blockId: 'recovery-retrieval-block' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [card]);
+    (queue.getSnapshotRows as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('projection rows must not run during recovery'),
+    );
+    (queue.getCardsBySnapshotIds as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('projection hydration must not run during recovery'),
+    );
+    (queue.getCounterSnapshot as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('counter projection must not run during recovery'),
+    );
+    (queue.getCards as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('normal cards read must not run during recovery'),
+    );
+    const workerSessionBackend = createWorkerSessionBackend(QueueType.RetrievalPractice, [card]);
+    const manager = {
+      getQueue: vi.fn((queueType?: QueueType) => (
+        queueType === QueueType.FinalDrill
+          ? createQueueStub(QueueType.FinalDrill, [])
+          : queue
+      )),
+      getQueueProjectionRolloutDiagnostics: vi.fn((queueType?: QueueType) => queueType === QueueType.RetrievalPractice ? [{
+        queueType: QueueType.RetrievalPractice,
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+        nextCoverageTask: null,
+      }] : []),
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => ({
+          ...workerSessionBackend,
+          isStartupWriteCapable: () => false,
+        }),
+      })),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null,
+      null,
+      {
+        kind: 'projection-queue',
+        queueType: QueueType.RetrievalPractice,
+        entrySurface: 'browser-toolbar:retrieval-practice',
+        admission: { kind: 'required' },
+      },
+      {
+        queueType: QueueType.RetrievalPractice,
+        entrySurface: 'browser-toolbar:retrieval-practice',
+        entryTargetIdentity: 'projection-queue:retrieval-practice:browser-toolbar:retrieval-practice',
+        projectionPolicyHash: null,
+        projectionGeneration: null,
+        readinessRequest: {
+          queueType: QueueType.RetrievalPractice,
+          preset: 'all',
+          searchText: null,
+          docId: null,
+          scopeDocIds: [],
+          cardType: 'all',
+          source: 'browser',
+        },
+        admittedAt: Date.now(),
+        source: 'read-only-recovery-queue-state',
+      },
+    );
+
+    const counterSnapshot = await strategy.getCounterSnapshot();
+    const next = await strategy.next();
+
+    expect(counterSnapshot?.remaining).toBe(1);
+    expect(next?.id).toBe(card.id);
+    expect(workerSessionBackend.reviewSessionStart).not.toHaveBeenCalled();
+    expect(queue.getReadOnlyRecoveryCards).toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+    expect(queue.getCounterSnapshot).not.toHaveBeenCalled();
+    expect(queue.getCards).not.toHaveBeenCalled();
+  });
+
+  it('uses read-only recovery queue state instead of NeuralRoam backend advance', async () => {
+    const card = createCard({ id: 'recovery-neural-card', blockId: 'recovery-neural-block' });
+    const queue = createQueueStub(QueueType.NeuralRoam, [card]);
+    (queue.getCards as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('normal neural-roam cards read must not run during recovery'),
+    );
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      neuralRoamAdvance: vi.fn(async () => {
+        throw new Error('neural-roam backend advance must not run during recovery');
+      }),
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => ({
+          isStartupWriteCapable: () => false,
+        }),
+      })),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(QueueType.NeuralRoam, manager as never, eventBus as never, null);
+
+    const counterSnapshot = await strategy.getCounterSnapshot();
+    const next = await strategy.next();
+
+    expect(counterSnapshot?.remaining).toBe(1);
+    expect(next?.id).toBe(card.id);
+    expect(manager.neuralRoamAdvance).not.toHaveBeenCalled();
+    expect(queue.getReadOnlyRecoveryCards).toHaveBeenCalled();
+    expect(queue.getCards).not.toHaveBeenCalled();
   });
 
   it('uses the session runtime instead of projection hydration for incremental-learning next', async () => {

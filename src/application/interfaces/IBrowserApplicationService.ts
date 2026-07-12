@@ -151,6 +151,8 @@ export interface IBrowserApplicationService {
    * Explicit repair command for Browser queue read model projections.
    * Passive readiness/read paths must stay read-only.
    */
+  canRepairQueueReadModel?(): boolean;
+
   repairQueueReadModel?(request: QueueProjectionReadinessRequest): Promise<boolean>;
   
   /**

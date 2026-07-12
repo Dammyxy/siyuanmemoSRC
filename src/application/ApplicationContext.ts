@@ -23,7 +23,11 @@ import { WorkerCardScheduleUpdateAdapter } from '@/application/adapters/WorkerCa
 import { WorkerCardCrudMutationAdapter } from '@/application/adapters/WorkerCardCrudMutationAdapter';
 import { WorkerCardCrudStorageAdapter } from '@/application/adapters/WorkerCardCrudStorageAdapter';
 import { WorkerSrsCardSemanticsRepairRepository } from '@/application/adapters/WorkerSrsCardSemanticsRepairRepository';
-import { runStartupWorkerStorageMaintenance } from '@/application/services/StartupWorkerStorageMaintenance';
+import {
+  runStartupWorkerStorageMaintenance,
+  type StartupMaintenanceReceiptScope,
+  type StartupWorkerStorageMaintenanceDiagnostics,
+} from '@/application/services/StartupWorkerStorageMaintenance';
 import {
   LegacyStorageMigrationSourcePlanner,
   runPendingLegacyStorageMigrations,
@@ -161,6 +165,10 @@ import { DEFAULT_SETTINGS } from '@/types/settings';
 import { isErr } from '@/types/result';
 import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
 import { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type {
+  KernelCompanionProgressiveExcerptCompletionRepairDiagnostics,
+  KernelCompanionStartupStorageMaintenanceDiagnostics,
+} from '@/application/backgroundWork/KernelCompanionBackgroundWorkRegistry';
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
@@ -192,6 +200,9 @@ import type {
   BackendCardCrudBatchMutateResult,
   BackendCardScheduleBatchUpdateRequest,
   BackendCardScheduleBatchUpdateResult,
+  BackendDbLoadResult,
+  BackendDbReloadResult,
+  BackendDeferredStartupWorkDescriptor,
   BackendQueueStateBatchMutateRequest,
   BackendQueueStateBatchMutateResult,
   BackendQueueStateLoadAllResult,
@@ -276,6 +287,98 @@ interface ApplicationServiceRegistry {
 type ServiceName = keyof ApplicationServiceRegistry;
 type ServiceFactory<K extends ServiceName> = (context: ApplicationContext) => ApplicationServiceRegistry[K];
 
+function formatStorageMaintenanceWorkerUnavailable(backendStartupError: string | null): string {
+  const base = 'BACKEND_UNAVAILABLE: storage maintenance requires backend Worker';
+  const startupError = String(backendStartupError || '').trim();
+  return startupError ? `${base}; backend startup failed: ${startupError}` : base;
+}
+
+function deferredStartupWorkKey(descriptor: BackendDeferredStartupWorkDescriptor): string {
+  return [
+    descriptor.kind,
+    descriptor.owner,
+    descriptor.phase,
+    descriptor.frontier.identityEpoch ?? '',
+    descriptor.frontier.recoveryStatus ?? '',
+  ].join('\n');
+}
+
+function sanitizeStartupWorkIdentityPart(value: unknown): string {
+  return String(value ?? '').trim().replace(/[^a-zA-Z0-9._:-]/g, '_');
+}
+
+function createStartupMaintenanceLifecycleDedupeKey(
+  descriptors: readonly BackendDeferredStartupWorkDescriptor[],
+  runtimeInstanceId: string | null,
+): string | null {
+  const descriptor = descriptors.find((candidate) => candidate.kind === 'startup-storage-maintenance');
+  if (!descriptor) {
+    return null;
+  }
+  const frontier = descriptor.frontier;
+  return [
+    'startup-background-work-lifecycle-v1',
+    descriptor.kind,
+    descriptor.owner,
+    descriptor.phase,
+    runtimeInstanceId || 'runtime-instance-unavailable',
+    frontier.pluginInstallationId ?? 'plugin-installation-unavailable',
+    frontier.identityEpoch ?? 'identity-epoch-unavailable',
+    frontier.inputVersion,
+    frontier.frontierHash ?? 'frontier-unavailable',
+    String(frontier.externalInputDirtyGeneration),
+    frontier.pendingExternalMerge ? 'pending-external-merge' : 'external-merge-clean',
+    frontier.recoveryStatus ?? 'recovery-none',
+  ].map(sanitizeStartupWorkIdentityPart).join(':');
+}
+
+function recordStartupDeferredWorkDescriptors(
+  target: BackendDeferredStartupWorkDescriptor[],
+  result: Pick<BackendDbLoadResult | BackendDbReloadResult, 'deferredWork'> | null | undefined,
+): void {
+  for (const descriptor of result?.deferredWork ?? []) {
+    const key = deferredStartupWorkKey(descriptor);
+    if (!target.some((existing) => deferredStartupWorkKey(existing) === key)) {
+      target.push(descriptor);
+    }
+  }
+}
+
+function hasStartupStorageMaintenanceDescriptor(
+  descriptors: readonly BackendDeferredStartupWorkDescriptor[],
+): boolean {
+  return descriptors.some((descriptor) => descriptor.kind === 'startup-storage-maintenance');
+}
+
+function hasTruthPromotionDescriptor(
+  descriptors: readonly BackendDeferredStartupWorkDescriptor[],
+): boolean {
+  return descriptors.some((descriptor) => descriptor.kind === 'truth-promotion');
+}
+
+function createStartupMaintenanceReceiptScope(
+  descriptors: readonly BackendDeferredStartupWorkDescriptor[],
+): StartupMaintenanceReceiptScope | null {
+  const descriptor = descriptors.find((candidate) => candidate.kind === 'startup-storage-maintenance');
+  const frontier = descriptor?.frontier;
+  if (
+    !frontier?.pluginInstallationId
+    || !frontier.identityEpoch
+    || !frontier.inputVersion
+    || !frontier.frontierHash
+  ) {
+    return null;
+  }
+  return {
+    pluginInstallationId: frontier.pluginInstallationId,
+    identityEpoch: frontier.identityEpoch,
+    inputVersion: frontier.inputVersion,
+    frontierHash: frontier.frontierHash,
+    externalInputDirtyGeneration: frontier.externalInputDirtyGeneration,
+    pendingExternalMerge: frontier.pendingExternalMerge,
+  };
+}
+
 type DisposableSrsBackendTransport = ApplicationBackendRuntimeTransport;
 type DisposalErrorCollector = Array<{ service: string; error: unknown }>;
 type DisposalStepOutcome<TResult> =
@@ -346,12 +449,17 @@ export class ApplicationContext {
   private autoCardBackendExecutionDepth = 0;
   private kernelTransactionIngestHandler?: KernelTransactionIngestHandler;
   private kernelTransactionActionPump?: KernelTransactionActionPump;
-  private progressiveExcerptCompletionRepairTimer?: ReturnType<typeof setTimeout>;
+  private progressiveExcerptCompletionRepairJobId: string | null = null;
   private srsBackendClient: SrsBackendClient | null = null;
   private srsBackendTransport: DisposableSrsBackendTransport | null = null;
   private frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
   private followerCommandClient: FollowerCommandClient | null = null;
   private kernelSidecarClient: KernelSidecarClient;
+  private postReadyStartupMaintenance: ((
+    receiptScope: StartupMaintenanceReceiptScope | null,
+  ) => Promise<StartupWorkerStorageMaintenanceDiagnostics>) | null = null;
+  private postReadyStartupMaintenanceJobId: string | null = null;
+  private pendingStartupDeferredWorkDescriptors: BackendDeferredStartupWorkDescriptor[] = [];
   private readonly backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
   private readonly backendStartupError: string | null;
   private readonly autoCardKernelXiuyuanServiceBundle: AutoCardKernelXiuyuanServiceBundle;
@@ -772,7 +880,9 @@ export class ApplicationContext {
     });
 
     this.registerServiceFactory('reviewAdmissionModule', (context) => {
-      return new ReviewAdmissionModule(context.getUnifiedDataSourceManager());
+      return new ReviewAdmissionModule(context.getUnifiedDataSourceManager(), {
+        isStartupWriteCapable: () => context.srsBackendClient?.isStartupWriteCapable?.() !== false,
+      });
     });
 
     this.registerServiceFactory('reviewLogService', (context) => {
@@ -1266,12 +1376,15 @@ export class ApplicationContext {
       kernelSidecarClient,
       backendMigrationRuntimePolicy,
       backendStartupError,
+      initialLoadResult,
     } = backendRuntimeBundle;
+    const startupDeferredWorkDescriptors: BackendDeferredStartupWorkDescriptor[] = [];
+    recordStartupDeferredWorkDescriptors(startupDeferredWorkDescriptors, initialLoadResult);
     const executeStorageMaintenanceBatch = async (
       request: BackendStorageMaintenanceApplyBatchRequest,
     ): Promise<BackendStorageMaintenanceApplyBatchResult> => {
       if (!srsBackendClient) {
-        throw new Error('BACKEND_UNAVAILABLE: storage maintenance requires backend Worker');
+        throw new Error(formatStorageMaintenanceWorkerUnavailable(backendStartupError));
       }
       if (!backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
         return srsBackendClient.applyStorageMaintenanceBatch(request);
@@ -1296,7 +1409,7 @@ export class ApplicationContext {
       request: BackendStorageMaintenanceStatusRequest,
     ): Promise<BackendStorageMaintenanceStatusResult> => {
       if (!srsBackendClient) {
-        throw new Error('BACKEND_UNAVAILABLE: storage maintenance requires backend Worker');
+        throw new Error(formatStorageMaintenanceWorkerUnavailable(backendStartupError));
       }
       if (!backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
         return srsBackendClient.storageMaintenanceStatus(request);
@@ -1317,35 +1430,56 @@ export class ApplicationContext {
         params: request,
       });
     };
-    const migrationResult = await measureRuntimePerformance(
-      'startup',
-      'storage-migration.worker-apply',
-      () => runPendingLegacyStorageMigrations({
-        planner: new LegacyStorageMigrationSourcePlanner(
-          fileService,
-          legacyPersistence.load,
-        ),
-        readStatus: executeStorageMaintenanceStatus,
-        executeBatch: executeStorageMaintenanceBatch,
-        writeBackup: (fileName, data) => fileService.writeJSON(fileName, data),
-      }),
-    );
+    const startupReadiness = initialLoadResult?.readiness ?? null;
+    const canRunStartupStorageMigrations = !startupReadiness
+      || (
+        startupReadiness.status === 'ready'
+        && startupReadiness.writable === true
+      );
+    const migrationResult = canRunStartupStorageMigrations
+      ? await measureRuntimePerformance(
+        'startup',
+        'storage-migration.worker-apply',
+        () => runPendingLegacyStorageMigrations({
+          planner: new LegacyStorageMigrationSourcePlanner(
+            fileService,
+            legacyPersistence.load,
+          ),
+          readStatus: executeStorageMaintenanceStatus,
+          executeBatch: executeStorageMaintenanceBatch,
+          writeBackup: (fileName, data) => fileService.writeJSON(fileName, data),
+        }),
+      )
+      : {
+          requiredOperationIds: [],
+          appliedOperationIds: [],
+        };
+    if (!canRunStartupStorageMigrations) {
+      logger.warn('[ApplicationContext] skipped startup storage migrations because backend readiness is read-only', {
+        status: startupReadiness.status,
+        writable: startupReadiness.writable,
+        recoveryStatus: startupReadiness.recovery?.status ?? null,
+        recoveryCode: startupReadiness.recovery?.code ?? null,
+      });
+    }
     if (
       migrationResult.requiredOperationIds.length > 0
       && frontendInstanceRuntime?.getMode() === 'follower'
       && srsBackendClient
     ) {
-      await measureRuntimePerformance(
+      const reloadResult = await measureRuntimePerformance(
         'startup',
         'storage-migration.follower-worker-reload',
         () => srsBackendClient.reloadDatabase(),
       );
+      recordStartupDeferredWorkDescriptors(startupDeferredWorkDescriptors, reloadResult);
     }
     const unifiedLoad = async (): Promise<UnifiedCardStore> => {
       if (!srsBackendClient) {
         throw new Error('BACKEND_UNAVAILABLE: unified storage projection requires backend Worker');
       }
       const loadResult = await srsBackendClient.loadDatabase();
+      recordStartupDeferredWorkDescriptors(startupDeferredWorkDescriptors, loadResult);
       return loadResult.projectionSnapshot as UnifiedCardStore;
     };
     let cardCrudMutationAdapter: WorkerCardCrudMutationAdapter | null = null;
@@ -1559,24 +1693,14 @@ export class ApplicationContext {
     cardCrudMutationAdapter = new WorkerCardCrudMutationAdapter({
       execute: (request) => context.executeCardCrudBatchMutate(request),
     });
-    const startupMaintenanceDiagnostics = await measureRuntimePerformance(
-      'startup',
-      'worker-storage-maintenance',
-      () => runStartupWorkerStorageMaintenance({
-        storage: unifiedStorageManager,
-        executeScheduleBatch: executeCardScheduleBatch,
-      }),
-    );
-    incrementRuntimePerformanceCounter(
-      'startup',
-      'orphan-card-count',
-      startupMaintenanceDiagnostics.orphanRepair.discoveredCardCount,
-    );
-    incrementRuntimePerformanceCounter(
-      'startup',
-      'orphan-card-repaired',
-      startupMaintenanceDiagnostics.orphanRepair.repairedCardCount,
-    );
+    context.postReadyStartupMaintenance = (receiptScope) => runStartupWorkerStorageMaintenance({
+      storage: unifiedStorageManager,
+      executeScheduleBatch: executeCardScheduleBatch,
+      readReceipt: executeStorageMaintenanceStatus,
+      writeReceipt: executeStorageMaintenanceBatch,
+      receiptScope,
+    });
+    context.pendingStartupDeferredWorkDescriptors = startupDeferredWorkDescriptors;
     
     context.serviceContainer.set('fileService', fileService);
     context.serviceContainer.set('reviewLogService', reviewLogService);
@@ -1708,23 +1832,67 @@ export class ApplicationContext {
   }
 
   private scheduleProgressiveExcerptCompletionStartupRepair(delayMs = 1500): void {
-    if (this.progressiveExcerptCompletionRepairTimer) {
-      clearTimeout(this.progressiveExcerptCompletionRepairTimer);
+    if (this.progressiveExcerptCompletionRepairJobId) {
+      return;
     }
-    this.progressiveExcerptCompletionRepairTimer = setTimeout(() => {
-      this.progressiveExcerptCompletionRepairTimer = undefined;
-      void this.runProgressiveExcerptCompletionStartupRepair();
-    }, delayMs);
+    const registry = this.srsBackendClient?.getBackgroundWorkRegistry();
+    if (!registry) {
+      logger.warn('[ApplicationContext] skipped progressive excerpt completion startup repair because background registry is unavailable');
+      return;
+    }
+    const resolvedDelayMs = Math.max(0, Math.floor(delayMs));
+    const runtimeInstanceId = this.frontendInstanceRuntime?.getInstanceId() ?? 'runtime-unavailable';
+    const submitResult = registry.submit<KernelCompanionProgressiveExcerptCompletionRepairDiagnostics>({
+      kind: 'progressive-excerpt-completion-repair',
+      dedupeKey: [
+        'progressive-excerpt-completion-repair-lifecycle-v1',
+        sanitizeStartupWorkIdentityPart(runtimeInstanceId),
+      ].join(':'),
+      diagnostics: {
+        reason: 'plugin.onload-ready',
+        delayMs: resolvedDelayMs,
+      },
+      run: async (job) => {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, resolvedDelayMs);
+        });
+        if (job.isCanceled() || this.disposed) {
+          return {
+            state: 'canceled',
+            reason: 'progressive-excerpt-completion-repair-canceled',
+            diagnostics: {
+              reason: 'plugin.onload-ready',
+              delayMs: resolvedDelayMs,
+              unavailable: true,
+            },
+          };
+        }
+        const diagnostics = await this.runProgressiveExcerptCompletionStartupRepair();
+        return {
+          state: 'completed',
+          diagnostics: {
+            reason: 'plugin.onload-ready',
+            delayMs: resolvedDelayMs,
+            ...diagnostics,
+          },
+        };
+      },
+    });
+    this.progressiveExcerptCompletionRepairJobId = submitResult.job.jobId;
   }
 
-  private async runProgressiveExcerptCompletionStartupRepair(): Promise<void> {
+  private async runProgressiveExcerptCompletionStartupRepair(): Promise<KernelCompanionProgressiveExcerptCompletionRepairDiagnostics> {
     if (this.disposed) {
-      return;
+      return { unavailable: true };
     }
     try {
       const results = await this.getProgressiveExcerptCompletionService().repairBatch({ limit: 20 });
       if (results.length === 0) {
-        return;
+        return {
+          repairedCount: 0,
+          completedCount: 0,
+          failedCount: 0,
+        };
       }
       const completed = results.filter((result) => result.status === 'completed').length;
       const failed = results.filter((result) => result.status === 'failed').length;
@@ -1733,8 +1901,16 @@ export class ApplicationContext {
         completed,
         failed,
       });
+      return {
+        repairedCount: results.length,
+        completedCount: completed,
+        failedCount: failed,
+      };
     } catch (error) {
       logger.warn('[ApplicationContext] Progressive excerpt completion startup repair failed:', error);
+      return {
+        unavailable: true,
+      };
     }
   }
 
@@ -2419,26 +2595,7 @@ export class ApplicationContext {
     if (!backendClient) {
       throw new Error('BACKEND_UNAVAILABLE: queue.state.loadAll requires backend Worker');
     }
-    if (!this.backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
-      return backendClient.queueStateLoadAll();
-    }
-    const runtime = this.getFrontendInstanceRuntime();
-    if (!runtime) {
-      throw new Error('BACKEND_UNAVAILABLE: queue.state.loadAll requires writer relay runtime');
-    }
-    if (runtime.getMode() === 'writer') {
-      await runtime.ensureWritable();
-      return backendClient.queueStateLoadAll();
-    }
-    const followerClient = this.getFollowerCommandClient();
-    if (!followerClient) {
-      throw new Error('BACKEND_UNAVAILABLE: queue.state.loadAll relay is unavailable in follower mode');
-    }
-    return followerClient.submitAndWait<BackendQueueStateLoadAllResult>({
-      instanceId: runtime.getInstanceId(),
-      method: 'queue.state.loadAll',
-      params: {},
-    });
+    return backendClient.queueStateLoadAll();
   }
 
   private async executeQueueStateBatchMutate(
@@ -2726,6 +2883,125 @@ export class ApplicationContext {
   getSchedulerRouter(): SchedulerRouter {
     return this.getScheduler(); // SchedulerRouter 实现了 ISchedulerRouter 接口
   }
+
+  startPostReadyStartupMaintenance(
+    reason = 'post-ready',
+    descriptors?: readonly BackendDeferredStartupWorkDescriptor[],
+  ): string | null {
+    if (this.disposed) {
+      logger.warn('[ApplicationContext] skipped post-ready startup maintenance because context is disposed', {
+        reason,
+      });
+      return null;
+    }
+    const deferredDescriptors = descriptors ?? this.consumePendingStartupDeferredWorkDescriptors();
+    const hasStartupMaintenance = hasStartupStorageMaintenanceDescriptor(deferredDescriptors);
+    const hasTruthPromotion = hasTruthPromotionDescriptor(deferredDescriptors);
+    if (!hasStartupMaintenance && !hasTruthPromotion) {
+      logger.warn('[ApplicationContext] skipped post-ready startup maintenance because no startup descriptor was returned', {
+        reason,
+      });
+      return null;
+    }
+    const registry = this.srsBackendClient?.getBackgroundWorkRegistry();
+    const truthPromotionJobId = hasTruthPromotion
+      ? this.srsBackendClient?.scheduleTruthPromotionTracking(reason) ?? null
+      : null;
+    if (this.postReadyStartupMaintenanceJobId) {
+      return this.postReadyStartupMaintenanceJobId ?? truthPromotionJobId;
+    }
+    const runMaintenance = this.postReadyStartupMaintenance;
+    if (!runMaintenance || !registry) {
+      logger.warn('[ApplicationContext] skipped post-ready startup maintenance because backend registry is unavailable', {
+        reason,
+      });
+      return truthPromotionJobId;
+    }
+    if (!hasStartupMaintenance) {
+      return truthPromotionJobId;
+    }
+
+    const receiptScope = createStartupMaintenanceReceiptScope(deferredDescriptors);
+    const lifecycleDedupeKey = createStartupMaintenanceLifecycleDedupeKey(
+      deferredDescriptors,
+      this.frontendInstanceRuntime?.getInstanceId() ?? null,
+    );
+    const submitResult = registry.submit<KernelCompanionStartupStorageMaintenanceDiagnostics>({
+      kind: 'startup-storage-maintenance',
+      dedupeKey: lifecycleDedupeKey,
+      diagnostics: {
+        reason,
+        deferredDescriptorCount: deferredDescriptors.length,
+        deferredDescriptorKinds: deferredDescriptors.map((descriptor) => descriptor.kind).join(','),
+        receiptScopeAvailable: receiptScope !== null,
+        lifecycleDedupeKeyAvailable: lifecycleDedupeKey !== null,
+      },
+      run: async (job) => {
+        if (job.isCanceled() || this.disposed) {
+          return {
+            state: 'canceled',
+            reason: 'post-ready-startup-maintenance-canceled',
+            diagnostics: { reason, unavailable: true },
+          };
+        }
+        const diagnostics = await measureRuntimePerformance(
+          'startup',
+          'worker-storage-maintenance',
+          () => runMaintenance(receiptScope),
+        );
+        if (job.isCanceled() || this.disposed) {
+          return {
+            state: 'canceled',
+            reason: 'post-ready-startup-maintenance-canceled',
+            diagnostics: { reason, unavailable: true },
+          };
+        }
+        incrementRuntimePerformanceCounter(
+          'startup',
+          'orphan-card-count',
+          diagnostics.orphanRepair.discoveredCardCount,
+        );
+        incrementRuntimePerformanceCounter(
+          'startup',
+          'orphan-card-repaired',
+          diagnostics.orphanRepair.repairedCardCount,
+        );
+        return {
+          state: 'completed',
+          diagnostics: {
+            reason,
+            operationId: diagnostics.operationId,
+            ownedPhaseCount: 2,
+            scheduleNormalizationPhase: 'completed',
+            scheduleAffectedCardCount: diagnostics.schedule.affectedCardCount,
+            scheduleCompletedBatches: diagnostics.schedule.completedBatches,
+            orphanCardRepairPhase: 'completed',
+            orphanDiscoveredCardCount: diagnostics.orphanRepair.discoveredCardCount,
+            orphanRepairedCardCount: diagnostics.orphanRepair.repairedCardCount,
+            orphanCompletedBatches: diagnostics.orphanRepair.completedBatches,
+          },
+        };
+      },
+    });
+    this.postReadyStartupMaintenanceJobId = submitResult.job.jobId;
+    return this.postReadyStartupMaintenanceJobId;
+  }
+
+  async reloadBackendDatabaseAfterReady(reason = 'post-ready-reload'): Promise<BackendDbReloadResult> {
+    const srsBackendClient = this.srsBackendClient;
+    if (!srsBackendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: backend reload requires backend Worker');
+    }
+    const reloadResult = await srsBackendClient.reloadDatabase();
+    this.startPostReadyStartupMaintenance(reason, reloadResult.deferredWork ?? []);
+    return reloadResult;
+  }
+
+  private consumePendingStartupDeferredWorkDescriptors(): BackendDeferredStartupWorkDescriptor[] {
+    const descriptors = this.pendingStartupDeferredWorkDescriptors;
+    this.pendingStartupDeferredWorkDescriptors = [];
+    return descriptors;
+  }
   
   // ========================================================================
   // 生命周期管理
@@ -2774,17 +3050,6 @@ export class ApplicationContext {
         errors.push({ service: 'frontendInstanceRuntime.prepareForUnload', error });
       }
 
-      if (this.progressiveExcerptCompletionRepairTimer) {
-        try {
-          clearTimeout(this.progressiveExcerptCompletionRepairTimer);
-          this.progressiveExcerptCompletionRepairTimer = undefined;
-          logger.info('[ApplicationContext] ✅ Progressive excerpt completion startup repair timer cleared');
-        } catch (error) {
-          logger.error('[ApplicationContext] Error clearing progressive excerpt completion startup repair timer:', error);
-          errors.push({ service: 'progressiveExcerptCompletionRepairTimer', error });
-        }
-      }
-      
       // 0. 立即保存 SettingsService (优先级最高)
       if (this.isServiceCreated('settingsService')) {
         const settingsService = this.getSettingsService();

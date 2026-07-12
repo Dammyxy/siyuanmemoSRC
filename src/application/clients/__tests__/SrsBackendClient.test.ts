@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SrsBackendClient, type SrsBackendTransport } from '../SrsBackendClient';
+import {
+  SrsBackendClient,
+  type SrsBackendClientOptions,
+  type SrsBackendTransport,
+} from '../SrsBackendClient';
 import { KernelCompanionBackgroundWorkRegistry } from '../../backgroundWork/KernelCompanionBackgroundWorkRegistry';
+import type {
+  BackendReviewTruthDeviceDiagnostics,
+  BackendStartupIdentityDisposition,
+} from '../../../../packages/contracts/src/backend-rpc';
 
 function createDurableReviewFeedbackResult(overrides: Record<string, unknown> = {}) {
   return {
@@ -55,6 +63,21 @@ function createDurableReviewFeedbackResult(overrides: Record<string, unknown> = 
   };
 }
 
+function createReviewTruthDeviceDiagnostics(
+  overrides: Partial<BackendReviewTruthDeviceDiagnostics> = {},
+): BackendReviewTruthDeviceDiagnostics {
+  return {
+    deviceId: 'device-A',
+    identityEpoch: 'epoch-A',
+    source: 'authority-copies',
+    localStatePath: 'truth-device-id.v1.json',
+    persisted: true,
+    cacheUpdated: true,
+    error: null,
+    ...overrides,
+  };
+}
+
 describe('SrsBackendClient', () => {
   it('reads storage maintenance status through the core RPC client', async () => {
     const transport: SrsBackendTransport = {
@@ -90,6 +113,78 @@ describe('SrsBackendClient', () => {
         migrationId: 'legacy-import-v1',
       }],
     }));
+  });
+
+  it('passes typed startup identity disposition through pure load and reload RPCs', async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const disposition: BackendStartupIdentityDisposition = {
+      version: 1,
+      status: 'read-only-authority-unavailable',
+      writable: false,
+      retryable: true,
+      deviceId: null,
+      identityEpoch: null,
+      source: 'unavailable',
+      reason: 'IDENTITY_AUTHORITY_UNAVAILABLE: indexedDB read denied',
+    };
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        requests.push({ method: request.method, params: request.params });
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: request.method === 'db.reload'
+            ? {
+                ok: true,
+                reloaded: true,
+                dbFile: 'siyuanmemo.db',
+                readiness: { status: 'read-only-authority-unavailable' },
+                deferredWork: [],
+              }
+            : {
+                ok: true,
+                initialized: true,
+                dbFile: 'siyuanmemo.db',
+                projectionSnapshot: { version: 2, xiuyuans: {}, cards: {} },
+                readiness: { status: 'read-only-authority-unavailable' },
+                deferredWork: [],
+              },
+        };
+      }),
+    };
+    const client = new SrsBackendClient(transport, {
+      startupIdentityDisposition: disposition,
+    });
+
+    await expect(client.loadDatabase()).resolves.toMatchObject({
+      ok: true,
+      initialized: true,
+    });
+    await expect(client.reloadDatabase()).resolves.toMatchObject({
+      ok: true,
+      reloaded: true,
+    });
+    expect(client.requestReviewTruthFlush('manual')).toBe(false);
+    expect(requests).toEqual([
+      {
+        method: 'db.load',
+        params: [expect.objectContaining({
+          startupIdentityDisposition: disposition,
+          truthDeviceId: null,
+          identityEpoch: null,
+          reviewTruthGenerationId: 'review-events-v1',
+        })],
+      },
+      {
+        method: 'db.reload',
+        params: [expect.objectContaining({
+          startupIdentityDisposition: disposition,
+          truthDeviceId: null,
+          identityEpoch: null,
+          reviewTruthGenerationId: 'review-events-v1',
+        })],
+      },
+    ]);
   });
 
   it('reads Native Riff import exclusion through the Card RPC facade', async () => {
@@ -163,6 +258,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 8,
@@ -196,6 +292,7 @@ describe('SrsBackendClient', () => {
         method: 'review.truth.flush',
         params: [{
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 8,
@@ -204,6 +301,163 @@ describe('SrsBackendClient', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('sends verified Review truth mutation identity from trusted authority diagnostics', async () => {
+    vi.useFakeTimers();
+    try {
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          requests.push({ method: request.method, params: request.params });
+          if (request.method === 'review.truth.maintenanceStatus') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                family: 'review-events',
+                journal: {
+                  fileName: 'review-feedback-journal.v1',
+                  storage: 'non-siyuan',
+                  version: 1,
+                  pendingCount: 1,
+                  pendingBytes: 256,
+                  statusCounts: {
+                    'projection-applied': 1,
+                  },
+                  appliedInMemoryCount: 0,
+                  lastWrite: null,
+                  lastReplay: null,
+                  lastCheckpoint: null,
+                },
+                truthBackfill: {
+                  family: 'review-events',
+                  source: 'review_events',
+                  storage: 'truth-segments',
+                  pendingSqlRows: 0,
+                  pendingSqlRowsCheckedAt: 1_700_000_000_000,
+                  syncVisible: false,
+                  last: null,
+                  lastError: null,
+                },
+              },
+            };
+          }
+          if (request.method === 'review.truth.flush') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                at: 1_700_000_000_100,
+                journalQueued: 1,
+                recordsWritten: 1,
+                segmentWritten: true,
+                manifestUpdated: true,
+                projectionRefreshScheduled: true,
+                idempotencyDuplicateSkipped: 0,
+                flushedEntryIds: ['review-feedback:truth-flush-key'],
+                segmentPaths: ['truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack'],
+                error: null,
+              },
+            };
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 4,
+          delayMs: 25,
+        },
+        reviewTruthDevice: createReviewTruthDeviceDiagnostics(),
+      });
+
+      await expect(client.schedulePendingReviewTruthFlush('startup')).resolves.toBe(true);
+      await vi.advanceTimersByTimeAsync(25);
+      await vi.waitFor(() => expect(requests).toHaveLength(2));
+      expect(requests[1]).toEqual({
+        method: 'review.truth.flush',
+        params: [{
+          deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 4,
+        }],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each<[string, SrsBackendClientOptions]>([
+    ['device-only flush options', {
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+      },
+    }],
+    ['epoch-only flush options', {
+      reviewTruthFlush: {
+        deviceId: '',
+        identityEpoch: 'epoch-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+      },
+    }],
+    ['generated diagnostics source', {
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        identityEpoch: 'epoch-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+      },
+      reviewTruthDevice: createReviewTruthDeviceDiagnostics({ source: 'generated' }),
+    }],
+    ['legacy localStorage diagnostics source', {
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        identityEpoch: 'epoch-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+      },
+      reviewTruthDevice: createReviewTruthDeviceDiagnostics({ source: 'legacy-localStorage' }),
+    }],
+    ['mismatched diagnostics device', {
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        identityEpoch: 'epoch-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+      },
+      reviewTruthDevice: createReviewTruthDeviceDiagnostics({ deviceId: 'device-B' }),
+    }],
+    ['mismatched diagnostics epoch', {
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        identityEpoch: 'epoch-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+      },
+      reviewTruthDevice: createReviewTruthDeviceDiagnostics({ identityEpoch: 'epoch-B' }),
+    }],
+  ])('blocks Review truth mutation for %s', async (_caseName, options) => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        throw new Error(`Unexpected backend method ${request.method}`);
+      }),
+    };
+    const client = new SrsBackendClient(transport, options);
+
+    await expect(client.schedulePendingReviewTruthFlush('startup')).resolves.toBe(false);
+    expect(client.requestReviewTruthFlush('manual')).toBe(false);
+    await expect(client.flushReviewTruthNow('manual')).resolves.toBe(false);
+    expect(transport.request).not.toHaveBeenCalled();
   });
 
   it('flushes Review truth immediately when worker session feedback reaches the pending threshold', async () => {
@@ -301,6 +555,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 8,
@@ -339,6 +594,7 @@ describe('SrsBackendClient', () => {
         method: 'review.truth.flush',
         params: [{
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 8,
@@ -464,6 +720,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 8,
@@ -515,6 +772,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 8,
@@ -591,6 +849,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 8,
@@ -707,6 +966,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
         },
@@ -788,6 +1048,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 4,
@@ -812,6 +1073,82 @@ describe('SrsBackendClient', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('keeps delayed Review truth flush observable and cancelable in the background registry', async () => {
+    const scheduled: Array<() => void> = [];
+    const registry = new KernelCompanionBackgroundWorkRegistry({
+      schedule: (run) => scheduled.push(run),
+    });
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        requests.push({ method: request.method, params: request.params });
+        if (request.method === 'review.truth.maintenanceStatus') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              family: 'review-events',
+              journal: {
+                fileName: 'review-feedback-journal.v1',
+                storage: 'non-siyuan',
+                version: 1,
+                pendingCount: 1,
+                pendingBytes: 100,
+                statusCounts: { 'projection-applied': 1 },
+                appliedInMemoryCount: 1,
+                lastWrite: null,
+                lastReplay: null,
+                lastCheckpoint: null,
+              },
+            },
+          };
+        }
+        if (request.method === 'review.truth.flush') {
+          throw new Error('canceled registry-owned delayed flush must not run');
+        }
+        throw new Error(`Unexpected backend method ${request.method}`);
+      }),
+    };
+    const client = new SrsBackendClient(transport, {
+      backgroundWorkRegistry: registry,
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        identityEpoch: 'epoch-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+        delayMs: 25,
+      },
+    });
+
+    await expect(client.schedulePendingReviewTruthFlush('startup')).resolves.toBe(true);
+
+    expect(client.backgroundWorkStatus()).toEqual([
+      expect.objectContaining({
+        kind: 'review-truth-flush',
+        state: 'accepted',
+        diagnostics: expect.objectContaining({
+          reason: 'startup',
+          delayMs: 25,
+          queued: true,
+        }),
+      }),
+    ]);
+
+    client.dispose();
+    scheduled[0]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(requests.map((request) => request.method)).toEqual(['review.truth.maintenanceStatus']);
+    expect(client.backgroundWorkStatus({ kind: 'review-truth-flush' })).toEqual([
+      expect.objectContaining({
+        kind: 'review-truth-flush',
+        state: 'deferred',
+        reason: 'srs-backend-client-dispose',
+      }),
+    ]);
   });
 
   it('submits startup Review SQL truth backfill to the background work registry', async () => {
@@ -861,6 +1198,7 @@ describe('SrsBackendClient', () => {
       backgroundWorkRegistry: registry,
       reviewTruthFlush: {
         deviceId: 'device-A',
+        identityEpoch: 'epoch-A',
         generationId: 'review-events-v1',
         schemaVersion: 1,
         batchLimit: 4,
@@ -901,6 +1239,106 @@ describe('SrsBackendClient', () => {
     });
     expect(client.backgroundWorkStatus({ kind: 'review-truth-backfill' })).toHaveLength(1);
     expect(client.backgroundWorkStatus(status.jobId)).toEqual(status);
+  });
+
+  it('keeps db.load pure and submits no startup maintenance side effect', async () => {
+    const scheduled: Array<() => void> = [];
+    const registry = new KernelCompanionBackgroundWorkRegistry({
+      schedule: (run) => scheduled.push(run),
+    });
+    const requests: string[] = [];
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        requests.push(request.method);
+        if (request.method === 'db.load') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              ok: true,
+              initialized: true,
+              dbFile: 'siyuanmemo.db',
+              projectionSnapshot: { cards: {}, xiuyuans: {} },
+            },
+          };
+        }
+        if (request.method === 'review.truth.maintenanceStatus') {
+          throw new Error('review truth maintenance status must not run during db.load');
+        }
+        throw new Error(`Unexpected backend method ${request.method}`);
+      }),
+    };
+    const client = new SrsBackendClient(transport, {
+      backgroundWorkRegistry: registry,
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        identityEpoch: 'epoch-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+      },
+    });
+
+    await expect(client.loadDatabase()).resolves.toMatchObject({
+      ok: true,
+      initialized: true,
+    });
+    await expect(client.loadDatabase()).resolves.toMatchObject({
+      ok: true,
+      initialized: true,
+    });
+    expect(requests).toEqual(['db.load', 'db.load']);
+    expect(registry.status()).toEqual([]);
+    expect(scheduled).toEqual([]);
+  });
+
+  it('keeps db.reload pure and submits no startup maintenance side effect', async () => {
+    const scheduled: Array<() => void> = [];
+    const registry = new KernelCompanionBackgroundWorkRegistry({
+      schedule: (run) => scheduled.push(run),
+    });
+    const requests: string[] = [];
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        requests.push(request.method);
+        if (request.method === 'db.reload') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              ok: true,
+              initialized: true,
+              dbFile: 'siyuanmemo.db',
+              projectionSnapshot: { cards: {}, xiuyuans: {} },
+            },
+          };
+        }
+        if (request.method === 'review.truth.maintenanceStatus') {
+          throw new Error('review truth maintenance status must not run during db.reload');
+        }
+        throw new Error(`Unexpected backend method ${request.method}`);
+      }),
+    };
+    const client = new SrsBackendClient(transport, {
+      backgroundWorkRegistry: registry,
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        identityEpoch: 'epoch-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+      },
+    });
+
+    await expect(client.reloadDatabase()).resolves.toMatchObject({
+      ok: true,
+      initialized: true,
+    });
+    await expect(client.reloadDatabase()).resolves.toMatchObject({
+      ok: true,
+      initialized: true,
+    });
+    expect(requests).toEqual(['db.reload', 'db.reload']);
+    expect(registry.status()).toEqual([]);
+    expect(scheduled).toEqual([]);
   });
 
   it('registers pending Worker truth promotion in the background work registry', async () => {
@@ -961,6 +1399,7 @@ describe('SrsBackendClient', () => {
       backgroundWorkRegistry: registry,
       reviewTruthFlush: {
         deviceId: 'device-A',
+        identityEpoch: 'epoch-A',
         generationId: 'review-events-v1',
         schemaVersion: 1,
       },
@@ -995,6 +1434,46 @@ describe('SrsBackendClient', () => {
     });
   });
 
+  it('surfaces truth-promotion tracking failure in background status without fallback work', async () => {
+    const scheduled: Array<() => void> = [];
+    const registry = new KernelCompanionBackgroundWorkRegistry({
+      schedule: (run) => scheduled.push(run),
+    });
+    const requests: string[] = [];
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        requests.push(request.method);
+        if (request.method === 'review.truth.maintenanceStatus') {
+          throw new Error('truth promotion status failed');
+        }
+        throw new Error(`Unexpected backend method ${request.method}`);
+      }),
+    };
+    const client = new SrsBackendClient(transport, {
+      backgroundWorkRegistry: registry,
+    });
+
+    const jobId = client.scheduleTruthPromotionTracking('startup');
+
+    expect(jobId).toEqual(expect.any(String));
+    expect(scheduled).toHaveLength(1);
+    scheduled[0]();
+    await vi.waitFor(() => {
+      expect(client.backgroundWorkStatus(jobId!)).toMatchObject({
+        kind: 'truth-promotion',
+        state: 'failed',
+        reason: 'startup',
+        lastError: 'truth promotion status failed',
+        diagnostics: {
+          reason: 'startup',
+          pollsAttempted: 0,
+        },
+      });
+    });
+    expect(requests).toEqual(['review.truth.maintenanceStatus']);
+    expect(client.backgroundWorkStatus({ kind: 'truth-promotion' })).toHaveLength(1);
+  });
+
   it('dispose clears queued Review truth maintenance and prevents timer re-arm', async () => {
     vi.useFakeTimers();
     try {
@@ -1014,6 +1493,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           delayMs: 25,
@@ -1122,6 +1602,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 4,
@@ -1144,6 +1625,7 @@ describe('SrsBackendClient', () => {
         method: 'review.truth.flush',
         params: [{
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 4,
@@ -1222,6 +1704,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 4,
@@ -1379,6 +1862,7 @@ describe('SrsBackendClient', () => {
       const client = new SrsBackendClient(transport, {
         reviewTruthFlush: {
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 4,
@@ -1399,6 +1883,7 @@ describe('SrsBackendClient', () => {
         method: 'review.truth.backfill',
         params: [{
           deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           generationId: 'review-events-v1',
           schemaVersion: 1,
           batchLimit: 4,
@@ -2255,7 +2740,8 @@ describe('SrsBackendClient', () => {
     await expect(client.storageProjectionRebuild({
       rebuildId: 'rebuild-a',
       families: ['review-event-indexes'],
-      deviceId: 'device-a',
+      deviceId: 'device-A',
+      identityEpoch: 'epoch-A',
       generationId: 'generation-a',
     })).resolves.toMatchObject({
       status: 'ready',
@@ -2389,7 +2875,8 @@ describe('SrsBackendClient', () => {
     expect(requests[24].params).toEqual([{
       rebuildId: 'rebuild-a',
       families: ['review-event-indexes'],
-      deviceId: 'device-a',
+      deviceId: 'device-A',
+      identityEpoch: 'epoch-A',
       generationId: 'generation-a',
     }]);
     expect(requests[25].params).toEqual([{

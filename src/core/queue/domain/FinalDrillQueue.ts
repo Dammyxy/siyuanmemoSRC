@@ -285,6 +285,22 @@ export class FinalDrillQueue extends BaseReviewQueue {
             throw error;
         }
     }
+
+    public override async getReadOnlyRecoveryCards(): Promise<FSRSCard[]> {
+        await this.ensureInitialLoad();
+        const cards: FSRSCard[] = [];
+        for (const entry of this.entries.values()) {
+            try {
+                const card = await this.manager.getCard(entry.cardId, { silent: true });
+                if (!isCardDismissed(card)) {
+                    cards.push(card);
+                }
+            } catch (error) {
+                logger.debug(`Card ${entry.cardId} not readable during read-only recovery`, error);
+            }
+        }
+        return this.cloneResolvedCards(cards);
+    }
     
     /**
      * 添加卡片到队列

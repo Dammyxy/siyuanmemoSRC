@@ -189,10 +189,14 @@ function extractQueueType(message: BackendWorkerMainToWorkerMessage): string | n
 }
 
 const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
+  'db.load',
+  'db.reload',
   'browser.deck.page',
   'browser.stats',
   'browser.deck.documentCounts',
   'review.session.feedback',
+  'storage.maintenance.applyBatch',
+  'storage.maintenance.status',
   'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',

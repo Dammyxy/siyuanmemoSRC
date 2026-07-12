@@ -38,6 +38,7 @@ interface RemoveManualCardOptions {
 interface ResolveManualCardsOptions {
   persist?: () => Promise<void>;
   cardPool?: Iterable<FSRSCard>;
+  cleanupMissing?: boolean;
 }
 
 interface BuildDynamicQueueCardsOptions {
@@ -355,8 +356,19 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
       {
         onCleanup: async () => this.persistManualCardState(logger, options.persist),
         cleanupLogger: logger,
+        cleanupMissing: options.cleanupMissing,
       }
     );
+  }
+
+  protected async resolveManuallyAddedCardsForReadOnlyRecovery(
+    logger: ManualCardQueueLogger,
+    options: Omit<ResolveManualCardsOptions, 'persist' | 'cleanupMissing'> = {},
+  ): Promise<FSRSCard[]> {
+    return this.resolveManuallyAddedCards(logger, {
+      ...options,
+      cleanupMissing: false,
+    });
   }
 
   private isMissingCardLookupError(error: unknown, cardId: string): boolean {
@@ -374,6 +386,17 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
   }
 
   protected buildDynamicQueueCards(
+    baseCards: FSRSCard[],
+    manualCards: FSRSCard[],
+    options: BuildDynamicQueueCardsOptions
+  ): FSRSCard[] {
+    return this.cacheResolvedCards(
+      this.buildDynamicQueueCardsReadOnly(baseCards, manualCards, options),
+      'reconciled',
+    );
+  }
+
+  protected buildDynamicQueueCardsReadOnly(
     baseCards: FSRSCard[],
     manualCards: FSRSCard[],
     options: BuildDynamicQueueCardsOptions
@@ -411,7 +434,7 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     }
 
     const sortedCards = this.sortByDuePriority(filteredCards);
-    return this.cacheResolvedCards(this.applyCustomOrder(sortedCards), 'reconciled');
+    return this.cloneResolvedCards(this.applyCustomOrder(sortedCards));
   }
 
   private insertCardsSparsely(

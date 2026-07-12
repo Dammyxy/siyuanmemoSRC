@@ -14,6 +14,10 @@ function readApplicationContextSource(): string {
   return readFileSync(resolve(process.cwd(), 'src/application/ApplicationContext.ts'), 'utf8');
 }
 
+function readIndexSource(): string {
+  return readFileSync(resolve(process.cwd(), 'src/index.ts'), 'utf8');
+}
+
 function readBackendRuntimeFactorySource(): string {
   return readFileSync(resolve(process.cwd(), 'src/application/factories/createApplicationBackendRuntimeBundle.ts'), 'utf8');
 }
@@ -67,7 +71,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(factorySource).toContain('BrowserSrsBackendWorkerTransport');
     expect(factorySource).toContain("from '@/application/clients/BrowserSrsBackendWorkerTransport'");
     expect(factorySource).toContain('new BrowserSrsBackendWorkerTransport');
-    expect(factorySource).toContain("schedulePendingReviewTruthFlush('startup')");
+    expect(factorySource).not.toContain("schedulePendingReviewTruthFlush('startup')");
     expect(factorySource).not.toContain('new BackendKernel');
     expect(factorySource).not.toContain("from '../../worker/bootstrap/BackendKernel'");
     expect(factorySource).not.toContain("from '../../worker/db/SqliteDatabaseService'");
@@ -90,7 +94,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(factorySource).toContain('localStore: options.fileService');
     expect(factorySource).toContain('identityStore: new IndexedDbTruthDeviceIdentityStore()');
     expect(factorySource).toContain('hostFingerprint: (options.resolveSiyuanSystemId ?? resolveSiyuanSystemId)()');
-    expect(factorySource).toContain('TRUTH_DEVICE_ID_UNAVAILABLE');
+    expect(factorySource).toContain('STORAGE_RECOVERY_REQUIRED');
     expect(identitySource).toContain("TRUTH_DEVICE_IDENTITY_STORAGE_KEY = 'siyuanmemo.truth.identity.v2'");
     expect(identitySource).toContain("TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1'");
     expect(identitySource).toContain("LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
@@ -136,10 +140,447 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     const transactionMethodSource = contextSource.slice(transactionStart, nextMethodStart);
 
     expect(scheduleIndex).toBeGreaterThan(readyIndex);
-    expect(contextSource).toContain('this.progressiveExcerptCompletionRepairTimer = setTimeout(() =>');
+    expect(contextSource).toContain("kind: 'progressive-excerpt-completion-repair'");
+    expect(contextSource).toContain('this.srsBackendClient?.getBackgroundWorkRegistry()');
+    expect(contextSource).toContain('this.progressiveExcerptCompletionRepairJobId = submitResult.job.jobId;');
     expect(contextSource).toContain('this.getProgressiveExcerptCompletionService().repairBatch({ limit: 20 })');
     expect(transactionMethodSource).not.toContain('ProgressiveExcerptCompletion');
     expect(transactionMethodSource).not.toContain('repairBatch');
+  });
+
+  it('keeps plugin ready transition after handlers and then hands off post-ready startup maintenance', () => {
+    const indexSource = readIndexSource();
+    const contextSource = readApplicationContextSource();
+    const coordinatorSource = contextSource.slice(
+      contextSource.indexOf('startPostReadyStartupMaintenance('),
+      contextSource.indexOf('\n  async reloadBackendDatabaseAfterReady('),
+    );
+    const registerHandlersIndex = indexSource.indexOf("measureRuntimePerformance('startup', 'plugin.register-runtime-handlers'");
+    const initializedIndex = indexSource.indexOf('this.isInitialized = true;', registerHandlersIndex);
+    const resolveIndex = indexSource.indexOf('this.contextReady.resolve(context);', registerHandlersIndex);
+    const handoffIndex = indexSource.indexOf("context.startPostReadyStartupMaintenance('plugin.onload-ready');", registerHandlersIndex);
+    const catchIndex = indexSource.indexOf('} catch (err) {', registerHandlersIndex);
+    const catchSource = indexSource.slice(catchIndex, indexSource.indexOf('\n    }', catchIndex));
+
+    expect(registerHandlersIndex).toBeGreaterThan(0);
+    expect(initializedIndex).toBeGreaterThan(registerHandlersIndex);
+    expect(resolveIndex).toBeGreaterThan(registerHandlersIndex);
+    expect(handoffIndex).toBeGreaterThan(resolveIndex);
+    expect(catchIndex).toBeGreaterThan(handoffIndex);
+    expect(catchSource).toContain('this.contextReady.reject(err);');
+    expect(catchSource).not.toContain('startPostReadyStartupMaintenance');
+    expect(contextSource).toContain('startPostReadyStartupMaintenance(');
+    expect(contextSource).toContain('descriptors?: readonly BackendDeferredStartupWorkDescriptor[]');
+    expect(contextSource).toContain("kind: 'startup-storage-maintenance'");
+    expect(contextSource).toContain('deferredDescriptorCount: deferredDescriptors.length');
+    expect(contextSource).toContain('createStartupMaintenanceReceiptScope(');
+    expect(contextSource).toContain('receiptScopeAvailable: receiptScope !== null');
+    expect(contextSource).toContain('runStartupWorkerStorageMaintenance({');
+    expect(contextSource).toContain('ownedPhaseCount: 2');
+    expect(contextSource).toContain("scheduleNormalizationPhase: 'completed'");
+    expect(contextSource).toContain("orphanCardRepairPhase: 'completed'");
+    expect(coordinatorSource).not.toContain('schedulePendingReviewTruthFlush');
+    expect(coordinatorSource).not.toContain('reviewTruthMaintenanceScheduled');
+  });
+
+  it('does not run startup storage maintenance inside ApplicationContext.create', () => {
+    const contextSource = readApplicationContextSource();
+    const createSource = contextSource.slice(
+      contextSource.indexOf('static async create(config: ApplicationConfig): Promise<ApplicationContext>'),
+      contextSource.indexOf('\n  startPostReadyStartupMaintenance('),
+    );
+
+    expect(createSource).not.toContain("worker-storage-maintenance',");
+    expect(createSource).not.toContain('await measureRuntimePerformance(\n      \'startup\',\n      \'worker-storage-maintenance\'');
+    expect(createSource).toContain('context.postReadyStartupMaintenance = (receiptScope) => runStartupWorkerStorageMaintenance({');
+    expect(createSource).toContain('receiptScope,');
+    expect(createSource).toContain('recordStartupDeferredWorkDescriptors(startupDeferredWorkDescriptors, loadResult)');
+    expect(createSource).toContain('context.pendingStartupDeferredWorkDescriptors = startupDeferredWorkDescriptors');
+  });
+
+  it('skips startup storage migration mutations when backend readiness is read-only', () => {
+    const contextSource = readApplicationContextSource();
+    const factorySource = readBackendRuntimeFactorySource();
+    const createSource = contextSource.slice(
+      contextSource.indexOf('static async create(config: ApplicationConfig): Promise<ApplicationContext>'),
+      contextSource.indexOf('\n  startPostReadyStartupMaintenance('),
+    );
+    const migrationGateSource = createSource.slice(
+      createSource.indexOf('const startupReadiness = initialLoadResult?.readiness ?? null;'),
+      createSource.indexOf('const unifiedLoad = async (): Promise<UnifiedCardStore>'),
+    );
+
+    expect(factorySource).toContain('initialLoadResult = await srsBackendClient.loadDatabase();');
+    expect(contextSource).toContain('initialLoadResult,');
+    expect(createSource).toContain('recordStartupDeferredWorkDescriptors(startupDeferredWorkDescriptors, initialLoadResult);');
+    expect(migrationGateSource).toContain('const canRunStartupStorageMigrations = !startupReadiness');
+    expect(migrationGateSource).toContain("startupReadiness.status === 'ready'");
+    expect(migrationGateSource).toContain('startupReadiness.writable === true');
+    expect(migrationGateSource).toContain('runPendingLegacyStorageMigrations({');
+    expect(migrationGateSource).toContain('executeBatch: executeStorageMaintenanceBatch');
+    expect(migrationGateSource).toContain('skipped startup storage migrations because backend readiness is read-only');
+  });
+
+  it('keeps read-only recovery out of normal startup maintenance descriptors', () => {
+    const workerSource = readFileSync(
+      resolve(process.cwd(), 'worker/db/SqliteDatabaseService.ts'),
+      'utf8',
+    );
+    const descriptorSource = workerSource.slice(
+      workerSource.indexOf('private createDeferredStartupWorkDescriptors('),
+      workerSource.indexOf('\n  async persist(): Promise', workerSource.indexOf('private createDeferredStartupWorkDescriptors(')),
+    );
+    const coordinatorSource = readApplicationContextSource().slice(
+      readApplicationContextSource().indexOf('startPostReadyStartupMaintenance('),
+      readApplicationContextSource().indexOf('\n  async reloadBackendDatabaseAfterReady('),
+    );
+
+    expect(descriptorSource).toContain('if (readiness.status !== \'ready\')');
+    expect(descriptorSource).toContain('return [];');
+    expect(descriptorSource).toContain("kind: 'startup-storage-maintenance'");
+    expect(coordinatorSource).toContain('const hasStartupMaintenance = hasStartupStorageMaintenanceDescriptor(deferredDescriptors);');
+    expect(coordinatorSource).toContain('const hasTruthPromotion = hasTruthPromotionDescriptor(deferredDescriptors);');
+    expect(coordinatorSource).toContain('if (!hasStartupMaintenance && !hasTruthPromotion)');
+    expect(coordinatorSource).toContain('if (!hasStartupMaintenance)');
+    expect(coordinatorSource).toContain('return null;');
+  });
+
+  it('keeps startup transaction websocket instrumentation bound to diagnostics imports', () => {
+    const contextSource = readApplicationContextSource();
+    const diagnosticsImportEnd = contextSource.indexOf("from '@/utils/runtimePerformanceDiagnostics'");
+    const diagnosticsImportStart = contextSource.lastIndexOf('import {', diagnosticsImportEnd);
+    const diagnosticsImportSource = contextSource.slice(diagnosticsImportStart, diagnosticsImportEnd);
+    const transactionStart = contextSource.indexOf('async updateTransactionWebSocketService(): Promise<void>');
+    const nextMethodStart = contextSource.indexOf('\n  async ', transactionStart + 1);
+    const transactionMethodSource = contextSource.slice(transactionStart, nextMethodStart);
+
+    expect(transactionMethodSource).toContain(
+      "startRuntimePerformanceSpan('startup', 'transaction-websocket-service.configure')",
+    );
+    expect(diagnosticsImportSource).toContain('startRuntimePerformanceSpan');
+  });
+
+  it('routes post-ready reload deferred descriptors through the startup maintenance coordinator', () => {
+    const contextSource = readApplicationContextSource();
+    const reloadMethodSource = contextSource.slice(
+      contextSource.indexOf('async reloadBackendDatabaseAfterReady('),
+      contextSource.indexOf('private consumePendingStartupDeferredWorkDescriptors()'),
+    );
+
+    expect(reloadMethodSource).toContain('const reloadResult = await srsBackendClient.reloadDatabase();');
+    expect(reloadMethodSource).toContain('this.startPostReadyStartupMaintenance(reason, reloadResult.deferredWork ?? []);');
+    expect(contextSource).toContain('async reloadBackendDatabaseAfterReady(reason = \'post-ready-reload\'): Promise<BackendDbReloadResult>');
+  });
+
+  it('keeps startup maintenance mutations behind writer relay and election seams', () => {
+    const contextSource = readApplicationContextSource();
+    const factorySource = readBackendRuntimeFactorySource();
+    const storageMaintenanceSource = contextSource.slice(
+      contextSource.indexOf('const executeStorageMaintenanceBatch = async'),
+      contextSource.indexOf('const executeStorageMaintenanceStatus = async'),
+    );
+    const scheduleMaintenanceSource = contextSource.slice(
+      contextSource.indexOf('const executeCardScheduleBatch = async'),
+      contextSource.indexOf('const schedulerCardUpdater = new WorkerCardScheduleUpdateAdapter'),
+    );
+    const backendLoadSource = factorySource.slice(
+      factorySource.indexOf('if (backendMigrationRuntimePolicy.capabilities.backendWorkerAvailable)'),
+      factorySource.indexOf('if (srsBackendClient && backendMigrationRuntimePolicy.capabilities.writerRelayRuntimeEnabled)'),
+    );
+
+    expect(factorySource).toContain('writerCommandHandler: (command) => options.executeWriterRelayCommand(');
+    expect(factorySource).toContain("frontendInstanceRuntime?.getMode() === 'writer'");
+    expect(backendLoadSource).toContain('await srsBackendClient.loadDatabase();');
+    expect(backendLoadSource).not.toContain('new FrontendInstanceRuntime');
+    expect(contextSource).not.toContain('new BackendKernel');
+    expect(contextSource).not.toContain("from '../../worker/db/SqliteDatabaseService'");
+
+    const storageWriterMode = storageMaintenanceSource.indexOf("frontendInstanceRuntime.getMode() === 'writer'");
+    const storageEnsureWritable = storageMaintenanceSource.indexOf('await frontendInstanceRuntime.ensureWritable();', storageWriterMode);
+    const storageDirectMutation = storageMaintenanceSource.indexOf(
+      'return srsBackendClient.applyStorageMaintenanceBatch(request);',
+      storageEnsureWritable,
+    );
+    const storageFollowerRelay = storageMaintenanceSource.indexOf(
+      'return followerCommandClient.submitAndWait<BackendStorageMaintenanceApplyBatchResult>({',
+      storageDirectMutation,
+    );
+    expect(storageWriterMode).toBeGreaterThan(0);
+    expect(storageEnsureWritable).toBeGreaterThan(storageWriterMode);
+    expect(storageDirectMutation).toBeGreaterThan(storageEnsureWritable);
+    expect(storageFollowerRelay).toBeGreaterThan(storageDirectMutation);
+    expect(storageMaintenanceSource).toContain("method: 'storage.maintenance.applyBatch'");
+
+    const scheduleWriterMode = scheduleMaintenanceSource.indexOf("frontendInstanceRuntime.getMode() === 'writer'");
+    const scheduleEnsureWritable = scheduleMaintenanceSource.indexOf('await frontendInstanceRuntime.ensureWritable();', scheduleWriterMode);
+    const scheduleDirectMutation = scheduleMaintenanceSource.indexOf(
+      'return srsBackendClient.cardScheduleBatchUpdate(request);',
+      scheduleEnsureWritable,
+    );
+    const scheduleFollowerRelay = scheduleMaintenanceSource.indexOf(
+      'return followerCommandClient.submitAndWait<BackendCardScheduleBatchUpdateResult>({',
+      scheduleDirectMutation,
+    );
+    expect(scheduleWriterMode).toBeGreaterThan(0);
+    expect(scheduleEnsureWritable).toBeGreaterThan(scheduleWriterMode);
+    expect(scheduleDirectMutation).toBeGreaterThan(scheduleEnsureWritable);
+    expect(scheduleFollowerRelay).toBeGreaterThan(scheduleDirectMutation);
+    expect(scheduleMaintenanceSource).toContain("method: 'card.schedule.batchUpdate'");
+  });
+
+  it('coalesces repeated startup handoff before submitting duplicate mutation jobs', () => {
+    const submit = vi.fn((request: { kind: string; diagnostics?: Record<string, unknown> }) => ({
+      accepted: true,
+      job: {
+        jobId: 'startup-storage-maintenance-1',
+        kind: request.kind,
+        state: 'accepted',
+        reason: null,
+        submittedAt: 1,
+        updatedAt: 1,
+        startedAt: null,
+        completedAt: null,
+        attemptCount: 0,
+        diagnostics: request.diagnostics ?? {},
+        lastError: null,
+      },
+    }));
+    const runMaintenance = vi.fn(async () => ({
+      operationId: 'startup-storage-maintenance-v1',
+      phaseClassifications: {
+        scheduleNormalization: 'deferred-safe',
+        orphanCardRepair: 'deferred-safe',
+      },
+      schedule: {
+        migratedLegacySchedulerCount: 0,
+        normalizedMalformedScheduleCount: 0,
+        affectedCardCount: 0,
+        completedBatches: 0,
+        totalBatches: 0,
+      },
+      orphanRepair: {
+        discoveredCardCount: 0,
+        repairedCardCount: 0,
+        completedBatches: 0,
+        totalBatches: 0,
+      },
+    }));
+    const srsBackendClient = {
+      getBackgroundWorkRegistry: () => ({ submit }),
+      schedulePendingReviewTruthFlush: vi.fn(async () => false),
+    };
+    const frontendInstanceRuntime = {
+      getInstanceId: () => 'runtime-A',
+    };
+    const runtimePolicy = {
+      flags: {
+        backendWorker: true,
+        writerLeaseGuard: true,
+        autoCardDecisionRelay: true,
+        kernelTransactionIngest: true,
+        privateApi: true,
+        aiBackendRuntime: true,
+      },
+      capabilities: {
+        backendWorkerAvailable: true,
+        writerRelayRuntimeEnabled: true,
+        writerRelayRequiredForBackendWrites: true,
+        reviewFeedbackWriteEnabled: true,
+        autoCardExecuteWriteEnabled: true,
+        autoCardDecisionBackendEnabled: true,
+        kernelTransactionIngestEnabled: true,
+        privateApiReadEnabled: true,
+        privateApiMutationEnabled: true,
+        aiBackendSessionEnabled: true,
+      },
+      behavior: {},
+    };
+    const TestableApplicationContext = ApplicationContext as unknown as new (
+      config: unknown,
+      services: unknown,
+    ) => ApplicationContext;
+    const context = new TestableApplicationContext({
+      plugin: { name: 'test-plugin', app: {} },
+      i18n: {},
+    }, {
+      storageManager: {},
+      unifiedStorageManager: { save: vi.fn() },
+      schedulerRouter: {},
+      rescheduleService: {},
+      unifiedDataSourceManager: {},
+      blockMenuHandler: {},
+      ...createRuntimeAccessFixture(),
+      srsBackendClient,
+      frontendInstanceRuntime,
+      backendMigrationRuntimePolicy: runtimePolicy,
+    });
+    (context as unknown as {
+      postReadyStartupMaintenance: typeof runMaintenance;
+    }).postReadyStartupMaintenance = runMaintenance;
+    const descriptor = {
+      kind: 'startup-storage-maintenance',
+      version: 1,
+      owner: 'application-context',
+      phase: 'post-ready',
+      reason: 'db.load',
+      safeToDefer: true,
+      statusReference: {
+        kind: 'kernel-companion-background-work',
+        workKind: 'startup-storage-maintenance',
+      },
+      frontier: {
+        pluginInstallationId: 'plugin-A',
+        identityEpoch: 'epoch-A',
+        inputVersion: 'startup-maintenance-input-v1',
+        frontierHash: 'frontier-A',
+        externalInputDirtyGeneration: 0,
+        pendingExternalMerge: false,
+      },
+    } as never;
+
+    const firstJobId = context.startPostReadyStartupMaintenance('plugin.onload-ready', [descriptor]);
+    const secondJobId = context.startPostReadyStartupMaintenance('post-ready-reload', [descriptor]);
+
+    expect(firstJobId).toBe('startup-storage-maintenance-1');
+    expect(secondJobId).toBe(firstJobId);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(runMaintenance).not.toHaveBeenCalled();
+    expect(submit.mock.calls[0][0]).toMatchObject({
+      kind: 'startup-storage-maintenance',
+      dedupeKey: 'startup-background-work-lifecycle-v1:startup-storage-maintenance:application-context:post-ready:runtime-A:plugin-A:epoch-A:startup-maintenance-input-v1:frontier-A:0:external-merge-clean:recovery-none',
+      diagnostics: {
+        reason: 'plugin.onload-ready',
+        deferredDescriptorCount: 1,
+        deferredDescriptorKinds: 'startup-storage-maintenance',
+        receiptScopeAvailable: true,
+        lifecycleDedupeKeyAvailable: true,
+      },
+    });
+    expect(srsBackendClient.schedulePendingReviewTruthFlush).not.toHaveBeenCalled();
+  });
+
+  it('routes startup truth-promotion descriptors to background tracking without storage maintenance scan', () => {
+    const submit = vi.fn();
+    const runMaintenance = vi.fn(async () => ({
+      operationId: 'startup-storage-maintenance-v1',
+      phaseClassifications: {
+        scheduleNormalization: 'deferred-safe',
+        orphanCardRepair: 'deferred-safe',
+      },
+      schedule: {
+        migratedLegacySchedulerCount: 0,
+        normalizedMalformedScheduleCount: 0,
+        affectedCardCount: 0,
+        completedBatches: 0,
+        totalBatches: 0,
+      },
+      orphanRepair: {
+        discoveredCardCount: 0,
+        repairedCardCount: 0,
+        completedBatches: 0,
+        totalBatches: 0,
+      },
+    }));
+    const scheduleTruthPromotionTracking = vi.fn(() => 'truth-promotion-1');
+    const srsBackendClient = {
+      getBackgroundWorkRegistry: () => ({ submit }),
+      scheduleTruthPromotionTracking,
+    };
+    const runtimePolicy = {
+      flags: {
+        backendWorker: true,
+        writerLeaseGuard: true,
+        autoCardDecisionRelay: true,
+        kernelTransactionIngest: true,
+        privateApi: true,
+        aiBackendRuntime: true,
+      },
+      capabilities: {
+        backendWorkerAvailable: true,
+        writerRelayRuntimeEnabled: true,
+        writerRelayRequiredForBackendWrites: true,
+        reviewFeedbackWriteEnabled: true,
+        autoCardExecuteWriteEnabled: true,
+        autoCardDecisionBackendEnabled: true,
+        kernelTransactionIngestEnabled: true,
+        privateApiReadEnabled: true,
+        privateApiMutationEnabled: true,
+        aiBackendSessionEnabled: true,
+      },
+      behavior: {},
+    };
+    const TestableApplicationContext = ApplicationContext as unknown as new (
+      config: unknown,
+      services: unknown,
+    ) => ApplicationContext;
+    const context = new TestableApplicationContext({
+      plugin: { name: 'test-plugin', app: {} },
+      i18n: {},
+    }, {
+      storageManager: {},
+      unifiedStorageManager: { save: vi.fn() },
+      schedulerRouter: {},
+      rescheduleService: {},
+      unifiedDataSourceManager: {},
+      blockMenuHandler: {},
+      ...createRuntimeAccessFixture(),
+      srsBackendClient,
+      backendMigrationRuntimePolicy: runtimePolicy,
+    });
+    (context as unknown as {
+      postReadyStartupMaintenance: typeof runMaintenance;
+    }).postReadyStartupMaintenance = runMaintenance;
+    const descriptor = {
+      kind: 'truth-promotion',
+      version: 1,
+      owner: 'application-context',
+      phase: 'post-ready',
+      reason: 'db.load',
+      safeToDefer: true,
+      statusReference: {
+        kind: 'kernel-companion-background-work',
+        workKind: 'truth-promotion',
+      },
+      frontier: {
+        pluginInstallationId: 'plugin-A',
+        identityEpoch: 'epoch-A',
+        inputVersion: 'startup-maintenance-input-v1',
+        frontierHash: 'frontier-A',
+        externalInputDirtyGeneration: 0,
+        pendingExternalMerge: false,
+      },
+    } as never;
+
+    const jobId = context.startPostReadyStartupMaintenance('plugin.onload-ready', [descriptor]);
+
+    expect(jobId).toBe('truth-promotion-1');
+    expect(scheduleTruthPromotionTracking).toHaveBeenCalledWith('plugin.onload-ready');
+    expect(submit).not.toHaveBeenCalled();
+    expect(runMaintenance).not.toHaveBeenCalled();
+  });
+
+  it('defines startup lifecycle dedupe key without persisting ephemeral runtime id into receipts', () => {
+    const contextSource = readApplicationContextSource();
+    const registrySource = readFileSync(
+      resolve(process.cwd(), 'src/application/backgroundWork/KernelCompanionBackgroundWorkRegistry.ts'),
+      'utf8',
+    );
+    const workerSource = readFileSync(resolve(process.cwd(), 'worker/db/SqliteDatabaseService.ts'), 'utf8');
+    const receiptSource = readFileSync(resolve(process.cwd(), 'src/application/services/StartupWorkerStorageMaintenance.ts'), 'utf8');
+
+    expect(registrySource).toContain('dedupeKey: string | null;');
+    expect(registrySource).toContain('dedupeKey?: string | null;');
+    expect(contextSource).toContain('createStartupMaintenanceLifecycleDedupeKey(');
+    expect(contextSource).toContain('this.frontendInstanceRuntime?.getInstanceId() ?? null');
+    expect(contextSource).toContain("'startup-background-work-lifecycle-v1'");
+    expect(contextSource).toContain('frontier.pluginInstallationId');
+    expect(contextSource).toContain('frontier.identityEpoch');
+    expect(contextSource).toContain('frontier.inputVersion');
+    expect(contextSource).toContain('frontier.frontierHash');
+    expect(contextSource).toContain('dedupeKey: lifecycleDedupeKey');
+    expect(workerSource).toContain('createStartupMaintenanceFrontier(readiness)');
+    expect(receiptSource).not.toContain('runtimeInstanceId');
+    expect(receiptSource).not.toContain('runtime-A');
   });
 
   it('does not start passive Native Riff sync or full-sync timers', () => {

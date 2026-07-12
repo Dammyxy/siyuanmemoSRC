@@ -178,6 +178,52 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
             throw error;
         }
     }
+
+    public override async getReadOnlyRecoveryCards(): Promise<FSRSCard[]> {
+        await this.ensureInitialLoad();
+        const dayStartHour = this.getDayStartHour();
+        const dayEnd = getCurrentDayEnd(dayStartHour);
+        const now = Date.now();
+        const baseCards = await this.manager.getCards({
+            cardType: ['item', 'descriptor'],
+            dueDate: { lte: new Date(dayEnd) },
+            includeSuspended: false,
+        });
+        const manualCount = this.manualCards.size();
+        let manualCards: FSRSCard[] = [];
+        if (manualCount > 0) {
+            if (manualCount > RetrievalPracticeQueue.MANUAL_PREFETCH_THRESHOLD) {
+                const cardPool = await this.manager.getCards({ cardType: ['item', 'descriptor'] });
+                manualCards = await this.resolveManuallyAddedCardsForReadOnlyRecovery(logger, { cardPool });
+            } else {
+                manualCards = await this.resolveManuallyAddedCardsForReadOnlyRecovery(logger);
+            }
+        }
+
+        const orderedCards = SrsV2QueuePolicy.buildRetrievalPracticeQueue({
+            baseCards,
+            manualCards,
+            now,
+            dayEnd,
+            newCardsPerDay: this.getNewCardsPerDay(),
+            reviewsPerDay: this.getReviewsPerDay(),
+            priorityRandomness: this.getPriorityRandomness(),
+            stableSalt: `${this.type}:${dayEnd}`,
+            isBlacklisted: (card) => this.temporaryBlacklist.has(card.id) || this.temporaryBlacklist.has(card.blockId),
+            isDismissed: isCardDismissed,
+            warnInvalidBlockId: (cards) => {
+                const invalidCards = cards.filter((card) => !card.blockId || card.blockId === 'undefined');
+                if (invalidCards.length > 0) {
+                    logger.warn(
+                        `Found ${invalidCards.length} cards with invalid blockId:`,
+                        invalidCards.map((card) => ({ id: card.id, blockId: card.blockId }))
+                    );
+                }
+            },
+        });
+
+        return this.cloneResolvedCards(this.applyCustomOrder(orderedCards));
+    }
     
     /**
      * 添加卡片到队列

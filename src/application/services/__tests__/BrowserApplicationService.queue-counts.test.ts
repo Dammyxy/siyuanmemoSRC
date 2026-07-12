@@ -483,6 +483,69 @@ describe('BrowserApplicationService queue counts', () => {
     expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(2);
   });
 
+  it('uses explicit read-only recovery queue state for counts when projection is stale', async () => {
+    const retrievalQueue = createQueue(11, 11, 11);
+    retrievalQueue.getSnapshotRows.mockClear();
+    (retrievalQueue as QueueMock & { getReadOnlyRecoveryCards: ReturnType<typeof vi.fn> }).getReadOnlyRecoveryCards = vi.fn(async () => [
+      { id: 'card-a', blockId: 'block-a' },
+      { id: 'card-b', blockId: 'block-b' },
+    ]);
+    manager.readQueueProjection = vi.fn(async () => ({
+      type: 'snapshot',
+      status: 'refreshing',
+      readiness: {
+        status: 'refreshing',
+        queueId: QueueType.RetrievalPractice,
+        policyId: 'policy-retrieval',
+        generation: 1,
+        cause: 'projection_stale',
+      },
+      snapshot: null,
+    }));
+    manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
+      if (queueType === QueueType.RetrievalPractice) {
+        return [{
+          queueType: QueueType.RetrievalPractice,
+          projectionBacked: true,
+          state: 'backend-projection',
+          readPath: 'backend-projection',
+          reason: 'rollout-enabled',
+          unavailableReason: 'refresh-required',
+          nextCoverageTask: null,
+        }];
+      }
+      return [];
+    });
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+    service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(() => []),
+        getAllCards: vi.fn(() => []),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      manager as never,
+      { sql: vi.fn(async () => []) } as never,
+      { sql: vi.fn(async () => []) } as never,
+      null,
+      null,
+      { isStartupWriteCapable: vi.fn(() => false) } as never,
+    );
+
+    const counts = await service.getQueueCounts({
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+    });
+
+    expect(counts.retrieval).toBe(2);
+    expect(retrievalQueue.getReadOnlyRecoveryCards).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(retrievalQueue.getCards).not.toHaveBeenCalled();
+    expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
+    expect(retrievalQueue.getSize).not.toHaveBeenCalled();
+  });
+
   it('keeps the last known projection-backed queue count when a refresh is temporarily unavailable', async () => {
     const retrievalQueue = createQueue(3, 3, 11);
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {

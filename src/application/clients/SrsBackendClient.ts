@@ -107,6 +107,7 @@ import type {
   BackendSourceExistenceUpdate,
   BackendDiagnosticsStatusResult,
   BackendReviewTruthDeviceDiagnostics,
+  BackendStartupIdentityDisposition,
   BackendHealthResult,
   BackendPrivateDiagnosticsStatusResult,
   BackendPrivateHealthResult,
@@ -146,6 +147,7 @@ import {
   type KernelCompanionBackgroundWorkHandlerResult,
   type KernelCompanionBackgroundWorkRegistryInterface,
   type KernelCompanionBackgroundWorkRunContext,
+  type KernelCompanionReviewTruthFlushDiagnostics,
   type KernelCompanionReviewTruthBackfillDiagnostics,
   type KernelCompanionTruthPromotionDiagnostics,
 } from '../backgroundWork/KernelCompanionBackgroundWorkRegistry';
@@ -166,6 +168,11 @@ const REVIEW_TRUTH_BACKFILL_DEFAULT_BATCH_LIMIT = 64;
 const REVIEW_TRUTH_BACKFILL_MAX_STARTUP_BATCHES = 16;
 const TRUTH_PROMOTION_STATUS_MAX_POLLS = 16;
 const TRUTH_PROMOTION_STATUS_POLL_MS = 25;
+const REVIEW_TRUTH_MUTATION_IDENTITY_SOURCES = new Set<BackendReviewTruthDeviceDiagnostics['source']>([
+  'authority-copies',
+  'indexeddb-repaired-localStorage',
+  'localStorage-repaired-indexeddb',
+]);
 
 function isReviewTruthFlushPressureSuppressed(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -173,10 +180,17 @@ function isReviewTruthFlushPressureSuppressed(error: unknown): boolean {
     || message.includes('review.feedback suppressed SiYuan persistence host effect truth.writeJSON');
 }
 
+function delayReviewTruthFlush(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, Math.max(0, Math.floor(delayMs)));
+  });
+}
+
 export type { SrsBackendTransport } from './backend/BackendRpcCaller';
 
 export interface SrsBackendReviewTruthFlushSchedulerOptions {
   deviceId: string;
+  identityEpoch?: string | null;
   generationId: string;
   schemaVersion?: number;
   maxSegmentBytes?: number;
@@ -188,6 +202,7 @@ export interface SrsBackendReviewTruthFlushSchedulerOptions {
 }
 
 export interface SrsBackendClientOptions {
+  startupIdentityDisposition?: BackendStartupIdentityDisposition | null;
   reviewTruthFlush?: SrsBackendReviewTruthFlushSchedulerOptions | null;
   reviewTruthDevice?: BackendReviewTruthDeviceDiagnostics | null;
   canWriteReviewTruth?: () => boolean;
@@ -205,12 +220,14 @@ export class SrsBackendClient {
   private readonly semanticClient: BackendSemanticRpcClient;
   private readonly privateApiClient: BackendPrivateApiRpcClient;
   private readonly integrationClient: BackendIntegrationRpcClient;
+  private readonly startupIdentityDisposition: BackendStartupIdentityDisposition | null;
   private readonly reviewTruthFlushOptions: SrsBackendReviewTruthFlushSchedulerOptions | null;
   private readonly reviewTruthDeviceDiagnostics: BackendReviewTruthDeviceDiagnostics | null;
   private readonly canWriteReviewTruth: () => boolean;
   private readonly backgroundWorkRegistry: KernelCompanionBackgroundWorkRegistryInterface;
   private readonly backgroundWorkStatusReadModel: KernelCompanionBackgroundWorkStatusReadModelInterface;
   private reviewTruthFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private reviewTruthFlushJobId: string | null = null;
   private reviewTruthFlushInFlight = false;
   private reviewTruthFlushInFlightPromise: Promise<void> | null = null;
   private reviewTruthFlushQueued = false;
@@ -232,6 +249,7 @@ export class SrsBackendClient {
     this.semanticClient = new BackendSemanticRpcClient(rpcCaller);
     this.privateApiClient = new BackendPrivateApiRpcClient(rpcCaller);
     this.integrationClient = new BackendIntegrationRpcClient(rpcCaller);
+    this.startupIdentityDisposition = options.startupIdentityDisposition ?? null;
     this.reviewTruthFlushOptions = options.reviewTruthFlush ?? null;
     this.reviewTruthDeviceDiagnostics = options.reviewTruthDevice ?? null;
     this.canWriteReviewTruth = options.canWriteReviewTruth ?? (() => true);
@@ -251,6 +269,10 @@ export class SrsBackendClient {
     return this.coreClient.reloadDatabase(this.createDbLoadRequest());
   }
 
+  isStartupWriteCapable(): boolean {
+    return this.startupIdentityDisposition?.writable !== false;
+  }
+
   async storageMaintenanceStatus(
     request: BackendStorageMaintenanceStatusRequest,
   ): Promise<BackendStorageMaintenanceStatusResult> {
@@ -264,17 +286,25 @@ export class SrsBackendClient {
   }
 
   private createDbLoadRequest(): BackendDbLoadRequest | undefined {
-    if (!this.reviewTruthFlushOptions) {
+    if (!this.reviewTruthFlushOptions && !this.startupIdentityDisposition) {
       return undefined;
     }
-    const truthSchemaVersion = this.reviewTruthFlushOptions.schemaVersion ?? MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+    const truthSchemaVersion = this.reviewTruthFlushOptions?.schemaVersion ?? MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+    const identityEpoch = this.reviewTruthFlushOptions?.identityEpoch
+      ?? this.startupIdentityDisposition?.identityEpoch
+      ?? this.reviewTruthDeviceDiagnostics?.identityEpoch
+      ?? null;
     return {
-      truthDeviceId: this.reviewTruthFlushOptions.deviceId,
-      identityEpoch: this.reviewTruthDeviceDiagnostics?.identityEpoch ?? null,
+      startupIdentityDisposition: this.startupIdentityDisposition,
+      truthDeviceId: this.reviewTruthFlushOptions?.deviceId
+        ?? this.startupIdentityDisposition?.deviceId
+        ?? null,
+      identityEpoch,
       cardTruthGenerationId: `card-memory-facts-v${truthSchemaVersion}`,
-      reviewTruthGenerationId: this.reviewTruthFlushOptions.generationId,
+      reviewTruthGenerationId: this.reviewTruthFlushOptions?.generationId
+        ?? `review-events-v${truthSchemaVersion}`,
       truthSchemaVersion,
-      maxSegmentBytes: this.reviewTruthFlushOptions.maxSegmentBytes ?? null,
+      maxSegmentBytes: this.reviewTruthFlushOptions?.maxSegmentBytes ?? null,
     };
   }
 
@@ -297,50 +327,8 @@ export class SrsBackendClient {
   }
 
   async schedulePendingReviewTruthFlush(reason = 'startup'): Promise<boolean> {
-    if (!this.canRunReviewTruthFlush(reason)) {
-      return false;
-    }
     try {
-      const status = await this.reviewTruthMaintenanceStatus();
-      if (this.disposed || !this.canRunReviewTruthFlush(reason)) {
-        this.clearQueuedReviewTruthMaintenance();
-        return false;
-      }
-      const journal = status.journal;
-      const projectionApplied = Number(journal?.statusCounts?.['projection-applied'] ?? 0);
-      const pendingCount = Number(journal?.pendingCount ?? 0);
-      const pendingBackfillRows = Number(status.truthBackfill?.pendingSqlRows ?? 0);
-      const truthPromotionSubmitted = status.truthPromotion?.available
-        && (status.truthPromotion.pendingMutationCount > 0 || status.truthPromotion.active)
-        ? this.submitTruthPromotionTrackingJob(reason, status.truthPromotion)
-        : false;
-      if (
-        projectionApplied <= 0
-        && pendingCount <= 0
-        && pendingBackfillRows <= 0
-        && !truthPromotionSubmitted
-      ) {
-        return false;
-      }
-      const shouldFlush = projectionApplied > 0 || pendingCount > 0;
-      const backfillSubmitted = pendingBackfillRows > 0
-        ? this.submitReviewTruthBackfillJob(reason, pendingBackfillRows)
-        : false;
-      if (shouldFlush) {
-        this.reviewTruthFlushQueued = true;
-      }
-      logger.info('[SiYuanMemo][SrsBackendClient] scheduled pending Review truth flush', {
-        reason,
-        pendingCount,
-        projectionApplied,
-        pendingBackfillRows,
-        reviewTruthBackfillJobSubmitted: backfillSubmitted,
-        truthPromotionJobSubmitted: truthPromotionSubmitted,
-      });
-      if (shouldFlush) {
-        this.armReviewTruthFlushTimer();
-      }
-      return shouldFlush || backfillSubmitted || truthPromotionSubmitted;
+      return await this.schedulePendingReviewTruthFlushChecked(reason);
     } catch (error) {
       logger.warn('[SiYuanMemo][SrsBackendClient] skipped pending Review truth flush scheduling', {
         reason,
@@ -348,6 +336,53 @@ export class SrsBackendClient {
       });
       return false;
     }
+  }
+
+  private async schedulePendingReviewTruthFlushChecked(reason = 'startup'): Promise<boolean> {
+    if (!this.canRunReviewTruthFlush(reason)) {
+      return false;
+    }
+    const status = await this.reviewTruthMaintenanceStatus();
+    if (this.disposed || !this.canRunReviewTruthFlush(reason)) {
+      this.clearQueuedReviewTruthMaintenance();
+      return false;
+    }
+    const journal = status.journal;
+    const projectionApplied = Number(journal?.statusCounts?.['projection-applied'] ?? 0);
+    const pendingCount = Number(journal?.pendingCount ?? 0);
+    const pendingBackfillRows = Number(status.truthBackfill?.pendingSqlRows ?? 0);
+    const truthPromotionJobId = status.truthPromotion?.available
+      && (status.truthPromotion.pendingMutationCount > 0 || status.truthPromotion.active)
+      ? this.submitTruthPromotionTrackingJob(reason, status.truthPromotion)
+      : null;
+    const truthPromotionSubmitted = truthPromotionJobId !== null;
+    if (
+      projectionApplied <= 0
+      && pendingCount <= 0
+      && pendingBackfillRows <= 0
+      && !truthPromotionSubmitted
+    ) {
+      return false;
+    }
+    const shouldFlush = projectionApplied > 0 || pendingCount > 0;
+    const backfillSubmitted = pendingBackfillRows > 0
+      ? this.submitReviewTruthBackfillJob(reason, pendingBackfillRows)
+      : false;
+    if (shouldFlush) {
+      this.reviewTruthFlushQueued = true;
+    }
+    logger.info('[SiYuanMemo][SrsBackendClient] scheduled pending Review truth flush', {
+      reason,
+      pendingCount,
+      projectionApplied,
+      pendingBackfillRows,
+      reviewTruthBackfillJobSubmitted: backfillSubmitted,
+      truthPromotionJobSubmitted: truthPromotionSubmitted,
+    });
+    if (shouldFlush) {
+      this.armReviewTruthFlushTimer(undefined, { reason });
+    }
+    return shouldFlush || backfillSubmitted || truthPromotionSubmitted;
   }
 
   async domainSyncStatus(request: BackendDomainSyncStatusRequest = {}): Promise<BackendDomainSyncStatusResult> {
@@ -533,6 +568,10 @@ export class SrsBackendClient {
     return this.reviewClient.reviewTruthMaintenanceStatus();
   }
 
+  scheduleTruthPromotionTracking(reason = 'post-ready'): string | null {
+    return this.submitTruthPromotionTrackingJob(reason);
+  }
+
   backgroundWorkStatus(options?: KernelCompanionBackgroundWorkStatusReadOptions): KernelCompanionBackgroundWorkStatusJob[];
   backgroundWorkStatus(jobId: string): KernelCompanionBackgroundWorkStatusJob | null;
   backgroundWorkStatus(
@@ -552,6 +591,9 @@ export class SrsBackendClient {
       return false;
     }
     if (!this.reviewTruthFlushOptions) {
+      return false;
+    }
+    if (!this.resolveReviewTruthMutationIdentity()) {
       return false;
     }
     try {
@@ -845,6 +887,16 @@ export class SrsBackendClient {
     if (this.disposed || !this.reviewTruthFlushOptions || this.reviewTruthFlushInFlight) {
       return;
     }
+    if (this.reviewTruthFlushJobId) {
+      const current = this.backgroundWorkRegistry.status(this.reviewTruthFlushJobId);
+      if (current && (current.state === 'accepted' || current.state === 'running')) {
+        if (!options.replaceExisting) {
+          return;
+        }
+        this.backgroundWorkRegistry.cancel(current.jobId, 'review-truth-flush-replaced');
+      }
+      this.reviewTruthFlushJobId = null;
+    }
     if (this.reviewTruthFlushTimer) {
       if (!options.replaceExisting) {
         return;
@@ -856,22 +908,78 @@ export class SrsBackendClient {
       void this.runQueuedReviewTruthFlush({ waitForInFlight: true });
       return;
     }
-    this.reviewTruthFlushTimer = setTimeout(() => {
-      this.reviewTruthFlushTimer = null;
-      if (this.disposed) {
-        this.clearQueuedReviewTruthMaintenance();
-        return;
-      }
-      void this.runQueuedReviewTruthFlush({ waitForInFlight: true });
-    }, resolvedDelayMs);
+    const flushRequest = this.buildReviewTruthFlushRequest();
+    if (!flushRequest) {
+      this.clearQueuedReviewTruthMaintenance();
+      return;
+    }
+    const reason = options.reason ?? 'timer';
+    const dedupeKey = [
+      'review-truth-flush-lifecycle-v1',
+      flushRequest.deviceId,
+      flushRequest.identityEpoch,
+      flushRequest.generationId,
+    ].join(':');
+    const result = this.backgroundWorkRegistry.submit<KernelCompanionReviewTruthFlushDiagnostics>({
+      kind: 'review-truth-flush',
+      dedupeKey,
+      diagnostics: {
+        reason,
+        delayMs: resolvedDelayMs,
+        queued: this.reviewTruthFlushQueued,
+      },
+      run: async (context) => {
+        do {
+          await delayReviewTruthFlush(resolvedDelayMs);
+          if (this.disposed || context.isCanceled()) {
+            this.clearQueuedReviewTruthMaintenance();
+            return {
+              state: 'canceled',
+              reason: this.disposed ? 'srs-backend-client-dispose' : 'background-work-canceled',
+              diagnostics: {
+                reason,
+                delayMs: resolvedDelayMs,
+                queued: false,
+                unavailable: true,
+              },
+            };
+          }
+          await this.runQueuedReviewTruthFlush({ waitForInFlight: true });
+        } while (this.reviewTruthFlushQueued && !this.disposed && !context.isCanceled());
+        return {
+          state: 'completed',
+          diagnostics: {
+            reason,
+            delayMs: resolvedDelayMs,
+            queued: this.reviewTruthFlushQueued,
+            flushed: true,
+          },
+        };
+      },
+    });
+    if (result.accepted || result.coalesced) {
+      this.reviewTruthFlushJobId = result.job.jobId;
+    }
   }
 
   private clearReviewTruthFlushTimer(): void {
     if (!this.reviewTruthFlushTimer) {
+      if (this.reviewTruthFlushJobId) {
+        if (!this.disposed) {
+          this.backgroundWorkRegistry.cancel(this.reviewTruthFlushJobId, 'review-truth-flush-cleared');
+        }
+        this.reviewTruthFlushJobId = null;
+      }
       return;
     }
     clearTimeout(this.reviewTruthFlushTimer);
     this.reviewTruthFlushTimer = null;
+    if (this.reviewTruthFlushJobId) {
+      if (!this.disposed) {
+        this.backgroundWorkRegistry.cancel(this.reviewTruthFlushJobId, 'review-truth-flush-cleared');
+      }
+      this.reviewTruthFlushJobId = null;
+    }
   }
 
   private clearQueuedReviewTruthMaintenance(): void {
@@ -994,14 +1102,14 @@ export class SrsBackendClient {
   private submitTruthPromotionTrackingJob(
     reason: string,
     initial: BackendReviewTruthMaintenanceStatusResult['truthPromotion'] | null = null,
-  ): boolean {
+  ): string | null {
     if (this.disposed) {
-      return false;
+      return null;
     }
     if (this.truthPromotionTrackingJobId) {
       const current = this.backgroundWorkRegistry.status(this.truthPromotionTrackingJobId);
       if (current && (current.state === 'accepted' || current.state === 'running')) {
-        return false;
+        return current.jobId;
       }
       this.truthPromotionTrackingJobId = null;
     }
@@ -1014,10 +1122,11 @@ export class SrsBackendClient {
       },
       run: (context) => this.runTruthPromotionTrackingJob(context, reason),
     });
-    if (result.accepted) {
+    if (result.accepted || result.coalesced) {
       this.truthPromotionTrackingJobId = result.job.jobId;
+      return result.job.jobId;
     }
-    return result.accepted;
+    return null;
   }
 
   private async runTruthPromotionTrackingJob(
@@ -1183,13 +1292,14 @@ export class SrsBackendClient {
 
   private buildReviewTruthFlushRequest(): BackendReviewFeedbackTruthFlushRequest | null {
     const options = this.reviewTruthFlushOptions;
-    const deviceId = String(options?.deviceId || '').trim();
+    const identity = this.resolveReviewTruthMutationIdentity();
     const generationId = String(options?.generationId || '').trim();
-    if (!deviceId || !generationId) {
+    if (!identity || !generationId) {
       return null;
     }
     const request: BackendReviewFeedbackTruthFlushRequest = {
-      deviceId,
+      deviceId: identity.deviceId,
+      identityEpoch: identity.identityEpoch,
       generationId,
     };
     if (Number.isFinite(Number(options?.schemaVersion))) {
@@ -1202,6 +1312,30 @@ export class SrsBackendClient {
       request.batchLimit = Math.max(1, Math.floor(Number(options?.batchLimit)));
     }
     return request;
+  }
+
+  private resolveReviewTruthMutationIdentity(): { deviceId: string; identityEpoch: string } | null {
+    const options = this.reviewTruthFlushOptions;
+    const deviceId = String(options?.deviceId || '').trim();
+    const identityEpoch = String(
+      options?.identityEpoch ?? this.reviewTruthDeviceDiagnostics?.identityEpoch ?? '',
+    ).trim();
+    if (!deviceId || !identityEpoch) {
+      return null;
+    }
+    if (!this.reviewTruthDeviceDiagnostics) {
+      return { deviceId, identityEpoch };
+    }
+    const diagnosticDeviceId = String(this.reviewTruthDeviceDiagnostics.deviceId || '').trim();
+    const diagnosticIdentityEpoch = String(this.reviewTruthDeviceDiagnostics.identityEpoch || '').trim();
+    if (
+      diagnosticDeviceId !== deviceId
+      || diagnosticIdentityEpoch !== identityEpoch
+      || !REVIEW_TRUTH_MUTATION_IDENTITY_SOURCES.has(this.reviewTruthDeviceDiagnostics.source)
+    ) {
+      return null;
+    }
+    return { deviceId, identityEpoch };
   }
 
   private buildReviewTruthBackfillRequest(

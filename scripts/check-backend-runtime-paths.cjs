@@ -365,6 +365,59 @@ const runtimePaths = [
     ],
   },
   {
+    id: 'startup-readiness-maintenance',
+    status: 'active',
+    anchors: [
+      {
+        file: 'packages/contracts/src/backend-rpc.ts',
+        tokens: ['BackendStartupReadinessDisposition', 'BackendDeferredStartupWorkDescriptor', 'storage.maintenance.status'],
+        reason: 'startup readiness must expose typed disposition, deferred descriptors, and cheap maintenance status contract',
+      },
+      {
+        file: 'src/application/ApplicationContext.ts',
+        tokens: ['startPostReadyStartupMaintenance', 'createStartupMaintenanceLifecycleDedupeKey', 'KernelCompanionBackgroundWorkRegistry'],
+        reason: 'composition root must own the post-ready maintenance handoff and lifecycle dedupe key',
+      },
+      {
+        file: 'src/utils/cjsBrowserGlobals.ts',
+        tokens: ['withScopedCjsBrowserGlobals', 'Worker', 'Blob', 'URL', 'webkitURL', 'finally'],
+        reason: 'CJS inline worker bootstrap must remain lazy, narrow, and descriptor-restoring',
+      },
+      {
+        file: 'src/application/clients/BrowserSrsBackendWorkerTransport.ts',
+        tokens: ['withScopedCjsBrowserGlobals', 'backendWorkerCompatibilityError', 'markWorkerConstructionUnavailable'],
+        reason: 'backend worker construction failures must become explicit unavailable state without fallback ownership',
+      },
+      {
+        file: 'scripts/smoke-cjs-inline-worker-bootstrap.cjs',
+        tokens: ['import-only-descriptor-preservation', 'explicit-descriptor-failure', 'renderer-side database'],
+        reason: 'built bundle smoke must keep import-only globals clean and forbid renderer database fallback snippets',
+      },
+    ],
+    absentAnchors: [
+      {
+        file: 'src/application/clients/SrsBackendClient.ts',
+        tokens: ['submitStartupStorageMaintenanceJob'],
+        reason: 'client load/reload must stay pure RPCs and must not submit startup maintenance directly',
+      },
+      {
+        file: 'src/application/factories/createApplicationBackendRuntimeBundle.ts',
+        tokens: ['schedulePendingReviewTruthFlush', 'submitStartupStorageMaintenanceJob'],
+        reason: 'factory creation must not schedule Review truth flush or startup maintenance before ready',
+      },
+      {
+        file: 'src/application/clients/BrowserSrsBackendWorkerTransport.ts',
+        tokens: ['installCjsBrowserGlobals', 'SqliteDatabaseService', 'SqlUnifiedStorageRepository'],
+        reason: 'transport must not use import-time global installers or renderer-side SQLite fallback ownership',
+      },
+      {
+        file: 'src/index.ts',
+        tokens: ['submitStartupStorageMaintenanceJob'],
+        reason: 'plugin onload must publish ready before routing descriptors through the coordinator/registry seam',
+      },
+    ],
+  },
+  {
     id: 'external-srs-algorithms',
     status: 'deferred-foundation',
     anchors: [

@@ -5,8 +5,59 @@ const logger = createLogger('RuntimePerf');
 const SESSION_FLAG_KEY = 'siyuanmemo.runtimePerformanceDiagnostics.enabled';
 const DEFAULT_MAX_EVENTS = 500;
 const DEFAULT_MAX_SLOWEST_EVENTS = 40;
+const DEFAULT_STARTUP_SLOW_THRESHOLD_MS = 5000;
+const DEFAULT_STARTUP_PROFILE_MAX_SPANS = 8;
+const DEFAULT_STARTUP_ATTEMPT_MAX_SPANS = 40;
 const MAX_METADATA_KEYS = 24;
 const MAX_METADATA_STRING_LENGTH = 120;
+const STARTUP_UNLISTED_OPERATION = 'startup.unlisted-operation';
+
+const STARTUP_PROFILE_ALLOWED_OPERATIONS = new Set([
+  'application-context.create',
+  'plugin.formula-cloze.start',
+  'plugin.onload',
+  'plugin.register-custom-tabs',
+  'plugin.ensure-menu-fallbacks',
+  'plugin.register-runtime-handlers',
+  'plugin.setup-topbar',
+  'queue-persistence-service.init',
+  'settings-service.init',
+  'storage-manager.init',
+  'storage-migration.follower-worker-reload',
+  'storage-migration.worker-apply',
+  'transaction-websocket-service.configure',
+  'transaction-websocket-service.restart-stop',
+  'transaction-websocket-service.restart-start',
+  'transaction-websocket-service.start',
+  'transaction-websocket-service.stop',
+  'transaction-websocket-service.update',
+  'unified-storage.load',
+]);
+
+const STARTUP_PROFILE_ALLOWED_METADATA_KEYS = new Set([
+  'attempt',
+  'attemptCount',
+  'batchCount',
+  'batchSize',
+  'cardCount',
+  'durationMs',
+  'elapsedMs',
+  'errorCode',
+  'errorName',
+  'frontend',
+  'isBrowser',
+  'isMobile',
+  'kind',
+  'mode',
+  'ok',
+  'operation',
+  'phase',
+  'reason',
+  'repairedCardCount',
+  'safeReason',
+  'startupDurationMs',
+  'status',
+]);
 
 type JsonValue = string | number | boolean | null;
 
@@ -49,6 +100,32 @@ export interface RuntimePerformanceReport {
   stats: Record<string, RuntimePerformanceStats>;
 }
 
+export interface StartupSlowProfileSpan {
+  path: string;
+  operation: string;
+  durationMs: number;
+  ok: boolean;
+  metadata?: SanitizedRuntimePerformanceMetadata;
+  errorName?: string;
+}
+
+export interface StartupSlowProfileReport {
+  kind: 'startup-slow-profile';
+  startupDurationMs: number;
+  thresholdMs: number;
+  spanCount: number;
+  slowestSpans: StartupSlowProfileSpan[];
+  truncated?: boolean;
+  droppedSpanCount?: number;
+}
+
+export interface StartupSlowProfileOptions {
+  startupDurationMs: number;
+  thresholdMs?: number;
+  maxSpans?: number;
+  logger?: Pick<ReturnType<typeof createLogger>, 'warn'>;
+}
+
 interface RuntimePerformanceState {
   enabled: boolean;
   nextEventId: number;
@@ -62,9 +139,21 @@ interface RuntimePerformanceState {
   globalsInstalled: boolean;
 }
 
+interface StartupAttemptPerformanceState {
+  active: boolean;
+  nextSpanId: number;
+  maxSpans: number;
+  totalSpanCount: number;
+  slowestSpans: RuntimePerformanceEvent[];
+}
+
 export interface RuntimePerformanceEnableOptions {
   reset?: boolean;
   maxEvents?: number;
+}
+
+export interface StartupPerformanceAttemptOptions {
+  maxSpans?: number;
 }
 
 export interface RuntimePerformanceSpanOptions {
@@ -100,6 +189,14 @@ const state: RuntimePerformanceState = {
   globalsInstalled: false,
 };
 
+const startupAttemptState: StartupAttemptPerformanceState = {
+  active: false,
+  nextSpanId: 1,
+  maxSpans: DEFAULT_STARTUP_ATTEMPT_MAX_SPANS,
+  totalSpanCount: 0,
+  slowestSpans: [],
+};
+
 function nowMs(): number {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
     return performance.now();
@@ -130,6 +227,23 @@ function isSensitiveMetadataKey(key: string): boolean {
   return /(answer|body|content|html|kramdown|markdown|payload|prompt|secret|text|token)/i.test(key);
 }
 
+function isStartupSensitiveMetadataKey(key: string): boolean {
+  return isSensitiveMetadataKey(key) || /(exception|stack|sql|nestedError|requestBody|responseBody)/i.test(key);
+}
+
+function isSafeStartupMetadataKey(key: string): boolean {
+  if (STARTUP_PROFILE_ALLOWED_METADATA_KEYS.has(key)) return true;
+  return /(count|durationMs|elapsedMs|size)$/i.test(key);
+}
+
+function isSafeStartupScalar(value: unknown): value is JsonValue | bigint {
+  return value === null
+    || typeof value === 'string'
+    || typeof value === 'number'
+    || typeof value === 'boolean'
+    || typeof value === 'bigint';
+}
+
 function sanitizeMetadataValue(key: string, value: unknown): JsonValue | undefined {
   if (value === undefined) return undefined;
   if (isSensitiveMetadataKey(key)) return '[redacted]';
@@ -158,6 +272,31 @@ function sanitizeMetadata(metadata?: RuntimePerformanceMetadata): SanitizedRunti
     const cleanValue = sanitizeMetadataValue(key, value);
     if (cleanValue !== undefined) {
       sanitized[normalizeLabel(key, 'metadata')] = cleanValue;
+    }
+  }
+
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+function sanitizeStartupProfileMetadata(metadata?: RuntimePerformanceMetadata): SanitizedRuntimePerformanceMetadata | undefined {
+  if (!metadata) return undefined;
+
+  const sanitized: SanitizedRuntimePerformanceMetadata = {};
+  for (const [key, value] of Object.entries(metadata).slice(0, MAX_METADATA_KEYS)) {
+    const safeKey = normalizeLabel(key, 'metadata');
+    if (isSafeStartupMetadataKey(safeKey)) {
+      if (isSafeStartupScalar(value)) {
+        const cleanValue = sanitizeMetadataValue(safeKey, value);
+        if (cleanValue !== undefined) {
+          sanitized[safeKey] = cleanValue;
+        }
+      } else {
+        sanitized[safeKey] = '[redacted]';
+      }
+      continue;
+    }
+    if (isStartupSensitiveMetadataKey(safeKey)) {
+      sanitized[safeKey] = '[redacted]';
     }
   }
 
@@ -212,6 +351,53 @@ function rememberTiming(path: string, operation: string, durationMs: number): vo
     timings.shift();
   }
   state.timings.set(key, timings);
+}
+
+function sortStartupSpans(events: RuntimePerformanceEvent[]): void {
+  events.sort((a, b) => (
+    b.durationMs - a.durationMs
+    || a.startedAt - b.startedAt
+    || a.operation.localeCompare(b.operation)
+  ));
+}
+
+function normalizeStartupOperation(operationInput: string): string {
+  const operation = normalizeLabel(operationInput, 'operation');
+  return STARTUP_PROFILE_ALLOWED_OPERATIONS.has(operation)
+    ? operation
+    : STARTUP_UNLISTED_OPERATION;
+}
+
+function shouldCaptureStartupAttempt(pathInput: string): boolean {
+  return startupAttemptState.active && normalizeLabel(pathInput, 'unknown') === 'startup';
+}
+
+function rememberStartupAttemptSpan(event: RuntimePerformanceEvent): void {
+  startupAttemptState.totalSpanCount += 1;
+  startupAttemptState.slowestSpans.push(event);
+  sortStartupSpans(startupAttemptState.slowestSpans);
+  if (startupAttemptState.slowestSpans.length > startupAttemptState.maxSpans) {
+    startupAttemptState.slowestSpans.length = startupAttemptState.maxSpans;
+  }
+}
+
+export function beginStartupPerformanceAttempt(options: StartupPerformanceAttemptOptions = {}): void {
+  startupAttemptState.active = true;
+  startupAttemptState.nextSpanId = 1;
+  startupAttemptState.totalSpanCount = 0;
+  startupAttemptState.slowestSpans = [];
+  startupAttemptState.maxSpans = Math.max(
+    1,
+    Math.floor(options.maxSpans ?? DEFAULT_STARTUP_ATTEMPT_MAX_SPANS),
+  );
+}
+
+export function resetStartupPerformanceAttempt(): void {
+  startupAttemptState.active = false;
+  startupAttemptState.nextSpanId = 1;
+  startupAttemptState.totalSpanCount = 0;
+  startupAttemptState.slowestSpans = [];
+  startupAttemptState.maxSpans = DEFAULT_STARTUP_ATTEMPT_MAX_SPANS;
 }
 
 function resetRuntimePerformanceState(): void {
@@ -317,16 +503,13 @@ export function recordRuntimePerformanceSpan(
   metadata?: RuntimePerformanceMetadata,
   options: RuntimePerformanceSpanOptions = {}
 ): void {
-  if (!state.enabled) return;
-
   const path = normalizeLabel(pathInput, 'unknown');
   const operation = normalizeLabel(operationInput, 'operation');
   const durationMs = Math.max(0, Number.isFinite(durationMsInput) ? durationMsInput : 0);
   const endedAt = options.endedAt ?? nowMs();
   const startedAt = options.startedAt ?? endedAt - durationMs;
-  const event: RuntimePerformanceEvent = {
-    id: state.nextEventId++,
-    type: 'span',
+  const baseEvent = {
+    type: 'span' as const,
     path,
     operation,
     startedAt: wallClockFromPerformance(startedAt),
@@ -334,12 +517,28 @@ export function recordRuntimePerformanceSpan(
     durationMs,
     ok: options.ok ?? !options.errorName,
     traceId: options.traceId ? normalizeLabel(options.traceId, 'trace') : undefined,
-    metadata: sanitizeMetadata(metadata),
     errorName: options.errorName ? normalizeLabel(options.errorName, 'Error') : undefined,
   };
 
-  rememberEvent(event);
-  rememberTiming(path, operation, durationMs);
+  if (state.enabled) {
+    const event: RuntimePerformanceEvent = {
+      ...baseEvent,
+      id: state.nextEventId++,
+      metadata: sanitizeMetadata(metadata),
+    };
+    rememberEvent(event);
+    rememberTiming(path, operation, durationMs);
+  }
+
+  if (shouldCaptureStartupAttempt(pathInput)) {
+    rememberStartupAttemptSpan({
+      ...baseEvent,
+      id: startupAttemptState.nextSpanId++,
+      path: 'startup',
+      operation: normalizeStartupOperation(operationInput),
+      metadata: sanitizeStartupProfileMetadata(metadata),
+    });
+  }
 }
 
 export function startRuntimePerformanceSpan(
@@ -347,7 +546,7 @@ export function startRuntimePerformanceSpan(
   operation: string,
   metadata?: RuntimePerformanceMetadata
 ): RuntimePerformanceEndSpan {
-  if (!state.enabled) {
+  if (!state.enabled && !shouldCaptureStartupAttempt(path)) {
     return () => undefined;
   }
 
@@ -374,7 +573,7 @@ export function measureRuntimePerformance<T>(
   fn: () => T,
   metadata?: RuntimePerformanceMetadata
 ): T {
-  if (!state.enabled) {
+  if (!state.enabled && !shouldCaptureStartupAttempt(path)) {
     return fn();
   }
 
@@ -463,6 +662,88 @@ export function printRuntimePerformanceDiagnosticsReport(): RuntimePerformanceRe
   const report = getRuntimePerformanceDiagnosticsReport();
   logger.info('[RUNTIME PERF REPORT]', report);
   return report;
+}
+
+function toStartupSlowProfileSpan(event: RuntimePerformanceEvent): StartupSlowProfileSpan {
+  return {
+    path: event.path,
+    operation: event.operation,
+    durationMs: event.durationMs,
+    ok: event.ok,
+    metadata: event.metadata ? { ...event.metadata } : undefined,
+    errorName: event.errorName,
+  };
+}
+
+function buildStartupSlowProfileFromEvents(
+  events: RuntimePerformanceEvent[],
+  options: Omit<StartupSlowProfileOptions, 'logger'>,
+  truncation?: { truncated: boolean; droppedSpanCount: number },
+): StartupSlowProfileReport | null {
+  const thresholdMs = Math.max(0, options.thresholdMs ?? DEFAULT_STARTUP_SLOW_THRESHOLD_MS);
+  const startupDurationMs = Math.max(
+    0,
+    Number.isFinite(options.startupDurationMs) ? options.startupDurationMs : 0,
+  );
+  if (startupDurationMs <= thresholdMs) {
+    return null;
+  }
+
+  const maxSpans = Math.max(1, Math.floor(options.maxSpans ?? DEFAULT_STARTUP_PROFILE_MAX_SPANS));
+  const slowestSpans = events
+    .filter((event) => event.type === 'span' && event.path === 'startup')
+    .sort((a, b) => (
+      b.durationMs - a.durationMs
+      || a.startedAt - b.startedAt
+      || a.operation.localeCompare(b.operation)
+    ))
+    .slice(0, maxSpans)
+    .map(toStartupSlowProfileSpan);
+
+  return {
+    kind: 'startup-slow-profile',
+    startupDurationMs,
+    thresholdMs,
+    spanCount: slowestSpans.length,
+    slowestSpans,
+    ...(truncation?.truncated
+      ? {
+          truncated: true,
+          droppedSpanCount: truncation.droppedSpanCount,
+        }
+      : {}),
+  };
+}
+
+export function buildStartupSlowProfileReport(
+  report: RuntimePerformanceReport,
+  options: Omit<StartupSlowProfileOptions, 'logger'>
+): StartupSlowProfileReport | null {
+  return buildStartupSlowProfileFromEvents(report.slowestEvents, options);
+}
+
+export function reportStartupSlowProfile(options: StartupSlowProfileOptions): StartupSlowProfileReport | null {
+  const hasStartupAttempt = startupAttemptState.active;
+  const startupAttemptEvents = startupAttemptState.slowestSpans.map((event) => ({ ...event }));
+  const profile = hasStartupAttempt
+    ? buildStartupSlowProfileFromEvents(
+        startupAttemptEvents,
+        options,
+        {
+          truncated: startupAttemptState.totalSpanCount > startupAttemptState.slowestSpans.length,
+          droppedSpanCount: Math.max(0, startupAttemptState.totalSpanCount - startupAttemptState.slowestSpans.length),
+        },
+      )
+    : buildStartupSlowProfileReport(getRuntimePerformanceDiagnosticsReport(), options);
+  if (hasStartupAttempt) {
+    resetStartupPerformanceAttempt();
+  }
+  if (!profile) {
+    return null;
+  }
+
+  (options.logger ?? logger).warn('[STARTUP SLOW PROFILE]', profile);
+  return profile;
 }
 
 export async function copyRuntimePerformanceDiagnosticsReport(): Promise<RuntimePerformanceReport> {

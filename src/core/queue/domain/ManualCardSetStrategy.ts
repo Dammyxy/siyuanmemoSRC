@@ -8,6 +8,7 @@ interface ResolveExistingCardsOptions {
   onCleanup?: () => Promise<void>;
   cleanupLogger?: CleanupLogger;
   cleanupMessage?: (removedCount: number) => string;
+  cleanupMissing?: boolean;
 }
 
 export class ManualCardSetStrategy {
@@ -57,7 +58,7 @@ export class ManualCardSetStrategy {
       }
     }
 
-    if (missingIds.length === 0) {
+    if (missingIds.length === 0 || options.cleanupMissing === false) {
       return cards;
     }
 

@@ -64,14 +64,14 @@ const BACKEND_CORE_RPC_HANDLER_ADAPTERS: {
     method: 'db.load',
     family: 'core',
     handle(params, context): Promise<BackendDbLoadResult> | BackendDbLoadResult {
-      return context.core.database.load(readDbLoadRequest(params));
+      return context.core.database.load(readDbLoadRequest(params, 'db.load'));
     },
   },
   'db.reload': {
     method: 'db.reload',
     family: 'core',
     handle(params, context): Promise<BackendDbReloadResult> {
-      return context.core.database.reloadFromDisk(readDbLoadRequest(params));
+      return context.core.database.reloadFromDisk(readDbLoadRequest(params, 'db.reload'));
     },
   },
   'storage.maintenance.status': {
@@ -130,11 +130,103 @@ const BACKEND_CORE_RPC_HANDLER_ADAPTERS: {
   },
 };
 
-function readDbLoadRequest(params: unknown): BackendDbLoadRequest | undefined {
-  if (!params || typeof params !== 'object' || Array.isArray(params)) {
+function readDbLoadRequest(
+  params: unknown,
+  method: 'db.load' | 'db.reload',
+): BackendDbLoadRequest | undefined {
+  if (Array.isArray(params) && params.length === 0) {
     return undefined;
   }
-  return params as BackendDbLoadRequest;
+  if (!Array.isArray(params) || params.length !== 1) {
+    throw new Error(`INVALID_REQUEST: ${method} expects positional [request] params`);
+  }
+  const candidate = params[0];
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    throw new Error(`INVALID_REQUEST: ${method} request must be an object`);
+  }
+  const request = candidate as Record<string, unknown>;
+  assertOptionalStartupIdentityDisposition(request.startupIdentityDisposition, method);
+  assertOptionalStringField(request, 'truthDeviceId', method);
+  assertOptionalStringField(request, 'identityEpoch', method);
+  assertOptionalStringField(request, 'cardTruthGenerationId', method);
+  assertOptionalStringField(request, 'reviewTruthGenerationId', method);
+  assertOptionalNumberField(request, 'truthSchemaVersion', method);
+  assertOptionalNumberField(request, 'maxSegmentBytes', method);
+  return candidate as BackendDbLoadRequest;
+}
+
+function assertOptionalStartupIdentityDisposition(
+  value: unknown,
+  method: 'db.load' | 'db.reload',
+): void {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`INVALID_REQUEST: ${method} request.startupIdentityDisposition must be an object or null`);
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate.version !== 1) {
+    throw new Error(`INVALID_REQUEST: ${method} request.startupIdentityDisposition.version must be 1`);
+  }
+  if (
+    candidate.status !== 'verified'
+    && candidate.status !== 'read-only-recovery-required'
+    && candidate.status !== 'read-only-authority-unavailable'
+  ) {
+    throw new Error(`INVALID_REQUEST: ${method} request.startupIdentityDisposition.status is invalid`);
+  }
+  if (typeof candidate.writable !== 'boolean' || typeof candidate.retryable !== 'boolean') {
+    throw new Error(`INVALID_REQUEST: ${method} request.startupIdentityDisposition writable/retryable flags must be boolean`);
+  }
+  if (
+    candidate.deviceId !== null
+    && candidate.deviceId !== undefined
+    && typeof candidate.deviceId !== 'string'
+  ) {
+    throw new Error(`INVALID_REQUEST: ${method} request.startupIdentityDisposition.deviceId must be string or null`);
+  }
+  if (
+    candidate.identityEpoch !== null
+    && candidate.identityEpoch !== undefined
+    && typeof candidate.identityEpoch !== 'string'
+  ) {
+    throw new Error(`INVALID_REQUEST: ${method} request.startupIdentityDisposition.identityEpoch must be string or null`);
+  }
+  if (typeof candidate.source !== 'string') {
+    throw new Error(`INVALID_REQUEST: ${method} request.startupIdentityDisposition.source must be string`);
+  }
+  if (
+    candidate.reason !== null
+    && candidate.reason !== undefined
+    && typeof candidate.reason !== 'string'
+  ) {
+    throw new Error(`INVALID_REQUEST: ${method} request.startupIdentityDisposition.reason must be string or null`);
+  }
+}
+
+function assertOptionalStringField(
+  request: Record<string, unknown>,
+  field: keyof BackendDbLoadRequest,
+  method: 'db.load' | 'db.reload',
+): void {
+  const value = request[field];
+  if (value === undefined || value === null || typeof value === 'string') {
+    return;
+  }
+  throw new Error(`INVALID_REQUEST: ${method} request.${field} must be string or null`);
+}
+
+function assertOptionalNumberField(
+  request: Record<string, unknown>,
+  field: keyof BackendDbLoadRequest,
+  method: 'db.load' | 'db.reload',
+): void {
+  const value = request[field];
+  if (value === undefined || value === null || (typeof value === 'number' && Number.isFinite(value))) {
+    return;
+  }
+  throw new Error(`INVALID_REQUEST: ${method} request.${field} must be finite number or null`);
 }
 
 function readRequiredNamedParams<TParams extends object>(params: unknown, message: string): TParams {

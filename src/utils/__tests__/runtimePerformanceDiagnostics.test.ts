@@ -1,17 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  beginStartupPerformanceAttempt,
   clearRuntimePerformanceDiagnostics,
   copyRuntimePerformanceDiagnosticsReport,
+  buildStartupSlowProfileReport,
   getRuntimePerformanceDiagnosticsReport,
   incrementRuntimePerformanceCounter,
   measureRuntimePerformance,
   recordRuntimePerformanceSpan,
+  reportStartupSlowProfile,
+  resetStartupPerformanceAttempt,
   setRuntimePerformanceDiagnosticsEnabled,
+  startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 
 describe('runtimePerformanceDiagnostics', () => {
   afterEach(() => {
+    resetStartupPerformanceAttempt();
     setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
     vi.unstubAllGlobals();
   });
@@ -179,5 +185,213 @@ describe('runtimePerformanceDiagnostics', () => {
       eventCount: 1,
     });
     expect(writeText).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds a sanitized slow-start profile from top startup spans', () => {
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+
+    recordRuntimePerformanceSpan('startup', 'backend-worker.load', 900, {
+      cardContent: 'secret card body',
+      cardCount: 120,
+    });
+    recordRuntimePerformanceSpan('browser', 'open.first-rows-visible', 3000);
+    recordRuntimePerformanceSpan('startup', 'worker-storage-maintenance', 1500, {
+      sqlPayload: 'select * from blocks',
+      repairedCardCount: 2,
+    });
+    recordRuntimePerformanceSpan('startup', 'settings-service.init', 20);
+
+    const profile = buildStartupSlowProfileReport(getRuntimePerformanceDiagnosticsReport(), {
+      startupDurationMs: 5200,
+      thresholdMs: 5000,
+      maxSpans: 2,
+    });
+
+    expect(profile).toMatchObject({
+      kind: 'startup-slow-profile',
+      startupDurationMs: 5200,
+      thresholdMs: 5000,
+      spanCount: 2,
+    });
+    expect(profile?.slowestSpans.map((span) => span.operation)).toEqual([
+      'worker-storage-maintenance',
+      'backend-worker.load',
+    ]);
+    expect(profile?.slowestSpans[0].metadata).toMatchObject({
+      sqlPayload: '[redacted]',
+      repairedCardCount: 2,
+    });
+    expect(profile?.slowestSpans[1].metadata).toMatchObject({
+      cardContent: '[redacted]',
+      cardCount: 120,
+    });
+  });
+
+  it('keeps fast startup quiet', () => {
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+    recordRuntimePerformanceSpan('startup', 'backend-worker.load', 900);
+    const warn = vi.fn();
+
+    const profile = reportStartupSlowProfile({
+      startupDurationMs: 1200,
+      thresholdMs: 5000,
+      logger: { warn },
+    });
+
+    expect(profile).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('records bounded startup spans for slow startup when full diagnostics are disabled', () => {
+    beginStartupPerformanceAttempt();
+    recordRuntimePerformanceSpan('startup', 'plugin.onload', 5200, {
+      frontend: 'desktop',
+      cardContent: 'secret card body',
+    });
+    recordRuntimePerformanceSpan('startup', 'application-context.create', 3400, {
+      cardCount: 120,
+    });
+    recordRuntimePerformanceSpan('browser', 'open.first-rows-visible', 9000);
+    const warn = vi.fn();
+
+    const profile = reportStartupSlowProfile({
+      startupDurationMs: 5200,
+      thresholdMs: 5000,
+      logger: { warn },
+    });
+    const report = getRuntimePerformanceDiagnosticsReport();
+
+    expect(report.enabled).toBe(false);
+    expect(report.events).toHaveLength(0);
+    expect(profile).toMatchObject({
+      kind: 'startup-slow-profile',
+      startupDurationMs: 5200,
+      spanCount: 2,
+    });
+    expect(profile?.slowestSpans.map((span) => span.operation)).toEqual([
+      'plugin.onload',
+      'application-context.create',
+    ]);
+    expect(profile?.slowestSpans[0].metadata).toEqual({
+      frontend: 'desktop',
+      cardContent: '[redacted]',
+    });
+    expect(warn).toHaveBeenCalledWith('[STARTUP SLOW PROFILE]', profile);
+  });
+
+  it('discards startup-attempt spans for fast startup while diagnostics are disabled', () => {
+    beginStartupPerformanceAttempt();
+    recordRuntimePerformanceSpan('startup', 'plugin.onload', 1200);
+    const warn = vi.fn();
+
+    const profile = reportStartupSlowProfile({
+      startupDurationMs: 1200,
+      thresholdMs: 5000,
+      logger: { warn },
+    });
+
+    expect(profile).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+    beginStartupPerformanceAttempt();
+    recordRuntimePerformanceSpan('startup', 'application-context.create', 100);
+    const nextProfile = reportStartupSlowProfile({
+      startupDurationMs: 5100,
+      thresholdMs: 5000,
+      logger: { warn },
+    });
+    expect(nextProfile?.slowestSpans.map((span) => span.operation)).toEqual([
+      'application-context.create',
+    ]);
+  });
+
+  it('captures failed startup attempts after ApplicationContext creation closes', () => {
+    beginStartupPerformanceAttempt();
+    const finishApplicationContext = startRuntimePerformanceSpan('startup', 'application-context.create', {
+      frontend: 'desktop',
+    });
+    finishApplicationContext({ status: 'created' });
+    recordRuntimePerformanceSpan('startup', 'plugin.onload', 5300, {
+      status: 'failed',
+      errorName: 'Error',
+    }, {
+      ok: false,
+      errorName: 'Error',
+    });
+
+    const profile = reportStartupSlowProfile({
+      startupDurationMs: 5300,
+      thresholdMs: 5000,
+      logger: { warn: vi.fn() },
+    });
+
+    expect(profile?.slowestSpans.some((span) => (
+      span.operation === 'plugin.onload'
+      && span.ok === false
+      && span.errorName === 'Error'
+      && span.metadata?.status === 'failed'
+    ))).toBe(true);
+    expect(profile?.slowestSpans.some((span) => span.operation === 'application-context.create')).toBe(true);
+  });
+
+  it('bounds, resets, and redacts startup-only diagnostics metadata', () => {
+    beginStartupPerformanceAttempt({ maxSpans: 2 });
+    recordRuntimePerformanceSpan('startup', 'settings-service.init', 10, {
+      cardText: 'secret card text',
+      blockContent: 'secret block body',
+      sqlPayload: 'select * from blocks',
+      requestBody: '{"secret":true}',
+      nestedError: { message: 'secret nested error' },
+      unknownNested: { value: 'do not copy' },
+      unknownScalar: 'not allow-listed',
+      cardCount: 42,
+      phase: 'settings',
+    });
+    recordRuntimePerformanceSpan('startup', 'unlisted.operation', 30);
+    recordRuntimePerformanceSpan('startup', 'plugin.onload', 20);
+
+    const profile = reportStartupSlowProfile({
+      startupDurationMs: 6000,
+      thresholdMs: 5000,
+      maxSpans: 5,
+      logger: { warn: vi.fn() },
+    });
+
+    expect(profile).toMatchObject({
+      truncated: true,
+      droppedSpanCount: 1,
+      spanCount: 2,
+    });
+    expect(profile?.slowestSpans.map((span) => span.operation)).toEqual([
+      'startup.unlisted-operation',
+      'plugin.onload',
+    ]);
+
+    beginStartupPerformanceAttempt();
+    recordRuntimePerformanceSpan('startup', 'settings-service.init', 10, {
+      cardText: 'secret card text',
+      blockContent: 'secret block body',
+      sqlPayload: 'select * from blocks',
+      requestBody: '{"secret":true}',
+      nestedError: { message: 'secret nested error' },
+      unknownNested: { value: 'do not copy' },
+      unknownScalar: 'not allow-listed',
+      cardCount: 42,
+      phase: 'settings',
+    });
+    const redactionProfile = reportStartupSlowProfile({
+      startupDurationMs: 6000,
+      thresholdMs: 5000,
+      logger: { warn: vi.fn() },
+    });
+
+    expect(redactionProfile?.slowestSpans[0].metadata).toEqual({
+      cardText: '[redacted]',
+      blockContent: '[redacted]',
+      sqlPayload: '[redacted]',
+      requestBody: '[redacted]',
+      nestedError: '[redacted]',
+      cardCount: 42,
+      phase: 'settings',
+    });
   });
 });

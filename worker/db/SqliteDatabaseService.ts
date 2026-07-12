@@ -111,11 +111,15 @@ import type {
   BackendStorageDiagnostic,
   BackendStorageMaintenanceApplyBatchRequest,
   BackendStorageMaintenanceApplyBatchResult,
+  BackendStorageMaintenanceFrontier,
   BackendStorageMaintenanceStatusRequest,
   BackendStorageMaintenanceStatusResult,
   BackendStorageIdentityDiagnostics,
   BackendStorageReceiptStageDiagnostics,
   BackendTruthCoverageDiagnostics,
+  BackendDeferredStartupWorkDescriptor,
+  BackendStartupIdentityDisposition,
+  BackendStartupReadinessDisposition,
   BackendTruthPromotionStatusDiagnostics,
   BackendTruthReconciliationDiagnostics,
   MessagePackTruthFamily,
@@ -230,6 +234,9 @@ import {
 
 type SqlParams = SqlValue[] | ParamsObject;
 const logger = createLogger('WorkerSqliteDatabaseService');
+const STARTUP_MAINTENANCE_INPUT_VERSION = 'startup-maintenance-input-v1';
+const STARTUP_STORAGE_MAINTENANCE_RECEIPT_VERSION = 'startup-storage-maintenance-receipt-v2';
+const STARTUP_STORAGE_MAINTENANCE_KIND = 'startup-storage-maintenance';
 const REVIEW_FEEDBACK_DB_STEP_SLOW_MS = 120;
 const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_LIMIT = 5;
 const DOMAIN_SYNC_REPAIR_DAY_MS = 24 * 60 * 60 * 1000;
@@ -283,6 +290,7 @@ interface ExternalDatabaseMergeOptions {
   cardId?: string | null;
   forceMainDbRead?: boolean;
   skipMainDbRead?: boolean;
+  externalInputDirty?: boolean;
   ignoreProcessedSourceDeduplication?: boolean;
 }
 
@@ -900,6 +908,32 @@ function extractEvidencePaths(message: string): string[] {
   ));
 }
 
+function createStartupMaintenanceFrontierHash(input: unknown): string {
+  return `fnv1a-${hashString(JSON.stringify(input) ?? '')}`;
+}
+
+function createStartupMaintenanceReceiptOperationId(
+  frontier: BackendStorageMaintenanceFrontier,
+): string {
+  const fingerprint = [
+    frontier.pluginInstallationId,
+    frontier.identityEpoch,
+    frontier.inputVersion,
+    frontier.frontierHash,
+  ].map((part) => sanitizeStartupMaintenanceReceiptPart(part).slice(0, 48)).join(':');
+  return `${STARTUP_STORAGE_MAINTENANCE_RECEIPT_VERSION}:${STARTUP_STORAGE_MAINTENANCE_KIND}:${fingerprint}`;
+}
+
+function isStartupMaintenanceReceiptOperationId(value: unknown): boolean {
+  return String(value || '').startsWith(
+    `${STARTUP_STORAGE_MAINTENANCE_RECEIPT_VERSION}:${STARTUP_STORAGE_MAINTENANCE_KIND}:`,
+  );
+}
+
+function sanitizeStartupMaintenanceReceiptPart(value: unknown): string {
+  return String(value || '').trim().replace(/[^a-zA-Z0-9._:-]/g, '_');
+}
+
 function isSqliteDeltaValidationError(error: unknown): boolean {
   return /(?:SQLite delta|SQLITE_DELTA)/.test(errorMessage(error));
 }
@@ -922,8 +956,10 @@ export class WorkerSqliteDatabaseService {
   private storagePressureMaintenanceTimer: ReturnType<typeof setTimeout> | null = null;
   private storagePressureMaintenanceRun: Promise<void> | null = null;
   private truthPromotionShutdownStarted = false;
+  private startupTruthPromotionPending = false;
   private storageGrowthBaselineReady = false;
   private storagePressureBlockReason: string | null = null;
+  private startupIdentityDisposition: BackendStartupIdentityDisposition | null = null;
   private startupStorageEvidence: WorkerStartupStorageEvidence | null = null;
   private readonly autoCardDecisionService = new AutoCardDecisionService();
   private readonly kernelTransactionRuntime: WorkerKernelTransactionRuntime;
@@ -957,6 +993,8 @@ export class WorkerSqliteDatabaseService {
   private initialized = false;
   private storageMaintenanceOperations: WorkerStorageMaintenanceOperationRuntime | null = null;
   private lastObservedPersistedHash: string | null = null;
+  private externalInputDirtyGeneration = 0;
+  private pendingExternalMerge = false;
   private lastDomainSyncStatusSnapshot: BackendDomainSyncStatusResult | null = null;
   private reviewFeedbackMainDbFastSkipUsesRemaining = 0;
   private reviewFeedbackMainDbFastSkipInvalidatedBy: string | null = 'never-marked-clean';
@@ -1102,8 +1140,13 @@ export class WorkerSqliteDatabaseService {
     if (this.initialized) {
       return;
     }
-    const bootstrapOptions = this.normalizeStorageBootstrapOptions(request);
-    this.storageMutationIdentity = bootstrapOptions.truthDeviceId && bootstrapOptions.identityEpoch
+    this.startupTruthPromotionPending = false;
+    const startupIdentityDisposition = this.normalizeStartupIdentityDisposition(request);
+    this.startupIdentityDisposition = startupIdentityDisposition;
+    const bootstrapOptions = this.normalizeStorageBootstrapOptions(request, startupIdentityDisposition);
+    this.storageMutationIdentity = startupIdentityDisposition?.status === 'verified'
+      && bootstrapOptions.truthDeviceId
+      && bootstrapOptions.identityEpoch
       ? {
           deviceId: bootstrapOptions.truthDeviceId,
           identityEpoch: bootstrapOptions.identityEpoch,
@@ -1118,9 +1161,12 @@ export class WorkerSqliteDatabaseService {
     } catch (error) {
       deltaValidationError = errorMessage(error);
     }
+    const identityRecoveryRequired = startupIdentityDisposition !== null
+      && startupIdentityDisposition.status !== 'verified';
     let recoveryRequired = Boolean(
       storageBootstrap.truthValidationError
       || deltaValidationError
+      || identityRecoveryRequired
     );
     let projectionResetDuringStartup = false;
     let projectionRebuildReason = storageBootstrap.projectionRebuildReason;
@@ -1181,7 +1227,8 @@ export class WorkerSqliteDatabaseService {
     this.queueState = new SqlQueueStateRepository(this.runtime);
     this.semanticActivation = new SqlSemanticActivationRepository(this.runtime);
     if (
-      storageBootstrap.truthAvailable
+      !identityRecoveryRequired
+      && storageBootstrap.truthAvailable
       && (
         storageBootstrap.projectionRebuildRequired
         || projectionResetDuringStartup
@@ -1200,6 +1247,7 @@ export class WorkerSqliteDatabaseService {
         identity: {
           deviceId: bootstrapOptions.truthDeviceId,
           identityEpoch: bootstrapOptions.identityEpoch,
+          disposition: startupIdentityDisposition,
         },
         truth: {
           manifestCount: truthProjectionInput?.manifestCount ?? 0,
@@ -1238,6 +1286,7 @@ export class WorkerSqliteDatabaseService {
         },
       });
       this.storageGrowthBaselineReady = false;
+      await this.recordPendingReviewFeedbackJournalReplayBlockedByStartupRecovery();
       this.initialized = true;
       await this.rememberPersistedHash();
       return;
@@ -1251,10 +1300,6 @@ export class WorkerSqliteDatabaseService {
     await this.replayPendingReviewFeedbackJournalEntries();
     await this.reconcileReviewFeedbackJournalProjectionState();
     await this.kernelTransactionRuntime.restoreSnapshots();
-    const startupPromotion = await this.truthPromotionModule?.promotePending();
-    if (startupPromotion?.ok) {
-      await this.truthPromotionModule?.diagnostics();
-    }
     await this.runOneTimeStorageGrowthBaseline();
     this.storageGrowthBaselineReady = true;
     const startupPromotionDiagnostics = await this.truthPromotionModule?.diagnostics();
@@ -1265,6 +1310,7 @@ export class WorkerSqliteDatabaseService {
       identity: {
         deviceId: bootstrapOptions.truthDeviceId,
         identityEpoch: bootstrapOptions.identityEpoch,
+        disposition: startupIdentityDisposition,
       },
       truth: {
         manifestCount: truthProjectionInput?.manifestCount ?? 0,
@@ -1299,7 +1345,8 @@ export class WorkerSqliteDatabaseService {
         reason: projectionRebuildReason,
       },
     });
-    if ((startupPromotionDiagnostics?.pendingMutationCount ?? 0) > 0) {
+    this.startupTruthPromotionPending = (startupPromotionDiagnostics?.pendingMutationCount ?? 0) > 0;
+    if (this.startupTruthPromotionPending) {
       this.scheduleTruthPromotion('startup-resume');
     }
     this.initialized = true;
@@ -1308,13 +1355,23 @@ export class WorkerSqliteDatabaseService {
 
   private normalizeStorageBootstrapOptions(
     request?: BackendDbLoadRequest,
+    startupIdentityDisposition: BackendStartupIdentityDisposition | null = this.normalizeStartupIdentityDisposition(request),
   ): WorkerStorageBootstrapOptions {
     const schemaVersion = Math.max(
       1,
       Math.floor(Number(request?.truthSchemaVersion ?? MESSAGEPACK_TRUTH_SCHEMA_VERSION) || MESSAGEPACK_TRUTH_SCHEMA_VERSION),
     );
-    const truthDeviceId = normalizeString(request?.truthDeviceId);
-    const identityEpoch = normalizeString(request?.identityEpoch);
+    const verifiedStartupIdentity = startupIdentityDisposition?.status === 'verified'
+      ? startupIdentityDisposition
+      : null;
+    const truthDeviceId = normalizeString(
+      verifiedStartupIdentity?.deviceId
+      ?? (startupIdentityDisposition ? null : request?.truthDeviceId),
+    );
+    const identityEpoch = normalizeString(
+      verifiedStartupIdentity?.identityEpoch
+      ?? (startupIdentityDisposition ? null : request?.identityEpoch),
+    );
     const requestedMaxSegmentBytes = normalizeOptionalInteger(request?.maxSegmentBytes);
     return {
       truthDeviceId: truthDeviceId || null,
@@ -1328,6 +1385,70 @@ export class WorkerSqliteDatabaseService {
       maxSegmentBytes: requestedMaxSegmentBytes && requestedMaxSegmentBytes >= 256
         ? requestedMaxSegmentBytes
         : undefined,
+    };
+  }
+
+  private normalizeStartupIdentityDisposition(
+    request?: BackendDbLoadRequest,
+  ): BackendStartupIdentityDisposition | null {
+    const disposition = request?.startupIdentityDisposition ?? null;
+    if (disposition) {
+      const deviceId = normalizeOptionalString(disposition.deviceId);
+      const identityEpoch = normalizeOptionalString(disposition.identityEpoch);
+      if (disposition.status === 'verified' && deviceId && identityEpoch) {
+        return {
+          version: 1,
+          status: 'verified',
+          writable: true,
+          retryable: false,
+          deviceId,
+          identityEpoch,
+          source: disposition.source,
+          reason: null,
+        };
+      }
+      return {
+        version: 1,
+        status: disposition.status === 'read-only-authority-unavailable'
+          ? 'read-only-authority-unavailable'
+          : 'read-only-recovery-required',
+        writable: false,
+        retryable: disposition.status === 'read-only-authority-unavailable' || disposition.retryable === true,
+        deviceId,
+        identityEpoch,
+        source: disposition.source,
+        reason: normalizeOptionalString(disposition.reason)
+          ?? (disposition.status === 'read-only-authority-unavailable'
+            ? 'IDENTITY_AUTHORITY_UNAVAILABLE: identity authority unavailable'
+            : 'Truth Device Identity requires recovery'),
+      };
+    }
+    const deviceId = normalizeOptionalString(request?.truthDeviceId);
+    const identityEpoch = normalizeOptionalString(request?.identityEpoch);
+    if (!deviceId && !identityEpoch) {
+      return null;
+    }
+    if (deviceId && identityEpoch) {
+      return {
+        version: 1,
+        status: 'verified',
+        writable: true,
+        retryable: false,
+        deviceId,
+        identityEpoch,
+        source: 'not-provided',
+        reason: null,
+      };
+    }
+    return {
+      version: 1,
+      status: 'read-only-recovery-required',
+      writable: false,
+      retryable: false,
+      deviceId,
+      identityEpoch,
+      source: 'not-provided',
+      reason: 'storage identity requires both deviceId and identityEpoch',
     };
   }
 
@@ -1421,6 +1542,8 @@ export class WorkerSqliteDatabaseService {
         if (diagnostics.pendingMutationCount > 0) {
           this.truthPromotionRun = null;
           this.scheduleTruthPromotion('continue-bounded-batch', 0);
+        } else {
+          this.startupTruthPromotionPending = false;
         }
       })().finally(() => {
         this.truthPromotionRun = null;
@@ -1535,6 +1658,8 @@ export class WorkerSqliteDatabaseService {
       initialized: true,
       dbFile: this.dbFile,
       projectionSnapshot: await this.repository.loadStore('startup-load'),
+      readiness: this.createStartupReadinessDisposition(),
+      deferredWork: this.createDeferredStartupWorkDescriptors('db.load'),
     };
   }
 
@@ -1551,6 +1676,110 @@ export class WorkerSqliteDatabaseService {
       ok: true,
       reloaded: true,
       dbFile: this.dbFile,
+      readiness: this.createStartupReadinessDisposition(),
+      deferredWork: this.createDeferredStartupWorkDescriptors('db.reload'),
+    };
+  }
+
+  private createStartupReadinessDisposition(): BackendStartupReadinessDisposition {
+    const recovery = this.getStorageRecoveryState();
+    const recoveryRequired = recovery?.status === 'read-only-recovery-required';
+    const authorityUnavailable = this.startupIdentityDisposition?.status === 'read-only-authority-unavailable';
+    const storagePressureBlocked = !recoveryRequired && this.storagePressureBlockReason !== null;
+    return {
+      status: authorityUnavailable
+        ? 'read-only-authority-unavailable'
+        : recoveryRequired
+          ? 'read-only-recovery-required'
+        : storagePressureBlocked
+          ? 'read-only-storage-pressure'
+          : 'ready',
+      identity: this.startupIdentityDisposition,
+      projectionReadable: true,
+      writable: !authorityUnavailable && !recoveryRequired && !storagePressureBlocked,
+      recovery,
+    };
+  }
+
+  private createDeferredStartupWorkDescriptors(reason: string): BackendDeferredStartupWorkDescriptor[] {
+    const readiness = this.createStartupReadinessDisposition();
+    if (readiness.status !== 'ready') {
+      return [];
+    }
+    const frontier = this.createStartupMaintenanceFrontier(readiness);
+    const descriptors: BackendDeferredStartupWorkDescriptor[] = [{
+      version: 1,
+      kind: 'startup-storage-maintenance',
+      owner: 'application-context',
+      phase: 'post-ready',
+      reason,
+      safeToDefer: true,
+      statusReference: {
+        kind: 'kernel-companion-background-work',
+        workKind: 'startup-storage-maintenance',
+      },
+      frontier,
+    }];
+    if (this.startupTruthPromotionPending) {
+      descriptors.push({
+        version: 1,
+        kind: 'truth-promotion',
+        owner: 'application-context',
+        phase: 'post-ready',
+        reason,
+        safeToDefer: true,
+        statusReference: {
+          kind: 'kernel-companion-background-work',
+          workKind: 'truth-promotion',
+        },
+        frontier,
+      });
+    }
+    return descriptors;
+  }
+
+  private createStartupMaintenanceFrontier(
+    readiness: BackendStartupReadinessDisposition,
+  ): BackendDeferredStartupWorkDescriptor['frontier'] {
+    const identity = this.storageMutationIdentity;
+    const evidence = this.startupStorageEvidence;
+    const truthCoverageFrontier = evidence?.deltaCoverage.truthCoverageFrontier ?? null;
+    const uncoveredMutationCount = evidence?.deltaCoverage.uncoveredMutationCount ?? null;
+    const journalSequenceFrontier = truthCoverageFrontier !== null && uncoveredMutationCount !== null
+      ? truthCoverageFrontier + uncoveredMutationCount
+      : null;
+    const frontierInput = {
+      version: 1,
+      pluginInstallationId: identity?.deviceId ?? null,
+      identityEpoch: identity?.identityEpoch ?? null,
+      inputVersion: STARTUP_MAINTENANCE_INPUT_VERSION,
+      recoveryStatus: readiness.recovery?.status ?? null,
+      manifestStatus: evidence?.manifests.status ?? null,
+      manifestCount: evidence?.manifests.count ?? null,
+      selectedGenerationId: evidence?.generations.selectedGenerationId ?? null,
+      deltaCoverageStatus: evidence?.deltaCoverage.status ?? null,
+      deltaFiles: evidence?.deltaCoverage.files ?? null,
+      deltaEntries: evidence?.deltaCoverage.entries ?? null,
+      journalSequenceFrontier,
+      truthCoverageFrontier,
+      uncoveredMutationCount,
+      checkpointStatus: evidence?.checkpoint.status ?? null,
+      checkpointClearedAt: evidence?.checkpoint.clearedAt ?? null,
+      storageGrowthBaselineReady: this.storageGrowthBaselineReady,
+      storagePressureBlocked: this.storagePressureBlockReason !== null,
+      externalInputDirtyGeneration: this.externalInputDirtyGeneration,
+      pendingExternalMerge: this.pendingExternalMerge,
+    };
+    return {
+      pluginInstallationId: frontierInput.pluginInstallationId,
+      identityEpoch: frontierInput.identityEpoch,
+      inputVersion: STARTUP_MAINTENANCE_INPUT_VERSION,
+      frontierHash: createStartupMaintenanceFrontierHash(frontierInput),
+      recoveryStatus: frontierInput.recoveryStatus,
+      journalSequenceFrontier,
+      truthCoverageFrontier,
+      externalInputDirtyGeneration: this.externalInputDirtyGeneration,
+      pendingExternalMerge: this.pendingExternalMerge,
     };
   }
 
@@ -1610,6 +1839,9 @@ export class WorkerSqliteDatabaseService {
     if (context !== 'read-only-preflight') {
       this.assertFormalWritesAvailable();
     }
+    const queuedExternalInputDirty = options.externalInputDirty === true
+      ? this.markExternalInputDirty(`merge:${context}`)
+      : false;
     if (context === 'read-only-preflight') {
       const domainSyncStatus = await this.readDomainSyncStatusForNoSourceMerge(context, mergedAt);
       return {
@@ -1637,6 +1869,11 @@ export class WorkerSqliteDatabaseService {
       };
     }
     const reconciliation = await this.measureReviewFeedbackDatabaseStep(
+      'reconciliation.observe-external-input',
+      cardId,
+      () => this.observeExternalInputDirtyMarker(`merge:${context}`),
+    );
+    const truthReconciliation = await this.measureReviewFeedbackDatabaseStep(
       'reconciliation.apply-canonical-truth',
       cardId,
       () => this.reconcileCanonicalTruth({
@@ -1647,12 +1884,17 @@ export class WorkerSqliteDatabaseService {
       'reconciliation.domain-sync-status.after-publication',
       cardId,
       () => this.readDomainSyncStatusSnapshot(Date.now()),
-      { sourceCount: reconciliation.sourceCount },
+      { sourceCount: truthReconciliation.sourceCount },
     );
-    const changed = reconciliation.sourceCount > 1
-      || reconciliation.duplicateMutationIds.length > 0
-      || reconciliation.mergeDecisionCount > 0
-      || reconciliation.blockedAggregateIds.length > 0;
+    const changed = truthReconciliation.sourceCount > 1
+      || truthReconciliation.duplicateMutationIds.length > 0
+      || truthReconciliation.mergeDecisionCount > 0
+      || truthReconciliation.blockedAggregateIds.length > 0;
+    if (this.pendingExternalMerge || queuedExternalInputDirty || reconciliation || changed) {
+      this.pendingExternalMerge = false;
+      this.externalInputDirtyGeneration += 1;
+      await this.rememberPersistedHash();
+    }
 
     const response: ExternalDatabaseMergeResult = {
       ok: true,
@@ -1660,10 +1902,10 @@ export class WorkerSqliteDatabaseService {
       changed,
       mergedReviewEvents: 0,
       mergedCards: 0,
-      ignoredReviewEvents: reconciliation.duplicateMutationIds.length,
-      ignoredCards: reconciliation.blockedAggregateIds.filter((aggregateId) => aggregateId.startsWith('card:')).length,
-      importedOperations: reconciliation.acceptedMutationIds.length,
-      ignoredOperations: reconciliation.duplicateMutationIds.length,
+      ignoredReviewEvents: truthReconciliation.duplicateMutationIds.length,
+      ignoredCards: truthReconciliation.blockedAggregateIds.filter((aggregateId) => aggregateId.startsWith('card:')).length,
+      importedOperations: truthReconciliation.acceptedMutationIds.length,
+      ignoredOperations: truthReconciliation.duplicateMutationIds.length,
       processedSourceIds: [],
       skippedSourceReasons: {},
       sanityStatus: domainSyncStatus.sanity.status,
@@ -1679,7 +1921,7 @@ export class WorkerSqliteDatabaseService {
     };
     this.logReviewFeedbackDatabaseStepIfSlow('reconciliation.total', cardId, Date.now() - totalStartedAt, {
       changed: response.changed,
-      sourceCount: reconciliation.sourceCount,
+      sourceCount: truthReconciliation.sourceCount,
       sanityStatus: response.sanityStatus,
       importedOperations: response.importedOperations,
       mainDbReadSkipped: response.mainDbReadSkipped,
@@ -1709,6 +1951,38 @@ export class WorkerSqliteDatabaseService {
   private async rememberPersistedHash(): Promise<void> {
     const bytes = await this.fileService.readBinary(this.dbFile);
     this.lastObservedPersistedHash = bytes ? hashBytes(bytes) : null;
+  }
+
+  private async observeExternalInputDirtyMarker(reason: string): Promise<boolean> {
+    const bytes = await this.fileService.readBinary(this.dbFile);
+    const currentHash = bytes ? hashBytes(bytes) : null;
+    if (this.lastObservedPersistedHash === null) {
+      this.lastObservedPersistedHash = currentHash;
+      return false;
+    }
+    if (currentHash === this.lastObservedPersistedHash) {
+      return false;
+    }
+    this.lastObservedPersistedHash = currentHash;
+    return this.markExternalInputDirty(reason);
+  }
+
+  private markExternalInputDirty(reason: string): boolean {
+    this.pendingExternalMerge = true;
+    this.externalInputDirtyGeneration += 1;
+    this.addStorageDiagnostic({
+      kind: 'external-input-dirty',
+      code: 'STORAGE_MAINTENANCE_EXTERNAL_INPUT_DIRTY',
+      severity: 'warning',
+      at: Date.now(),
+      message: 'External SQLite projection evidence changed before maintenance receipt status could match',
+      path: this.dbFile,
+      details: {
+        reason,
+        externalInputDirtyGeneration: this.externalInputDirtyGeneration,
+      },
+    });
+    return true;
   }
 
   async summarizeSyncConflictDatabases(
@@ -2121,6 +2395,9 @@ export class WorkerSqliteDatabaseService {
       totalBatches: request.totalBatches,
       executeBatch: () => this.executeStorageMaintenanceBatch(request),
     });
+    if (record.status === 'completed') {
+      await this.rememberPersistedHash();
+    }
     return {
       operationId: record.operationId,
       migrationId: record.migrationId,
@@ -2136,11 +2413,75 @@ export class WorkerSqliteDatabaseService {
   async getStorageMaintenanceStatus(
     request: BackendStorageMaintenanceStatusRequest,
   ): Promise<BackendStorageMaintenanceStatusResult> {
-    await this.init();
-    if (!this.storageMaintenanceOperations) {
-      throw new Error('BACKEND_UNAVAILABLE: storage maintenance runtime is not initialized');
+    if (this.initialized && this.storageMaintenanceOperations) {
+      const currentFrontier = this.createStartupMaintenanceFrontier(
+        this.createStartupReadinessDisposition(),
+      );
+      return this.attachStorageMaintenanceCurrentFrontier(
+        this.storageMaintenanceOperations.status(request),
+        currentFrontier,
+      );
     }
-    return this.storageMaintenanceOperations.status(request);
+    return this.readStorageMaintenanceStatusMetadata(request);
+  }
+
+  private attachStorageMaintenanceCurrentFrontier(
+    status: ReturnType<WorkerStorageMaintenanceOperationRuntime['status']>,
+    currentFrontier: BackendStorageMaintenanceFrontier,
+  ): BackendStorageMaintenanceStatusResult {
+    if (
+      isStartupMaintenanceReceiptOperationId(status.operationId)
+      && status.required === false
+      && status.status === 'completed'
+      && status.operationId !== createStartupMaintenanceReceiptOperationId(currentFrontier)
+    ) {
+      return {
+        ...status,
+        required: true,
+        status: 'pending',
+        error: 'STORAGE_MAINTENANCE_FRONTIER_MISMATCH: current Worker frontier differs from completed receipt',
+        currentFrontier,
+      };
+    }
+    return {
+      ...status,
+      currentFrontier,
+    };
+  }
+
+  private async readStorageMaintenanceStatusMetadata(
+    request: BackendStorageMaintenanceStatusRequest,
+  ): Promise<BackendStorageMaintenanceStatusResult> {
+    const metadataRuntime = new RuntimeSqliteDatabaseService(this.fileService, this.dbFile, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+      dropStoredDatabaseOnSchemaMismatch: false,
+    });
+    try {
+      await metadataRuntime.init();
+      const persistence = new SqliteWorkerStorageMaintenancePersistence(metadataRuntime);
+      persistence.ensureSchema();
+      return {
+        ...new WorkerStorageMaintenanceOperationRuntime(persistence).status(request),
+        currentFrontier: null,
+      };
+    } catch (error) {
+      return {
+        operationId: request.operationId,
+        migrationId: request.migrationId,
+        required: true,
+        status: 'pending',
+        completedBatches: 0,
+        totalBatches: null,
+        lastMutationId: null,
+        completedAt: null,
+        error: `STORAGE_MAINTENANCE_STATUS_UNAVAILABLE: ${errorMessage(error)}`,
+        currentFrontier: null,
+      };
+    } finally {
+      metadataRuntime.dispose();
+    }
   }
 
   private async executeStorageMaintenanceBatch(
@@ -2292,8 +2633,82 @@ export class WorkerSqliteDatabaseService {
       }
       return;
     }
+    if (batch.kind === 'startup-maintenance-receipt') {
+      this.persistStartupMaintenanceReceipt(request);
+      return;
+    }
     const unsupported = batch as { kind?: string };
     throw new Error(`INVALID_REQUEST: unsupported storage maintenance batch ${unsupported.kind ?? 'unknown'}`);
+  }
+
+  private persistStartupMaintenanceReceipt(
+    request: BackendStorageMaintenanceApplyBatchRequest,
+  ): void {
+    const batch = request.batch;
+    if (batch.kind !== 'startup-maintenance-receipt') {
+      return;
+    }
+    if (
+      batch.receiptVersion !== STARTUP_STORAGE_MAINTENANCE_RECEIPT_VERSION
+      || batch.maintenanceKind !== STARTUP_STORAGE_MAINTENANCE_KIND
+    ) {
+      throw new Error('INVALID_REQUEST: startup maintenance receipt version or kind is unsupported');
+    }
+    const preSuccessFrontier = this.normalizeStartupMaintenanceReceiptFrontier(
+      batch.preSuccessFrontier,
+      'preSuccessFrontier',
+    );
+    const postSuccessFrontier = this.normalizeStartupMaintenanceReceiptFrontier(
+      batch.postSuccessFrontier,
+      'postSuccessFrontier',
+    );
+    const expectedOperationId = createStartupMaintenanceReceiptOperationId(postSuccessFrontier);
+    if (request.operationId !== expectedOperationId || request.migrationId !== expectedOperationId) {
+      throw new Error(
+        'INVALID_REQUEST: startup maintenance receipt must be keyed by post-success frontier',
+      );
+    }
+    this.runtime.run(
+      `INSERT OR REPLACE INTO storage_maintenance_receipts (
+        operation_id, receipt_version, maintenance_kind,
+        pre_success_frontier_json, post_success_frontier_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        request.operationId,
+        batch.receiptVersion,
+        batch.maintenanceKind,
+        JSON.stringify(preSuccessFrontier),
+        JSON.stringify(postSuccessFrontier),
+        Math.floor(Number(batch.appliedAt) || Date.now()),
+      ],
+    );
+  }
+
+  private normalizeStartupMaintenanceReceiptFrontier(
+    value: unknown,
+    field: string,
+  ): BackendStorageMaintenanceFrontier {
+    if (!isRecord(value)) {
+      throw new Error(`INVALID_REQUEST: startup maintenance receipt requires ${field}`);
+    }
+    const pluginInstallationId = normalizeOptionalString(value.pluginInstallationId);
+    const identityEpoch = normalizeOptionalString(value.identityEpoch);
+    const inputVersion = normalizeOptionalString(value.inputVersion);
+    const frontierHash = normalizeOptionalString(value.frontierHash);
+    if (!pluginInstallationId || !identityEpoch || !inputVersion || !frontierHash) {
+      throw new Error(`INVALID_REQUEST: startup maintenance receipt ${field} is incomplete`);
+    }
+    return {
+      pluginInstallationId,
+      identityEpoch,
+      inputVersion,
+      frontierHash,
+      recoveryStatus: normalizeOptionalString(value.recoveryStatus) as BackendStorageMaintenanceFrontier['recoveryStatus'],
+      journalSequenceFrontier: normalizeOptionalInteger(value.journalSequenceFrontier),
+      truthCoverageFrontier: normalizeOptionalInteger(value.truthCoverageFrontier),
+      externalInputDirtyGeneration: normalizeOptionalInteger(value.externalInputDirtyGeneration) ?? 0,
+      pendingExternalMerge: value.pendingExternalMerge === true,
+    };
   }
 
   private hasLegacyRiffSyncTable(): boolean {
@@ -2979,6 +3394,20 @@ export class WorkerSqliteDatabaseService {
         };
         return;
       }
+      const storageIdentity = this.storageMutationIdentity;
+      if (!storageIdentity) {
+        this.lastReviewFeedbackJournalReplay = {
+          ok: false,
+          at: Date.now(),
+          pendingCount: pendingEntries.length,
+          pendingBytes: estimateJsonByteLength(pendingEntries),
+          replayedCount: 0,
+          skippedInMemoryCount: 0,
+          error: 'TRUTH_DEVICE_ID_UNAVAILABLE: Review feedback journal replay requires matching deviceId and identityEpoch',
+        };
+        return;
+      }
+      let replayTruthCandidate: MessagePackReviewEventTruthRecord | null = null;
       const runtime = new WorkerReviewFeedbackRuntime({
         repository: this.repository!,
         queueProjection: this.queueProjection,
@@ -2987,15 +3416,19 @@ export class WorkerSqliteDatabaseService {
         recordUnavailable: () => {
           this.reviewFeedbackUnavailableTotal += 1;
         },
-        storageIdentity: this.requireStorageMutationIdentity(),
+        recordReviewTruthCandidate: (candidate) => {
+          replayTruthCandidate = this.validateReviewFeedbackTruthCandidate(candidate);
+        },
+        storageIdentity,
         scheduleTruthPromotion: (reason) => this.scheduleTruthPromotion(reason),
-        resolveDurabilityReceipt: (receipt) => this.resolveTruthDurabilityReceipt(receipt),
+        resolveDurabilityReceipt: (receipt) => this.resolveTruthDurabilityReceiptFromCurrentModule(receipt),
       });
       for (const entry of pendingEntries) {
         if (this.appliedReviewFeedbackJournalEntryIds.has(entry.id)) {
           skippedInMemoryCount += 1;
           continue;
         }
+        replayTruthCandidate = null;
         await this.measureReviewFeedbackDatabaseStep(
           'reviewFeedback.journal-replay',
           entry.cardId,
@@ -3013,6 +3446,7 @@ export class WorkerSqliteDatabaseService {
           entry.id,
           Number(entry.request.reviewedAt ?? entry.appliedAt ?? Date.now()),
           entry.status,
+          replayTruthCandidate,
         );
       }
       this.lastReviewFeedbackJournalReplay = {
@@ -3034,6 +3468,38 @@ export class WorkerSqliteDatabaseService {
         error: errorMessage(error),
       };
       throw error;
+    }
+  }
+
+  private async recordPendingReviewFeedbackJournalReplayBlockedByStartupRecovery(): Promise<void> {
+    const recovery = this.startupStorageEvidence?.recoveryState;
+    if (recovery?.status !== 'read-only-recovery-required') {
+      return;
+    }
+    try {
+      const pendingEntries = await this.readPendingReviewFeedbackJournalEntries();
+      if (pendingEntries.length === 0) {
+        return;
+      }
+      this.lastReviewFeedbackJournalReplay = {
+        ok: false,
+        at: Date.now(),
+        pendingCount: pendingEntries.length,
+        pendingBytes: estimateJsonByteLength(pendingEntries),
+        replayedCount: 0,
+        skippedInMemoryCount: 0,
+        error: `STORAGE_RECOVERY_REQUIRED: ${recovery.diagnosticReason ?? 'canonical storage evidence requires recovery'}`,
+      };
+    } catch (error) {
+      this.lastReviewFeedbackJournalReplay = {
+        ok: false,
+        at: Date.now(),
+        pendingCount: 0,
+        pendingBytes: 0,
+        replayedCount: 0,
+        skippedInMemoryCount: 0,
+        error: `STORAGE_RECOVERY_REQUIRED: ${errorMessage(error)}`,
+      };
     }
   }
 
@@ -3373,6 +3839,7 @@ export class WorkerSqliteDatabaseService {
     entryId: string,
     appliedAt: number,
     currentStatus: ReviewFeedbackJournalEntryStatus = 'prepared',
+    truthCandidate?: MessagePackReviewEventTruthRecord | null,
   ): Promise<void> {
     if (!this.reviewFeedbackJournalStore) {
       return;
@@ -3381,10 +3848,11 @@ export class WorkerSqliteDatabaseService {
       entryId,
       currentStatus === 'truth-flushed' ? 'truth-flushed' : 'projection-applied',
       {
-      appliedAt,
-      projectionAppliedAt: Date.now(),
-      projectionFailedAt: null,
-      lastError: null,
+        appliedAt,
+        projectionAppliedAt: Date.now(),
+        ...(truthCandidate ? { truthCandidate: { ...truthCandidate, journalEntryId: entryId } } : {}),
+        projectionFailedAt: null,
+        lastError: null,
       },
     );
   }
@@ -3849,6 +4317,9 @@ export class WorkerSqliteDatabaseService {
         };
       }
       const diagnostics = await this.truthPromotionModule.diagnostics();
+      if (diagnostics.pendingMutationCount <= 0) {
+        this.startupTruthPromotionPending = false;
+      }
       await this.truthPromotionModule.runExclusivePublication(
         () => this.truthCompactionModule!.compactAll(),
       );
@@ -3867,50 +4338,34 @@ export class WorkerSqliteDatabaseService {
 
   private async runOneTimeStorageGrowthBaseline(): Promise<void> {
     if (
-      this.runtime.hasMigration(STORAGE_GROWTH_BASELINE_MIGRATION_ID)
-      || !this.truthPromotionModule
+      !this.truthPromotionModule
       || !this.truthCompactionModule
     ) {
       return;
     }
     const before = await this.collectStorageInventory();
-    const aboveTarget = before.pressure.metrics.some((metric) => (
-      (metric.targetFiles !== null && metric.files > metric.targetFiles)
-      || (metric.targetBytes !== null && metric.bytes > metric.targetBytes)
-      || (
-        metric.targetGenerations !== null
-        && metric.generationCount > metric.targetGenerations
-      )
-    ));
-    if (aboveTarget || before.pressure.level !== 'normal') {
-      let lastCoveredSequence = -1;
-      for (let iteration = 0; iteration < 10_000; iteration += 1) {
-        const promotion = await this.truthPromotionModule.promotePending();
-        if (!promotion.ok) {
-          throw new Error(`STORAGE_MIGRATION_PROMOTION_FAILED: ${promotion.error ?? 'unknown'}`);
-        }
-        const diagnostics = await this.truthPromotionModule.diagnostics();
-        if (diagnostics.pendingMutationCount === 0) {
-          break;
-        }
-        if (diagnostics.truthCoverageFrontier === lastCoveredSequence) {
-          throw new Error('STORAGE_MIGRATION_PROMOTION_STALLED');
-        }
-        lastCoveredSequence = diagnostics.truthCoverageFrontier;
+    if (before.pressure.level === 'high' || before.pressure.level === 'hard') {
+      const maintenance = await this.runBoundedStoragePressureMaintenance();
+      const after = await this.collectStorageInventory();
+      if (after.pressure.level === 'hard') {
+        this.storagePressureBlockReason = [
+          after.pressure.reason,
+          maintenance.error,
+        ].filter((value): value is string => Boolean(value)).join(' | ')
+          || 'hard storage pressure remains after startup bounded maintenance';
+        return;
       }
-      const diagnostics = await this.truthPromotionModule.diagnostics();
-      if (diagnostics.pendingMutationCount > 0) {
-        throw new Error('STORAGE_MIGRATION_PROMOTION_LIMIT_EXCEEDED');
+      if (!maintenance.ok) {
+        logger.warn('[WorkerSqliteDatabaseService] startup storage pressure maintenance deferred', {
+          error: maintenance.error,
+          pressure: after.pressure.level,
+        });
       }
-      await this.truthPromotionModule.runExclusivePublication(
-        () => this.truthCompactionModule!.compactAll(),
-      );
-      await this.runtime.compactSqliteDelta({
-        coveredJournalSequence: diagnostics.truthCoverageFrontier,
-        retainSealedSegments: 16,
-      });
     }
-    this.runtime.markMigration(STORAGE_GROWTH_BASELINE_MIGRATION_ID);
+    this.storagePressureBlockReason = null;
+    if (!this.runtime.hasMigration(STORAGE_GROWTH_BASELINE_MIGRATION_ID)) {
+      this.runtime.markMigration(STORAGE_GROWTH_BASELINE_MIGRATION_ID);
+    }
   }
 
   private buildReviewFeedbackJournalBackpressure(
@@ -7754,11 +8209,24 @@ export class WorkerSqliteDatabaseService {
         error: 'truth-promotion-unavailable',
       };
     }
-    return this.truthPromotionModule.promotePending();
+    const result = await this.truthPromotionModule.promotePending();
+    if (result.ok) {
+      const diagnostics = await this.truthPromotionModule.diagnostics();
+      if (diagnostics.pendingMutationCount <= 0) {
+        this.startupTruthPromotionPending = false;
+      }
+    }
+    return result;
   }
 
   async resolveTruthDurabilityReceipt(receipt: StorageDurabilityReceipt): Promise<StorageDurabilityReceipt> {
     await this.init();
+    return this.resolveTruthDurabilityReceiptFromCurrentModule(receipt);
+  }
+
+  private resolveTruthDurabilityReceiptFromCurrentModule(
+    receipt: StorageDurabilityReceipt,
+  ): Promise<StorageDurabilityReceipt> | StorageDurabilityReceipt {
     return this.truthPromotionModule
       ? this.truthPromotionModule.resolveReceipt(receipt)
       : structuredClone(receipt);
@@ -7795,6 +8263,7 @@ export class WorkerSqliteDatabaseService {
 
   async getReviewTruthPublicationStore(input: {
     deviceId: string;
+    identityEpoch: string;
     generationId: string;
     schemaVersion: number;
   }): Promise<Pick<MessagePackTruthSegmentStore, 'appendRecords' | 'replayRecords'>> {
@@ -7806,7 +8275,12 @@ export class WorkerSqliteDatabaseService {
     }
     if (
       input.deviceId !== config.deviceId
-      || input.generationId !== config.reviewGenerationId
+      || input.identityEpoch !== config.identityEpoch
+    ) {
+      throw new Error('TRUTH_DEVICE_ID_UNAVAILABLE: Review truth publication requires matching deviceId and identityEpoch');
+    }
+    if (
+      input.generationId !== config.reviewGenerationId
       || input.schemaVersion !== config.schemaVersion
     ) {
       throw new Error('BACKEND_UNAVAILABLE: Review truth publication configuration mismatch');
@@ -7867,6 +8341,7 @@ export class WorkerSqliteDatabaseService {
     this.truthPublicationModule = null;
     this.truthCompactionModule = null;
     this.truthPromotionConfig = null;
+    this.startupTruthPromotionPending = false;
   }
 
   dispose(): void {

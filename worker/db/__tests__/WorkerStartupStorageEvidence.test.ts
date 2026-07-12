@@ -161,4 +161,160 @@ describe('classifyWorkerStartupStorageEvidence', () => {
       updatedAt: 1_700_000_000_000,
     });
   });
+
+  it('keeps transient identity authority unavailable distinct from invalid canonical evidence', () => {
+    const evidence = classifyWorkerStartupStorageEvidence({
+      now: 1_700_000_000_000,
+      identity: {
+        deviceId: null,
+        identityEpoch: null,
+        disposition: {
+          version: 1,
+          status: 'read-only-authority-unavailable',
+          writable: false,
+          retryable: true,
+          deviceId: null,
+          identityEpoch: null,
+          source: 'unavailable',
+          reason: 'IDENTITY_AUTHORITY_UNAVAILABLE: indexedDB read denied',
+        },
+      },
+      truth: {
+        manifestCount: 0,
+        segmentCount: 0,
+        currentGenerationId: null,
+        previousGenerationId: null,
+        selectedGenerationId: null,
+        generationFallbackReason: null,
+        validationError: null,
+        quarantinedPaths: [],
+      },
+      delta: {
+        files: 0,
+        entries: 0,
+        checkpoint: null,
+        truthCoverageFrontier: null,
+        uncoveredMutationCount: null,
+        validationError: null,
+        quarantinedPaths: [],
+      },
+      projection: {
+        status: 'missing',
+        byteLength: 0,
+        reason: null,
+      },
+    });
+
+    expect(evidence.identity).toMatchObject({
+      status: 'unavailable',
+      reason: 'IDENTITY_AUTHORITY_UNAVAILABLE: indexedDB read denied',
+    });
+    expect(evidence.recoveryState).toMatchObject({
+      status: 'read-only-recovery-required',
+      code: 'STORAGE_RECOVERY_REQUIRED',
+      diagnosticReason: 'IDENTITY_AUTHORITY_UNAVAILABLE: indexedDB read denied',
+    });
+  });
+
+  it('classifies durable identity recovery as storage recovery rather than missing identity', () => {
+    const evidence = classifyWorkerStartupStorageEvidence({
+      now: 1_700_000_000_000,
+      identity: {
+        deviceId: 'device-conflict',
+        identityEpoch: 'epoch-conflict',
+        disposition: {
+          version: 1,
+          status: 'read-only-recovery-required',
+          writable: false,
+          retryable: false,
+          deviceId: 'device-conflict',
+          identityEpoch: 'epoch-conflict',
+          source: 'identity-recovery-required',
+          reason: 'identity authority copies disagree',
+        },
+      },
+      truth: {
+        manifestCount: 0,
+        segmentCount: 0,
+        currentGenerationId: null,
+        previousGenerationId: null,
+        selectedGenerationId: null,
+        generationFallbackReason: null,
+        validationError: null,
+        quarantinedPaths: [],
+      },
+      delta: {
+        files: 0,
+        entries: 0,
+        checkpoint: null,
+        truthCoverageFrontier: null,
+        uncoveredMutationCount: null,
+        validationError: null,
+        quarantinedPaths: [],
+      },
+      projection: {
+        status: 'present',
+        byteLength: 1024,
+        reason: null,
+      },
+    });
+
+    expect(evidence.identity).toMatchObject({
+      status: 'invalid',
+      deviceId: 'device-conflict',
+      identityEpoch: 'epoch-conflict',
+      reason: 'identity authority copies disagree',
+    });
+    expect(evidence.recoveryState).toMatchObject({
+      status: 'read-only-recovery-required',
+      code: 'STORAGE_RECOVERY_REQUIRED',
+      diagnosticReason: 'identity authority copies disagree',
+    });
+  });
+
+  it('treats partial identity continuity as recovery-required evidence', () => {
+    const evidence = classifyWorkerStartupStorageEvidence({
+      now: 1_700_000_000_000,
+      identity: {
+        deviceId: 'device-without-epoch',
+        identityEpoch: null,
+      },
+      truth: {
+        manifestCount: 0,
+        segmentCount: 0,
+        currentGenerationId: null,
+        previousGenerationId: null,
+        selectedGenerationId: null,
+        generationFallbackReason: null,
+        validationError: null,
+        quarantinedPaths: [],
+      },
+      delta: {
+        files: 0,
+        entries: 0,
+        checkpoint: null,
+        truthCoverageFrontier: null,
+        uncoveredMutationCount: null,
+        validationError: null,
+        quarantinedPaths: [],
+      },
+      projection: {
+        status: 'present',
+        byteLength: 1024,
+        reason: null,
+      },
+    });
+
+    expect(evidence.identity).toMatchObject({
+      status: 'invalid',
+      deviceId: 'device-without-epoch',
+      identityEpoch: null,
+      reason: 'storage identity requires both deviceId and identityEpoch',
+    });
+    expect(evidence.recoveryState).toMatchObject({
+      status: 'read-only-recovery-required',
+      code: 'STORAGE_RECOVERY_REQUIRED',
+      diagnosticReason: 'storage identity requires both deviceId and identityEpoch',
+    });
+  });
 });

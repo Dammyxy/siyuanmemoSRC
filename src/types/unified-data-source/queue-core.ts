@@ -173,6 +173,7 @@ export interface IReviewQueue {
   getSnapshotRows(forceRefresh?: boolean): Promise<QueueSnapshotRow[]>;
   getProjectionReadMode?(): QueueProjectionReadMode;
   getCardsBySnapshotIds(ids: string[], forceRefresh?: boolean): Promise<FSRSCard[]>;
+  getReadOnlyRecoveryCards?(): Promise<FSRSCard[]>;
   getAllCards(): Promise<FSRSCard[]>;
   getNextCard(): Promise<FSRSCard | null>;
   addCard(card: FSRSCard | QueueItem | string, source?: QueueAddSource): Promise<void>;

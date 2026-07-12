@@ -21,6 +21,18 @@ const mocks = vi.hoisted(() => ({
   showMessage: vi.fn(),
   eventBusOn: vi.fn(),
   isSiyuanMenuInjectionError: vi.fn(() => false),
+  beginStartupPerformanceAttempt: vi.fn(),
+  reportStartupSlowProfile: vi.fn(() => null),
+  runtimeSpanFinishes: [] as Array<{
+    path: string;
+    operation: string;
+    finish: ReturnType<typeof vi.fn>;
+  }>,
+  startRuntimePerformanceSpan: vi.fn((path: string, operation: string) => {
+    const finish = vi.fn();
+    mocks.runtimeSpanFinishes.push({ path, operation, finish });
+    return finish;
+  }),
 }));
 
 vi.mock('siyuan', () => {
@@ -118,6 +130,16 @@ vi.mock('@/utils/siyuanMenuComponentFallbacks', () => ({
   isSiyuanMenuInjectionError: mocks.isSiyuanMenuInjectionError,
 }));
 
+vi.mock('@/utils/runtimePerformanceDiagnostics', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/runtimePerformanceDiagnostics')>();
+  return {
+    ...actual,
+    beginStartupPerformanceAttempt: mocks.beginStartupPerformanceAttempt,
+    reportStartupSlowProfile: mocks.reportStartupSlowProfile,
+    startRuntimePerformanceSpan: mocks.startRuntimePerformanceSpan,
+  };
+});
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -178,10 +200,11 @@ function createContext(plugin: any) {
     getSettingsService: vi.fn(() => settingsService),
     getReviewQueuePreparationService: vi.fn(() => undefined),
     getReviewAdmissionModule: vi.fn(() => ({
-      admitReviewSession: vi.fn(async ({ queueType, entrySurface }) => ({
-        queueType,
-        entrySurface: entrySurface ?? null,
-        projectionPolicyHash: `${queueType}:test-policy`,
+      admitReviewSession: vi.fn(async ({ target }) => ({
+        queueType: target.queueType,
+        entrySurface: target.entrySurface,
+        entryTargetIdentity: `${target.kind}:${target.queueType}:${target.entrySurface}`,
+        projectionPolicyHash: `${target.queueType}:test-policy`,
         projectionGeneration: 1,
         readinessRequest: {},
         admittedAt: Date.now(),
@@ -221,6 +244,7 @@ function createContext(plugin: any) {
         data: request,
       })),
     })),
+    startPostReadyStartupMaintenance: vi.fn(() => 'startup-storage-maintenance-test'),
     dispose: vi.fn(async () => undefined),
   };
   const tabManager = new TabManager(context, plugin, {
@@ -235,6 +259,7 @@ function createContext(plugin: any) {
 describe('FSRSPlugin deferred custom tab bootstrap', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.runtimeSpanFinishes.length = 0;
     mocks.isSiyuanMenuInjectionError.mockReturnValue(false);
     delete (window as Window & { require?: unknown }).require;
   });
@@ -409,6 +434,100 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
     expect(response).toEqual({
       result: expect.stringContaining('"status":"success"'),
     });
+  });
+
+  it('publishes plugin ready after handler registration and then starts post-ready maintenance', async () => {
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    const context = createContext(plugin);
+    const startPostReadyStartupMaintenance = vi.fn(() => {
+      expect((plugin as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+      expect((plugin as unknown as { contextReady: { settled: boolean } }).contextReady.settled).toBe(true);
+      return 'startup-storage-maintenance-test';
+    });
+    context.startPostReadyStartupMaintenance = startPostReadyStartupMaintenance;
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+
+    await plugin.onload();
+
+    const handoffOrder = startPostReadyStartupMaintenance.mock.invocationCallOrder[0];
+    expect(mocks.addDock.mock.invocationCallOrder[0]).toBeLessThan(handoffOrder);
+    expect(mocks.addCommand.mock.invocationCallOrder.at(-1)).toBeLessThan(handoffOrder);
+    expect(startPostReadyStartupMaintenance).toHaveBeenCalledWith('plugin.onload-ready');
+  });
+
+  it('reports startup profile only after the outer plugin.onload span closes on success', async () => {
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    const context = createContext(plugin);
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+
+    await plugin.onload();
+
+    const onloadSpan = mocks.runtimeSpanFinishes.find((span) => span.operation === 'plugin.onload');
+    expect(mocks.beginStartupPerformanceAttempt).toHaveBeenCalledTimes(1);
+    expect(onloadSpan?.finish).toHaveBeenCalledWith(expect.objectContaining({
+      frontend: 'desktop',
+      status: 'loaded',
+    }));
+    expect(onloadSpan?.finish.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.reportStartupSlowProfile.mock.invocationCallOrder[0],
+    );
+    expect(mocks.reportStartupSlowProfile).toHaveBeenCalledWith(expect.objectContaining({
+      startupDurationMs: expect.any(Number),
+    }));
+  });
+
+  it('keeps ready unpublished and submits no post-ready maintenance when handler registration fails', async () => {
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    const context = createContext(plugin);
+    const startPostReadyStartupMaintenance = vi.fn();
+    context.startPostReadyStartupMaintenance = startPostReadyStartupMaintenance;
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+    mocks.addDock.mockImplementationOnce(() => {
+      throw new Error('handler registration failed');
+    });
+
+    const onloadPromise = plugin.onload();
+    void (plugin as unknown as { contextReady: { promise: Promise<unknown> } }).contextReady.promise.catch(() => undefined);
+    await onloadPromise;
+
+    expect((plugin as unknown as { isInitialized: boolean }).isInitialized).toBe(false);
+    expect(startPostReadyStartupMaintenance).not.toHaveBeenCalled();
+    expect(mocks.pushErrMsg).toHaveBeenCalledWith('FSRS 插件初始化失败');
+  });
+
+  it('reports failed startup after ApplicationContext succeeds but handler registration fails', async () => {
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    const context = createContext(plugin);
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+    mocks.addDock.mockImplementationOnce(() => {
+      throw new Error('handler registration failed');
+    });
+
+    const onloadPromise = plugin.onload();
+    void (plugin as unknown as { contextReady: { promise: Promise<unknown> } }).contextReady.promise.catch(() => undefined);
+    await onloadPromise;
+
+    const onloadSpan = mocks.runtimeSpanFinishes.find((span) => span.operation === 'plugin.onload');
+    expect(onloadSpan?.finish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        frontend: 'desktop',
+        status: 'failed',
+      }),
+      expect.objectContaining({
+        ok: false,
+        errorName: 'Error',
+      }),
+    );
+    expect(onloadSpan?.finish.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.reportStartupSlowProfile.mock.invocationCallOrder[0],
+    );
+    expect(mocks.reportStartupSlowProfile).toHaveBeenCalledWith(expect.objectContaining({
+      startupDurationMs: expect.any(Number),
+    }));
   });
 
   it('keeps frontend Agent action unavailable explicit when addAgentAction is missing', async () => {

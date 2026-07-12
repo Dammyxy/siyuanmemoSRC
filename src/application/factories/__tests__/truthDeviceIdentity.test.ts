@@ -10,12 +10,20 @@ import {
 
 class MemoryStorage {
   private readonly values = new Map<string, string>();
+  readError: Error | null = null;
+  writeError: Error | null = null;
 
   getItem(key: string): string | null {
+    if (this.readError) {
+      throw this.readError;
+    }
     return this.values.get(key) ?? null;
   }
 
   setItem(key: string, value: string): void {
+    if (this.writeError) {
+      throw this.writeError;
+    }
     this.values.set(key, value);
   }
 }
@@ -42,10 +50,20 @@ class MemoryLocalIdentityStore {
 
 class MemoryIdentityRecordStore {
   record: unknown = null;
+  readError: Error | null = null;
+  writeError: Error | null = null;
 
-  readRecord = vi.fn(async (): Promise<unknown | null> => this.record);
+  readRecord = vi.fn(async (): Promise<unknown | null> => {
+    if (this.readError) {
+      throw this.readError;
+    }
+    return this.record;
+  });
 
   writeRecord = vi.fn(async (record: unknown): Promise<void> => {
+    if (this.writeError) {
+      throw this.writeError;
+    }
     this.record = record;
   });
 }
@@ -297,6 +315,88 @@ describe('truth device identity', () => {
     expect(identityStore.writeRecord).not.toHaveBeenCalled();
   });
 
+  it('fails closed with diagnostics for an unsupported IndexedDB identity version', async () => {
+    const storage = new MemoryStorage();
+    const identityStore = new MemoryIdentityRecordStore();
+    const localStore = new MemoryLocalIdentityStore();
+    identityStore.record = {
+      version: 99,
+      deviceId: 'device-future',
+      identityEpoch: 'epoch-future',
+      hostFingerprint: 'host-future',
+      createdAt: 10,
+      lastSeenAt: 20,
+    };
+    const createId = vi.fn(() => 'device-new');
+
+    await expect(resolveTruthDeviceIdentity({
+      localStore,
+      storage,
+      identityStore,
+      hostFingerprint: 'host-1',
+      createId,
+      createEpoch: () => 'epoch-new',
+      now: () => 30,
+    })).resolves.toMatchObject({
+      deviceId: null,
+      source: 'identity-recovery-required',
+      error: expect.stringContaining('unsupported indexedDB identity version: 99'),
+    });
+
+    expect(createId).not.toHaveBeenCalled();
+    expect(identityStore.writeRecord).not.toHaveBeenCalled();
+  });
+
+  it('treats transient IndexedDB authority read failure as unavailable', async () => {
+    const storage = new MemoryStorage();
+    const identityStore = new MemoryIdentityRecordStore();
+    const localStore = new MemoryLocalIdentityStore();
+    identityStore.readError = new Error('indexedDB read denied');
+    const createId = vi.fn(() => 'device-new');
+
+    await expect(resolveTruthDeviceIdentity({
+      localStore,
+      storage,
+      identityStore,
+      hostFingerprint: 'host-1',
+      createId,
+      createEpoch: () => 'epoch-new',
+      now: () => 30,
+    })).resolves.toMatchObject({
+      deviceId: null,
+      source: 'unavailable',
+      error: expect.stringContaining('indexedDB identity authority read failed: indexedDB read denied'),
+    });
+
+    expect(createId).not.toHaveBeenCalled();
+    expect(identityStore.writeRecord).not.toHaveBeenCalled();
+  });
+
+  it('treats transient localStorage authority read failure as unavailable', async () => {
+    const storage = new MemoryStorage();
+    const identityStore = new MemoryIdentityRecordStore();
+    const localStore = new MemoryLocalIdentityStore();
+    storage.readError = new Error('localStorage read denied');
+    const createId = vi.fn(() => 'device-new');
+
+    await expect(resolveTruthDeviceIdentity({
+      localStore,
+      storage,
+      identityStore,
+      hostFingerprint: 'host-1',
+      createId,
+      createEpoch: () => 'epoch-new',
+      now: () => 30,
+    })).resolves.toMatchObject({
+      deviceId: null,
+      source: 'unavailable',
+      error: expect.stringContaining('localStorage identity authority read failed: localStorage read denied'),
+    });
+
+    expect(createId).not.toHaveBeenCalled();
+    expect(identityStore.writeRecord).not.toHaveBeenCalled();
+  });
+
   it('fails closed when versioned authority conflicts with legacy identity evidence', async () => {
     const storage = new MemoryStorage();
     const identityStore = new MemoryIdentityRecordStore();
@@ -341,6 +441,44 @@ describe('truth device identity', () => {
     expect(createId).not.toHaveBeenCalled();
     expect(storage.getItem(TRUTH_DEVICE_ID_STORAGE_KEY)).toBe('device-stable');
     expect(localStore.writeTempLocalJSON).not.toHaveBeenCalled();
+  });
+
+  it('creates a verified first-install identity in both authority copies', async () => {
+    const storage = new MemoryStorage();
+    const identityStore = new MemoryIdentityRecordStore();
+    const localStore = new MemoryLocalIdentityStore();
+
+    await expect(resolveTruthDeviceIdentity({
+      localStore,
+      storage,
+      identityStore,
+      hostFingerprint: 'host-1',
+      createId: () => 'device-new',
+      createEpoch: () => 'epoch-new',
+      now: () => 30,
+    })).resolves.toMatchObject({
+      deviceId: 'device-new',
+      identityEpoch: 'epoch-new',
+      source: 'generated',
+      persisted: true,
+      cacheUpdated: true,
+      error: null,
+    });
+
+    const expectedRecord = {
+      version: 2,
+      deviceId: 'device-new',
+      identityEpoch: 'epoch-new',
+      hostFingerprint: 'host-1',
+      createdAt: 30,
+      lastSeenAt: 30,
+    };
+    expect(identityStore.writeRecord).toHaveBeenCalledWith(expectedRecord);
+    expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(expectedRecord);
+    expect(localStore.writeTempLocalJSON).toHaveBeenCalledWith(
+      TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
+      expect.objectContaining({ deviceId: 'device-new' }),
+    );
   });
 
   it('exposes temp-local identity diagnostics for startup status', async () => {
@@ -466,6 +604,46 @@ describe('truth device identity', () => {
     }));
   });
 
+  it('reads browser window localStorage when CJS global localStorage is absent', async () => {
+    const originalWindow = (globalThis as typeof globalThis & { window?: unknown }).window;
+    const originalLocalStorage = (globalThis as typeof globalThis & { localStorage?: unknown }).localStorage;
+    const storage = new MemoryStorage();
+    const identityStore = new MemoryIdentityRecordStore();
+    storage.setItem(TRUTH_DEVICE_ID_STORAGE_KEY, 'device-window-localstorage');
+
+    try {
+      delete (globalThis as typeof globalThis & { localStorage?: unknown }).localStorage;
+      (globalThis as typeof globalThis & { window?: unknown }).window = {
+        localStorage: storage,
+      };
+
+      await expect(resolveTruthDeviceIdentity({
+        identityStore,
+        hostFingerprint: 'host-1',
+        createEpoch: () => 'epoch-1',
+        createId: () => 'device-new',
+        now: () => 30,
+      })).resolves.toMatchObject({
+        deviceId: 'device-window-localstorage',
+        identityEpoch: 'epoch-1',
+        source: 'localStorage',
+        error: null,
+      });
+
+      expect(identityStore.writeRecord).toHaveBeenCalledWith(expect.objectContaining({
+        deviceId: 'device-window-localstorage',
+        identityEpoch: 'epoch-1',
+      }));
+    } finally {
+      if (typeof originalLocalStorage === 'undefined') {
+        delete (globalThis as typeof globalThis & { localStorage?: unknown }).localStorage;
+      } else {
+        (globalThis as typeof globalThis & { localStorage?: unknown }).localStorage = originalLocalStorage;
+      }
+      (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
+    }
+  });
+
   it('migrates legacy localStorage identity when the temp mirror cannot be read', async () => {
     const storage = new MemoryStorage();
     const identityStore = new MemoryIdentityRecordStore();
@@ -546,6 +724,32 @@ describe('truth device identity', () => {
     };
     expect(identityStore.writeRecord).toHaveBeenCalledWith(expectedRecord);
     expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(expectedRecord);
+  });
+
+  it('rejects unverifiable first-install creation when the generated identity is invalid', async () => {
+    const storage = new MemoryStorage();
+    const identityStore = new MemoryIdentityRecordStore();
+    const localStore = new MemoryLocalIdentityStore();
+    const createId = vi.fn(() => '../bad-device');
+
+    await expect(resolveTruthDeviceIdentity({
+      localStore,
+      storage,
+      identityStore,
+      hostFingerprint: 'host-1',
+      createId,
+      createEpoch: () => 'epoch-new',
+      now: () => 30,
+    })).resolves.toMatchObject({
+      deviceId: null,
+      source: 'unavailable',
+      error: expect.stringContaining('invalid generated truth device id: ../bad-device'),
+    });
+
+    expect(createId).toHaveBeenCalledTimes(1);
+    expect(identityStore.writeRecord).not.toHaveBeenCalled();
+    expect(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY)).toBeNull();
+    expect(localStore.writeTempLocalJSON).not.toHaveBeenCalled();
   });
 
   it('persists a new identity to temp-local state and localStorage when no valid identity exists', async () => {

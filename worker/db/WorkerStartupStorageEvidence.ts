@@ -1,5 +1,6 @@
 import {
   STORAGE_RECOVERY_STATE_VERSION,
+  type BackendStartupIdentityDisposition,
   type StorageRecoveryState,
 } from '../../packages/contracts/src/backend-rpc';
 
@@ -12,6 +13,7 @@ export interface WorkerStartupStorageEvidenceInput {
   identity: {
     deviceId: string | null;
     identityEpoch: string | null;
+    disposition?: BackendStartupIdentityDisposition | null;
   };
   truth: {
     manifestCount: number;
@@ -97,7 +99,14 @@ export function classifyWorkerStartupStorageEvidence(
   const classifiedAt = Math.max(0, Math.floor(Number(input.now ?? Date.now()) || 0));
   const deviceId = normalizeOptionalString(input.identity.deviceId);
   const identityEpoch = normalizeOptionalString(input.identity.identityEpoch);
-  const identityVerified = Boolean(deviceId && identityEpoch);
+  const identityDisposition = input.identity.disposition ?? deriveIdentityDisposition(deviceId, identityEpoch);
+  const identityAuthorityUnavailable = identityDisposition?.status === 'read-only-authority-unavailable';
+  const identityRecoveryRequired = identityDisposition?.status === 'read-only-recovery-required';
+  const identityVerified = Boolean(
+    deviceId
+    && identityEpoch
+    && (!identityDisposition || identityDisposition.status === 'verified'),
+  );
   const truthValidationError = normalizeOptionalString(input.truth.validationError);
   const deltaValidationError = normalizeOptionalString(input.delta.validationError);
   const manifestCount = normalizeCount(input.truth.manifestCount);
@@ -118,8 +127,15 @@ export function classifyWorkerStartupStorageEvidence(
     input.projection.status === 'missing'
     || input.projection.status === 'corrupt'
   );
-  const recoveryRequired = Boolean(truthValidationError || deltaValidationError);
+  const identityRecoveryReason = normalizeOptionalString(identityDisposition?.reason);
+  const recoveryRequired = Boolean(
+    truthValidationError
+    || deltaValidationError
+    || identityRecoveryRequired
+    || identityAuthorityUnavailable
+  );
   const recoveryDiagnosticReason = uniqueStrings([
+    ...(identityRecoveryReason ? [identityRecoveryReason] : []),
     ...(truthValidationError ? [truthValidationError] : []),
     ...(deltaValidationError ? [deltaValidationError] : []),
     ...(projectionNeedsRebuild && projectionReason ? [projectionReason] : []),
@@ -163,12 +179,18 @@ export function classifyWorkerStartupStorageEvidence(
     version: WORKER_STARTUP_STORAGE_EVIDENCE_VERSION,
     classifiedAt,
     identity: {
-      status: identityVerified ? 'verified' : 'missing',
+      status: identityVerified
+        ? 'verified'
+        : identityAuthorityUnavailable
+          ? 'unavailable'
+          : identityRecoveryRequired
+            ? 'invalid'
+            : 'missing',
       deviceId,
       identityEpoch,
       reason: identityVerified
         ? null
-        : 'storage identity requires both deviceId and identityEpoch',
+        : identityRecoveryReason ?? 'storage identity requires both deviceId and identityEpoch',
     },
     manifests: {
       status: truthValidationError ? 'invalid' : manifestCount > 0 ? 'verified' : 'missing',
@@ -218,6 +240,37 @@ export function classifyWorkerStartupStorageEvidence(
       reason: projectionReason,
     },
     recoveryState,
+  };
+}
+
+function deriveIdentityDisposition(
+  deviceId: string | null,
+  identityEpoch: string | null,
+): BackendStartupIdentityDisposition | null {
+  if (!deviceId && !identityEpoch) {
+    return null;
+  }
+  if (deviceId && identityEpoch) {
+    return {
+      version: 1,
+      status: 'verified',
+      writable: true,
+      retryable: false,
+      deviceId,
+      identityEpoch,
+      source: 'not-provided',
+      reason: null,
+    };
+  }
+  return {
+    version: 1,
+    status: 'read-only-recovery-required',
+    writable: false,
+    retryable: false,
+    deviceId,
+    identityEpoch,
+    source: 'not-provided',
+    reason: 'storage identity requires both deviceId and identityEpoch',
   };
 }
 

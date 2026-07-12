@@ -69,6 +69,7 @@ export interface BackendReviewRpcDatabase {
   } | null>;
   getReviewTruthPublicationStore(input: {
     deviceId: string;
+    identityEpoch: string;
     generationId: string;
     schemaVersion: number;
   }): Promise<Pick<MessagePackTruthSegmentStore, 'appendRecords' | 'replayRecords'>>;
@@ -189,9 +190,10 @@ export class BackendReviewRpcRuntime {
       throw new Error('BACKEND_UNAVAILABLE: review.truth.flush requires Review feedback journal store');
     }
     const deviceId = String(named.deviceId || '').trim();
+    const identityEpoch = String(named.identityEpoch || '').trim();
     const generationId = String(named.generationId || '').trim();
-    if (!deviceId) {
-      throw new Error('TRUTH_DEVICE_ID_UNAVAILABLE: review.truth.flush requires truth-wide persistent local device id');
+    if (!deviceId || !identityEpoch) {
+      throw new Error('TRUTH_DEVICE_ID_UNAVAILABLE: review.truth.flush requires matching deviceId and identityEpoch');
     }
     if (!generationId) {
       throw new Error('INVALID_REQUEST: review.truth.flush requires generationId');
@@ -199,6 +201,7 @@ export class BackendReviewRpcRuntime {
     const schemaVersion = Math.max(1, Math.floor(Number(named.schemaVersion) || MESSAGEPACK_TRUTH_SCHEMA_VERSION));
     const truthStore = await this.options.database.getReviewTruthPublicationStore({
       deviceId,
+      identityEpoch,
       generationId,
       schemaVersion,
     });
@@ -219,9 +222,10 @@ export class BackendReviewRpcRuntime {
       'review.truth.backfill requires named params',
     );
     const deviceId = String(named.deviceId || '').trim();
+    const identityEpoch = String(named.identityEpoch || '').trim();
     const generationId = String(named.generationId || '').trim();
-    if (!deviceId) {
-      throw new Error('TRUTH_DEVICE_ID_UNAVAILABLE: review.truth.backfill requires truth-wide persistent local device id');
+    if (!deviceId || !identityEpoch) {
+      throw new Error('TRUTH_DEVICE_ID_UNAVAILABLE: review.truth.backfill requires matching deviceId and identityEpoch');
     }
     if (!generationId) {
       throw new Error('INVALID_REQUEST: review.truth.backfill requires generationId');
@@ -229,6 +233,7 @@ export class BackendReviewRpcRuntime {
     const schemaVersion = Math.max(1, Math.floor(Number(named.schemaVersion) || MESSAGEPACK_TRUTH_SCHEMA_VERSION));
     const truthStore = await this.options.database.getReviewTruthPublicationStore({
       deviceId,
+      identityEpoch,
       generationId,
       schemaVersion,
     });

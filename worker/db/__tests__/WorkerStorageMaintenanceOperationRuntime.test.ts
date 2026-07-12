@@ -146,6 +146,51 @@ describe('WorkerStorageMaintenanceOperationRuntime', () => {
     expect(result.status).toBe('completed');
   });
 
+  it('keeps timed-out apply batches non-terminal and retries without duplicating committed batches', async () => {
+    const persistence = new MemoryMaintenancePersistence();
+    const runtime = new WorkerStorageMaintenanceOperationRuntime(persistence);
+    const committed: number[] = [];
+
+    await expect(runtime.run({
+      operationId: 'startup-maintenance-timeout',
+      migrationId: 'startup-maintenance-timeout',
+      totalBatches: 2,
+      executeBatch: async ({ batchIndex }) => {
+        if (batchIndex === 1) {
+          throw new Error('BACKEND_UNAVAILABLE: storage.maintenance.applyBatch timed out');
+        }
+        committed.push(batchIndex);
+      },
+    })).rejects.toThrow('storage.maintenance.applyBatch timed out');
+
+    expect(committed).toEqual([0]);
+    expect(persistence.hasMigration('startup-maintenance-timeout')).toBe(false);
+    expect(persistence.read('startup-maintenance-timeout')).toMatchObject({
+      status: 'failed',
+      completedBatches: 1,
+      completedAt: null,
+      error: 'BACKEND_UNAVAILABLE: storage.maintenance.applyBatch timed out',
+    });
+
+    const result = await runtime.run({
+      operationId: 'startup-maintenance-timeout',
+      migrationId: 'startup-maintenance-timeout',
+      totalBatches: 2,
+      executeBatch: async ({ batchIndex }) => {
+        committed.push(batchIndex);
+      },
+    });
+
+    expect(committed).toEqual([0, 1]);
+    expect(result).toMatchObject({
+      status: 'completed',
+      completedBatches: 2,
+      lastMutationId: 'maintenance:startup-maintenance-timeout:batch:1',
+      error: null,
+    });
+    expect(persistence.hasMigration('startup-maintenance-timeout')).toBe(true);
+  });
+
   it('skips execution when migration marker already exists', async () => {
     const persistence = new MemoryMaintenancePersistence();
     persistence.markMigration('legacy-import-v1');

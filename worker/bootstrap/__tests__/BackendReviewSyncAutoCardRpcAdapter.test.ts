@@ -158,6 +158,7 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
 
     await expect(dispatch(dispatcher, context, 'review.truth.flush', {
       deviceId: 'device-a',
+      identityEpoch: 'epoch-a',
       generationId: 'review-events-v1',
     })).resolves.toEqual({
       jsonrpc: BACKEND_RPC_VERSION,
@@ -165,6 +166,29 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
       error: {
         code: 'BACKEND_UNAVAILABLE',
         message: 'BACKEND_UNAVAILABLE: review.truth.flush requires Review feedback journal store',
+      },
+    });
+  });
+
+  it('keeps review truth flush identity preconditions explicit', async () => {
+    const database = createReviewDatabase();
+    vi.mocked(database.getReviewFeedbackJournalStore).mockReturnValue({} as never);
+    const dispatcher = new BackendRpcDispatcher(
+      createBackendRpcHandlerRegistry(BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS),
+    );
+    const context: BackendReviewRpcHandlerContext = {
+      review: new BackendReviewRpcRuntime({ database }),
+    };
+
+    await expect(dispatch(dispatcher, context, 'review.truth.flush', {
+      deviceId: 'device-a',
+      generationId: 'review-events-v1',
+    })).resolves.toMatchObject({
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 'review.truth.flush',
+      error: {
+        code: 'TRUTH_DEVICE_ID_UNAVAILABLE',
+        message: 'review.truth.flush requires matching deviceId and identityEpoch',
       },
     });
   });
@@ -183,6 +207,7 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
 
     await expect(dispatch(dispatcher, context, 'review.truth.backfill', {
       deviceId: 'device-a',
+      identityEpoch: 'epoch-a',
       generationId: 'review-events-v1',
     })).resolves.toEqual({
       jsonrpc: BACKEND_RPC_VERSION,
@@ -207,17 +232,30 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
 
     await expect(dispatch(dispatcher, context, 'review.truth.backfill', {
       deviceId: '',
+      identityEpoch: 'epoch-a',
       generationId: 'review-events-v1',
     })).resolves.toMatchObject({
       jsonrpc: BACKEND_RPC_VERSION,
       id: 'review.truth.backfill',
       error: {
         code: 'TRUTH_DEVICE_ID_UNAVAILABLE',
-        message: 'review.truth.backfill requires truth-wide persistent local device id',
+        message: 'review.truth.backfill requires matching deviceId and identityEpoch',
       },
     });
     await expect(dispatch(dispatcher, context, 'review.truth.backfill', {
       deviceId: 'device-a',
+      generationId: 'review-events-v1',
+    })).resolves.toMatchObject({
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 'review.truth.backfill',
+      error: {
+        code: 'TRUTH_DEVICE_ID_UNAVAILABLE',
+        message: 'review.truth.backfill requires matching deviceId and identityEpoch',
+      },
+    });
+    await expect(dispatch(dispatcher, context, 'review.truth.backfill', {
+      deviceId: 'device-a',
+      identityEpoch: 'epoch-a',
       generationId: '',
     })).resolves.toMatchObject({
       jsonrpc: BACKEND_RPC_VERSION,
@@ -258,6 +296,7 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
 
     await expect(dispatch(dispatcher, context, 'review.truth.backfill', {
       deviceId: 'device-a',
+      identityEpoch: 'epoch-a',
       generationId: 'review-events-v1',
     })).resolves.toMatchObject({
       result: {

@@ -81,6 +81,8 @@ interface BackendKernelDependencies {
 
 const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'system.health',
+  'db.load',
+  'db.reload',
   'diagnostics.status',
   'sync.reviewDivergence.audit',
   'truth.reconciliation.run',
@@ -88,7 +90,9 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'sync.conflict.reload',
   'review.truth.flush',
   'review.truth.backfill',
+  'storage.maintenance.status',
   'storage.projection.rebuild',
+  'queue.state.loadAll',
   'queue.projection.replace',
   'kernel.transaction.dequeue',
 ]);
@@ -103,8 +107,10 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS = new Set<string>([
   'domainSync.status',
   'sync.reviewDivergence.audit',
   'sync.conflict.summarize',
+  'queue.state.loadAll',
   'review.truth.flush',
   'review.truth.backfill',
+  'storage.maintenance.status',
   'kernel.transaction.dequeue',
   'queue.projection.replace',
 ]);

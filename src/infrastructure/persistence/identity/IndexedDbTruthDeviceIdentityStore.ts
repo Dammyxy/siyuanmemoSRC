@@ -13,7 +13,11 @@ function unavailableError(reason: string): Error {
 }
 
 function resolveIndexedDbFactory(): IDBFactory | null {
-  const candidate = (globalThis as { indexedDB?: IDBFactory }).indexedDB;
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    indexedDB?: IDBFactory;
+    window?: { indexedDB?: IDBFactory };
+  };
+  const candidate = runtimeGlobal.indexedDB ?? runtimeGlobal.window?.indexedDB;
   return candidate && typeof candidate.open === 'function' ? candidate : null;
 }
 

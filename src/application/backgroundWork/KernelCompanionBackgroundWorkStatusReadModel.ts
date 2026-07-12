@@ -18,6 +18,9 @@ export interface KernelCompanionBackgroundWorkStatusJob {
   startedAt: number | null;
   terminalAt: number | null;
   attemptCount: number;
+  dedupeKeyDigest: string | null;
+  coalescedSubmissionCount: number;
+  skippedSubmissionCount: number;
   diagnostics: Record<string, KernelCompanionBackgroundWorkStatusDiagnosticValue>;
   lastError: string | null;
 }
@@ -34,6 +37,42 @@ export interface KernelCompanionBackgroundWorkStatusReadModelInterface {
 const REDACTED_DIAGNOSTIC_VALUE = '[redacted]';
 
 const WORK_KIND_SAFE_DIAGNOSTICS: Record<KernelCompanionBackgroundWorkKind, ReadonlySet<string>> = {
+  'startup-storage-maintenance': new Set([
+    'reason',
+    'deferredDescriptorCount',
+    'deferredDescriptorKinds',
+    'operationId',
+    'ownedPhaseCount',
+    'scheduleNormalizationPhase',
+    'scheduleAffectedCardCount',
+    'scheduleCompletedBatches',
+    'orphanCardRepairPhase',
+    'orphanDiscoveredCardCount',
+    'orphanRepairedCardCount',
+    'orphanCompletedBatches',
+    'childJobId',
+    'childWorkKind',
+    'childState',
+    'waitingForChild',
+    'receiptScopeAvailable',
+    'lifecycleDedupeKeyAvailable',
+    'unavailable',
+  ]),
+  'progressive-excerpt-completion-repair': new Set([
+    'reason',
+    'delayMs',
+    'repairedCount',
+    'completedCount',
+    'failedCount',
+    'unavailable',
+  ]),
+  'review-truth-flush': new Set([
+    'reason',
+    'delayMs',
+    'queued',
+    'flushed',
+    'unavailable',
+  ]),
   'review-truth-backfill': new Set([
     'reason',
     'pendingRows',
@@ -77,6 +116,10 @@ const WORK_KIND_SAFE_DIAGNOSTICS: Record<KernelCompanionBackgroundWorkKind, Read
   ]),
 };
 
+const STRICT_WORK_KIND_SAFE_DIAGNOSTICS = new Set<KernelCompanionBackgroundWorkKind>([
+  'startup-storage-maintenance',
+]);
+
 const CONTENT_BEARING_DIAGNOSTIC_KEY_PATTERN = /(?:content|body|payload|sql|query|card|block|hosteffect|request|response|html|markdown|text)/i;
 
 export class KernelCompanionBackgroundWorkStatusReadModel
@@ -108,6 +151,9 @@ function normalizeStatusJob(job: KernelCompanionBackgroundWorkRecord): KernelCom
     startedAt: job.startedAt,
     terminalAt: job.completedAt,
     attemptCount: job.attemptCount,
+    dedupeKeyDigest: job.dedupeKey ? digestDedupeKey(job.dedupeKey) : null,
+    coalescedSubmissionCount: job.coalescedSubmissionCount,
+    skippedSubmissionCount: job.skippedSubmissionCount,
     diagnostics,
     lastError: job.lastError,
   };
@@ -133,6 +179,10 @@ function normalizeDiagnostics(
       normalized[key] = normalizeKnownDiagnosticValue(value);
       continue;
     }
+    if (STRICT_WORK_KIND_SAFE_DIAGNOSTICS.has(kind)) {
+      normalized[key] = REDACTED_DIAGNOSTIC_VALUE;
+      continue;
+    }
     if (isSafeDiagnosticScalar(value) && !CONTENT_BEARING_DIAGNOSTIC_KEY_PATTERN.test(key)) {
       normalized[key] = value;
       continue;
@@ -155,4 +205,13 @@ function isSafeDiagnosticScalar(value: unknown): value is KernelCompanionBackgro
 
 function readStringDiagnostic(value: KernelCompanionBackgroundWorkStatusDiagnosticValue | undefined): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function digestDedupeKey(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `fnv1a32:${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }

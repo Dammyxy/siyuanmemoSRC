@@ -115,7 +115,8 @@ export interface BrowserDocumentCountRow {
 
 export type BrowserDocumentCountsOwner =
   | 'sql-card-universe'
-  | 'queue-projection';
+  | 'queue-projection'
+  | 'read-only-recovery-queue-state';
 
 export interface BrowserDocumentCountsDiagnostics {
   countOnly: true;

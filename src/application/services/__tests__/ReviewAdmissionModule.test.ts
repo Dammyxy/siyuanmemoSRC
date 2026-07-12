@@ -147,6 +147,51 @@ describe('ReviewAdmissionModule', () => {
     }));
   });
 
+  it('admits explicit read-only recovery queue-state without materializing projection', async () => {
+    const manager = createManager({
+      readQueueProjection: vi.fn(async () => ({
+        type: 'readiness',
+        readiness: {
+          status: 'unavailable',
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'stale-policy',
+          cause: 'projection_unavailable',
+          reason: 'projection snapshot unavailable',
+          recoverable: true,
+        },
+      })),
+      repairQueueProjection: vi.fn(async () => {
+        throw new Error('repair must not run during read-only recovery');
+      }),
+    });
+    const module = new ReviewAdmissionModule(manager, {
+      isStartupWriteCapable: () => false,
+      now: () => NOW,
+    });
+    const target = createProjectionTarget(
+      QueueType.RetrievalPractice,
+      'browser-toolbar:retrieval-practice',
+    );
+
+    const ticket = await module.admitReviewSession({
+      target,
+      queueInstance: createQueue(),
+    });
+
+    expect(ticket).toMatchObject({
+      queueType: QueueType.RetrievalPractice,
+      entrySurface: 'browser-toolbar:retrieval-practice',
+      entryTargetIdentity: 'projection-queue:retrieval-practice:browser-toolbar:retrieval-practice',
+      projectionPolicyHash: null,
+      projectionGeneration: null,
+      source: 'read-only-recovery-queue-state',
+      admittedAt: NOW,
+    });
+    expect(manager.repairQueueProjection).not.toHaveBeenCalled();
+    expect(manager.getQueue).not.toHaveBeenCalled();
+    expect(isValidReviewAdmissionTicket(ticket, target)).toBe(true);
+  });
+
   it('fails closed for unrecoverable projection readiness', async () => {
     const manager = createManager({
       readQueueProjection: vi.fn(async () => ({

@@ -397,6 +397,84 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     vi.useRealTimers();
   });
 
+  it('does not retry non-retryable storage recovery repair failures', async () => {
+    vi.useFakeTimers();
+    const ensureQueueReadModelReady = vi.fn(async (request) => ({
+      status: 'refreshing',
+      queueId: request.queueType,
+      policyId: `policy-${request.queueType}`,
+      cause: 'projection_stale',
+      retryAfterMs: 300,
+    }));
+    const repairQueueReadModel = vi.fn(async () => {
+      throw new Error('STORAGE_RECOVERY_REQUIRED: browser queue projection repair requires writable startup readiness');
+    });
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      browserAppService: ref({ ensureQueueReadModelReady, repairQueueReadModel }),
+    });
+    const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.schedule('browser-open', 0, ['retrieval']);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(repairQueueReadModel).toHaveBeenCalledTimes(1);
+    expect(runtime.getStatus('retrieval')).toMatchObject({
+      status: 'refreshing',
+      cause: 'projection_stale',
+    });
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      '[SiYuanMemo][SRSBrowser] Queue projection warmup repair failed',
+      expect.objectContaining({
+        nonRetryable: true,
+      }),
+    );
+    vi.useRealTimers();
+  });
+
+  it('skips repair attempts when Browser projection mutation is not allowed', async () => {
+    vi.useFakeTimers();
+    const ensureQueueReadModelReady = vi.fn(async (request) => ({
+      status: 'refreshing',
+      queueId: request.queueType,
+      policyId: `policy-${request.queueType}`,
+      cause: 'projection_stale',
+      retryAfterMs: 300,
+    }));
+    const repairQueueReadModel = vi.fn(async () => {
+      throw new Error('repair must not run while startup is read-only recovery');
+    });
+    const canRepairQueueReadModel = vi.fn(() => false);
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      browserAppService: ref({
+        ensureQueueReadModelReady,
+        repairQueueReadModel,
+        canRepairQueueReadModel,
+      }),
+    });
+    const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.schedule('browser-open', 0, ['retrieval']);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(canRepairQueueReadModel).toHaveBeenCalledTimes(1);
+    expect(repairQueueReadModel).not.toHaveBeenCalled();
+    expect(deps.logger.warn).not.toHaveBeenCalledWith(
+      '[SiYuanMemo][SRSBrowser] Queue projection warmup repair failed',
+      expect.anything(),
+    );
+    expect(runtime.getStatus('retrieval')).toMatchObject({
+      status: 'refreshing',
+      cause: 'projection_stale',
+    });
+    vi.useRealTimers();
+  });
+
   it('rewarms only the affected queue after materialized identity events', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({

@@ -28,6 +28,7 @@ const runtimeBundleMocks = vi.hoisted(() => ({
   },
   resolveTruthDeviceIdentity: vi.fn(async () => ({
     deviceId: 'truth-device-1',
+    identityEpoch: 'epoch-1',
     source: 'authority-copies',
     localStatePath: 'truth-device-id.v1.json',
     error: null,
@@ -176,11 +177,20 @@ describe('createApplicationBackendRuntimeBundle', () => {
     expect(bundle.followerCommandClient).toBeTruthy();
     expect(runtimeBundleMocks.frontendRuntimes).toHaveLength(1);
     expect(runtimeBundleMocks.frontendRuntimes[0].start).toHaveBeenCalledTimes(1);
+    expect(runtimeBundleMocks.backendClients[0].options.startupIdentityDisposition).toMatchObject({
+      status: 'verified',
+      writable: true,
+      retryable: false,
+      deviceId: 'truth-device-1',
+      identityEpoch: 'epoch-1',
+      source: 'authority-copies',
+      reason: null,
+    });
     expect(runtimeBundleMocks.backendClients[0].options.reviewTruthFlush).toMatchObject({
       deviceId: 'truth-device-1',
+      identityEpoch: 'epoch-1',
     });
-    expect(runtimeBundleMocks.backendClients[0].schedulePendingReviewTruthFlush)
-      .toHaveBeenCalledWith('startup');
+    expect(runtimeBundleMocks.backendClients[0].schedulePendingReviewTruthFlush).not.toHaveBeenCalled();
     expect(runtimeBundleMocks.resolveTruthDeviceIdentity).toHaveBeenCalledWith(expect.objectContaining({
       localStore: options.fileService,
       hostFingerprint: 'host-system-1',
@@ -190,6 +200,74 @@ describe('createApplicationBackendRuntimeBundle', () => {
       '[ApplicationContext] Frontend instance runtime unavailable; backend write families fail closed with explicit unavailable',
       expect.anything(),
     );
+  });
+
+  it('keeps backend load available but disables truth writes when identity epoch is missing', async () => {
+    runtimeBundleMocks.backendClients.length = 0;
+    runtimeBundleMocks.frontendRuntimes.length = 0;
+    runtimeBundleMocks.transports.length = 0;
+    Object.values(runtimeBundleMocks.logger).forEach((fn) => fn.mockClear());
+    runtimeBundleMocks.resolveTruthDeviceIdentity.mockResolvedValueOnce({
+      deviceId: 'truth-device-1',
+      identityEpoch: null,
+      source: 'temp-local',
+      localStatePath: 'truth-device-id.v1.json',
+      error: null,
+    });
+
+    const bundle = await createApplicationBackendRuntimeBundle(createRuntimeBundleOptions());
+
+    expect(bundle.backendStartupError).toBeNull();
+    expect(runtimeBundleMocks.backendClients[0].loadDatabase).toHaveBeenCalledTimes(1);
+    expect(runtimeBundleMocks.backendClients[0].options.reviewTruthFlush).toBeNull();
+    expect(runtimeBundleMocks.backendClients[0].schedulePendingReviewTruthFlush).not.toHaveBeenCalled();
+    expect(runtimeBundleMocks.backendClients[0].options.startupIdentityDisposition).toMatchObject({
+      status: 'read-only-recovery-required',
+      writable: false,
+      retryable: false,
+      deviceId: 'truth-device-1',
+      identityEpoch: null,
+      source: 'temp-local',
+    });
+    expect(runtimeBundleMocks.logger.warn).toHaveBeenCalledWith(
+      '[ApplicationContext] STORAGE_RECOVERY_REQUIRED: MessagePack truth writes are unavailable because startup identity disposition is not writable',
+      expect.objectContaining({
+        deviceId: 'truth-device-1',
+        identityEpoch: null,
+        disposition: 'read-only-recovery-required',
+        retryable: false,
+      }),
+    );
+  });
+
+  it('keeps backend load read-only and retryable when identity authority is unavailable', async () => {
+    runtimeBundleMocks.backendClients.length = 0;
+    runtimeBundleMocks.frontendRuntimes.length = 0;
+    runtimeBundleMocks.transports.length = 0;
+    Object.values(runtimeBundleMocks.logger).forEach((fn) => fn.mockClear());
+    runtimeBundleMocks.resolveTruthDeviceIdentity.mockResolvedValueOnce({
+      deviceId: null,
+      identityEpoch: null,
+      source: 'unavailable',
+      localStatePath: 'truth-device-id.v1.json',
+      error: 'indexedDB identity authority read failed: read denied',
+    });
+
+    const bundle = await createApplicationBackendRuntimeBundle(createRuntimeBundleOptions());
+
+    expect(bundle.backendStartupError).toBeNull();
+    expect(runtimeBundleMocks.backendClients[0].loadDatabase).toHaveBeenCalledTimes(1);
+    expect(runtimeBundleMocks.backendClients[0].options.reviewTruthFlush).toBeNull();
+    expect(runtimeBundleMocks.backendClients[0].options.startupIdentityDisposition).toMatchObject({
+      status: 'read-only-authority-unavailable',
+      writable: false,
+      retryable: true,
+      deviceId: null,
+      identityEpoch: null,
+      source: 'unavailable',
+      reason: expect.stringContaining('IDENTITY_AUTHORITY_UNAVAILABLE'),
+    });
+    expect(runtimeBundleMocks.backendClients[0].schedulePendingReviewTruthFlush).not.toHaveBeenCalled();
   });
 
   it('passes AutoCard batch execution host effect into the backend worker transport', async () => {

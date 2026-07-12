@@ -1,4 +1,7 @@
 export type KernelCompanionBackgroundWorkKind =
+  | 'startup-storage-maintenance'
+  | 'progressive-excerpt-completion-repair'
+  | 'review-truth-flush'
   | 'review-truth-backfill'
   | 'truth-promotion'
   | 'kernel-transaction-action-polling';
@@ -62,7 +65,52 @@ export interface KernelCompanionTruthPromotionDiagnostics {
   [key: string]: unknown;
 }
 
+export interface KernelCompanionStartupStorageMaintenanceDiagnostics {
+  reason?: string;
+  deferredDescriptorCount?: number;
+  deferredDescriptorKinds?: string;
+  operationId?: string;
+  ownedPhaseCount?: number;
+  scheduleNormalizationPhase?: string;
+  scheduleAffectedCardCount?: number;
+  scheduleCompletedBatches?: number;
+  orphanCardRepairPhase?: string;
+  orphanDiscoveredCardCount?: number;
+  orphanRepairedCardCount?: number;
+  orphanCompletedBatches?: number;
+  childJobId?: string;
+  childWorkKind?: KernelCompanionBackgroundWorkKind;
+  childState?: KernelCompanionBackgroundWorkState;
+  waitingForChild?: boolean;
+  receiptScopeAvailable?: boolean;
+  lifecycleDedupeKeyAvailable?: boolean;
+  unavailable?: boolean;
+  [key: string]: unknown;
+}
+
+export interface KernelCompanionProgressiveExcerptCompletionRepairDiagnostics {
+  reason?: string;
+  delayMs?: number;
+  repairedCount?: number;
+  completedCount?: number;
+  failedCount?: number;
+  unavailable?: boolean;
+  [key: string]: unknown;
+}
+
+export interface KernelCompanionReviewTruthFlushDiagnostics {
+  reason?: string;
+  delayMs?: number;
+  queued?: boolean;
+  flushed?: boolean;
+  unavailable?: boolean;
+  [key: string]: unknown;
+}
+
 export type KernelCompanionBackgroundWorkDiagnostics =
+  | KernelCompanionStartupStorageMaintenanceDiagnostics
+  | KernelCompanionProgressiveExcerptCompletionRepairDiagnostics
+  | KernelCompanionReviewTruthFlushDiagnostics
   | KernelCompanionReviewTruthBackfillDiagnostics
   | KernelCompanionTruthPromotionDiagnostics
   | KernelCompanionTransactionActionPollingDiagnostics
@@ -73,6 +121,7 @@ export interface KernelCompanionBackgroundWorkRecord<
 > {
   jobId: string;
   kind: KernelCompanionBackgroundWorkKind;
+  dedupeKey: string | null;
   state: KernelCompanionBackgroundWorkState;
   reason: string | null;
   submittedAt: number;
@@ -80,6 +129,8 @@ export interface KernelCompanionBackgroundWorkRecord<
   startedAt: number | null;
   completedAt: number | null;
   attemptCount: number;
+  coalescedSubmissionCount: number;
+  skippedSubmissionCount: number;
   diagnostics: TDiagnostics;
   lastError: string | null;
 }
@@ -103,6 +154,8 @@ export interface KernelCompanionBackgroundWorkSubmitRequest<
   TDiagnostics extends KernelCompanionBackgroundWorkDiagnostics = KernelCompanionBackgroundWorkDiagnostics,
 > {
   kind: KernelCompanionBackgroundWorkKind;
+  dedupeKey?: string | null;
+  retry?: boolean;
   diagnostics?: TDiagnostics;
   run: (
     context: KernelCompanionBackgroundWorkRunContext,
@@ -112,6 +165,8 @@ export interface KernelCompanionBackgroundWorkSubmitRequest<
 export interface KernelCompanionBackgroundWorkSubmitResult {
   accepted: boolean;
   job: KernelCompanionBackgroundWorkRecord;
+  coalesced: boolean;
+  skipped: boolean;
 }
 
 export interface KernelCompanionBackgroundWorkRegistryInterface {
@@ -160,19 +215,50 @@ export class KernelCompanionBackgroundWorkRegistry implements KernelCompanionBac
   submit<TDiagnostics extends KernelCompanionBackgroundWorkDiagnostics>(
     request: KernelCompanionBackgroundWorkSubmitRequest<TDiagnostics>,
   ): KernelCompanionBackgroundWorkSubmitResult {
+    const dedupeKey = request.dedupeKey ?? null;
     if (this.shutdownStarted) {
       const job = this.createJob(request.kind, {
         ...(request.diagnostics ?? {}),
         unavailable: true,
-      }, 'deferred', this.shutdownReason);
+      }, 'deferred', this.shutdownReason, dedupeKey);
       job.lastError = 'BACKGROUND_WORK_REGISTRY_SHUTDOWN';
       return {
         accepted: false,
         job: this.cloneJob(job),
+        coalesced: false,
+        skipped: false,
       };
     }
 
-    const job = this.createJob(request.kind, request.diagnostics ?? {} as TDiagnostics, 'accepted', null);
+    const equivalentJob = dedupeKey
+      ? this.findEquivalentDedupeJob(request.kind, dedupeKey)
+      : null;
+    if (equivalentJob) {
+      if (equivalentJob.state === 'failed' && request.retry === true) {
+        return this.retryFailedJob(equivalentJob, request);
+      }
+      if (equivalentJob.state === 'accepted' || equivalentJob.state === 'running') {
+        equivalentJob.coalescedSubmissionCount += 1;
+        equivalentJob.updatedAt = this.now();
+      } else if (equivalentJob.state === 'completed') {
+        equivalentJob.skippedSubmissionCount += 1;
+        equivalentJob.updatedAt = this.now();
+      }
+      return {
+        accepted: false,
+        job: this.cloneJob(equivalentJob),
+        coalesced: equivalentJob.state === 'accepted' || equivalentJob.state === 'running',
+        skipped: equivalentJob.state === 'completed',
+      };
+    }
+
+    const job = this.createJob(
+      request.kind,
+      request.diagnostics ?? {} as TDiagnostics,
+      'accepted',
+      null,
+      dedupeKey,
+    );
     this.handlers.set(job.jobId, request.run as StoredHandler);
     this.scheduleRun(() => {
       void this.start(job.jobId);
@@ -180,6 +266,8 @@ export class KernelCompanionBackgroundWorkRegistry implements KernelCompanionBac
     return {
       accepted: true,
       job: this.cloneJob(job),
+      coalesced: false,
+      skipped: false,
     };
   }
 
@@ -293,11 +381,13 @@ export class KernelCompanionBackgroundWorkRegistry implements KernelCompanionBac
     diagnostics: TDiagnostics,
     state: KernelCompanionBackgroundWorkState,
     reason: string | null,
+    dedupeKey: string | null,
   ): KernelCompanionBackgroundWorkRecord<TDiagnostics> {
     const at = this.now();
     const job: KernelCompanionBackgroundWorkRecord<TDiagnostics> = {
       jobId: `${kind}-${this.nextId += 1}`,
       kind,
+      dedupeKey,
       state,
       reason,
       submittedAt: at,
@@ -305,11 +395,64 @@ export class KernelCompanionBackgroundWorkRegistry implements KernelCompanionBac
       startedAt: null,
       completedAt: TERMINAL_STATES.has(state) ? at : null,
       attemptCount: 0,
+      coalescedSubmissionCount: 0,
+      skippedSubmissionCount: 0,
       diagnostics,
       lastError: null,
     };
     this.jobs.set(job.jobId, job);
     return job;
+  }
+
+  private findEquivalentDedupeJob(
+    kind: KernelCompanionBackgroundWorkKind,
+    dedupeKey: string,
+  ): KernelCompanionBackgroundWorkRecord | null {
+    let completed: KernelCompanionBackgroundWorkRecord | null = null;
+    let terminal: KernelCompanionBackgroundWorkRecord | null = null;
+    for (const job of this.jobs.values()) {
+      if (job.kind !== kind || job.dedupeKey !== dedupeKey) {
+        continue;
+      }
+      if (job.state === 'accepted' || job.state === 'running') {
+        return job;
+      }
+      if (job.state === 'completed') {
+        completed = job;
+        terminal = job;
+        continue;
+      }
+      if (TERMINAL_STATES.has(job.state)) {
+        terminal = job;
+      }
+    }
+    return completed ?? terminal;
+  }
+
+  private retryFailedJob<TDiagnostics extends KernelCompanionBackgroundWorkDiagnostics>(
+    job: KernelCompanionBackgroundWorkRecord,
+    request: KernelCompanionBackgroundWorkSubmitRequest<TDiagnostics>,
+  ): KernelCompanionBackgroundWorkSubmitResult {
+    job.state = 'accepted';
+    job.reason = null;
+    job.updatedAt = this.now();
+    job.startedAt = null;
+    job.completedAt = null;
+    job.diagnostics = {
+      ...job.diagnostics,
+      ...(request.diagnostics ?? {}),
+    };
+    job.lastError = null;
+    this.handlers.set(job.jobId, request.run as StoredHandler);
+    this.scheduleRun(() => {
+      void this.start(job.jobId);
+    });
+    return {
+      accepted: true,
+      job: this.cloneJob(job),
+      coalesced: false,
+      skipped: false,
+    };
   }
 
   private transition(

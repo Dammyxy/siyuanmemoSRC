@@ -29,11 +29,11 @@ export interface ReviewAdmissionTicket {
   queueType: ReviewAdmissionQueueType;
   entrySurface: string;
   entryTargetIdentity: string;
-  projectionPolicyHash: string;
-  projectionGeneration: number;
+  projectionPolicyHash: string | null;
+  projectionGeneration: number | null;
   readinessRequest: QueueProjectionReadinessRequest;
   admittedAt: number;
-  source: 'ready-projection' | 'materialized-projection';
+  source: 'ready-projection' | 'materialized-projection' | 'read-only-recovery-queue-state';
 }
 
 export interface ReviewAdmissionRequest {
@@ -41,8 +41,22 @@ export interface ReviewAdmissionRequest {
   queueInstance?: Pick<IReviewQueue, 'getCards'> | null;
 }
 
+export interface ReviewAdmissionModuleOptions {
+  isStartupWriteCapable?: () => boolean;
+  now?: () => number;
+}
+
 export class ReviewAdmissionModule {
-  constructor(private readonly manager: UnifiedDataSourceManager) {}
+  private readonly isStartupWriteCapable: () => boolean;
+  private readonly now: () => number;
+
+  constructor(
+    private readonly manager: UnifiedDataSourceManager,
+    options: ReviewAdmissionModuleOptions = {},
+  ) {
+    this.isStartupWriteCapable = options.isStartupWriteCapable ?? (() => true);
+    this.now = options.now ?? (() => Date.now());
+  }
 
   async admitReviewSession(request: ReviewAdmissionRequest): Promise<ReviewAdmissionTicket | null> {
     if (request.target.kind !== 'projection-queue') {
@@ -73,6 +87,24 @@ export class ReviewAdmissionModule {
       throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${target.queueType} projection is not readable: ${formatReadiness(ready)}`);
     }
 
+    if (!this.isStartupWriteCapable()) {
+      logger.warn('[SiYuanMemo][ReviewAdmission] admitted read-only recovery queue state without projection materialization', {
+        queueType: target.queueType,
+        entrySurface: target.entrySurface,
+        readiness: formatReadiness(ready),
+      });
+      return {
+        queueType: target.queueType,
+        entrySurface: target.entrySurface,
+        entryTargetIdentity: buildReviewEntryTargetIdentity(target),
+        projectionPolicyHash: null,
+        projectionGeneration: null,
+        readinessRequest,
+        admittedAt: this.now(),
+        source: 'read-only-recovery-queue-state',
+      };
+    }
+
     const repaired = await this.manager.repairQueueProjection({
       type: 'materialize',
       queueType: target.queueType,
@@ -99,7 +131,7 @@ export class ReviewAdmissionModule {
       projectionPolicyHash: materialized.policyHash,
       projectionGeneration: Number(materialized.generation),
       readinessRequest,
-      admittedAt: Date.now(),
+      admittedAt: this.now(),
       source: 'materialized-projection',
     };
   }
@@ -117,7 +149,7 @@ export class ReviewAdmissionModule {
       projectionPolicyHash: readiness.policyId,
       projectionGeneration: Number(readiness.generation),
       readinessRequest,
-      admittedAt: Date.now(),
+      admittedAt: this.now(),
       source,
     };
   }
@@ -150,8 +182,10 @@ export function isValidReviewAdmissionTicket(
     && value.entrySurface === target.entrySurface
     && value.entryTargetIdentity === buildReviewEntryTargetIdentity(target)
     && isReviewAdmissionQueueType(value.queueType)
-    && isNonEmptyString(value.projectionPolicyHash)
-    && isPositiveInteger(value.projectionGeneration),
+    && (
+      value.source === 'read-only-recovery-queue-state'
+      || (isNonEmptyString(value.projectionPolicyHash) && isPositiveInteger(value.projectionGeneration))
+    ),
   );
 }
 

@@ -1,6 +1,11 @@
 import type {
   BackendCardScheduleBatchUpdateRequest,
   BackendCardScheduleBatchUpdateResult,
+  BackendStorageMaintenanceApplyBatchRequest,
+  BackendStorageMaintenanceApplyBatchResult,
+  BackendStorageMaintenanceFrontier,
+  BackendStorageMaintenanceStatusRequest,
+  BackendStorageMaintenanceStatusResult,
 } from '../../../packages/contracts/src/backend-rpc';
 import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import { XiuyuanRepository } from '@/core/xiuyuan/infrastructure/XiuyuanRepository';
@@ -11,9 +16,25 @@ import { createLogger } from '@/utils/logger';
 const logger = createLogger('StartupWorkerStorageMaintenance');
 const SCHEDULE_BATCH_SIZE = 128;
 const ORPHAN_REPAIR_BATCH_SIZE = 64;
+const STARTUP_STORAGE_MAINTENANCE_VERSION = 'startup-storage-maintenance-v1';
+const STARTUP_STORAGE_MAINTENANCE_RECEIPT_VERSION = 'startup-storage-maintenance-receipt-v2';
+const STARTUP_STORAGE_MAINTENANCE_KIND = 'startup-storage-maintenance';
+
+export interface StartupMaintenanceReceiptScope {
+  pluginInstallationId: string;
+  identityEpoch: string;
+  inputVersion: string;
+  frontierHash: string;
+  externalInputDirtyGeneration: number;
+  pendingExternalMerge: boolean;
+}
 
 export interface StartupWorkerStorageMaintenanceDiagnostics {
   operationId: string;
+  phaseClassifications: {
+    scheduleNormalization: 'deferred-safe';
+    orphanCardRepair: 'deferred-safe';
+  };
   schedule: {
     migratedLegacySchedulerCount: number;
     normalizedMalformedScheduleCount: number;
@@ -34,6 +55,13 @@ export interface StartupWorkerStorageMaintenanceOptions {
   executeScheduleBatch(
     request: BackendCardScheduleBatchUpdateRequest,
   ): Promise<BackendCardScheduleBatchUpdateResult>;
+  readReceipt?: (
+    request: BackendStorageMaintenanceStatusRequest,
+  ) => Promise<BackendStorageMaintenanceStatusResult>;
+  writeReceipt?: (
+    request: BackendStorageMaintenanceApplyBatchRequest,
+  ) => Promise<BackendStorageMaintenanceApplyBatchResult>;
+  receiptScope?: StartupMaintenanceReceiptScope | null;
   saveOrphanBatch?: (
     storage: UnifiedStorageManager,
     orphanCards: FSRSCard[],
@@ -43,12 +71,227 @@ export interface StartupWorkerStorageMaintenanceOptions {
 export async function runStartupWorkerStorageMaintenance(
   options: StartupWorkerStorageMaintenanceOptions,
 ): Promise<StartupWorkerStorageMaintenanceDiagnostics> {
-  const operationId = 'startup-storage-maintenance-v1';
+  const operationId = STARTUP_STORAGE_MAINTENANCE_VERSION;
+  const receiptScope = options.receiptScope ?? null;
+  const receipt = createReceiptDescriptor(receiptScope);
+  const initialStatus = await readReceiptStatus(options, receipt, 'initial');
+  if (isCompletedReceiptMatch(initialStatus, receipt, receiptScope)) {
+    const diagnostics = {
+      operationId,
+      phaseClassifications: startupMaintenancePhaseClassifications(),
+      schedule: emptyScheduleDiagnostics(),
+      orphanRepair: emptyOrphanRepairDiagnostics(),
+    };
+    logger.info('Worker startup storage maintenance skipped by receipt', diagnostics);
+    return diagnostics;
+  }
+
+  const preSuccessScope = normalizeReceiptScope(initialStatus?.currentFrontier) ?? receiptScope;
   const schedule = await normalizeSchedules(options, operationId);
   const orphanRepair = await repairOrphanCards(options);
-  const diagnostics = { operationId, schedule, orphanRepair };
+  const diagnostics = {
+    operationId,
+    phaseClassifications: startupMaintenancePhaseClassifications(),
+    schedule,
+    orphanRepair,
+  };
+  await writeCompletedReceipt(options, preSuccessScope);
   logger.info('Worker startup storage maintenance completed', diagnostics);
   return diagnostics;
+}
+
+async function readReceiptStatus(
+  options: StartupWorkerStorageMaintenanceOptions,
+  receipt: BackendStorageMaintenanceStatusRequest | null,
+  phase: 'initial' | 'post-success',
+): Promise<BackendStorageMaintenanceStatusResult | null> {
+  if (!receipt || !options.readReceipt) {
+    return null;
+  }
+  try {
+    return await options.readReceipt(receipt);
+  } catch (error) {
+    const message = errorMessage(error);
+    logger.warn('Startup maintenance receipt read failed; running full scan', {
+      phase,
+      error: message,
+    });
+    return {
+      operationId: receipt.operationId,
+      migrationId: receipt.migrationId,
+      required: true,
+      status: 'pending',
+      completedBatches: 0,
+      totalBatches: null,
+      lastMutationId: null,
+      completedAt: null,
+      error: `STORAGE_MAINTENANCE_STATUS_UNAVAILABLE: ${message}`,
+      currentFrontier: null,
+    };
+  }
+}
+
+async function writeCompletedReceipt(
+  options: StartupWorkerStorageMaintenanceOptions,
+  preSuccessScope: StartupMaintenanceReceiptScope | null,
+): Promise<void> {
+  if (!preSuccessScope || !options.writeReceipt) {
+    return;
+  }
+  const postSuccessScope = await readPostSuccessReceiptScope(options, preSuccessScope);
+  if (!postSuccessScope) {
+    logger.warn('Startup maintenance receipt write skipped; post-success frontier unavailable');
+    return;
+  }
+  const receipt = createReceiptDescriptor(postSuccessScope);
+  if (!receipt) {
+    return;
+  }
+  try {
+    await options.writeReceipt({
+      ...receipt,
+      batchIndex: 0,
+      totalBatches: 1,
+      batch: {
+        kind: 'startup-maintenance-receipt',
+        appliedAt: Date.now(),
+        receiptVersion: STARTUP_STORAGE_MAINTENANCE_RECEIPT_VERSION,
+        maintenanceKind: STARTUP_STORAGE_MAINTENANCE_KIND,
+        preSuccessFrontier: toBackendFrontier(preSuccessScope),
+        postSuccessFrontier: toBackendFrontier(postSuccessScope),
+      },
+    });
+  } catch (error) {
+    logger.warn('Startup maintenance receipt write failed; next startup will rescan', {
+      error: errorMessage(error),
+    });
+  }
+}
+
+function createReceiptDescriptor(
+  receiptScope: StartupMaintenanceReceiptScope | null,
+): BackendStorageMaintenanceStatusRequest | null {
+  if (!receiptScope) {
+    return null;
+  }
+  const fingerprint = [
+    receiptScope.pluginInstallationId,
+    receiptScope.identityEpoch,
+    receiptScope.inputVersion,
+    receiptScope.frontierHash,
+  ].map((part) => sanitizeReceiptPart(part).slice(0, 48)).join(':');
+  const migrationId = `${STARTUP_STORAGE_MAINTENANCE_RECEIPT_VERSION}:${STARTUP_STORAGE_MAINTENANCE_KIND}:${fingerprint}`;
+  return {
+    operationId: migrationId,
+    migrationId,
+  };
+}
+
+async function readPostSuccessReceiptScope(
+  options: StartupWorkerStorageMaintenanceOptions,
+  preSuccessScope: StartupMaintenanceReceiptScope,
+): Promise<StartupMaintenanceReceiptScope | null> {
+  const status = await readReceiptStatus(
+    options,
+    createReceiptDescriptor(preSuccessScope),
+    'post-success',
+  );
+  return normalizeReceiptScope(status?.currentFrontier);
+}
+
+function isCompletedReceiptMatch(
+  status: BackendStorageMaintenanceStatusResult | null,
+  receipt: BackendStorageMaintenanceStatusRequest | null,
+  receiptScope: StartupMaintenanceReceiptScope | null,
+): boolean {
+  if (!status || !receipt || !receiptScope) {
+    return false;
+  }
+  return status.operationId === receipt.operationId
+    && status.migrationId === receipt.migrationId
+    && status.status === 'completed'
+    && status.required === false
+    && isReceiptScopeEqual(normalizeReceiptScope(status.currentFrontier), receiptScope);
+}
+
+function normalizeReceiptScope(
+  frontier: BackendStorageMaintenanceFrontier | null | undefined,
+): StartupMaintenanceReceiptScope | null {
+  if (
+    !frontier?.pluginInstallationId
+    || !frontier.identityEpoch
+    || !frontier.inputVersion
+    || !frontier.frontierHash
+  ) {
+    return null;
+  }
+  return {
+    pluginInstallationId: frontier.pluginInstallationId,
+    identityEpoch: frontier.identityEpoch,
+    inputVersion: frontier.inputVersion,
+    frontierHash: frontier.frontierHash,
+    externalInputDirtyGeneration: frontier.externalInputDirtyGeneration,
+    pendingExternalMerge: frontier.pendingExternalMerge,
+  };
+}
+
+function isReceiptScopeEqual(
+  left: StartupMaintenanceReceiptScope | null,
+  right: StartupMaintenanceReceiptScope,
+): boolean {
+  return left?.pluginInstallationId === right.pluginInstallationId
+    && left.identityEpoch === right.identityEpoch
+    && left.inputVersion === right.inputVersion
+    && left.frontierHash === right.frontierHash
+    && left.externalInputDirtyGeneration === right.externalInputDirtyGeneration
+    && left.pendingExternalMerge === right.pendingExternalMerge;
+}
+
+function toBackendFrontier(
+  scope: StartupMaintenanceReceiptScope,
+): BackendStorageMaintenanceFrontier {
+  return {
+    ...scope,
+    recoveryStatus: null,
+    journalSequenceFrontier: null,
+    truthCoverageFrontier: null,
+    externalInputDirtyGeneration: scope.externalInputDirtyGeneration,
+    pendingExternalMerge: scope.pendingExternalMerge,
+  };
+}
+
+function sanitizeReceiptPart(value: string): string {
+  return String(value || '').trim().replace(/[^a-zA-Z0-9._:-]/g, '_');
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function emptyScheduleDiagnostics(): StartupWorkerStorageMaintenanceDiagnostics['schedule'] {
+  return {
+    migratedLegacySchedulerCount: 0,
+    normalizedMalformedScheduleCount: 0,
+    affectedCardCount: 0,
+    completedBatches: 0,
+    totalBatches: 0,
+  };
+}
+
+function startupMaintenancePhaseClassifications(): StartupWorkerStorageMaintenanceDiagnostics['phaseClassifications'] {
+  return {
+    scheduleNormalization: 'deferred-safe',
+    orphanCardRepair: 'deferred-safe',
+  };
+}
+
+function emptyOrphanRepairDiagnostics(): StartupWorkerStorageMaintenanceDiagnostics['orphanRepair'] {
+  return {
+    discoveredCardCount: 0,
+    repairedCardCount: 0,
+    completedBatches: 0,
+    totalBatches: 0,
+  };
 }
 
 async function normalizeSchedules(
@@ -106,7 +349,7 @@ async function repairOrphanCards(
   options: StartupWorkerStorageMaintenanceOptions,
 ): Promise<StartupWorkerStorageMaintenanceDiagnostics['orphanRepair']> {
   const orphanCards = options.storage.getAllCards()
-    .filter((card) => !card.meta?.xiuyuanID)
+    .filter((card) => !readCardXiuyuanId(card))
     .sort((left, right) => left.id.localeCompare(right.id));
   const batches = chunk(orphanCards, ORPHAN_REPAIR_BATCH_SIZE);
   let repairedCardCount = 0;
@@ -130,6 +373,18 @@ async function repairOrphanCards(
     completedBatches: batches.length,
     totalBatches: batches.length,
   };
+}
+
+function readCardXiuyuanId(card: FSRSCard): string | null {
+  const topLevel = String(card.xiuyuanID || '').trim();
+  if (topLevel) {
+    return topLevel;
+  }
+  const meta = card.meta && typeof card.meta === 'object'
+    ? card.meta as Record<string, unknown>
+    : null;
+  const metaValue = String(meta?.xiuyuanID || '').trim();
+  return metaValue || null;
 }
 
 async function saveOrphanBatch(
