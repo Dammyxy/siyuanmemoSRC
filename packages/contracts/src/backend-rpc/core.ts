@@ -4,6 +4,8 @@ import type {
   BackendDbReloadResult,
   BackendStorageMaintenanceApplyBatchRequest,
   BackendStorageMaintenanceApplyBatchResult,
+  BackendStoragePressureRecoveryRequest,
+  BackendStoragePressureRecoveryResult,
   BackendStorageMaintenanceStatusRequest,
   BackendStorageMaintenanceStatusResult,
   BackendDiagnosticsStatusResult,
@@ -18,6 +20,7 @@ export const BACKEND_CORE_RPC_METHODS = [
   'db.reload',
   'storage.maintenance.status',
   'storage.maintenance.applyBatch',
+  'storage.pressure.recover',
   'diagnostics.status',
   'private.health',
   'private.diagnostics.status',
@@ -52,6 +55,11 @@ export type BackendCoreRpcMethodContractMap = {
     BackendStorageMaintenanceApplyBatchRequest,
     BackendStorageMaintenanceApplyBatchResult
   >;
+  readonly 'storage.pressure.recover': BackendRpcMethodContract<
+    'storage.pressure.recover',
+    BackendStoragePressureRecoveryRequest | void,
+    BackendStoragePressureRecoveryResult
+  >;
   readonly 'diagnostics.status': BackendRpcMethodContract<'diagnostics.status', void, BackendDiagnosticsStatusResult>;
   readonly 'private.health': BackendRpcMethodContract<'private.health', void, BackendPrivateHealthResult>;
   readonly 'private.diagnostics.status': BackendRpcMethodContract<
@@ -67,6 +75,7 @@ export const BACKEND_CORE_RPC_METHOD_FAMILY_CATALOG = [
   { method: 'db.reload', family: 'core', clientExposure: 'facade' },
   { method: 'storage.maintenance.status', family: 'core', clientExposure: 'facade' },
   { method: 'storage.maintenance.applyBatch', family: 'core', clientExposure: 'facade' },
+  { method: 'storage.pressure.recover', family: 'core', clientExposure: 'facade' },
   { method: 'diagnostics.status', family: 'core', clientExposure: 'facade' },
   { method: 'private.health', family: 'core', clientExposure: 'facade' },
   { method: 'private.diagnostics.status', family: 'core', clientExposure: 'facade' },

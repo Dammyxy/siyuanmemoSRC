@@ -103,6 +103,7 @@ export const BACKEND_RPC_METHODS = [
   'db.reload',
   'storage.maintenance.status',
   'storage.maintenance.applyBatch',
+  'storage.pressure.recover',
   'truth.reconciliation.run',
   'sync.reviewDivergence.audit',
   'sync.conflict.summarize',
@@ -320,6 +321,7 @@ export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['db.reload'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['storage.maintenance.status'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['storage.maintenance.applyBatch'],
+  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['storage.pressure.recover'],
   BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['truth.reconciliation.run'],
   BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['sync.reviewDivergence.audit'],
   BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['sync.conflict.summarize'],
@@ -570,6 +572,7 @@ export interface BackendStartupReadinessDisposition {
 
 export type BackendDeferredStartupWorkKind =
   | 'startup-storage-maintenance'
+  | 'storage-pressure-recovery'
   | 'truth-promotion';
 
 export interface BackendDeferredStartupWorkStatusReference {
@@ -747,6 +750,32 @@ export interface BackendStorageMaintenanceApplyBatchResult {
   totalBatches: number;
   lastMutationId: string | null;
   completedAt: number | null;
+  error: string | null;
+}
+
+export interface BackendStoragePressureRecoveryRequest {
+  maxCleanupFiles?: number | null;
+  maxCleanupBytes?: number | null;
+}
+
+export type BackendStoragePressureRecoveryPhase =
+  | 'planning'
+  | 'adopting'
+  | 'promoting-truth'
+  | 'compacting'
+  | 'cleaning-orphans'
+  | 'reclassifying'
+  | 'completed'
+  | 'failed';
+
+export interface BackendStoragePressureRecoveryResult {
+  ok: boolean;
+  phase: BackendStoragePressureRecoveryPhase;
+  adoption: Record<string, unknown> | null;
+  promotion: Record<string, unknown> | null;
+  deltaCompaction: Record<string, unknown> | null;
+  orphanCleanup: Record<string, unknown> | null;
+  inventory: StorageInventoryRecord;
   error: string | null;
 }
 

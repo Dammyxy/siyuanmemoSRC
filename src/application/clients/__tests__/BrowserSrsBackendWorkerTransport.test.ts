@@ -1448,6 +1448,61 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('routes SQLite delta inventory and deletion through explicit host handlers', async () => {
+    const worker = new FakeWorker();
+    const listFiles = vi.fn(async () => [
+      { path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack', size: 100 },
+      { path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-2.msgpack', size: 200 },
+    ]);
+    const deleteFile = vi.fn(async () => undefined);
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { listFiles, deleteFile },
+    });
+
+    worker.emit({ kind: 'ready' });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-sqlite-list',
+      effect: {
+        kind: 'sqlite.listFiles',
+        prefix: 'sqlite-delta/v2/',
+      },
+    });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-sqlite-delete',
+      effect: {
+        kind: 'sqlite.deleteFile',
+        path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    expect(listFiles).toHaveBeenCalledWith('sqlite-delta/v2/');
+    expect(deleteFile).toHaveBeenCalledWith(
+      'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack',
+    );
+    expect(worker.posted).toEqual(expect.arrayContaining([
+      {
+        kind: 'host-effect-result',
+        effectId: 'effect-sqlite-list',
+        ok: true,
+        result: [
+          { path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack', size: 100 },
+          { path: 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-2.msgpack', size: 200 },
+        ],
+      },
+      {
+        kind: 'host-effect-result',
+        effectId: 'effect-sqlite-delete',
+        ok: true,
+        result: null,
+      },
+    ]));
+    transport.dispose();
+  });
+
   it('allows review.truth.flush to write Review truth segment and manifest through the truth bridge', async () => {
     const worker = new FakeWorker();
     const writeTruthJSON = vi.fn(async () => undefined);

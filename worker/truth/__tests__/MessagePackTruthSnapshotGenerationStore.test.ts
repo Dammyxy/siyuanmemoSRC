@@ -117,6 +117,22 @@ function createStore(fileStore: MemoryFileStore): MessagePackTruthSnapshotGenera
 }
 
 describe('MessagePackTruthSnapshotGenerationStore', () => {
+  it('verifies a generation when segment replay orders records by logical time', async () => {
+    const fileStore = new MemoryFileStore();
+    const store = createStore(fileStore);
+
+    const result = await store.publishGeneration({
+      generationId: 'snapshot-reordered-replay',
+      records: [snapshot('card-later', 20), snapshot('card-earlier', 10)],
+      expectedCurrentGenerationId: null,
+    });
+
+    expect(result.generation.recordCount).toBe(2);
+    expect(result.fence.current).toMatchObject({
+      generationId: 'snapshot-reordered-replay',
+    });
+  });
+
   it('publishes verified immutable generations through one device-owned fence', async () => {
     const fileStore = new MemoryFileStore();
     const store = createStore(fileStore);

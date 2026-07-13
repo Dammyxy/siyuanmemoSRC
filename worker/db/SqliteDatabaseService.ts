@@ -112,6 +112,8 @@ import type {
   BackendStorageMaintenanceApplyBatchRequest,
   BackendStorageMaintenanceApplyBatchResult,
   BackendStorageMaintenanceFrontier,
+  BackendStoragePressureRecoveryRequest,
+  BackendStoragePressureRecoveryResult,
   BackendStorageMaintenanceStatusRequest,
   BackendStorageMaintenanceStatusResult,
   BackendStorageIdentityDiagnostics,
@@ -146,7 +148,11 @@ import {
   type WorkerTruthCompactionResult,
 } from '../truth/WorkerTruthCompactionModule';
 import { WorkerTruthReconciliationRuntime } from '../truth/WorkerTruthReconciliationRuntime';
-import { replayQueueFamilyTruthRecords } from '../truth/CompactableCanonicalTruth';
+import {
+  reconstructCanonicalTruthState,
+  replayQueueFamilyTruthRecords,
+  type CardAggregateTruthState,
+} from '../truth/CompactableCanonicalTruth';
 import { WorkerStorageInventory } from './WorkerStorageInventory';
 import type { WorkerStorageBudgetPolicy } from './WorkerStoragePressureClassifier';
 import type {
@@ -178,6 +184,7 @@ import type {
 } from '@/application/ports/BrowserDeckReadPort';
 import type {
   SqliteConflictDatabaseSource,
+  SqlitePersistenceFileEntry,
   SqlitePersistenceBridge,
   SqlitePersistenceHostEffectMetadata,
 } from './SqlitePersistenceBridge';
@@ -261,7 +268,8 @@ type SqliteFileServiceAdapter = {
   writeJSON(fileName: string, data: unknown, metadata?: SqliteFileServiceMetadataInput): Promise<void>;
   readBinary(fileName: string, metadata?: SqliteFileServiceMetadataInput): Promise<Uint8Array | null>;
   writeBinary(fileName: string, bytes: Uint8Array, metadata?: SqliteFileServiceMetadataInput): Promise<void>;
-  deleteFile(fileName: string): Promise<void>;
+  listFiles?(prefix: string): Promise<SqlitePersistenceFileEntry[]>;
+  deleteFile?(fileName: string): Promise<void>;
   hasLegacyPetalSqliteDb(): Promise<boolean>;
   readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]>;
   cleanupSyncConflictDatabaseSources(sourceIds: string[]): Promise<{
@@ -542,7 +550,7 @@ export function createSqliteFileServiceAdapter(
   bridge: SqlitePersistenceBridge,
   options: SqliteFileServiceAdapterOptions = {},
 ): SqliteFileServiceAdapter {
-  return {
+  const adapter: SqliteFileServiceAdapter = {
     readJSON: async <T>(
       fileName: string,
       metadata?: SqliteFileServiceMetadataInput,
@@ -576,12 +584,6 @@ export function createSqliteFileServiceAdapter(
       bytes: Uint8Array,
       metadata?: SqliteFileServiceMetadataInput,
     ) => bridge.writeBinary(fileName, bytes, normalizeSqlitePersistenceHostEffectMetadata(metadata)),
-    deleteFile: async (fileName: string): Promise<void> => {
-      if (!bridge.deleteFile) {
-        return;
-      }
-      await bridge.deleteFile(fileName);
-    },
     hasLegacyPetalSqliteDb: async (): Promise<boolean> => {
       if (!bridge.hasLegacyPetalSqliteDb) {
         return false;
@@ -605,6 +607,18 @@ export function createSqliteFileServiceAdapter(
       return bridge.cleanupSyncConflictDatabaseSources(sourceIds);
     },
   };
+  if (bridge.listFiles) {
+    adapter.listFiles = (prefix: string) => bridge.listFiles!(prefix);
+  }
+  if (bridge.deleteFile) {
+    adapter.deleteFile = async (fileName: string): Promise<void> => {
+      await bridge.deleteFile!(fileName);
+      if (await bridge.readBinary(fileName)) {
+        throw new Error(`SQLite persistence delete verification failed for ${fileName}`);
+      }
+    };
+  }
+  return adapter;
 }
 
 function createReadonlyConflictFileService(bytes: Uint8Array): SqliteFileServiceAdapter {
@@ -1703,10 +1717,25 @@ export class WorkerSqliteDatabaseService {
 
   private createDeferredStartupWorkDescriptors(reason: string): BackendDeferredStartupWorkDescriptor[] {
     const readiness = this.createStartupReadinessDisposition();
+    const frontier = this.createStartupMaintenanceFrontier(readiness);
+    if (readiness.status === 'read-only-storage-pressure') {
+      return [{
+        version: 1,
+        kind: 'storage-pressure-recovery',
+        owner: 'application-context',
+        phase: 'post-ready',
+        reason,
+        safeToDefer: true,
+        statusReference: {
+          kind: 'kernel-companion-background-work',
+          workKind: 'storage-pressure-recovery',
+        },
+        frontier,
+      }];
+    }
     if (readiness.status !== 'ready') {
       return [];
     }
-    const frontier = this.createStartupMaintenanceFrontier(readiness);
     const descriptors: BackendDeferredStartupWorkDescriptor[] = [{
       version: 1,
       kind: 'startup-storage-maintenance',
@@ -4323,10 +4352,28 @@ export class WorkerSqliteDatabaseService {
       await this.truthPromotionModule.runExclusivePublication(
         () => this.truthCompactionModule!.compactAll(),
       );
-      await this.runtime.compactSqliteDelta({
+      const deltaCompaction = await this.runtime.compactSqliteDelta({
         coveredJournalSequence: diagnostics.truthCoverageFrontier,
         retainSealedSegments: 16,
       });
+      if (!deltaCompaction) {
+        return {
+          ok: false,
+          error: 'sqlite delta compaction unavailable',
+        };
+      }
+      if (deltaCompaction.status === 'no-progress') {
+        return {
+          ok: false,
+          error: [
+            deltaCompaction.reason ?? 'sqlite-delta-compaction-no-progress',
+            `candidates=${deltaCompaction.candidateSegmentCount}`,
+            `candidateEntries=${deltaCompaction.candidateEntryCount}`,
+            `retainedEntries=${deltaCompaction.retainedEntryCount}`,
+            `candidateBytes=${deltaCompaction.candidateBytes}`,
+          ].join(' '),
+        };
+      }
       return { ok: true, error: null };
     } catch (error) {
       return {
@@ -6512,6 +6559,10 @@ export class WorkerSqliteDatabaseService {
     const projectionGeneration = at;
     const families = uniqueStrings(request.families);
     const familyResults: BackendStorageProjectionRebuildFamilyResult[] = [];
+    const canonicalTruth = reconstructCanonicalTruthState({
+      truthRecords: request.truthRecords,
+      uncoveredMutations: [],
+    });
 
     for (const family of families) {
       if (family === 'review-event-indexes') {
@@ -6525,6 +6576,10 @@ export class WorkerSqliteDatabaseService {
         familyResults.push(await this.rebuildCardProjection({
           request,
           projectionGeneration,
+          canonicalCards: canonicalTruth.cards,
+          canonicalDiagnostics: canonicalTruth.diagnostics.filter((diagnostic) => (
+            diagnostic.family === 'card-aggregate'
+          )),
         }));
         continue;
       }
@@ -6656,14 +6711,36 @@ export class WorkerSqliteDatabaseService {
   private async rebuildCardProjection(input: {
     request: WorkerStorageProjectionRebuildRequest;
     projectionGeneration: number;
+    canonicalCards: CardAggregateTruthState[];
+    canonicalDiagnostics: Array<{
+      reason: string;
+      aggregateId: string | null;
+    }>;
   }): Promise<BackendStorageProjectionRebuildFamilyResult> {
     const cardRecords = input.request.truthRecords
       .filter((record): record is MessagePackTruthRecord & Record<string, unknown> => (
         isCardMemoryFactTruthRecord(record) || isReviewFeedbackV2CardTruthRecord(record)
       ));
+    const rowsRead = cardRecords.length + input.canonicalCards.length;
+    if (input.canonicalDiagnostics.length > 0) {
+      return {
+        family: 'cards',
+        status: 'repair-required',
+        unavailableReason: 'validation-failed',
+        projectionGeneration: 0,
+        rowsRead,
+        rowsWritten: 0,
+        sourceReadCount: input.request.sourceReads.length,
+        missingSourceIds: [],
+        error: input.canonicalDiagnostics.map((diagnostic) => (
+          `${diagnostic.reason}:${diagnostic.aggregateId ?? 'unknown'}`
+        )).join(', '),
+      };
+    }
     const cardRows = buildCardProjectionRows({
       request: input.request,
       records: cardRecords,
+      canonicalCards: input.canonicalCards,
       projectionGeneration: input.projectionGeneration,
     });
     const rowBlockIds = new Set(cardRows.map((row) => row.blockId));
@@ -6676,7 +6753,7 @@ export class WorkerSqliteDatabaseService {
         status: 'unavailable',
         unavailableReason: 'missing-source',
         projectionGeneration: 0,
-        rowsRead: cardRecords.length,
+        rowsRead,
         rowsWritten: 0,
         sourceReadCount: input.request.sourceReads.length,
         missingSourceIds,
@@ -6686,6 +6763,13 @@ export class WorkerSqliteDatabaseService {
 
     let rowsWritten = 0;
     await this.runtime.runTransaction('storage.projection.rebuild.cards', () => {
+      for (const state of input.canonicalCards) {
+        if (!state.tombstone) {
+          continue;
+        }
+        this.runtime.run('DELETE FROM algorithm_card_state WHERE card_id = ?', [state.aggregateId]);
+        this.runtime.run('DELETE FROM cards WHERE id = ?', [state.aggregateId]);
+      }
       for (const row of cardRows) {
         const existing = this.runtime.getOne<Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>>(
           `SELECT updated_at, reps, last_review
@@ -6775,7 +6859,7 @@ export class WorkerSqliteDatabaseService {
       family: 'cards',
       status: 'ready',
       projectionGeneration: input.projectionGeneration,
-      rowsRead: cardRecords.length,
+      rowsRead,
       rowsWritten,
       sourceReadCount: input.request.sourceReads.length,
       missingSourceIds: [],
@@ -8261,6 +8345,128 @@ export class WorkerSqliteDatabaseService {
     });
   }
 
+  async cleanupSqliteDeltaOrphans(input: {
+    dryRun?: boolean;
+    maxFiles?: number;
+    maxBytes?: number;
+  } = {}) {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    const cleanup = await this.runtime.cleanupSqliteDeltaOrphans(input);
+    if (!cleanup) {
+      throw new Error('BACKEND_UNAVAILABLE: SQLite delta orphan cleanup unavailable');
+    }
+    const inventory = await this.collectStorageInventory();
+    return { cleanup, inventory };
+  }
+
+  async recoverLegacyDeltaStoragePressure(
+    input: BackendStoragePressureRecoveryRequest = {},
+  ): Promise<BackendStoragePressureRecoveryResult> {
+    await this.init();
+    this.assertFormalWritesAvailable();
+    const identity = this.requireStorageMutationIdentity();
+    if (!this.truthPromotionModule || !this.truthCompactionModule) {
+      throw new Error('BACKEND_UNAVAILABLE: legacy delta recovery requires truth promotion');
+    }
+    const beforePromotion = await this.truthPromotionModule.diagnostics();
+    const adoption = await this.runtime.adoptSqliteLegacyDelta({
+      deviceId: identity.deviceId,
+      identityEpoch: identity.identityEpoch,
+      afterJournalSequence: beforePromotion.truthCoverageFrontier,
+    });
+    if (!adoption) {
+      throw new Error('BACKEND_UNAVAILABLE: legacy delta adoption unavailable');
+    }
+    if (adoption.status === 'blocked') {
+      return {
+        ok: false,
+        phase: 'adopting',
+        adoption,
+        promotion: null,
+        deltaCompaction: null,
+        orphanCleanup: null,
+        inventory: await this.collectStorageInventory(),
+        error: 'legacy-delta-adoption-blocked',
+      };
+    }
+
+    let promotion = await this.truthPromotionModule.diagnostics();
+    const targetSequence = adoption.lastJournalSequence ?? promotion.truthCoverageFrontier;
+    let promotionBatchCount = 0;
+    while (promotion.truthCoverageFrontier < targetSequence) {
+      const result = await this.truthPromotionModule.promotePending();
+      promotionBatchCount += 1;
+      if (!result.ok) {
+        return {
+          ok: false,
+          phase: 'promoting-truth',
+          adoption,
+          promotion: {
+            ...await this.truthPromotionModule.diagnostics(),
+            batchCount: promotionBatchCount,
+          },
+          deltaCompaction: null,
+          orphanCleanup: null,
+          inventory: await this.collectStorageInventory(),
+          error: result.error ?? 'legacy-delta-truth-promotion-failed',
+        };
+      }
+      const next = await this.truthPromotionModule.diagnostics();
+      if (next.truthCoverageFrontier <= promotion.truthCoverageFrontier) {
+        return {
+          ok: false,
+          phase: 'promoting-truth',
+          adoption,
+          promotion: { ...next, batchCount: promotionBatchCount },
+          deltaCompaction: null,
+          orphanCleanup: null,
+          inventory: await this.collectStorageInventory(),
+          error: 'legacy-delta-truth-promotion-no-progress',
+        };
+      }
+      promotion = next;
+    }
+
+    const deltaCompaction = await this.runtime.compactSqliteDelta({
+      coveredJournalSequence: promotion.truthCoverageFrontier,
+      retainSealedSegments: 0,
+    });
+    if (!deltaCompaction) {
+      throw new Error('BACKEND_UNAVAILABLE: post-adoption delta compaction unavailable');
+    }
+    if (deltaCompaction.status === 'no-progress') {
+      return {
+        ok: false,
+        phase: 'compacting',
+        adoption,
+        promotion: { ...promotion, batchCount: promotionBatchCount },
+        deltaCompaction,
+        orphanCleanup: null,
+        inventory: await this.collectStorageInventory(),
+        error: deltaCompaction.reason ?? 'legacy-delta-compaction-no-progress',
+      };
+    }
+    const orphanCleanup = await this.runtime.cleanupSqliteDeltaOrphans({
+      maxFiles: input.maxCleanupFiles ?? undefined,
+      maxBytes: input.maxCleanupBytes ?? undefined,
+    });
+    if (!orphanCleanup) {
+      throw new Error('BACKEND_UNAVAILABLE: post-adoption orphan cleanup unavailable');
+    }
+    const inventory = await this.collectStorageInventory();
+    return {
+      ok: inventory.pressure.level !== 'hard' && orphanCleanup.failedFiles.length === 0,
+      phase: orphanCleanup.remainingOrphanFileCount > 0 ? 'cleaning-orphans' : 'completed',
+      adoption,
+      promotion: { ...promotion, batchCount: promotionBatchCount },
+      deltaCompaction,
+      orphanCleanup,
+      inventory,
+      error: orphanCleanup.failedFiles[0]?.reason ?? null,
+    };
+  }
+
   async getReviewTruthPublicationStore(input: {
     deviceId: string;
     identityEpoch: string;
@@ -8512,19 +8718,17 @@ function buildReviewEventProjectionRow(input: {
 function buildCardProjectionRows(input: {
   request: WorkerStorageProjectionRebuildRequest;
   records: Array<MessagePackTruthRecord & Record<string, unknown>>;
+  canonicalCards: CardAggregateTruthState[];
   projectionGeneration: number;
 }): CardProjectionRow[] {
   const states = new Map<string, {
     cardId: string;
     blockId: string;
-    sourceBlockId: string | null;
     xiuyuanId: string | null;
-    cardFaceId: string | null;
     schedulerOwner: string | null;
-    memoryHash: string | null;
     sourceHash: string | null;
     lineage: Record<string, unknown>;
-    lastRecord: MessagePackTruthRecord & Record<string, unknown>;
+    lastRecord: Record<string, unknown>;
     lastLogicalTime: number;
   }>();
   for (const record of input.records) {
@@ -8558,21 +8762,13 @@ function buildCardProjectionRows(input: {
     states.set(cardId, {
       cardId,
       blockId,
-      sourceBlockId: readRecordString(source, ['sourceBlockId']) ?? current?.sourceBlockId ?? blockId,
       xiuyuanId: readRecordString(source, ['xiuyuanId'])
         ?? readRecordString(lineage, ['xiuyuanId', 'xiuyuanID'])
         ?? current?.xiuyuanId
         ?? null,
-      cardFaceId: readRecordString(source, ['cardFaceId'])
-        ?? readRecordString(lineage, ['cardFaceId'])
-        ?? current?.cardFaceId
-        ?? null,
       schedulerOwner: readRecordString(memory, ['schedulerOwner'])
         ?? readRecordString(scheduler, ['schedulerType'])
         ?? current?.schedulerOwner
-        ?? null,
-      memoryHash: readRecordString(memory, ['memoryHash'])
-        ?? current?.memoryHash
         ?? null,
       sourceHash: readRecordString(source, ['sourceHash'])
         ?? readRecordString(lineage, ['sourceHash'])
@@ -8581,6 +8777,38 @@ function buildCardProjectionRows(input: {
       lineage: nextLineage,
       lastRecord: logicalTime >= (current?.lastLogicalTime ?? -1) ? record : current?.lastRecord ?? record,
       lastLogicalTime: Math.max(logicalTime, current?.lastLogicalTime ?? 0),
+    });
+  }
+  for (const aggregate of input.canonicalCards) {
+    if (!aggregate.card || !aggregate.schedule || aggregate.tombstone) {
+      continue;
+    }
+    const card = aggregate.card;
+    const schedule = aggregate.schedule;
+    const logicalTime = Math.max(card.updatedAt, aggregate.journalSequence);
+    states.set(aggregate.aggregateId, {
+      cardId: card.id,
+      blockId: card.blockId,
+      xiuyuanId: card.xiuyuanId,
+      schedulerOwner: schedule.schedulerType,
+      sourceHash: isRecord(card.meta)
+        ? readRecordString(card.meta, ['sourceHash'])
+        : null,
+      lineage: {
+        ...card,
+        ...schedule,
+      },
+      lastRecord: {
+        id: `card-aggregate:${aggregate.revision}`,
+        idempotencyKey: `card-aggregate:${aggregate.mutationId}:${aggregate.aggregateId}:changeset`,
+        mutationId: aggregate.mutationId,
+        aggregateId: aggregate.aggregateId,
+        revision: aggregate.revision,
+        journalSequence: aggregate.journalSequence,
+        logicalTime,
+        recordedAt: card.updatedAt,
+      },
+      lastLogicalTime: logicalTime,
     });
   }
 
@@ -8624,21 +8852,6 @@ function buildCardProjectionRows(input: {
       recordId: readRecordString(state.lastRecord, ['eventId', 'journalEntryId', 'id']),
       idempotencyKey: readRecordString(state.lastRecord, ['idempotencyKey']),
     };
-    const payload = {
-      schemaVersion: 1,
-      projectionKind: 'messagepack-card-projection',
-      cardId: state.cardId,
-      blockId: state.blockId,
-      xiuyuanId: state.xiuyuanId,
-      cardFaceId: state.cardFaceId,
-      schedulerOwner: state.schedulerOwner,
-      memoryHash: state.memoryHash,
-      sourceHash,
-      sourcePreview,
-      rootId,
-      deckId,
-      lineage: pickSkinnyLineage(state.lineage),
-    };
     rows.push({
       id: card.id,
       blockId: card.blockId,
@@ -8667,7 +8880,7 @@ function buildCardProjectionRows(input: {
       sourceExists: 1,
       sourceCheckedAt: Date.now(),
       sourceMissingAt: null,
-      payloadJson: JSON.stringify(payload),
+      payloadJson: JSON.stringify(card),
       dtoJson: null,
       msgpackRef: JSON.stringify(msgpackRef),
       truthHash: hashString(JSON.stringify(state.lastRecord)),
@@ -8774,27 +8987,6 @@ function readSourceAttrs(sourceData: Record<string, unknown>): Record<string, un
     }
   }
   return sourceData;
-}
-
-function pickSkinnyLineage(lineage: Record<string, unknown>): Record<string, unknown> {
-  const keys = [
-    'type',
-    'state',
-    'due',
-    'priority',
-    'createdAt',
-    'updatedAt',
-    'schedulerType',
-    'cardTypeMarker',
-    'faceKey',
-  ];
-  const result: Record<string, unknown> = {};
-  for (const key of keys) {
-    if (lineage[key] !== undefined) {
-      result[key] = lineage[key];
-    }
-  }
-  return result;
 }
 
 function normalizeCardType(value: string | null, fallback: CardType): CardType {

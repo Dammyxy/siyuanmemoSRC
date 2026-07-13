@@ -17,6 +17,7 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 import type {
   BackendWorkerHostEffect,
+  BackendWorkerSqliteFileEntry,
   BackendWorkerHostEffectBreakdownEntry,
   BackendWorkerInnerStepTiming,
   BackendWorkerMainToWorkerMessage,
@@ -33,6 +34,7 @@ type BackendOperationTimeoutClassification =
   | 'status-read'
   | 'startup-readiness'
   | 'maintenance-mutation'
+  | 'storage-pressure-recovery'
   | 'projection-rebuild'
   | 'generic-request'
   | 'generic-host-effect';
@@ -47,6 +49,7 @@ const BACKEND_OPERATION_TIMEOUT_POLICY_BY_METHOD = new Map<string, BackendOperat
   ['db.load', { timeoutMs: 60_000, classification: 'startup-readiness' }],
   ['db.reload', { timeoutMs: 60_000, classification: 'startup-readiness' }],
   ['storage.maintenance.applyBatch', { timeoutMs: 45_000, classification: 'maintenance-mutation' }],
+  ['storage.pressure.recover', { timeoutMs: 120_000, classification: 'storage-pressure-recovery' }],
   ['storage.projection.rebuild', { timeoutMs: 120_000, classification: 'projection-rebuild' }],
 ]);
 const REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT = 5;
@@ -60,6 +63,7 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'review.session.feedback',
   'storage.maintenance.applyBatch',
   'storage.maintenance.status',
+  'storage.pressure.recover',
   'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
@@ -71,6 +75,8 @@ export interface BrowserSrsBackendWorkerHostEffects {
   writeBinary?: (path: string, bytes: Uint8Array) => Promise<void>;
   readJSON?: <T>(path: string) => Promise<T | null>;
   writeJSON?: (path: string, value: unknown) => Promise<void>;
+  listFiles?: (prefix: string) => Promise<BackendWorkerSqliteFileEntry[]>;
+  deleteFile?: (path: string) => Promise<void>;
   hasLegacyPetalSqliteDb?: () => Promise<boolean>;
   readTruthBinary?: (path: string) => Promise<Uint8Array | null>;
   writeTruthBinary?: (path: string, bytes: Uint8Array) => Promise<void>;
@@ -552,6 +558,17 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('sqlite.writeJSON host effect unavailable');
         }
         await this.options.hostEffects.writeJSON(effect.path, effect.value);
+        return null;
+      case 'sqlite.listFiles':
+        if (!this.options.hostEffects.listFiles) {
+          throw unavailable('sqlite.listFiles host effect unavailable');
+        }
+        return this.options.hostEffects.listFiles(effect.prefix);
+      case 'sqlite.deleteFile':
+        if (!this.options.hostEffects.deleteFile) {
+          throw unavailable('sqlite.deleteFile host effect unavailable');
+        }
+        await this.options.hostEffects.deleteFile(effect.path);
         return null;
       case 'sqlite.hasLegacyPetalSqliteDb':
         if (!this.options.hostEffects.hasLegacyPetalSqliteDb) {

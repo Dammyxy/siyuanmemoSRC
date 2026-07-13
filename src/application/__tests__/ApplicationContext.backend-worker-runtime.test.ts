@@ -9,6 +9,14 @@ import {
 import { SqliteDatabaseService } from '@/infrastructure/persistence/sqlite/SqliteDatabaseService';
 import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import type { IFileService } from '@/infrastructure/services/FileService';
+import type {
+  KernelCompanionBackgroundWorkSubmitRequest,
+  KernelCompanionStoragePressureRecoveryDiagnostics,
+} from '@/application/backgroundWork/KernelCompanionBackgroundWorkRegistry';
+import type {
+  BackendDeferredStartupWorkDescriptor,
+  BackendStoragePressureRecoveryResult,
+} from '../../../packages/contracts/src/backend-rpc';
 
 function readApplicationContextSource(): string {
   return readFileSync(resolve(process.cwd(), 'src/application/ApplicationContext.ts'), 'utf8');
@@ -31,6 +39,75 @@ function createRuntimeAccessFixture() {
     progressiveRuntimeAccess: new ProgressiveRuntimeAccess(),
     integrationRuntimeAccess: new IntegrationRuntimeAccess(),
     bootstrapCallbackPorts: [],
+  };
+}
+
+function createStoragePressureRecoveryDescriptor(
+  overrides: Partial<BackendDeferredStartupWorkDescriptor> = {},
+): BackendDeferredStartupWorkDescriptor {
+  return {
+    version: 1,
+    kind: 'storage-pressure-recovery',
+    owner: 'application-context',
+    phase: 'post-ready',
+    reason: 'db.load',
+    safeToDefer: true,
+    statusReference: {
+      kind: 'kernel-companion-background-work',
+      workKind: 'storage-pressure-recovery',
+    },
+    frontier: {
+      pluginInstallationId: 'plugin-A',
+      identityEpoch: 'epoch-A',
+      inputVersion: 'startup-maintenance-input-v1',
+      frontierHash: 'frontier-A',
+      recoveryStatus: 'ready',
+      journalSequenceFrontier: 17,
+      truthCoverageFrontier: 0,
+      externalInputDirtyGeneration: 0,
+      pendingExternalMerge: false,
+    },
+    ...overrides,
+  };
+}
+
+function createStoragePressureRecoveryResult(
+  overrides: Partial<BackendStoragePressureRecoveryResult> = {},
+): BackendStoragePressureRecoveryResult {
+  return {
+    ok: true,
+    phase: 'completed',
+    adoption: { status: 'noop', adoptedEntryCount: 0, unsupportedEntries: [] },
+    promotion: { batchCount: 0, truthCoverageFrontier: 17 },
+    deltaCompaction: {
+      status: 'compacted',
+      candidateEntryCount: 0,
+      reclaimableEntryCount: 0,
+      retainedEntryCount: 0,
+    },
+    orphanCleanup: {
+      status: 'completed',
+      deletedFiles: [],
+      failedFiles: [],
+      remainingOrphanFileCount: 0,
+      remainingOrphanBytes: 0,
+    },
+    inventory: {
+      version: 1,
+      measuredAt: 100,
+      metrics: [],
+      pressure: {
+        version: 1,
+        measuredAt: 100,
+        level: 'normal',
+        metrics: [],
+        blockingMutationGrowth: false,
+        code: null,
+        reason: null,
+      },
+    },
+    error: null,
+    ...overrides,
   };
 }
 
@@ -221,7 +298,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(migrationGateSource).toContain('skipped startup storage migrations because backend readiness is read-only');
   });
 
-  it('keeps read-only recovery out of normal startup maintenance descriptors', () => {
+  it('routes hard storage-pressure readiness to a post-ready recovery descriptor', () => {
     const workerSource = readFileSync(
       resolve(process.cwd(), 'worker/db/SqliteDatabaseService.ts'),
       'utf8',
@@ -235,14 +312,19 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       readApplicationContextSource().indexOf('\n  async reloadBackendDatabaseAfterReady('),
     );
 
+    expect(descriptorSource).toContain("if (readiness.status === 'read-only-storage-pressure')");
+    expect(descriptorSource).toContain("kind: 'storage-pressure-recovery'");
+    expect(descriptorSource).toContain("workKind: 'storage-pressure-recovery'");
     expect(descriptorSource).toContain('if (readiness.status !== \'ready\')');
     expect(descriptorSource).toContain('return [];');
     expect(descriptorSource).toContain("kind: 'startup-storage-maintenance'");
     expect(coordinatorSource).toContain('const hasStartupMaintenance = hasStartupStorageMaintenanceDescriptor(deferredDescriptors);');
     expect(coordinatorSource).toContain('const hasTruthPromotion = hasTruthPromotionDescriptor(deferredDescriptors);');
-    expect(coordinatorSource).toContain('if (!hasStartupMaintenance && !hasTruthPromotion)');
+    expect(coordinatorSource).toContain('const hasStoragePressureRecovery = hasStoragePressureRecoveryDescriptor(deferredDescriptors);');
+    expect(coordinatorSource).toContain('if (!hasStartupMaintenance && !hasTruthPromotion && !hasStoragePressureRecovery)');
+    expect(coordinatorSource).toContain('this.submitPostReadyStoragePressureRecovery(reason, deferredDescriptors, registry)');
     expect(coordinatorSource).toContain('if (!hasStartupMaintenance)');
-    expect(coordinatorSource).toContain('return null;');
+    expect(coordinatorSource).toContain('return storagePressureRecoveryJobId ?? truthPromotionJobId;');
   });
 
   it('keeps startup transaction websocket instrumentation bound to diagnostics imports', () => {
@@ -557,6 +639,328 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(scheduleTruthPromotionTracking).toHaveBeenCalledWith('plugin.onload-ready');
     expect(submit).not.toHaveBeenCalled();
     expect(runMaintenance).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates storage-pressure recovery and yields bounded cleanup before writable restoration', async () => {
+    const submitted: Array<KernelCompanionBackgroundWorkSubmitRequest<KernelCompanionStoragePressureRecoveryDiagnostics>> = [];
+    const submit = vi.fn((
+      request: KernelCompanionBackgroundWorkSubmitRequest<KernelCompanionStoragePressureRecoveryDiagnostics>,
+    ) => {
+      submitted.push(request);
+      return {
+        accepted: true,
+        coalesced: false,
+        skipped: false,
+        job: {
+          jobId: 'storage-pressure-recovery-1',
+          kind: request.kind,
+          dedupeKey: request.dedupeKey ?? null,
+          state: 'accepted' as const,
+          reason: null,
+          submittedAt: 1,
+          updatedAt: 1,
+          startedAt: null,
+          completedAt: null,
+          attemptCount: 0,
+          coalescedSubmissionCount: 0,
+          skippedSubmissionCount: 0,
+          diagnostics: request.diagnostics ?? {},
+          lastError: null,
+        },
+      };
+    });
+    const recover = vi.fn()
+      .mockResolvedValueOnce(createStoragePressureRecoveryResult({
+        phase: 'cleaning-orphans',
+        orphanCleanup: {
+          status: 'partial',
+          deletedFiles: [{ path: 'sqlite-delta/v2/orphan-1.msgpack' }],
+          failedFiles: [],
+          remainingOrphanFileCount: 2,
+          remainingOrphanBytes: 2048,
+        },
+      }))
+      .mockResolvedValueOnce(createStoragePressureRecoveryResult({
+        phase: 'cleaning-orphans',
+        orphanCleanup: {
+          status: 'partial',
+          deletedFiles: [{ path: 'sqlite-delta/v2/orphan-2.msgpack' }],
+          failedFiles: [],
+          remainingOrphanFileCount: 1,
+          remainingOrphanBytes: 1024,
+        },
+      }))
+      .mockResolvedValueOnce(createStoragePressureRecoveryResult({
+        phase: 'completed',
+        inventory: {
+          version: 1,
+          measuredAt: 200,
+          metrics: [],
+          pressure: {
+            version: 1,
+            measuredAt: 200,
+            level: 'normal',
+            metrics: [],
+            blockingMutationGrowth: false,
+            code: null,
+            reason: null,
+          },
+        },
+      }));
+    const srsBackendClient = {
+      getBackgroundWorkRegistry: () => ({ submit }),
+      scheduleTruthPromotionTracking: vi.fn(),
+    };
+    const frontendInstanceRuntime = {
+      getInstanceId: () => 'runtime-A',
+    };
+    const runtimePolicy = {
+      flags: {
+        backendWorker: true,
+        writerLeaseGuard: true,
+        autoCardDecisionRelay: true,
+        kernelTransactionIngest: true,
+        privateApi: true,
+        aiBackendRuntime: true,
+      },
+      capabilities: {
+        backendWorkerAvailable: true,
+        writerRelayRuntimeEnabled: true,
+        writerRelayRequiredForBackendWrites: true,
+        reviewFeedbackWriteEnabled: true,
+        autoCardExecuteWriteEnabled: true,
+        autoCardDecisionBackendEnabled: true,
+        kernelTransactionIngestEnabled: true,
+        privateApiReadEnabled: true,
+        privateApiMutationEnabled: true,
+        aiBackendSessionEnabled: true,
+      },
+      behavior: {},
+    };
+    const TestableApplicationContext = ApplicationContext as unknown as new (
+      config: unknown,
+      services: unknown,
+    ) => ApplicationContext;
+    const context = new TestableApplicationContext({
+      plugin: { name: 'test-plugin', app: {} },
+      i18n: {},
+    }, {
+      storageManager: {},
+      unifiedStorageManager: { save: vi.fn() },
+      schedulerRouter: {},
+      rescheduleService: {},
+      unifiedDataSourceManager: {},
+      blockMenuHandler: {},
+      ...createRuntimeAccessFixture(),
+      srsBackendClient,
+      frontendInstanceRuntime,
+      backendMigrationRuntimePolicy: runtimePolicy,
+    });
+    (context as unknown as {
+      postReadyStoragePressureRecovery: typeof recover;
+    }).postReadyStoragePressureRecovery = recover;
+    const descriptor = createStoragePressureRecoveryDescriptor();
+
+    const firstJobId = context.startPostReadyStartupMaintenance('plugin.onload-ready', [descriptor]);
+    const secondJobId = context.startPostReadyStartupMaintenance('post-ready-reload', [descriptor]);
+    const result = await submitted[0]!.run({
+      jobId: firstJobId!,
+      kind: 'storage-pressure-recovery',
+      isCanceled: () => false,
+    });
+
+    expect(firstJobId).toBe('storage-pressure-recovery-1');
+    expect(secondJobId).toBe(firstJobId);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submitted[0]).toMatchObject({
+      kind: 'storage-pressure-recovery',
+      dedupeKey: 'storage-pressure-recovery-lifecycle-v1:storage-pressure-recovery:application-context:post-ready:runtime-A:plugin-A:epoch-A:startup-maintenance-input-v1:frontier-A:0:external-merge-clean:ready',
+      diagnostics: {
+        reason: 'plugin.onload-ready',
+        phase: 'planning',
+        descriptorReason: 'db.load',
+        deferredDescriptorCount: 1,
+        lifecycleDedupeKeyAvailable: true,
+      },
+    });
+    expect(result).toMatchObject({
+      state: 'completed',
+      diagnostics: {
+        reason: 'plugin.onload-ready',
+        phase: 'completed',
+        batchIndex: 3,
+        maxBatches: 16,
+        remainingOrphanFileCount: 0,
+        pressureLevel: 'normal',
+      },
+    });
+    expect(recover).toHaveBeenCalledTimes(3);
+    expect(recover).toHaveBeenCalledWith({
+      maxCleanupFiles: 64,
+      maxCleanupBytes: 16 * 1024 * 1024,
+    });
+  });
+
+  it('classifies storage-pressure recovery batch caps as deferred and deterministic errors as failed', async () => {
+    const createContextWithRecovery = (
+      recover: () => Promise<BackendStoragePressureRecoveryResult>,
+    ): {
+      context: ApplicationContext;
+      submitted: Array<KernelCompanionBackgroundWorkSubmitRequest<KernelCompanionStoragePressureRecoveryDiagnostics>>;
+    } => {
+      const submitted: Array<KernelCompanionBackgroundWorkSubmitRequest<KernelCompanionStoragePressureRecoveryDiagnostics>> = [];
+      const submit = vi.fn((
+        request: KernelCompanionBackgroundWorkSubmitRequest<KernelCompanionStoragePressureRecoveryDiagnostics>,
+      ) => {
+        submitted.push(request);
+        return {
+          accepted: true,
+          coalesced: false,
+          skipped: false,
+          job: {
+            jobId: `storage-pressure-recovery-${submitted.length}`,
+            kind: request.kind,
+            dedupeKey: request.dedupeKey ?? null,
+            state: 'accepted' as const,
+            reason: null,
+            submittedAt: 1,
+            updatedAt: 1,
+            startedAt: null,
+            completedAt: null,
+            attemptCount: 0,
+            coalescedSubmissionCount: 0,
+            skippedSubmissionCount: 0,
+            diagnostics: request.diagnostics ?? {},
+            lastError: null,
+          },
+        };
+      });
+      const srsBackendClient = {
+        getBackgroundWorkRegistry: () => ({ submit }),
+        scheduleTruthPromotionTracking: vi.fn(),
+      };
+      const runtimePolicy = {
+        flags: {
+          backendWorker: true,
+          writerLeaseGuard: true,
+          autoCardDecisionRelay: true,
+          kernelTransactionIngest: true,
+          privateApi: true,
+          aiBackendRuntime: true,
+        },
+        capabilities: {
+          backendWorkerAvailable: true,
+          writerRelayRuntimeEnabled: true,
+          writerRelayRequiredForBackendWrites: true,
+          reviewFeedbackWriteEnabled: true,
+          autoCardExecuteWriteEnabled: true,
+          autoCardDecisionBackendEnabled: true,
+          kernelTransactionIngestEnabled: true,
+          privateApiReadEnabled: true,
+          privateApiMutationEnabled: true,
+          aiBackendSessionEnabled: true,
+        },
+        behavior: {},
+      };
+      const TestableApplicationContext = ApplicationContext as unknown as new (
+        config: unknown,
+        services: unknown,
+      ) => ApplicationContext;
+      const context = new TestableApplicationContext({
+        plugin: { name: 'test-plugin', app: {} },
+        i18n: {},
+      }, {
+        storageManager: {},
+        unifiedStorageManager: { save: vi.fn() },
+        schedulerRouter: {},
+        rescheduleService: {},
+        unifiedDataSourceManager: {},
+        blockMenuHandler: {},
+        ...createRuntimeAccessFixture(),
+        srsBackendClient,
+        backendMigrationRuntimePolicy: runtimePolicy,
+      });
+      (context as unknown as {
+        postReadyStoragePressureRecovery: typeof recover;
+      }).postReadyStoragePressureRecovery = recover;
+      return { context, submitted };
+    };
+    const cleaning = vi.fn(async () => createStoragePressureRecoveryResult({
+      phase: 'cleaning-orphans',
+      orphanCleanup: {
+        status: 'partial',
+        deletedFiles: [],
+        failedFiles: [],
+        remainingOrphanFileCount: 99,
+        remainingOrphanBytes: 99_000,
+      },
+    }));
+    const deferredContext = createContextWithRecovery(cleaning);
+    const deferredJobId = deferredContext.context.startPostReadyStartupMaintenance(
+      'plugin.onload-ready',
+      [createStoragePressureRecoveryDescriptor()],
+    );
+    const deferred = await deferredContext.submitted[0]!.run({
+      jobId: deferredJobId!,
+      kind: 'storage-pressure-recovery',
+      isCanceled: () => false,
+    });
+
+    expect(deferred).toMatchObject({
+      state: 'deferred',
+      reason: 'storage-pressure-recovery-batch-cap',
+      diagnostics: {
+        phase: 'cleaning-orphans',
+        batchIndex: 16,
+        maxBatches: 16,
+        remainingOrphanFileCount: 99,
+      },
+    });
+    expect(cleaning).toHaveBeenCalledTimes(16);
+
+    const failedRecovery = vi.fn(async () => createStoragePressureRecoveryResult({
+      ok: false,
+      phase: 'adopting',
+      adoption: { status: 'blocked', unsupportedEntries: [{ entryId: 'legacy-1' }] },
+      error: 'legacy-delta-adoption-blocked',
+      inventory: {
+        version: 1,
+        measuredAt: 300,
+        metrics: [],
+        pressure: {
+          version: 1,
+          measuredAt: 300,
+          level: 'hard',
+          metrics: [],
+          blockingMutationGrowth: true,
+          code: 'STORAGE_PRESSURE',
+          reason: 'unsupported-evidence',
+        },
+      },
+    }));
+    const failedContext = createContextWithRecovery(failedRecovery);
+    const failedJobId = failedContext.context.startPostReadyStartupMaintenance(
+      'plugin.onload-ready',
+      [createStoragePressureRecoveryDescriptor()],
+    );
+    const failed = await failedContext.submitted[0]!.run({
+      jobId: failedJobId!,
+      kind: 'storage-pressure-recovery',
+      isCanceled: () => false,
+    });
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      reason: 'legacy-delta-adoption-blocked',
+      error: 'legacy-delta-adoption-blocked',
+      diagnostics: {
+        phase: 'failed',
+        errorCode: 'legacy-delta-adoption-blocked',
+        unsupportedEntryCount: 1,
+        pressureLevel: 'hard',
+      },
+    });
+    expect(failedRecovery).toHaveBeenCalledTimes(1);
   });
 
   it('defines startup lifecycle dedupe key without persisting ephemeral runtime id into receipts', () => {

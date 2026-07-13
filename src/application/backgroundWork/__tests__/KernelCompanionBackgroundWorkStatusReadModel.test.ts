@@ -135,6 +135,62 @@ describe('KernelCompanionBackgroundWorkStatusReadModel', () => {
     });
   });
 
+  it('reports storage pressure recovery progress while redacting content-bearing diagnostics', async () => {
+    const scheduled: Array<() => void> = [];
+    const registry = new KernelCompanionBackgroundWorkRegistry({
+      schedule: (run) => scheduled.push(run),
+    });
+    const status = new KernelCompanionBackgroundWorkStatusReadModel(registry);
+
+    const job = registry.submit({
+      kind: 'storage-pressure-recovery',
+      diagnostics: {
+        reason: 'plugin.onload-ready',
+        phase: 'cleaning-orphans',
+        descriptorReason: 'db.load',
+        batchIndex: 2,
+        maxBatches: 16,
+        remainingOrphanFileCount: 3,
+        remainingOrphanBytes: 4096,
+        pressureLevel: 'hard',
+        sqlPayload: 'private sql rows',
+        deletedPaths: ['sqlite-delta/v2/private.msgpack'],
+      },
+      run: async () => ({
+        diagnostics: {
+          phase: 'completed',
+          deletedFileCount: 3,
+          remainingOrphanFileCount: 0,
+          pressureLevel: 'normal',
+          requestBody: { row: 'private' },
+        },
+      }),
+    });
+
+    scheduled[0]?.();
+    await settleBackgroundWork();
+
+    expect(status.get(job.job.jobId)).toMatchObject({
+      kind: 'storage-pressure-recovery',
+      state: 'completed',
+      reason: 'plugin.onload-ready',
+      diagnostics: {
+        reason: 'plugin.onload-ready',
+        phase: 'completed',
+        descriptorReason: 'db.load',
+        batchIndex: 2,
+        maxBatches: 16,
+        deletedFileCount: 3,
+        remainingOrphanFileCount: 0,
+        remainingOrphanBytes: 4096,
+        pressureLevel: 'normal',
+        sqlPayload: '[redacted]',
+        deletedPaths: '[redacted]',
+        requestBody: '[redacted]',
+      },
+    });
+  });
+
   it('reports dedupe and coalescing evidence without exposing raw lifecycle keys', async () => {
     const scheduled: Array<() => void> = [];
     const registry = new KernelCompanionBackgroundWorkRegistry({

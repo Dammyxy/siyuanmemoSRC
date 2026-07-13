@@ -141,6 +141,36 @@ export class QueueBrowserQueryKernel {
     };
   }
 
+  async countVisibleProjectionRows(
+    query: QueueBrowserSnapshotQuery,
+    rows: QueueSnapshotRow[],
+  ): Promise<number> {
+    const markedRows = await this.markSnapshotMissingRows(rows);
+    return applyQueueFiltersToSnapshotRows(
+      markedRows,
+      {
+        docId: query.docId,
+        scopeDocIds: query.scopeDocIds,
+        preset: query.preset,
+        queryText: query.searchText,
+        cardType: query.cardType,
+      },
+      this.resolveQuerySecondaryField(query.queueId),
+    ).length;
+  }
+
+  async countVisibleRecoveryCards(
+    query: QueueBrowserSnapshotQuery,
+    cards: FSRSCard[],
+  ): Promise<number> {
+    const rows = cards.map((card, index) => mapQueueFsrsCardToBrowserCard(card, {
+      firstReviewMode: isRetrievalBrowserQueue(query.queueId) ? 'created-or-last' : 'last-review',
+      queueIndex: index + 1,
+    }));
+    const markedRows = await this.markMissingRows(rows);
+    return this.applyQueueBrowserFilters(markedRows, query).length;
+  }
+
   async getQueueRowsByIds(queueId: BrowserQueueId, ids: string[]) {
     const orderedIds = ids
       .map((id) => String(id || '').trim())

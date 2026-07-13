@@ -6,7 +6,6 @@ import {
   type BackendNeuralGraphQueryRequest,
   type BackendNeuralGraphQueryResult,
   type BackendDiagnosticsStatusResult,
-  type BackendDomainSyncStatusRequest,
   type BackendPreRequestMergeDiagnostic,
   type BackendPreRequestMergeDiagnosticsState,
   type BackendProgressiveCommandExecuteRequest,
@@ -84,6 +83,9 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'db.load',
   'db.reload',
   'diagnostics.status',
+  'domainSync.status',
+  'domainSync.repair.preview',
+  'domainSync.conflictSources.cleanupCandidates',
   'sync.reviewDivergence.audit',
   'truth.reconciliation.run',
   'sync.conflict.summarize',
@@ -91,6 +93,7 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'review.truth.flush',
   'review.truth.backfill',
   'storage.maintenance.status',
+  'storage.pressure.recover',
   'storage.projection.rebuild',
   'queue.state.loadAll',
   'queue.projection.replace',
@@ -135,10 +138,6 @@ const PREFLIGHT_MAIN_DB_SKIP_METHODS = new Set<string>([
   'browser.sourceExistence.update',
   'browser.sourceExistence.applySweep',
   'browser.sourceExistence.applySweepHost',
-]);
-
-const PREFLIGHT_MAIN_DB_REFRESH_READ_ONLY_METHODS = new Set<string>([
-  'domainSync.status',
 ]);
 
 export class BackendKernel {
@@ -239,7 +238,7 @@ export class BackendKernel {
           reviewFeedbackCardId = isReviewFeedbackTimingMethod(method)
             ? this.extractReviewFeedbackCardId(params)
             : null;
-          await this.runPreRequestLifecycle(method, params, reviewFeedbackCardId);
+          await this.runPreRequestLifecycle(method, reviewFeedbackCardId);
         },
         mapError: mapBackendRpcDispatchError,
       },
@@ -305,22 +304,13 @@ export class BackendKernel {
 
   private async runPreRequestLifecycle(
     method: BackendRpcMethod,
-    params: unknown,
     reviewFeedbackCardId: string | null,
   ): Promise<void> {
     const isReviewFeedback = isReviewFeedbackTimingMethod(method);
-    const isReviewDomainSyncStatusPreflight = this.isDomainSyncStatusPreflight(
-      method,
-      params,
-      'review-feedback-preflight',
-    );
-    const requiresStorageRefresh =
-      !isReviewDomainSyncStatusPreflight
-      && !STORAGE_REFRESH_EXEMPT_METHODS.has(method);
+    const requiresStorageRefresh = !STORAGE_REFRESH_EXEMPT_METHODS.has(method);
     const isReviewFeedbackFastSkipReadOnlyMethod =
       REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS.has(method);
     const shouldSkipPreflightMainDbRead = PREFLIGHT_MAIN_DB_SKIP_METHODS.has(method);
-    const shouldRefreshMainDbReadOnly = PREFLIGHT_MAIN_DB_REFRESH_READ_ONLY_METHODS.has(method);
     if (
       !isReviewFeedback
       && !isReviewFeedbackFastSkipReadOnlyMethod
@@ -350,10 +340,8 @@ export class BackendKernel {
     const mergeStartedAt = Date.now();
     const merge = await this.deps.database.mergeExternalDatabaseIfChanged(
       undefined,
-      shouldRefreshMainDbReadOnly
-          ? { context: 'read-only-preflight' }
-        : shouldSkipPreflightMainDbRead
-          ? { context: 'read-only-preflight', skipMainDbRead: true }
+      shouldSkipPreflightMainDbRead
+        ? { context: 'read-only-preflight', skipMainDbRead: true }
         : {},
     );
     if (!isReviewFeedback && DIAGNOSTIC_TIMING_METHODS.has(method)) {
@@ -443,21 +431,6 @@ export class BackendKernel {
 
   private firstParam(params: unknown): unknown {
     return Array.isArray(params) ? params[0] : params;
-  }
-
-  private isDomainSyncStatusPreflight(
-    method: BackendRpcMethod,
-    params: unknown,
-    context: BackendDomainSyncStatusRequest['context'],
-  ): boolean {
-    if (method !== 'domainSync.status') {
-      return false;
-    }
-    const param = this.firstParam(params);
-    if (!param || typeof param !== 'object') {
-      return false;
-    }
-    return (param as BackendDomainSyncStatusRequest).context === context;
   }
 
   private recordPreRequestMergeDiagnostic(

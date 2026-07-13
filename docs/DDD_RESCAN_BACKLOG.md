@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-07-12 (Round 734)
+Last update: 2026-07-13 (Round 738)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-07-13 - Bounded SQLite delta evidence reads during db.load
+
+- Task: Fix live plugin startup abort where `db.load` timed out after 60 seconds and left the backend Worker unavailable on a store whose delta manifest referenced about 221 sealed segments.
+- Touched slice: Worker `db.load` startup, SQLite Delta Sync Adapter replay, public Worker/database regression coverage, architecture contract, and startup hardening handoff.
+- Debt fixed now: A public `WorkerSqliteDatabaseService.load()` regression reproduced three physical reads per immutable sealed segment: startup evidence validation, replay, and the replay-following pending check. Replay now reuses segment evidence already verified against the current manifest identity, and `SqliteDatabaseService.init()` consumes replay's returned pending count instead of scanning the manifest segments a third time. The fixture's 12 sealed segments dropped from 36 physical reads to 12 without increasing the 60-second timeout or weakening checksum/manifest fail-closed behavior.
+- Debt deferred: The running SiYuan process still needs a clean plugin reload to prove the real 221-segment store completes `db.load` within budget. Unreferenced/orphan delta files on disk and longer-term coverage compaction are separate storage-maintenance work; this fix does not delete or reinterpret them.
+- Why deferred: Unit/integration evidence proves the repeated-read multiplier and the built bundle is deployed, but only the live host-effect bridge and real filesystem can provide authoritative startup timing.
+- Next safe step: Fully reload SiYuan, confirm `db.load` returns ready rather than timing out at 60 seconds, record the Worker/startup duration, then rate one card and confirm Review feedback is no longer blocked.
+- Validation: Red/green public Worker test first observed 36 reads for 12 manifest-referenced sealed segments and now observes 12. Related SQLite/Worker suites passed 4 files / 117 tests. `pnpm run check:boundaries`, `pnpm build`, dist hygiene, and the built-bundle CJS Worker smoke passed. The deployed and source `index.js` SHA-256 hashes both equal `E31ACA16F09862B950560AD3E6808347FBE1D0D053AE65A9EE1789FE129F4376`.
+
+### 2026-07-13 - Recovery-safe domain sync diagnostics and identity verification
+
+- Task: Fix live Review feedback and manual sync dialog failures where `domainSync.status`, repair preview, and cleanup-candidate reads hit `STORAGE_RECOVERY_REQUIRED: Truth Device Identity source is not verified for startup truth mutation: temp-local`, while a successfully migrated identity remained read-only until another restart.
+- Touched slice: Worker BackendKernel pre-request lifecycle, backend domain-sync RPC adapter, truth device identity migration verification, domain-sync/identity regressions, architecture contract, and startup hardening progress handoff.
+- Debt fixed now: Domain-sync status, repair preview, and conflict-source cleanup candidates are strict read-only RPCs and no longer trigger external storage merge/import/cleanup before returning diagnostics. Review feedback preflight reads the existing safety snapshot. Temp/local/generated identity migration now writes and then re-reads matching IndexedDB plus localStorage authority copies in the same resolver call; verified copies return `authority-copies`, while missing or mismatched readback remains fail-closed. Existing Review safety still allows reps-only and other-card repairable drift, while current-card newer-history conflict remains protected.
+- Debt deferred: Live SiYuan confirmation remains required after reloading the deployed build. A true current-card newer-history conflict still intentionally requires repair; this change removes false mutation/recovery blockers rather than disabling durable Review safety.
+- Why deferred: Focused tests reproduce and close the exact Worker RPC error, but only the user's running workspace can prove startup now reports verified identity and rating commits succeed against the real store.
+- Next safe step: Restart or reload SiYuan, rate a card in the same queue, and confirm no `ManualSyncConflictResolutionDialog` cleanup/preview `STORAGE_RECOVERY_REQUIRED`, no `ReviewSessionController` feedback failure, and startup identity diagnostics report `authority-copies` instead of `temp-local` recovery.
+- Validation: Red/green Worker tests first reproduced the exact recovery error, then the focused domain-sync/identity/UI suite passed 5 files / 66 tests; targeted adapter contract tests passed 4 selected tests; related kernel-adjacent suites passed 4 files / 99 tests. `pnpm run check:boundaries`, `pnpm build`, built-bundle CJS smoke, strict OpenSpec validation, and dist hygiene passed. The prescribed root `__tests__/kernel-writer-lease.test.ts` remains independently blocked because this worktree has no root `kernel.js` fixture; the build emits `dist/kernel.js` and the installed plugin copy successfully.
+
+### 2026-07-13 - Browser/Review visible queue membership alignment
+
+- Task: Align SRS Browser initial badges, clicked queue totals, and Review counters after the user confirmed incremental-learning 48 and filter-group 193 are correct, while startup 213/358 and Review 213 are overcounts.
+- Touched slice: Browser queue visible-row filtering/count read model, SRS Browser grid-to-badge update, read-only recovery Review card loading/counters, focused Browser/Review regressions, and startup hardening progress handoff HTML.
+- Debt fixed now: The 213 -> 48 and 358 -> 193 deltas both equal 165 because the initial badge and Review recovery paths counted the same deleted-source cards that `QueueBrowserQueryKernel` marks missing and excludes from the Browser queue view. `ProjectionBrowserQueueCountReadModel` now delegates projection and recovery-card visibility counting to the Browser queue kernel's source-existence/default-filter rules without instantiating normal projection queues; `SRSBrowser.onTotalCountLoaded()` retains the unfiltered-root queue writeback so a loaded grid immediately corrects its badge; `UnifiedQueueStrategy` validates recovery card block IDs through the existing SiYuan content read before loading the Review cursor. Read-only recovery remains recovery, and mutation remains fail-closed.
+- Debt deferred: Live SiYuan confirmation remains required for the rebuilt plugin, including proof that no new startup abort, uncaught error, or related relay failure appears. No fallback, degrade, compatibility, or alternate mutation path was added.
+- Why deferred: Focused tests prove the exact count divergence and active source-existence path, but only the user's running store can confirm the real initial/clicked badges and Review counters all converge after a clean restart.
+- Next safe step: Restart SiYuan with the rebuilt plugin in `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`; confirm the initial and clicked incremental-learning count stays 48, the initial and clicked filter-group count stays 193, and incremental-learning Review opens with 48. Keep OpenSpec 12.1-12.5 unchecked until the broader live evidence is complete.
+- Validation: Red tests first received unchanged Browser badges 213/358, an initial projection count of 2 instead of 1 after one source disappeared, and a Review recovery counter of 2 instead of 1. The expanded focused run passed 7 files / 141 tests. `pnpm build` plus dist hygiene, `pnpm run check:boundaries` including hidden-fallback checks, `node scripts/smoke-cjs-inline-worker-bootstrap.cjs`, and `openspec validate harden-startup-readiness-and-background-maintenance --strict` passed. Built and deployed `index.js` SHA-256 hashes both equal `C2EB3AD09D139E63721E888C10E29215EEB2D1DFCCD104666A20E6CC0DFC47DC`.
 
 ### 2026-07-12 - Recovery Review queue windows
 

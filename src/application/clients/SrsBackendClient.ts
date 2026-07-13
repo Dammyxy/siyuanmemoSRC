@@ -48,6 +48,8 @@ import type {
   BackendStorageProjectionRebuildResult,
   BackendStorageMaintenanceApplyBatchRequest,
   BackendStorageMaintenanceApplyBatchResult,
+  BackendStoragePressureRecoveryRequest,
+  BackendStoragePressureRecoveryResult,
   BackendStorageMaintenanceStatusRequest,
   BackendStorageMaintenanceStatusResult,
   BackendReviewFeedbackRequest,
@@ -283,6 +285,12 @@ export class SrsBackendClient {
     request: BackendStorageMaintenanceApplyBatchRequest,
   ): Promise<BackendStorageMaintenanceApplyBatchResult> {
     return this.coreClient.applyStorageMaintenanceBatch(request);
+  }
+
+  async storagePressureRecover(
+    request: BackendStoragePressureRecoveryRequest = {},
+  ): Promise<BackendStoragePressureRecoveryResult> {
+    return this.coreClient.storagePressureRecover(request);
   }
 
   private createDbLoadRequest(): BackendDbLoadRequest | undefined {

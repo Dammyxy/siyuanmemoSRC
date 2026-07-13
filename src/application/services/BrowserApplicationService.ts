@@ -304,6 +304,32 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     this.unifiedDataSourceManager = unifiedDataSourceManager ?? null;
     this.queueCountReadModel = unifiedDataSourceManager
       ? new ProjectionBrowserQueueCountReadModel(unifiedDataSourceManager, {
+        countVisibleProjectionRows: async (queueId, snapshot) => {
+          if (!this.queueBrowserQueryKernel) {
+            throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} Browser queue visibility reader unavailable`);
+          }
+          return this.queueBrowserQueryKernel.countVisibleProjectionRows({
+            queueId,
+            preset: 'all',
+            searchText: '',
+            scopeDocIds: null,
+            cardType: 'all',
+            sortModel: [],
+          }, snapshot.rows);
+        },
+        countVisibleRecoveryCards: async (queueId, cards) => {
+          if (!this.queueBrowserQueryKernel) {
+            throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} Browser queue visibility reader unavailable`);
+          }
+          return this.queueBrowserQueryKernel.countVisibleRecoveryCards({
+            queueId,
+            preset: 'all',
+            searchText: '',
+            scopeDocIds: null,
+            cardType: 'all',
+            sortModel: [],
+          }, cards);
+        },
         isReadOnlyRecoveryQueueStateAllowed: () => !this.canRunBrowserProjectionMutation(),
       })
       : null;

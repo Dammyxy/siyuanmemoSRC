@@ -537,6 +537,14 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     );
     const manager = {
       getQueue: vi.fn(() => queue),
+      getBlockContentsWithType: vi.fn(async (blockIds: string[]) => new Map(
+        blockIds.map((blockId) => [blockId, {
+          id: blockId,
+          content: blockId,
+          type: 'p',
+          isDocument: false,
+        }]),
+      )),
       getQueueProjectionRolloutDiagnostics: vi.fn((queueType?: QueueType) => queueType === QueueType.FilterGroup ? [{
         queueType: QueueType.FilterGroup,
         projectionBacked: true,
@@ -571,6 +579,50 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(queue.getCards).not.toHaveBeenCalled();
   });
 
+  it('excludes cards whose source blocks no longer exist from read-only recovery Review counters', async () => {
+    const visibleCard = createCard({ id: 'visible-recovery-card', blockId: 'visible-recovery-block' });
+    const missingCard = createCard({ id: 'missing-recovery-card', blockId: 'missing-recovery-block' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [visibleCard, missingCard]);
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getBlockContentsWithType: vi.fn(async () => new Map([
+        [visibleCard.blockId, {
+          id: visibleCard.blockId,
+          content: 'visible',
+          type: 'p',
+          isDocument: false,
+        }],
+      ])),
+      resolvePluginContext: vi.fn(() => ({
+        getSrsBackendClient: () => ({
+          isStartupWriteCapable: () => false,
+        }),
+      })),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      eventBus as never,
+      null,
+    );
+
+    const counterSnapshot = await strategy.getCounterSnapshot();
+    const next = await strategy.next();
+
+    expect(counterSnapshot).toMatchObject({
+      remaining: 1,
+      due: 1,
+      total: 1,
+      source: 'reconciled',
+    });
+    expect(next?.id).toBe(visibleCard.id);
+    expect(manager.getBlockContentsWithType).toHaveBeenCalledWith([
+      visibleCard.blockId,
+      missingCard.blockId,
+    ]);
+  });
+
   it('uses read-only recovery queue state instead of worker Review session for admitted projection queues', async () => {
     const card = createCard({ id: 'recovery-retrieval-card', blockId: 'recovery-retrieval-block' });
     const queue = createQueueStub(QueueType.RetrievalPractice, [card]);
@@ -592,6 +644,14 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
         queueType === QueueType.FinalDrill
           ? createQueueStub(QueueType.FinalDrill, [])
           : queue
+      )),
+      getBlockContentsWithType: vi.fn(async (blockIds: string[]) => new Map(
+        blockIds.map((blockId) => [blockId, {
+          id: blockId,
+          content: blockId,
+          type: 'p',
+          isDocument: false,
+        }]),
       )),
       getQueueProjectionRolloutDiagnostics: vi.fn((queueType?: QueueType) => queueType === QueueType.RetrievalPractice ? [{
         queueType: QueueType.RetrievalPractice,
@@ -662,6 +722,14 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     );
     const manager = {
       getQueue: vi.fn(() => queue),
+      getBlockContentsWithType: vi.fn(async (blockIds: string[]) => new Map(
+        blockIds.map((blockId) => [blockId, {
+          id: blockId,
+          content: blockId,
+          type: 'p',
+          isDocument: false,
+        }]),
+      )),
       neuralRoamAdvance: vi.fn(async () => {
         throw new Error('neural-roam backend advance must not run during recovery');
       }),

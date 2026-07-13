@@ -166,8 +166,10 @@ import { isErr } from '@/types/result';
 import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
 import { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import type {
+  KernelCompanionBackgroundWorkRegistryInterface,
   KernelCompanionProgressiveExcerptCompletionRepairDiagnostics,
   KernelCompanionStartupStorageMaintenanceDiagnostics,
+  KernelCompanionStoragePressureRecoveryDiagnostics,
 } from '@/application/backgroundWork/KernelCompanionBackgroundWorkRegistry';
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
@@ -208,6 +210,9 @@ import type {
   BackendQueueStateLoadAllResult,
   BackendStorageMaintenanceApplyBatchRequest,
   BackendStorageMaintenanceApplyBatchResult,
+  BackendStoragePressureRecoveryPhase,
+  BackendStoragePressureRecoveryRequest,
+  BackendStoragePressureRecoveryResult,
   BackendStorageMaintenanceStatusRequest,
   BackendStorageMaintenanceStatusResult,
   BackendDomainSyncRepairApplyRequest,
@@ -225,6 +230,9 @@ import type {
 const logger = createLogger('ApplicationContext');
 const APPLICATION_CONTEXT_DISPOSE_STEP_TIMEOUT_MS = 2_000;
 const REVIEW_TRUTH_FLUSH_DISPOSE_TIMEOUT_MS = 1_500;
+const STORAGE_PRESSURE_RECOVERY_CLEANUP_FILE_BATCH_LIMIT = 64;
+const STORAGE_PRESSURE_RECOVERY_CLEANUP_BYTE_BATCH_LIMIT = 16 * 1024 * 1024;
+const STORAGE_PRESSURE_RECOVERY_MAX_BATCHES = 16;
 
 type I18nDictionary = Record<string, string>;
 
@@ -332,6 +340,31 @@ function createStartupMaintenanceLifecycleDedupeKey(
   ].map(sanitizeStartupWorkIdentityPart).join(':');
 }
 
+function createStoragePressureRecoveryLifecycleDedupeKey(
+  descriptors: readonly BackendDeferredStartupWorkDescriptor[],
+  runtimeInstanceId: string | null,
+): string | null {
+  const descriptor = descriptors.find((candidate) => candidate.kind === 'storage-pressure-recovery');
+  if (!descriptor) {
+    return null;
+  }
+  const frontier = descriptor.frontier;
+  return [
+    'storage-pressure-recovery-lifecycle-v1',
+    descriptor.kind,
+    descriptor.owner,
+    descriptor.phase,
+    runtimeInstanceId || 'runtime-instance-unavailable',
+    frontier.pluginInstallationId ?? 'plugin-installation-unavailable',
+    frontier.identityEpoch ?? 'identity-epoch-unavailable',
+    frontier.inputVersion,
+    frontier.frontierHash ?? 'frontier-unavailable',
+    String(frontier.externalInputDirtyGeneration),
+    frontier.pendingExternalMerge ? 'pending-external-merge' : 'external-merge-clean',
+    frontier.recoveryStatus ?? 'recovery-none',
+  ].map(sanitizeStartupWorkIdentityPart).join(':');
+}
+
 function recordStartupDeferredWorkDescriptors(
   target: BackendDeferredStartupWorkDescriptor[],
   result: Pick<BackendDbLoadResult | BackendDbReloadResult, 'deferredWork'> | null | undefined,
@@ -354,6 +387,12 @@ function hasTruthPromotionDescriptor(
   descriptors: readonly BackendDeferredStartupWorkDescriptor[],
 ): boolean {
   return descriptors.some((descriptor) => descriptor.kind === 'truth-promotion');
+}
+
+function hasStoragePressureRecoveryDescriptor(
+  descriptors: readonly BackendDeferredStartupWorkDescriptor[],
+): boolean {
+  return descriptors.some((descriptor) => descriptor.kind === 'storage-pressure-recovery');
 }
 
 function createStartupMaintenanceReceiptScope(
@@ -379,6 +418,73 @@ function createStartupMaintenanceReceiptScope(
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readNumberDiagnostic(source: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = source?.[key];
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function readArrayCountDiagnostic(source: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = source?.[key];
+  return Array.isArray(value) ? value.length : null;
+}
+
+function normalizeStoragePressureRecoveryPhase(
+  phase: BackendStoragePressureRecoveryPhase,
+  ok: boolean,
+): KernelCompanionStoragePressureRecoveryDiagnostics['phase'] {
+  if (!ok) {
+    return phase === 'cleaning-orphans' ? 'cleaning-orphans' : 'failed';
+  }
+  return phase;
+}
+
+function summarizeStoragePressureRecoveryResult(
+  result: BackendStoragePressureRecoveryResult,
+  reason: string,
+  batchIndex: number,
+  maxBatches: number,
+): KernelCompanionStoragePressureRecoveryDiagnostics {
+  const adoption = isRecord(result.adoption) ? result.adoption : null;
+  const promotion = isRecord(result.promotion) ? result.promotion : null;
+  const deltaCompaction = isRecord(result.deltaCompaction) ? result.deltaCompaction : null;
+  const orphanCleanup = isRecord(result.orphanCleanup) ? result.orphanCleanup : null;
+  return {
+    reason,
+    phase: normalizeStoragePressureRecoveryPhase(result.phase, result.ok),
+    batchIndex,
+    maxBatches,
+    adoptedEntryCount: readNumberDiagnostic(adoption, 'adoptedEntryCount') ?? undefined,
+    unsupportedEntryCount: readArrayCountDiagnostic(adoption, 'unsupportedEntries') ?? undefined,
+    firstJournalSequence: readNumberDiagnostic(adoption, 'firstJournalSequence'),
+    lastJournalSequence: readNumberDiagnostic(adoption, 'lastJournalSequence'),
+    promotionBatchCount: readNumberDiagnostic(promotion, 'batchCount') ?? undefined,
+    truthCoverageFrontier: readNumberDiagnostic(promotion, 'truthCoverageFrontier'),
+    candidateEntryCount: readNumberDiagnostic(deltaCompaction, 'candidateEntryCount') ?? undefined,
+    reclaimableEntryCount: readNumberDiagnostic(deltaCompaction, 'reclaimableEntryCount') ?? undefined,
+    retainedEntryCount: readNumberDiagnostic(deltaCompaction, 'retainedEntryCount') ?? undefined,
+    deletedFileCount: readArrayCountDiagnostic(orphanCleanup, 'deletedFiles') ?? undefined,
+    failedFileCount: readArrayCountDiagnostic(orphanCleanup, 'failedFiles') ?? undefined,
+    remainingOrphanFileCount: readNumberDiagnostic(orphanCleanup, 'remainingOrphanFileCount') ?? undefined,
+    remainingOrphanBytes: readNumberDiagnostic(orphanCleanup, 'remainingOrphanBytes') ?? undefined,
+    pressureLevel: result.inventory.pressure.level,
+    pressureReason: result.inventory.pressure.reason,
+    errorCode: result.error,
+  };
+}
+
+function delayStoragePressureRecoveryContinuation(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
 type DisposableSrsBackendTransport = ApplicationBackendRuntimeTransport;
 type DisposalErrorCollector = Array<{ service: string; error: unknown }>;
 type DisposalStepOutcome<TResult> =
@@ -459,6 +565,10 @@ export class ApplicationContext {
     receiptScope: StartupMaintenanceReceiptScope | null,
   ) => Promise<StartupWorkerStorageMaintenanceDiagnostics>) | null = null;
   private postReadyStartupMaintenanceJobId: string | null = null;
+  private postReadyStoragePressureRecovery: ((
+    request: BackendStoragePressureRecoveryRequest,
+  ) => Promise<BackendStoragePressureRecoveryResult>) | null = null;
+  private postReadyStoragePressureRecoveryJobId: string | null = null;
   private pendingStartupDeferredWorkDescriptors: BackendDeferredStartupWorkDescriptor[] = [];
   private readonly backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
   private readonly backendStartupError: string | null;
@@ -1430,6 +1540,31 @@ export class ApplicationContext {
         params: request,
       });
     };
+    const executeStoragePressureRecovery = async (
+      request: BackendStoragePressureRecoveryRequest,
+    ): Promise<BackendStoragePressureRecoveryResult> => {
+      if (!srsBackendClient) {
+        throw new Error(formatStorageMaintenanceWorkerUnavailable(backendStartupError));
+      }
+      if (!backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
+        return srsBackendClient.storagePressureRecover(request);
+      }
+      if (!frontendInstanceRuntime) {
+        throw new Error('BACKEND_UNAVAILABLE: storage pressure recovery requires writer relay runtime');
+      }
+      if (frontendInstanceRuntime.getMode() === 'writer') {
+        await frontendInstanceRuntime.ensureWritable();
+        return srsBackendClient.storagePressureRecover(request);
+      }
+      if (!followerCommandClient) {
+        throw new Error('BACKEND_UNAVAILABLE: storage pressure recovery relay unavailable in follower mode');
+      }
+      return followerCommandClient.submitAndWait<BackendStoragePressureRecoveryResult>({
+        instanceId: frontendInstanceRuntime.getInstanceId(),
+        method: 'storage.pressure.recover',
+        params: request,
+      });
+    };
     const startupReadiness = initialLoadResult?.readiness ?? null;
     const canRunStartupStorageMigrations = !startupReadiness
       || (
@@ -1700,6 +1835,7 @@ export class ApplicationContext {
       writeReceipt: executeStorageMaintenanceBatch,
       receiptScope,
     });
+    context.postReadyStoragePressureRecovery = executeStoragePressureRecovery;
     context.pendingStartupDeferredWorkDescriptors = startupDeferredWorkDescriptors;
     
     context.serviceContainer.set('fileService', fileService);
@@ -2897,7 +3033,8 @@ export class ApplicationContext {
     const deferredDescriptors = descriptors ?? this.consumePendingStartupDeferredWorkDescriptors();
     const hasStartupMaintenance = hasStartupStorageMaintenanceDescriptor(deferredDescriptors);
     const hasTruthPromotion = hasTruthPromotionDescriptor(deferredDescriptors);
-    if (!hasStartupMaintenance && !hasTruthPromotion) {
+    const hasStoragePressureRecovery = hasStoragePressureRecoveryDescriptor(deferredDescriptors);
+    if (!hasStartupMaintenance && !hasTruthPromotion && !hasStoragePressureRecovery) {
       logger.warn('[ApplicationContext] skipped post-ready startup maintenance because no startup descriptor was returned', {
         reason,
       });
@@ -2907,18 +3044,27 @@ export class ApplicationContext {
     const truthPromotionJobId = hasTruthPromotion
       ? this.srsBackendClient?.scheduleTruthPromotionTracking(reason) ?? null
       : null;
-    if (this.postReadyStartupMaintenanceJobId) {
-      return this.postReadyStartupMaintenanceJobId ?? truthPromotionJobId;
-    }
-    const runMaintenance = this.postReadyStartupMaintenance;
-    if (!runMaintenance || !registry) {
+    if (!registry) {
       logger.warn('[ApplicationContext] skipped post-ready startup maintenance because backend registry is unavailable', {
         reason,
       });
       return truthPromotionJobId;
     }
+    const storagePressureRecoveryJobId = hasStoragePressureRecovery
+      ? this.submitPostReadyStoragePressureRecovery(reason, deferredDescriptors, registry)
+      : null;
+    if (this.postReadyStartupMaintenanceJobId) {
+      return this.postReadyStartupMaintenanceJobId ?? storagePressureRecoveryJobId ?? truthPromotionJobId;
+    }
     if (!hasStartupMaintenance) {
-      return truthPromotionJobId;
+      return storagePressureRecoveryJobId ?? truthPromotionJobId;
+    }
+    const runMaintenance = this.postReadyStartupMaintenance;
+    if (!runMaintenance) {
+      logger.warn('[ApplicationContext] skipped post-ready startup maintenance because storage maintenance interface is unavailable', {
+        reason,
+      });
+      return storagePressureRecoveryJobId ?? truthPromotionJobId;
     }
 
     const receiptScope = createStartupMaintenanceReceiptScope(deferredDescriptors);
@@ -2987,6 +3133,106 @@ export class ApplicationContext {
     return this.postReadyStartupMaintenanceJobId;
   }
 
+  private submitPostReadyStoragePressureRecovery(
+    reason: string,
+    descriptors: readonly BackendDeferredStartupWorkDescriptor[],
+    registry: KernelCompanionBackgroundWorkRegistryInterface,
+  ): string | null {
+    if (this.postReadyStoragePressureRecoveryJobId) {
+      return this.postReadyStoragePressureRecoveryJobId;
+    }
+    const runRecovery = this.postReadyStoragePressureRecovery;
+    if (!runRecovery) {
+      logger.warn('[ApplicationContext] skipped storage pressure recovery because backend recovery interface is unavailable', {
+        reason,
+      });
+      return null;
+    }
+    const descriptor = descriptors.find((candidate) => candidate.kind === 'storage-pressure-recovery');
+    const lifecycleDedupeKey = createStoragePressureRecoveryLifecycleDedupeKey(
+      descriptors,
+      this.frontendInstanceRuntime?.getInstanceId() ?? null,
+    );
+    const submitResult = registry.submit<KernelCompanionStoragePressureRecoveryDiagnostics>({
+      kind: 'storage-pressure-recovery',
+      dedupeKey: lifecycleDedupeKey,
+      diagnostics: {
+        reason,
+        phase: 'planning',
+        descriptorReason: descriptor?.reason ?? null,
+        deferredDescriptorCount: descriptors.length,
+        lifecycleDedupeKeyAvailable: lifecycleDedupeKey !== null,
+      },
+      run: async (job) => {
+        let diagnostics: KernelCompanionStoragePressureRecoveryDiagnostics = {
+          reason,
+          phase: 'planning',
+          descriptorReason: descriptor?.reason ?? null,
+          deferredDescriptorCount: descriptors.length,
+          lifecycleDedupeKeyAvailable: lifecycleDedupeKey !== null,
+        };
+        for (let batchIndex = 1; batchIndex <= STORAGE_PRESSURE_RECOVERY_MAX_BATCHES; batchIndex += 1) {
+          if (job.isCanceled() || this.disposed) {
+            return {
+              state: 'canceled',
+              reason: 'post-ready-storage-pressure-recovery-canceled',
+              diagnostics: { ...diagnostics, unavailable: true },
+            };
+          }
+          const result = await measureRuntimePerformance(
+            'startup',
+            'storage-pressure-recovery',
+            () => runRecovery({
+              maxCleanupFiles: STORAGE_PRESSURE_RECOVERY_CLEANUP_FILE_BATCH_LIMIT,
+              maxCleanupBytes: STORAGE_PRESSURE_RECOVERY_CLEANUP_BYTE_BATCH_LIMIT,
+            }),
+          );
+          diagnostics = summarizeStoragePressureRecoveryResult(
+            result,
+            reason,
+            batchIndex,
+            STORAGE_PRESSURE_RECOVERY_MAX_BATCHES,
+          );
+          if (job.isCanceled() || this.disposed) {
+            return {
+              state: 'canceled',
+              reason: 'post-ready-storage-pressure-recovery-canceled',
+              diagnostics: { ...diagnostics, unavailable: true },
+            };
+          }
+          if (!result.ok) {
+            return {
+              state: 'failed',
+              reason: result.error ?? 'storage-pressure-recovery-failed',
+              error: result.error ?? 'storage-pressure-recovery-failed',
+              diagnostics,
+            };
+          }
+          if (result.phase === 'completed') {
+            return {
+              state: 'completed',
+              diagnostics,
+            };
+          }
+          if (result.phase === 'cleaning-orphans') {
+            await delayStoragePressureRecoveryContinuation();
+            continue;
+          }
+          return {
+            state: 'completed',
+            diagnostics,
+          };
+        }
+        return {
+          state: 'deferred',
+          reason: 'storage-pressure-recovery-batch-cap',
+          diagnostics,
+        };
+      },
+    });
+    this.postReadyStoragePressureRecoveryJobId = submitResult.job.jobId;
+    return this.postReadyStoragePressureRecoveryJobId;
+  }
   async reloadBackendDatabaseAfterReady(reason = 'post-ready-reload'): Promise<BackendDbReloadResult> {
     const srsBackendClient = this.srsBackendClient;
     if (!srsBackendClient) {

@@ -2994,7 +2994,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     });
   });
 
-  it('forgets stale unknown skipped conflict sources when the host no longer reports that conflict copy', async () => {
+  it('keeps stale skipped conflict evidence unchanged during read-only status diagnostics', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     persistenceBridge.readSyncConflictDatabaseSources = vi.fn(async () => []);
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -3037,21 +3037,21 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
     expect(response).toMatchObject({
       result: {
-        sanity: { status: 'clean' },
-        processedSources: { totalSkipped: 0 },
+        sanity: { status: 'source-error' },
+        processedSources: { totalSkipped: 1 },
       },
     });
 
     expect(database.getOne<{ count: number }>(
       'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE skipped_reason IS NOT NULL',
-    )?.count).toBe(0);
+    )?.count).toBe(1);
     await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
-      sanity: { status: 'clean' },
-      processedSources: { totalSkipped: 0 },
+      sanity: { status: 'source-error' },
+      processedSources: { totalSkipped: 1 },
     });
   });
 
-  it('records domain sync import counts in pre-request merge diagnostics', async () => {
+  it('does not import conflict sources during read-only domain sync status diagnostics', async () => {
     const currentBridge = createInMemorySqlitePersistenceBridge();
     const conflictBridge = createInMemorySqlitePersistenceBridge();
     const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
@@ -3065,11 +3065,12 @@ describe('BackendReviewSyncRpcAdapter', () => {
     await conflictDatabase.persist();
     const conflictBytes = await conflictBridge.readBinary('siyuanmemo.db');
     expect(conflictBytes).toBeTruthy();
+    const readSyncConflictDatabaseSources = vi.fn(async () => (
+      [{ sourceId: 'pre-request-domain-sync-source', bytes: conflictBytes! }]
+    ));
     const bridgeWithConflict = {
       ...currentBridge,
-      async readSyncConflictDatabaseSources() {
-        return [{ sourceId: 'pre-request-domain-sync-source', bytes: conflictBytes! }];
-      },
+      readSyncConflictDatabaseSources,
     };
     const database = new WorkerSqliteDatabaseService(bridgeWithConflict);
     const kernel = new BackendKernel({ database });
@@ -3090,17 +3091,11 @@ describe('BackendReviewSyncRpcAdapter', () => {
     expect(diagnostics).toMatchObject({
       result: {
         preRequestMerge: {
-          latest: {
-            method: 'domainSync.status',
-            sourceIds: ['pre-request-domain-sync-source'],
-            importedOperations: 1,
-            ignoredOperations: 0,
-            processedSourceIds: ['pre-request-domain-sync-source'],
-            sanityStatus: 'merged',
-          },
+          latest: null,
         },
       },
     });
+    expect(readSyncConflictDatabaseSources).not.toHaveBeenCalled();
   });
 
   it('invalidates queue projections when synced conflict merge changes cards', async () => {
@@ -7688,7 +7683,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterStatus);
   });
 
-  it('refreshes domain sync status from persisted main DB before blocking Review entry', async () => {
+  it('reads cached domain sync status without refreshing persisted main DB', async () => {
     const staleBridge = createInMemorySqlitePersistenceBridge();
     const staleDatabase = new WorkerSqliteDatabaseService(staleBridge);
     const cardId = 'domain-status-refresh-card';
@@ -7742,6 +7737,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
       },
     });
     await persistenceBridge.writeBinary('siyuanmemo.db', repairedBytes!);
+    readBinary.mockClear();
     const kernel = new BackendKernel({
       database,
       resolveExistingBlockIds: async (blockIds) => blockIds,
@@ -7759,13 +7755,13 @@ describe('BackendReviewSyncRpcAdapter', () => {
       jsonrpc: '2.0',
       result: {
         sanity: {
-          status: 'merged',
-          repairableDivergenceCount: 0,
-          divergentCardCount: 0,
+          status: 'repairable',
+          repairableDivergenceCount: 1,
+          divergentCardCount: 1,
         },
       },
     });
-    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length).toBeGreaterThan(0);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);
   });
 
   it('reads sync conflict sources only once for a no-source review feedback preflight merge', async () => {

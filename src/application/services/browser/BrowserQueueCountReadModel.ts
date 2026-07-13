@@ -4,6 +4,7 @@ import type {
   QueueProjectionSnapshot,
   IReviewQueue,
 } from '@/types/unified-data-source';
+import type { FSRSCard } from '@/types/card';
 import {
   isNeuralBrowserQueue,
   resolveQueueTypeForBrowserQueueId,
@@ -23,6 +24,14 @@ export interface BrowserQueueCountReadModel {
 }
 
 export interface BrowserQueueCountReadModelOptions {
+  countVisibleProjectionRows?: (
+    queueId: BrowserQueueId,
+    snapshot: QueueProjectionSnapshot,
+  ) => Promise<number>;
+  countVisibleRecoveryCards?: (
+    queueId: BrowserQueueId,
+    cards: FSRSCard[],
+  ) => Promise<number>;
   isReadOnlyRecoveryQueueStateAllowed?: () => boolean;
 }
 
@@ -78,7 +87,7 @@ export class ProjectionBrowserQueueCountReadModel implements BrowserQueueCountRe
         }
         throw projectionError;
       }
-      return this.resolveProjectionVisibleCount(result.snapshot);
+      return this.resolveProjectionVisibleCount(queueId, result.snapshot);
     } catch (error) {
       const recoveryCount = await this.tryReadOnlyRecoveryQueueCount(queueType, queueId, error);
       if (recoveryCount !== null) {
@@ -110,13 +119,17 @@ export class ProjectionBrowserQueueCountReadModel implements BrowserQueueCountRe
     if (typeof queue.getReadOnlyRecoveryCards !== 'function') {
       return null;
     }
+    if (typeof this.options.countVisibleRecoveryCards !== 'function') {
+      throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} recovery visibility reader unavailable`);
+    }
     const cards = await queue.getReadOnlyRecoveryCards();
+    const count = await this.options.countVisibleRecoveryCards(queueId, cards);
     logger.debug('QUEUE_COUNT_READ_ONLY_RECOVERY: using explicit recovery queue state', {
       queueId,
       queueType,
-      count: cards.length,
+      count,
     });
-    return Math.max(0, cards.length);
+    return Math.max(0, Number(count) || 0);
   }
 
   private isProjectionRefreshOrRepairError(error: unknown): boolean {
@@ -126,14 +139,13 @@ export class ProjectionBrowserQueueCountReadModel implements BrowserQueueCountRe
       || message.includes('QUEUE_PROJECTION_REPAIR_REQUIRED');
   }
 
-  private resolveProjectionVisibleCount(snapshot: QueueProjectionSnapshot): number {
-    const visibleTotal = Math.max(0, Array.isArray(snapshot.rows) ? snapshot.rows.length : 0);
-    const counterTotal = snapshot.counters?.total == null
-      ? Number(snapshot.counters?.remaining)
-      : Number(snapshot.counters.total);
-    const normalizedCounterTotal = Math.max(0, Number.isFinite(counterTotal) ? counterTotal : 0);
-    return normalizedCounterTotal === visibleTotal
-      ? normalizedCounterTotal
-      : visibleTotal;
+  private async resolveProjectionVisibleCount(
+    queueId: BrowserQueueId,
+    snapshot: QueueProjectionSnapshot,
+  ): Promise<number> {
+    if (typeof this.options.countVisibleProjectionRows !== 'function') {
+      throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} projection visibility reader unavailable`);
+    }
+    return Math.max(0, Number(await this.options.countVisibleProjectionRows(queueId, snapshot)) || 0);
   }
 }

@@ -11,6 +11,7 @@ import {
   type BackendTopicDerivedCommandExecuteResult,
 } from '../../packages/contracts/src/backend-rpc';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
+import type { SqlitePersistenceFileEntry } from '../db/SqlitePersistenceBridge';
 import { createIndexedDbReviewFeedbackJournalStore } from '../db/ReviewFeedbackJournalStore';
 import type { MessagePackTruthSegmentFileStore } from '../truth/MessagePackTruthSegmentStore';
 import { BackendKernel } from './BackendKernel';
@@ -197,6 +198,7 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'review.session.feedback',
   'storage.maintenance.applyBatch',
   'storage.maintenance.status',
+  'storage.pressure.recover',
   'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
@@ -246,7 +248,7 @@ const truthFileStore: MessagePackTruthSegmentFileStore = {
     path,
     value,
   }),
-  listFiles: (prefix) => requestHostEffect<string[]>({
+  listFiles: (prefix) => requestHostEffect<SqlitePersistenceFileEntry[]>({
     kind: 'truth.listFiles',
     prefix,
   }),
@@ -284,6 +286,14 @@ const database = new WorkerSqliteDatabaseService({
     value,
     purpose: metadata?.purpose ?? null,
     substep: metadata?.substep ?? null,
+  }),
+  listFiles: (prefix) => requestHostEffect<string[]>({
+    kind: 'sqlite.listFiles',
+    prefix,
+  }),
+  deleteFile: (path) => requestHostEffect<void>({
+    kind: 'sqlite.deleteFile',
+    path,
   }),
   hasLegacyPetalSqliteDb: () => requestHostEffect<boolean>({
     kind: 'sqlite.hasLegacyPetalSqliteDb',

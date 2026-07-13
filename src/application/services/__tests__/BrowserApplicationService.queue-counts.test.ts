@@ -140,6 +140,7 @@ describe('BrowserApplicationService queue counts', () => {
     readQueueProjection?: ReturnType<typeof vi.fn>;
     getQueueProjectionRolloutDiagnostics?: ReturnType<typeof vi.fn>;
   };
+  let querySqlMock: ReturnType<typeof vi.fn>;
   let service: BrowserApplicationService;
 
   beforeEach(() => {
@@ -182,6 +183,9 @@ describe('BrowserApplicationService queue counts', () => {
         };
       }),
     };
+    querySqlMock = vi.fn(async (stmt: string) => (
+      Array.from(stmt.matchAll(/'([^']+)'/g), (match) => ({ id: match[1] }))
+    ));
 
     service = new BrowserApplicationService(
       {} as never,
@@ -195,9 +199,7 @@ describe('BrowserApplicationService queue counts', () => {
         ATTR_SUSPENDED: 'custom-fsrs-suspended',
         ATTR_CARD_TYPE: 'custom-fsrs-card-type',
         ATTR_A_FACTOR: 'custom-fsrs-a-factor',
-        sql: vi.fn(async (stmt: string) => (
-          Array.from(stmt.matchAll(/'([^']+)'/g), (match) => ({ id: match[1] }))
-        )),
+        sql: querySqlMock,
         setBlockAttrs: vi.fn(),
         pushMsg: vi.fn(),
         pushErrMsg: vi.fn(),
@@ -208,9 +210,7 @@ describe('BrowserApplicationService queue counts', () => {
         ATTR_SUSPENDED: 'custom-fsrs-suspended',
         ATTR_CARD_TYPE: 'custom-fsrs-card-type',
         ATTR_A_FACTOR: 'custom-fsrs-a-factor',
-        sql: vi.fn(async (stmt: string) => (
-          Array.from(stmt.matchAll(/'([^']+)'/g), (match) => ({ id: match[1] }))
-        )),
+        sql: querySqlMock,
         setBlockAttrs: vi.fn(),
         pushMsg: vi.fn(),
         pushErrMsg: vi.fn(),
@@ -266,6 +266,32 @@ describe('BrowserApplicationService queue counts', () => {
     expect(incrementalQueue.getCards).not.toHaveBeenCalled();
     expect(incrementalQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
+  });
+
+  it('excludes missing-source rows from the initial queue count just like the Browser queue view', async () => {
+    const incrementalQueue = createQueue(2, 2, 2, { snapshotRowCount: 2 });
+    querySqlMock.mockResolvedValue([{ id: 'visible-block' }]);
+    incrementalQueue.getSnapshotRows.mockResolvedValue([
+      {
+        id: 'visible-row',
+        fsrsCardId: 'visible-card',
+        blockId: 'visible-block',
+      },
+      {
+        id: 'missing-row',
+        fsrsCardId: 'missing-card',
+        blockId: 'missing-block',
+      },
+    ]);
+    queueByType.set(QueueType.IncrementalLearning, incrementalQueue);
+    projectionCountersByType.set(QueueType.IncrementalLearning, createProjectionCounters(2));
+
+    const counts = await service.getQueueCounts({
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.IncrementalLearning],
+    });
+
+    expect(counts['incremental-learning']).toBe(1);
   });
 
   it('uses projection counter totals when counters match browser-visible snapshot rows', async () => {
@@ -483,7 +509,7 @@ describe('BrowserApplicationService queue counts', () => {
     expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(2);
   });
 
-  it('uses explicit read-only recovery queue state for counts when projection is stale', async () => {
+  it('uses Browser-visible read-only recovery cards for counts when projection is stale', async () => {
     const retrievalQueue = createQueue(11, 11, 11);
     retrievalQueue.getSnapshotRows.mockClear();
     (retrievalQueue as QueueMock & { getReadOnlyRecoveryCards: ReturnType<typeof vi.fn> }).getReadOnlyRecoveryCards = vi.fn(async () => [
@@ -527,8 +553,8 @@ describe('BrowserApplicationService queue counts', () => {
       {} as never,
       {} as never,
       manager as never,
-      { sql: vi.fn(async () => []) } as never,
-      { sql: vi.fn(async () => []) } as never,
+      { sql: vi.fn(async () => [{ id: 'block-a' }]) } as never,
+      { sql: vi.fn(async () => [{ id: 'block-a' }]) } as never,
       null,
       null,
       { isStartupWriteCapable: vi.fn(() => false) } as never,
@@ -538,7 +564,7 @@ describe('BrowserApplicationService queue counts', () => {
       affectedQueueTypes: [QueueType.RetrievalPractice],
     });
 
-    expect(counts.retrieval).toBe(2);
+    expect(counts.retrieval).toBe(1);
     expect(retrievalQueue.getReadOnlyRecoveryCards).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getSnapshotRows).not.toHaveBeenCalled();
     expect(retrievalQueue.getCards).not.toHaveBeenCalled();

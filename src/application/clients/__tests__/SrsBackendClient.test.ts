@@ -115,6 +115,60 @@ describe('SrsBackendClient', () => {
     }));
   });
 
+  it('runs storage pressure recovery through the core RPC client', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          ok: true,
+          phase: 'completed',
+          adoption: null,
+          promotion: null,
+          deltaCompaction: null,
+          orphanCleanup: {
+            status: 'completed',
+            deletedFiles: [],
+            failedFiles: [],
+            remainingOrphanFileCount: 0,
+            remainingOrphanBytes: 0,
+          },
+          inventory: {
+            version: 1,
+            measuredAt: 100,
+            metrics: [],
+            pressure: {
+              version: 1,
+              measuredAt: 100,
+              level: 'normal',
+              metrics: [],
+              blockingMutationGrowth: false,
+              code: null,
+              reason: null,
+            },
+          },
+          error: null,
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.storagePressureRecover({
+      maxCleanupFiles: 64,
+      maxCleanupBytes: 1024,
+    })).resolves.toMatchObject({
+      ok: true,
+      phase: 'completed',
+    });
+    expect(transport.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'storage.pressure.recover',
+      params: [{
+        maxCleanupFiles: 64,
+        maxCleanupBytes: 1024,
+      }],
+    }));
+  });
+
   it('passes typed startup identity disposition through pure load and reload RPCs', async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const disposition: BackendStartupIdentityDisposition = {

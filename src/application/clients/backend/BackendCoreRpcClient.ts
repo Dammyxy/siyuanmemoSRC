@@ -8,6 +8,8 @@ import type {
   BackendPrivateHealthResult,
   BackendStorageMaintenanceApplyBatchRequest,
   BackendStorageMaintenanceApplyBatchResult,
+  BackendStoragePressureRecoveryRequest,
+  BackendStoragePressureRecoveryResult,
   BackendStorageMaintenanceStatusRequest,
   BackendStorageMaintenanceStatusResult,
 } from '../../../../packages/contracts/src/backend-rpc';
@@ -23,6 +25,9 @@ export interface BackendCoreClientFacet {
   applyStorageMaintenanceBatch(
     request: BackendStorageMaintenanceApplyBatchRequest,
   ): Promise<BackendStorageMaintenanceApplyBatchResult>;
+  storagePressureRecover(
+    request?: BackendStoragePressureRecoveryRequest,
+  ): Promise<BackendStoragePressureRecoveryResult>;
   diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult>;
   privateHealth(): Promise<BackendPrivateHealthResult>;
   privateDiagnosticsStatus(): Promise<BackendPrivateDiagnosticsStatusResult>;
@@ -53,6 +58,12 @@ export class BackendCoreRpcClient implements BackendCoreClientFacet {
     request: BackendStorageMaintenanceApplyBatchRequest,
   ): Promise<BackendStorageMaintenanceApplyBatchResult> {
     return this.rpcCaller.call('storage.maintenance.applyBatch', request);
+  }
+
+  storagePressureRecover(
+    request: BackendStoragePressureRecoveryRequest = {},
+  ): Promise<BackendStoragePressureRecoveryResult> {
+    return this.rpcCaller.call('storage.pressure.recover', request);
   }
 
   diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> {

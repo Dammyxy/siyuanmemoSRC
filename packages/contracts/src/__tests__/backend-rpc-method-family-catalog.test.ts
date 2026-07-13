@@ -113,6 +113,7 @@ describe('backend RPC method-family contract catalog', () => {
       'db.reload',
       'storage.maintenance.status',
       'storage.maintenance.applyBatch',
+      'storage.pressure.recover',
       'diagnostics.status',
       'private.health',
       'private.diagnostics.status',

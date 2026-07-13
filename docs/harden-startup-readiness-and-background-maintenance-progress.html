@@ -22,9 +22,9 @@
   <h1>启动就绪与后台维护加固进度</h1>
   <div class="summary">
     <strong>Change:</strong> <code>harden-startup-readiness-and-background-maintenance</code><br>
-    <strong>Updated:</strong> 2026-07-12<br>
+    <strong>Updated:</strong> 2026-07-13<br>
     <strong>当前状态:</strong> 已补齐后台生命周期 4.1-4.10、timeout policy 6.1 / 6.3-6.5、Worker startup phase classification 7.1-7.10、bounded startup profiling 8.1-8.6、scoped CJS Worker bootstrap 9.1-9.8，并完成 11.4 broad-suite 分类、11.8 spec audit、12.6 status/diff inspection、12.7 handoff；续跑审计确认仍为 94/100，6.2 真实大库预算和 12.1-12.5 live SiYuan acceptance 仍未完成。<br>
-    <strong>最新 live 纠偏:</strong> 已补 Review queue windows read-only recovery 下的 admission materialization skip、counter/card recovery read、Worker session / NeuralRoam advance skip；12.1 仍待新一轮 SiYuan 重启确认。
+    <strong>最新 live 纠偏:</strong> 用户确认点击队列后的渐进学习 48、筛选复习 193 才是正确值。213/358 与 Review 213 都把同一批 165 张 deleted-source card 算进队列；Browser 初始 badge 与 Review recovery 现已接入 source-existence 可见性规则。12.1-12.5 保持未勾，仍待新一轮 SiYuan 重启确认。
   </div>
 
   <h2>本轮确认</h2>
@@ -37,6 +37,7 @@
     <li><code>ApplicationContext.storage-fail-closed</code> 现在锁定 recovery、untrusted truth/delta evidence 与 hard pressure 均不能产生 normal ready deferred descriptor。</li>
     <li>Worker recovery matrix 已证明只允许 evidence/status/diagnostics/identity recheck 类读取；Review feedback、maintenance apply、projection rebuild 等普通 mutation 均 fail-closed，直到 verified authority 通过 reload 恢复。</li>
     <li><code>queue.state.loadAll</code> 已归类为 read-only recovery-safe queue projection read；不会触发 storage-refresh preflight / external storage merge / truth mutation，但 queue-state mutation 仍 fail-closed。</li>
+    <li>SRS Browser queue badge 现在只由 <code>BrowserApplicationService.getQueueCounts()</code> 的 membership count 更新；grid first-row <code>totalCount</code> 只属于当前 Browser result，不再反写 badge。该修复不提升 recovery readiness，也不放宽任何 mutation gate。</li>
     <li>补齐 3.9 证据：startup maintenance 的 schedule/apply mutation 必须先走 writer election；writer 模式需 <code>ensureWritable()</code>，follower 模式只能经 <code>FollowerCommandClient.submitAndWait()</code> relay，重复 post-ready handoff 只提交一个 registry job。</li>
     <li>补齐 4.1：registry job 记录 <code>dedupeKey</code>，ApplicationContext 用 work kind、runtime instance、plugin installation、identity epoch、frontier/input phase 生成 lifecycle key；receipt 写入路径不包含 ephemeral runtime id。</li>
     <li>补齐 4.2：registry 对同一 lifecycle key 的 accepted/running work 直接 coalesce，完成且 frontier 未变时返回既有 terminal evidence，不再重新执行。</li>
@@ -101,10 +102,19 @@
     <li><strong>修正 13:</strong> <code>browserQueueProjectionWarmupRuntime</code> 现在先询问 <code>canRepairQueueReadModel()</code>，startup 不可写时直接跳过 repair，不再调用已知会 fail-closed 的 mutation；<code>getBrowserDocumentCounts()</code> 在 projection count unavailable 且 startup read-only recovery 时显式读取 <code>getReadOnlyRecoveryCards()</code>，套用同一套 Browser queue filters 后以 <code>read-only-recovery-queue-state</code> owner 返回 count-only hierarchy rows，不走 projection hydration、normal queue read 或 cache write。</li>
     <li><strong>偏差 14:</strong> 修正 13 后，各队列 Review window 暴露新的 active path：retrieval / incremental admission 在 recoverable projection readiness 下仍调用 <code>repairQueueProjection({ type: "materialize" })</code>，read-only recovery 中触发 <code>STORAGE_RECOVERY_REQUIRED</code>；final-drill / filter-group counter snapshot 和 next-card reload 仍尝试 forced projection refresh / snapshot rows，触发 <code>QUEUE_COUNT_UNAVAILABLE</code> / <code>QUEUE_PROJECTION_NOT_READY</code>；NeuralRoam next-card 仍走 backend advance，触发 recovery mutation error。</li>
     <li><strong>修正 14:</strong> <code>ReviewAdmissionModule</code> 现在接入 startup write-capable gate，recoverable readiness 在不可写 recovery 下返回显式 <code>read-only-recovery-queue-state</code> ticket，不再 materialize projection；<code>ApplicationContext</code> 把 <code>SrsBackendClient.isStartupWriteCapable()</code> 传入 admission；<code>UnifiedQueueStrategy</code> 在该 ticket 或 backend 不可写时禁用 Worker Review session runtime、跳过 NeuralRoam backend advance，并通过 <code>getReadOnlyRecoveryCards()</code> 构建 recovery counters / next cards，不走 projection hydration、forced counter refresh、normal <code>getCards()</code> 或 repair。mutation 仍维持 fail-closed。</li>
+    <li><strong>偏差 15:</strong> 修正 14 后，SRS Browser 初始 badge 为渐进学习 213、筛选复习 358，点击后 grid total 为 48/193，Review counter 为 213。两队都恰好减少 165；调用链证明 Browser grid 会查询 source existence、标记 missing block 并按默认 doc filter 排除，而初始 count 与 Review recovery 直接统计 <code>getReadOnlyRecoveryCards()</code>，绕过了该可见性规则。</li>
+    <li><strong>修正 15:</strong> <code>ProjectionBrowserQueueCountReadModel</code> 继续直接读 projection/recovery state，但把可见数交给 <code>QueueBrowserQueryKernel</code> 的 source-existence + 默认 queue filter；不额外实例化 normal projection queue。<code>SRSBrowser.onTotalCountLoaded()</code> 保留 root/all-filter grid-to-badge 写回。<code>UnifiedQueueStrategy</code> 在 recovery cards 进入 cursor/counter 前通过现有 SiYuan block-content read 排除 deleted-source cards，读失败显式抛错。read-only recovery 未升级 normal ready，mutation 继续 fail-closed；无 fallback、degrade、compat 或 alternate mutation path。</li>
+    <li><strong>偏差 16:</strong> 用户在 Review feedback 看到 domain-sync status 可读后，<code>domainSync.status</code> 的 Review preflight handler、repair preview 与 cleanup-candidate RPC 仍通过 pre-request lifecycle 或 handler 内部合并触发 truth mutation，在 <code>temp-local</code> recovery 下报 <code>STORAGE_RECOVERY_REQUIRED</code>；同时旧身份迁移即使已写入两份 authority copies，本次解析仍返回 <code>source=temp-local</code>，要求额外重启才可写。</li>
+    <li><strong>修正 16:</strong> <code>BackendKernel</code> 现在把 status、repair preview、cleanup candidates 作为严格只读 domain-sync diagnostics，Review preflight 只读缓存 safety snapshot；显式 repair/cleanup/reconciliation 仍受 write gate。identity resolver 在迁移/首次创建后当次回读 IndexedDB 与 localStorage，只有两份完全一致才返回 <code>authority-copies</code>，否则继续 fail-closed。</li>
+    <li><strong>偏差 17:</strong> 修正 16 部署后，真实大库的 <code>db.load</code> 在 60 秒超时；delta manifest 引用约 221 个 sealed segments。公开 Worker/database 回归随后证明，同一次启动会分别为 startup evidence、replay 和 replay 后 pending 判定物理读取同一批 sealed segment，共 3 次。</li>
+    <li><strong>修正 17:</strong> delta replay 现在复用本启动已按 manifest identity 验证的 segment evidence，<code>SqliteDatabaseService.init()</code> 直接消费 replay 返回的 pending count，不再第三次扫描。测试 fixture 从 12 段/36 次物理读降为 12 段/12 次；manifest identity 变化、cache miss、checksum mismatch 与新 runtime 仍冷读并 fail closed，未提高 60 秒 timeout。</li>
   </ul>
 
   <h2>验证证据</h2>
   <ul>
+    <li><code>pnpm exec vitest run worker/__tests__/WorkerSqliteDatabaseService.test.ts -t "reads each verified sealed sqlite delta segment once during db.load startup"</code>：先红后绿；红灯为 12 段/36 次物理读，修复后 1 passed 且为 12 段/12 次。</li>
+    <li><code>pnpm exec vitest run worker/__tests__/WorkerSqliteDatabaseService.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDeltaCheckpoint.compaction.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDeltaCheckpoint.format-version.test.ts</code>：4 files / 117 tests passed。</li>
+    <li><code>pnpm run check:boundaries</code>、<code>pnpm build</code>、dist hygiene 与 <code>node scripts/smoke-cjs-inline-worker-bootstrap.cjs</code>：均 passed；构建已部署，源/部署 <code>index.js</code> SHA-256 均为 <code>E31ACA16F09862B950560AD3E6808347FBE1D0D053AE65A9EE1789FE129F4376</code>。</li>
     <li><code>pnpm vitest run worker/__tests__/WorkerSqliteDatabaseService.test.ts --reporter=verbose -t "resumes pending Review journal work once after verified identity returns"</code>：1 passed。</li>
     <li><code>pnpm vitest run worker/db/__tests__/WorkerStartupStorageEvidence.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts --reporter=verbose</code>：66 passed。</li>
     <li><code>pnpm vitest run src/application/factories/__tests__/createApplicationBackendRuntimeBundle.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts worker/bootstrap/__tests__/BackendCoreRpcAdapter.test.ts worker/__tests__/BackendKernel.test.ts worker/db/__tests__/WorkerStartupStorageEvidence.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts --reporter=dot</code>：123 passed。</li>
@@ -146,6 +156,11 @@
     <li><code>pnpm vitest run src/application/services/__tests__/ReviewAdmissionModule.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts --reporter=dot --minWorkers=1 --maxWorkers=1</code>：先红后绿；红灯复现 read-only recovery 下 Review admission 仍 materialize projection、Review counters 仍读 projection、retrieval worker session ticket stale/startup 仍抢 projection session，修复后 2 files / 60 tests passed。</li>
     <li><code>pnpm vitest run src/application/__tests__/UnifiedQueueStrategy.performance.test.ts -t "read-only recovery" --reporter=dot --minWorkers=1 --maxWorkers=1</code>：先红后绿；红灯复现 NeuralRoam recovery 仍调用 backend advance，修复后 3 selected tests passed。</li>
     <li><code>pnpm vitest run src/application/services/__tests__/ReviewAdmissionModule.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/adapters/review-session/__tests__/SrsV2SessionQueueRuntime.test.ts src/core/queue/domain/__tests__/BaseReviewQueue.snapshot.test.ts --reporter=dot --minWorkers=1 --maxWorkers=1</code>：4 files / 101 tests passed（覆盖 Review admission、Review recovery queue-state reads、Worker session runtime、BaseReviewQueue recovery snapshot）。</li>
+    <li><code>SRSBrowser.hierarchy-regression.spec.ts</code> table regression：先红后绿；红灯收到 unchanged <code>incremental-learning:213</code> / <code>filter-group:358</code>，修复后 grid total 48/193 正确写回 badge。</li>
+    <li>初始 count / Review counter regressions：先红后绿；一张 source 存在、一张 source 已删除时，两条 active path 都先错误返回 2，修复后返回 1。扩展 focused run 覆盖 Browser hierarchy/count/query、QueueBrowserQueryKernel、Review admission/strategy 与 BaseReviewQueue：7 files / 141 tests passed。</li>
+    <li><code>pnpm build</code> 与 <code>check:srs-dist-hygiene</code>：passed；构建产物已复制到 <code>H:\SiYuanXY\data\plugins\siyuan-plugin-siyuanmemo</code>，源/部署 <code>index.js</code> SHA-256 均为 <code>C2EB3AD09D139E63721E888C10E29215EEB2D1DFCCD104666A20E6CC0DFC47DC</code>。</li>
+    <li><code>pnpm run check:boundaries</code>（含 hidden-fallback gate）、<code>node scripts/smoke-cjs-inline-worker-bootstrap.cjs</code>、<code>openspec validate harden-startup-readiness-and-background-maintenance --strict</code>：均 passed。</li>
+    <li><code>git diff --check</code>：passed，仅既有 LF/CRLF working-copy 提示。</li>
     <li><code>pnpm build</code>：passed，输出到 <code>H:\SiYuanXY\data\plugins\siyuan-plugin-siyuanmemo</code>，包含 <code>check:srs-dist-hygiene</code>。</li>
     <li><code>pnpm run check:boundaries</code>、<code>node scripts/smoke-cjs-inline-worker-bootstrap.cjs</code>、<code>openspec validate harden-startup-readiness-and-background-maintenance --strict</code>、<code>git diff --check</code>：本轮 Review recovery fix 后均 passed；<code>git diff --check</code> 仅 CRLF warnings。</li>
     <li><code>node scripts/smoke-cjs-inline-worker-bootstrap.cjs</code>：passed（验证 built bundle CJS Worker helper extraction 不再绑定 minified local names）。</li>
@@ -172,7 +187,7 @@
 
   <h2>交接</h2>
   <ul>
-    <li>已实现：typed startup readiness、fail-closed recovery、queue-state read-only recovery gate、SRS Browser explicit read-only recovery queue-state reads、Review windows explicit read-only recovery queue-state reads、pure backend load/reload、post-ready maintenance coordinator、registry lifecycle dedupe/shutdown、Worker-owned receipt frontier、operation-specific timeout、bounded startup profiling、lazy scoped CJS inline Worker bootstrap。</li>
+    <li>已实现：typed startup readiness、fail-closed recovery、queue-state read-only recovery gate、SRS Browser explicit read-only recovery queue-state reads、Browser/Review visible queue membership alignment、Review windows explicit read-only recovery queue-state reads、pure backend load/reload、post-ready maintenance coordinator、registry lifecycle dedupe/shutdown、Worker-owned receipt frontier、operation-specific timeout、bounded startup profiling、lazy scoped CJS inline Worker bootstrap。</li>
     <li>验证：focused startup/runtime/build/boundary/OpenSpec/diff gates 已通过；broad suite 已运行并分类，但不能作为全绿证据。</li>
     <li>预算：代码合同预算为 status 5s、load/reload 60s、applyBatch 45s、projection rebuild 120s；真实 normal/large-store timing 未测，6.2 保持未完成。</li>
     <li>Live smoke：未完成 12.1-12.5；不能声称用户报告的 checksum mismatch / hard pressure 启动错误已在真实 SiYuan 中修复，只能说已归入 fail-closed/recovery/pressure 设计路径。</li>
@@ -182,6 +197,7 @@
   <h2>续跑审计与纠偏</h2>
   <ul>
     <li><strong>2026-07-12 续跑审计:</strong> 重新执行 <code>openspec instructions apply --change "harden-startup-readiness-and-background-maintenance" --json</code>，确认当前进度仍是 <code>94/100</code>、<code>state=ready</code>，未完成项只剩 6.2 与 12.1-12.5。</li>
+    <li><strong>2026-07-13 count 纠偏:</strong> 用户确认 48/193 才是正确队列数；213/358 与 Review 213 都包含同一批 165 张 deleted-source cards。focused red/green 锁住 Browser badge、initial count 与 Review recovery counter 三条链。修复后 OpenSpec 仍为 94/100，未勾 12.1-12.5。</li>
     <li><strong>边界纠偏:</strong> 没有把 <code>openspec status</code> 的 artifact complete 当作 change 已完成；任务 ledger 仍显示 6 个 unchecked，因此不 archive、不标记 goal complete、不把实机验收结论提前写死。</li>
     <li><strong>证据纠偏:</strong> 当前 <code>H:\SiYuanXY\temp\siyuan.log</code> 尾部只提供 2026-07-11 插件 load/unload 旧片段，没有新构建 clean restart、warm restart、大库 timing、Review write、recovery-required 的权威证据。</li>
     <li><strong>操作纠偏:</strong> 检测到本机仍有多个 <code>SiYuan</code> / <code>SiYuan-Kernel</code> 进程运行；未擅自强杀、重启、覆盖 live 插件目录或写 Review 数据，避免破坏用户当前工作区。</li>
@@ -192,6 +208,7 @@
   <h2>给用户的实机验收步骤</h2>
   <ul>
     <li><strong>12.1 clean restart:</strong> 用当前构建覆盖插件目录后完全退出并重启 SiYuan；打开开发者控制台和 <code>H:\SiYuanXY\temp\siyuan.log</code>，确认无 <code>Plugin initialization failed</code>、无 <code>SQLite delta segment checksum mismatch</code> uncaught、无 renderer DB fallback，并记录 <code>db.load</code> readiness 与 post-ready maintenance status。</li>
+    <li><strong>Browser/Review count smoke:</strong> 打开 SRS Browser，确认渐进学习初始/点击后都为 48、筛选复习初始/点击后都为 193；再打开渐进学习 Review，确认 counter 为 48，并检查无新 startup abort、uncaught error 或 related relay failure。</li>
     <li><strong>12.2 warm restarts:</strong> 不改存储连续重启两次；确认 receipt fast path 命中、无 full card scan / storage merge 日志、无重复 startup jobs、无 <code>window</code>/<code>self</code>/<code>Worker</code>/<code>Blob</code>/<code>URL</code> descriptor 污染。</li>
     <li><strong>12.3 timing:</strong> 在代表性大库上记录 <code>plugin.onload</code> 总耗时、Worker load/reload、<code>storage.maintenance.status</code>、同步 safety phase、deferred job 各自耗时，并对照 status 5s、load/reload 60s、applyBatch 45s、projection rebuild 120s 预算。</li>
     <li><strong>12.4 Review write:</strong> 启动后做一次正常 Review feedback；确认写入经 Worker-owned SQLite/truth 路径带 verified <code>identityEpoch</code>，重启后无重复 Review fact、无 missing Review fact、ready count 不陈旧。</li>

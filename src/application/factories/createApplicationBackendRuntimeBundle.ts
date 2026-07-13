@@ -168,6 +168,12 @@ export async function createApplicationBackendRuntimeBundle(
               }
               return bridge.writeJSON(path, value);
             },
+            listFiles: bridge.listFiles
+              ? (prefix) => bridge.listFiles!(prefix)
+              : undefined,
+            deleteFile: bridge.deleteFile
+              ? (path) => bridge.deleteFile!(path)
+              : undefined,
             readTruthBinary: (path) => bridge.truthFileStore?.readBinary(path) ?? bridge.readBinary(path),
             writeTruthBinary: (path, bytes) => bridge.truthFileStore?.writeBinary(path, bytes) ?? bridge.writeBinary(path, bytes),
             readTruthJSON: <T>(path: string) => bridge.truthFileStore?.readJSON<T>(path) ?? bridge.readJSON?.<T>(path) ?? Promise.resolve(null),
@@ -391,7 +397,7 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
     },
     readJSON: <T>(path: string) => fileService.readJSON<T>(path),
     writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
-    listFiles: (prefix: string) => fileService.listFiles(prefix),
+    listFiles: (prefix: string) => fileService.listFileEntries(prefix),
     deleteFile: (path: string) => fileService.deleteFile(path),
   };
   return {
@@ -408,6 +414,13 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
         return;
       }
       await fileService.writeBinary(path, bytes);
+    },
+    listFiles: (prefix: string) => fileService.listFiles(prefix),
+    deleteFile: async (path: string) => {
+      await fileService.deleteFile(path);
+      if (await fileService.readBinary(path)) {
+        throw new Error(`FileService.deleteFile did not remove ${path}`);
+      }
     },
     hasLegacyPetalSqliteDb: () => fileService.hasLegacyPetalSqliteDb(),
     readJSON: <T>(path: string) => fileService.readJSON<T>(path),

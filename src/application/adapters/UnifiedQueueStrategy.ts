@@ -1112,7 +1112,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         if (typeof this.queue.getReadOnlyRecoveryCards !== 'function') {
             throw new Error(`QUEUE_RECOVERY_READ_UNAVAILABLE: ${this.queueType} ${operation} requires read-only recovery queue state`);
         }
-        const cards = await this.queue.getReadOnlyRecoveryCards();
+        const recoveryCards = await this.queue.getReadOnlyRecoveryCards();
+        const cards = await this.filterRecoveryCardsToExistingSources(recoveryCards);
         this.cursor.load(cards, { cacheValid: true, resetIndex: true });
         this.refreshLocalCounterSnapshot('reconciled', this.cursor.counterSnapshot);
         logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Using read-only recovery queue state for Review read path:', {
@@ -1121,6 +1122,23 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             cardCount: this.cursor.length,
         });
         return cards;
+    }
+
+    private async filterRecoveryCardsToExistingSources(cards: FSRSCard[]): Promise<FSRSCard[]> {
+        const blockIds = Array.from(new Set(
+            cards
+                .map((card) => String(card.blockId || '').trim())
+                .filter(Boolean),
+        ));
+        if (blockIds.length === 0) {
+            return cards;
+        }
+
+        const existingSources = await this.manager.getBlockContentsWithType(blockIds);
+        return cards.filter((card) => {
+            const blockId = String(card.blockId || '').trim();
+            return !blockId || existingSources.has(blockId);
+        });
     }
 
     private createSrsV2CommandAuthority(): ReviewSessionCommandAuthority | null {

@@ -500,7 +500,7 @@ async function persistAuthorityAndReturn(
   localStore: TruthDeviceIdentityLocalStore | null,
   storage: TruthDeviceIdentityStorage | null,
   record: TruthDeviceIdentityRecord,
-  source: 'temp-local' | 'localStorage' | 'legacy-localStorage' | 'generated',
+  migrationSource: 'temp-local' | 'localStorage' | 'legacy-localStorage' | 'generated',
   now: () => number,
 ): Promise<TruthDeviceIdentityResolution> {
   try {
@@ -511,11 +511,29 @@ async function persistAuthorityAndReturn(
   if (!writeStorageIdentityRecord(storage, record)) {
     return unavailable('localStorage identity authority write failed');
   }
-  await writeTempLocalDeviceId(localStore, record.deviceId, source, now);
+  const persistedAuthorityRead = await readIdentityRecord(identityStore);
+  const persistedStorageRead = readStorageIdentityRecord(storage);
+  if (persistedAuthorityRead.status === 'error') {
+    return unavailable(`indexedDB identity authority verification failed: ${persistedAuthorityRead.error}`);
+  }
+  if (persistedStorageRead.status === 'error') {
+    return unavailable(`localStorage identity authority verification failed: ${persistedStorageRead.error}`);
+  }
+  if (
+    persistedAuthorityRead.status !== 'valid'
+    || persistedStorageRead.status !== 'valid'
+    || !sameIdentityRecord(persistedAuthorityRead.record, record)
+    || !sameIdentityRecord(persistedStorageRead.record, record)
+  ) {
+    return identityRecoveryRequired(
+      `identity authority write verification failed: indexedDB=${persistedAuthorityRead.status}, localStorage=${persistedStorageRead.status}`,
+    );
+  }
+  await writeTempLocalDeviceId(localStore, record.deviceId, migrationSource, now);
   return {
     deviceId: record.deviceId,
     identityEpoch: record.identityEpoch,
-    source,
+    source: 'authority-copies',
     localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
     persisted: true,
     cacheUpdated: true,

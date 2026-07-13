@@ -134,8 +134,32 @@ async function sha256Json(value: unknown): Promise<string> {
   return `sha256:${toHex(new Uint8Array(digest))}`;
 }
 
+function canonicalRecordValue(value: unknown): unknown {
+  if (value instanceof Uint8Array) {
+    return Array.from(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(canonicalRecordValue);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [
+        key,
+        canonicalRecordValue((value as Record<string, unknown>)[key]),
+      ]),
+    );
+  }
+  return value;
+}
+
+function recordSignatures(records: MessagePackTruthRecord[]): string[] {
+  return records
+    .map((record) => JSON.stringify(canonicalRecordValue(record)))
+    .sort();
+}
+
 function recordsEquivalent(left: MessagePackTruthRecord[], right: MessagePackTruthRecord[]): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify(recordSignatures(left)) === JSON.stringify(recordSignatures(right));
 }
 
 export class MessagePackTruthSnapshotGenerationStore {

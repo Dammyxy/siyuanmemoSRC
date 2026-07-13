@@ -32,14 +32,6 @@ export interface BackendSyncRpcDatabase {
     request: BackendSyncConflictSummarizeRequest,
   ): Promise<BackendSyncConflictSummarizeResult> | BackendSyncConflictSummarizeResult;
   reloadFromDisk(): Promise<BackendSyncConflictReloadResult> | BackendSyncConflictReloadResult;
-  mergeExternalDatabaseIfChanged(
-    source?: unknown,
-    options?: {
-      context?: string;
-      cardId?: string | null;
-      skipMainDbRead?: boolean;
-    },
-  ): Promise<unknown>;
   getDomainSyncStatus(): Promise<BackendDomainSyncStatusResult> | BackendDomainSyncStatusResult;
   getDomainSyncStatusForPreflight(
     context: BackendDomainSyncStatusRequest['context'],
@@ -123,11 +115,6 @@ const BACKEND_SYNC_RPC_HANDLER_ADAPTERS: {
     async handle(params, context): Promise<BackendDomainSyncStatusResult> {
       const statusRequest = readNamedParams<BackendDomainSyncStatusRequest>(params) ?? {};
       if (statusRequest.context === 'review-feedback-preflight') {
-        await context.sync.database.mergeExternalDatabaseIfChanged(undefined, {
-          context: 'review-feedback-preflight',
-          cardId: typeof statusRequest.cardId === 'string' ? statusRequest.cardId : null,
-          skipMainDbRead: true,
-        });
         return context.sync.database.getDomainSyncStatusForPreflight('review-feedback-preflight');
       }
       return context.sync.database.getDomainSyncStatus();

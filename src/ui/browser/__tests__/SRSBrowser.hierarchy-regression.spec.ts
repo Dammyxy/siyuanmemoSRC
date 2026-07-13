@@ -720,6 +720,71 @@ describe('SRSBrowser hierarchy regressions', () => {
     wrapper.unmount();
   });
 
+  it.each([
+    ['incremental-learning', 213, 48],
+    ['filter-group', 358, 193],
+  ] as const)(
+    'updates the %s badge to the Browser grid queue total',
+    async (queueId, initialCount, browserGridTotal) => {
+      let resolveQueueRows!: (value: { rows: BrowserCard[]; totalCount: number }) => void;
+      refreshQueueCountsBridgeMock.mockImplementation(async (queueCountsRef: { value: Record<string, number> }) => {
+        queueCountsRef.value = {
+          retrieval: 0,
+          'incremental-learning': 213,
+          'final-drill': 0,
+          'neural-roam': 0,
+          'filter-group': 358,
+        };
+      });
+      const queueDataSource = {
+        fetchRows: vi.fn(() => new Promise<{ rows: BrowserCard[]; totalCount: number }>((resolve) => {
+          resolveQueueRows = resolve;
+        })),
+        getQueryFingerprint: vi.fn(() => `${queueId}-browser-query`),
+        getAllMatchedIds: vi.fn(async () => []),
+        getRowsByIds: vi.fn(async () => []),
+        getActionTargetsByIds: vi.fn(async () => []),
+        getSupportedActions: vi.fn(() => []),
+      };
+      createQueueDataSourceMock.mockReturnValue(queueDataSource);
+      const browserService = {
+        ...createBrowserService(),
+        ensureQueueReadModelReady: vi.fn(),
+      };
+
+      const wrapper = mountBrowser({
+        initialQueueId: queueId,
+        browserService: browserService as never,
+      });
+      await advance(0);
+      expect(wrapper.text()).toContain(`${queueId}:${initialCount}`);
+      expect(refreshQueueCountsBridgeMock).toHaveBeenCalledTimes(1);
+      expect(createQueueDataSourceMock).toHaveBeenCalledWith(
+        queueId,
+        expect.anything(),
+        expect.objectContaining({
+          cardType: 'all',
+          preset: 'all',
+          queryText: '',
+        }),
+        undefined,
+        expect.anything(),
+      );
+      expect(queueDataSource.fetchRows).toHaveBeenCalled();
+
+      resolveQueueRows({
+        rows: [buildBrowserCard(`${queueId}-row`, `doc-${queueId}`)],
+        totalCount: browserGridTotal,
+      });
+      await advance(250);
+
+      expect(refreshQueueCountsBridgeMock).toHaveBeenCalledTimes(1);
+      expect(wrapper.text()).toContain(`${queueId}:${browserGridTotal}`);
+
+      wrapper.unmount();
+    },
+  );
+
   it('opens Browser without triggering Native Riff incremental sync', async () => {
     createDeckDataSourceMock.mockReturnValue(createQueryableDataSource([
       buildBrowserCard('browser-open-sync-card', 'doc-1'),

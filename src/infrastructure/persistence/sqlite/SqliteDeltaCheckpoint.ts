@@ -7,6 +7,10 @@ import {
   type StorageMutationEnvelope,
   type StorageMutationOperation,
 } from '../../../../packages/contracts/src/backend-rpc';
+import {
+  planSqliteLegacyDeltaAdoption,
+  type SqliteLegacyDeltaAdoptionUnsupportedEntry,
+} from './SqliteLegacyDeltaAdoption';
 
 export const SQLITE_DELTA_LOG_DIR = 'sqlite-delta/v2';
 export const LEGACY_SQLITE_DELTA_LOG_FILE = 'sqlite-delta-log.v2.manifest.json';
@@ -28,6 +32,7 @@ type SqliteDeltaFileService = {
   writeJSON(fileName: string, data: unknown, metadata?: SqliteDeltaFileEffectMetadata): Promise<void>;
   readBinary(fileName: string, metadata?: SqliteDeltaFileEffectMetadata): Promise<Uint8Array | null>;
   writeBinary(fileName: string, bytes: Uint8Array, metadata?: SqliteDeltaFileEffectMetadata): Promise<void>;
+  listFiles?(prefix: string): Promise<Array<{ path: string; size: number | null }>>;
   deleteFile?(fileName: string): Promise<void>;
 };
 
@@ -152,12 +157,46 @@ export interface SqliteDeltaStartupEvidence {
 }
 
 export interface SqliteDeltaCompactionResult {
+  status: 'compacted' | 'no-progress';
+  reason: 'no-progress-uncovered' | null;
   coveredJournalSequence: number;
   candidateSegmentCount: number;
+  candidateEntryCount: number;
+  candidateBytes: number;
+  reclaimableEntryCount: number;
+  reclaimableBytes: number;
+  retainedEntryCount: number;
+  retainedBytes: number;
   deletedSegmentPaths: string[];
   relocatedEntryCount: number;
   relocatedSegmentPaths: string[];
   remainingSealedSegmentCount: number;
+}
+
+export interface SqliteDeltaOrphanCleanupResult {
+  status: 'dry-run' | 'completed' | 'partial';
+  listedFileCount: number;
+  protectedSegmentCount: number;
+  orphanFileCount: number;
+  orphanBytes: number;
+  unknownSizeOrphanCount: number;
+  deletedFiles: Array<{ path: string; size: number | null }>;
+  skippedFiles: Array<{ path: string; size: number | null; reason: string }>;
+  failedFiles: Array<{ path: string; size: number | null; reason: string }>;
+  remainingOrphanFileCount: number;
+  remainingOrphanBytes: number;
+  remainingUnknownSizeOrphanCount: number;
+}
+
+export interface SqliteDeltaLegacyAdoptionResult {
+  status: 'adopted' | 'not-needed' | 'blocked';
+  adoptedEntryCount: number;
+  firstJournalSequence: number | null;
+  lastJournalSequence: number | null;
+  nextJournalSequence: number;
+  replacedSegmentPaths: string[];
+  adoptedSegmentPaths: string[];
+  unsupportedEntries: SqliteLegacyDeltaAdoptionUnsupportedEntry[];
 }
 
 interface SqliteDeltaSegmentEnvelope {
@@ -1854,7 +1893,11 @@ export class SqliteDeltaCheckpointLayer {
 
   async replayPending(db: Database): Promise<SqliteDeltaOperationStatus> {
     this.clearAppendHotPathSnapshot();
-    const snapshot = await this.readSnapshot();
+    const snapshot = await this.readSnapshot({
+      allowVerifiedSegmentEvidence: true,
+      purpose: 'sqlite-delta.replay',
+      substep: 'read-pending-snapshot',
+    });
     const pendingBytes = snapshot.pendingBytes;
     if (snapshot.entries.length === 0) {
       this.lastReplay = {
@@ -2246,8 +2289,16 @@ export class SqliteDeltaCheckpointLayer {
     const candidates = orderedSealed.slice(0, candidateCount);
     if (candidates.length === 0) {
       return {
+        status: 'compacted',
+        reason: null,
         coveredJournalSequence,
         candidateSegmentCount: 0,
+        candidateEntryCount: 0,
+        candidateBytes: 0,
+        reclaimableEntryCount: 0,
+        reclaimableBytes: 0,
+        retainedEntryCount: 0,
+        retainedBytes: 0,
         deletedSegmentPaths: [],
         relocatedEntryCount: 0,
         relocatedSegmentPaths: [],
@@ -2265,14 +2316,35 @@ export class SqliteDeltaCheckpointLayer {
         substep: 'read-candidate-segment',
       })
     )));
-    const relocatedEntries = candidateEnvelopes
-      .flatMap((envelope) => envelope.entries)
-      .filter((entry) => {
-        const sequence = entry.mutationEnvelope?.journalSequence
-          ?? entry.durabilityReceipt?.journalSequence
-          ?? null;
-        return sequence === null || sequence > coveredJournalSequence;
-      });
+    const candidateEntries = candidateEnvelopes.flatMap((envelope) => envelope.entries);
+    const relocatedEntries = candidateEntries.filter((entry) => {
+      const sequence = entry.mutationEnvelope?.journalSequence
+        ?? entry.durabilityReceipt?.journalSequence
+        ?? null;
+      return sequence === null || sequence > coveredJournalSequence;
+    });
+    const reclaimableEntries = candidateEntries.filter((entry) => !relocatedEntries.includes(entry));
+    const candidateBytes = candidates.reduce((total, candidate) => total + candidate.byteSize, 0);
+    const reclaimableBytes = reclaimableEntries.reduce((total, entry) => total + entry.byteEstimate, 0);
+    const retainedBytes = relocatedEntries.reduce((total, entry) => total + entry.byteEstimate, 0);
+    if (reclaimableEntries.length === 0) {
+      return {
+        status: 'no-progress',
+        reason: 'no-progress-uncovered',
+        coveredJournalSequence,
+        candidateSegmentCount: candidates.length,
+        candidateEntryCount: candidateEntries.length,
+        candidateBytes,
+        reclaimableEntryCount: 0,
+        reclaimableBytes: 0,
+        retainedEntryCount: relocatedEntries.length,
+        retainedBytes,
+        deletedSegmentPaths: [],
+        relocatedEntryCount: 0,
+        relocatedSegmentPaths: [],
+        remainingSealedSegmentCount: orderedSealed.length,
+      };
+    }
     const relocation = await this.writeRelocatedSegments(
       relocatedEntries,
       manifest.nextSequence,
@@ -2328,12 +2400,274 @@ export class SqliteDeltaCheckpointLayer {
       },
     ));
     return {
+      status: 'compacted',
+      reason: null,
       coveredJournalSequence,
       candidateSegmentCount: candidates.length,
+      candidateEntryCount: candidateEntries.length,
+      candidateBytes,
+      reclaimableEntryCount: reclaimableEntries.length,
+      reclaimableBytes,
+      retainedEntryCount: relocatedEntries.length,
+      retainedBytes,
       deletedSegmentPaths: candidatePaths,
       relocatedEntryCount: relocatedEntries.length,
       relocatedSegmentPaths: relocation.manifestEntries.map((entry) => entry.path),
       remainingSealedSegmentCount: completedManifest.sealedSegments.length,
+    };
+  }
+
+  async cleanupOrphanSegments(input: {
+    dryRun?: boolean;
+    maxFiles?: number;
+    maxBytes?: number;
+  } = {}): Promise<SqliteDeltaOrphanCleanupResult> {
+    if (!this.fileService.listFiles) {
+      throw new Error('sqlite-delta-orphan-inventory-unavailable');
+    }
+    if (!input.dryRun && !this.fileService.deleteFile) {
+      throw new Error('sqlite-delta-orphan-delete-unavailable');
+    }
+    const maxFiles = Math.max(1, Math.floor(Number(input.maxFiles) || 32));
+    const maxBytes = Math.max(1, Math.floor(Number(input.maxBytes) || 16 * 1024 * 1024));
+    const manifest = await this.readManifest({
+      purpose: 'sqlite-delta.orphan-cleanup',
+      substep: 'read-protected-manifest',
+    });
+    const protectedPaths = this.protectedSegmentPaths(manifest);
+    const listed = await this.fileService.listFiles(`${SQLITE_DELTA_LOG_DIR}/`);
+    const byPath = new Map<string, { path: string; size: number | null }>();
+    for (const entry of listed) {
+      const path = String(entry.path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+      if (!path || path.includes('..') || byPath.has(path)) {
+        continue;
+      }
+      byPath.set(path, {
+        path,
+        size: Number.isFinite(Number(entry.size))
+          ? Math.max(0, Math.floor(Number(entry.size)))
+          : null,
+      });
+    }
+    const orphanFiles = Array.from(byPath.values())
+      .filter((entry) => this.isSqliteDeltaSealedSegmentPath(entry.path))
+      .filter((entry) => !protectedPaths.has(entry.path))
+      .sort((left, right) => left.path.localeCompare(right.path));
+    const orphanBytes = orphanFiles.reduce((total, entry) => total + (entry.size ?? 0), 0);
+    const unknownSizeOrphanCount = orphanFiles.filter((entry) => entry.size === null).length;
+    if (input.dryRun) {
+      return {
+        status: 'dry-run',
+        listedFileCount: byPath.size,
+        protectedSegmentCount: protectedPaths.size,
+        orphanFileCount: orphanFiles.length,
+        orphanBytes,
+        unknownSizeOrphanCount,
+        deletedFiles: [],
+        skippedFiles: [],
+        failedFiles: [],
+        remainingOrphanFileCount: orphanFiles.length,
+        remainingOrphanBytes: orphanBytes,
+        remainingUnknownSizeOrphanCount: unknownSizeOrphanCount,
+      };
+    }
+
+    const deletedFiles: Array<{ path: string; size: number | null }> = [];
+    const skippedFiles: Array<{ path: string; size: number | null; reason: string }> = [];
+    const failedFiles: Array<{ path: string; size: number | null; reason: string }> = [];
+    let deletedBytes = 0;
+    for (const entry of orphanFiles) {
+      if (deletedFiles.length >= maxFiles) {
+        break;
+      }
+      if (entry.size !== null && deletedBytes + entry.size > maxBytes) {
+        skippedFiles.push({ ...entry, reason: 'byte-budget' });
+        continue;
+      }
+      const latestManifest = await this.readManifest({
+        purpose: 'sqlite-delta.orphan-cleanup',
+        substep: 'revalidate-protected-manifest',
+      });
+      if (this.protectedSegmentPaths(latestManifest).has(entry.path)) {
+        skippedFiles.push({ ...entry, reason: 'became-protected' });
+        continue;
+      }
+      try {
+        await this.fileService.deleteFile!(entry.path);
+        deletedFiles.push(entry);
+        deletedBytes += entry.size ?? 0;
+        this.verifiedSegmentEvidenceByPath.delete(entry.path);
+      } catch (error) {
+        failedFiles.push({
+          ...entry,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        break;
+      }
+    }
+    const deletedPaths = new Set(deletedFiles.map((entry) => entry.path));
+    const remaining = orphanFiles.filter((entry) => !deletedPaths.has(entry.path));
+    const remainingOrphanBytes = remaining.reduce((total, entry) => total + (entry.size ?? 0), 0);
+    const remainingUnknownSizeOrphanCount = remaining.filter((entry) => entry.size === null).length;
+    return {
+      status: remaining.length === 0 && failedFiles.length === 0 ? 'completed' : 'partial',
+      listedFileCount: byPath.size,
+      protectedSegmentCount: protectedPaths.size,
+      orphanFileCount: orphanFiles.length,
+      orphanBytes,
+      unknownSizeOrphanCount,
+      deletedFiles,
+      skippedFiles,
+      failedFiles,
+      remainingOrphanFileCount: remaining.length,
+      remainingOrphanBytes,
+      remainingUnknownSizeOrphanCount,
+    };
+  }
+
+  async adoptLegacyEntries(input: {
+    deviceId: string;
+    identityEpoch: string;
+    afterJournalSequence: number;
+  }): Promise<SqliteDeltaLegacyAdoptionResult> {
+    this.clearAppendHotPathSnapshot();
+    if (!this.fileService.deleteFile) {
+      throw new Error('sqlite-delta-legacy-adoption-delete-unavailable');
+    }
+    let manifest = await this.readManifest({
+      purpose: 'sqlite-delta.legacy-adoption',
+      substep: 'read-manifest',
+    });
+    if (
+      manifest.checkpoint?.reason === 'legacy-adoption'
+      && manifest.checkpoint.coveredSegmentPaths.length > 0
+    ) {
+      const cleanupError = await this.deleteCoveredSegmentFiles(
+        manifest.checkpoint.coveredSegmentPaths,
+      );
+      if (cleanupError) {
+        throw new Error(cleanupError);
+      }
+      manifest = {
+        ...manifest,
+        checkpoint: null,
+        updatedAt: Date.now(),
+      };
+      await this.fileService.writeJSON(this.fileName, manifest, {
+        purpose: 'sqlite-delta.legacy-adoption',
+        substep: 'clear-resumed-cleanup-checkpoint',
+      });
+    }
+    const snapshot = await this.readSnapshotFromManifest(manifest, {
+      allowVerifiedSegmentEvidence: true,
+      purpose: 'sqlite-delta.legacy-adoption',
+      substep: 'read-verified-entries',
+    });
+    const existingSequenceFrontier = snapshot.entries.reduce((frontier, entry) => {
+      const sequence = entry.mutationEnvelope?.journalSequence
+        ?? entry.durabilityReceipt?.journalSequence
+        ?? 0;
+      return Math.max(frontier, sequence);
+    }, 0);
+    const startingJournalSequence = Math.max(
+      1,
+      manifest.nextMutationSequence,
+      existingSequenceFrontier + 1,
+      Math.max(0, Math.floor(Number(input.afterJournalSequence) || 0)) + 1,
+    );
+    const plan = planSqliteLegacyDeltaAdoption({
+      entries: snapshot.entries,
+      deviceId: input.deviceId,
+      identityEpoch: input.identityEpoch,
+      startingJournalSequence,
+    });
+    if (plan.status === 'blocked') {
+      return {
+        status: 'blocked',
+        adoptedEntryCount: 0,
+        firstJournalSequence: null,
+        lastJournalSequence: null,
+        nextJournalSequence: manifest.nextMutationSequence,
+        replacedSegmentPaths: [],
+        adoptedSegmentPaths: [],
+        unsupportedEntries: plan.unsupportedEntries,
+      };
+    }
+    if (plan.status === 'not-needed') {
+      return {
+        status: 'not-needed',
+        adoptedEntryCount: 0,
+        firstJournalSequence: null,
+        lastJournalSequence: null,
+        nextJournalSequence: manifest.nextMutationSequence,
+        replacedSegmentPaths: [],
+        adoptedSegmentPaths: [],
+        unsupportedEntries: [],
+      };
+    }
+
+    const replacement = await this.writeRelocatedSegments(plan.entries, manifest.nextSequence);
+    const replacedSegmentPaths = uniqueStrings([
+      ...manifest.sealedSegments.map((segment) => segment.path),
+      ...(manifest.openSegment ? [manifest.openSegment.path] : []),
+    ]);
+    const switchedManifest: SqliteDeltaSegmentManifest = {
+      ...manifest,
+      openSegment: null,
+      sealedSegments: replacement.manifestEntries,
+      updatedAt: Date.now(),
+      nextSequence: replacement.nextSequence,
+      nextMutationSequence: plan.nextJournalSequence,
+      checkpoint: {
+        clearedAt: Date.now(),
+        coveredSegmentPaths: replacedSegmentPaths,
+        reason: 'legacy-adoption',
+      },
+    };
+    await this.fileService.writeJSON(this.fileName, switchedManifest, {
+      purpose: 'sqlite-delta.legacy-adoption',
+      substep: 'publish-adopted-manifest',
+    });
+    const published = await this.readManifest({
+      purpose: 'sqlite-delta.legacy-adoption',
+      substep: 'verify-adopted-manifest',
+    });
+    if (manifestReadSignature(published) !== manifestReadSignature(switchedManifest)) {
+      throw new Error('sqlite-delta-legacy-adoption-manifest-verification-failed');
+    }
+    const cleanupError = await this.deleteCoveredSegmentFiles(replacedSegmentPaths);
+    if (cleanupError) {
+      throw new Error(cleanupError);
+    }
+    const completedManifest: SqliteDeltaSegmentManifest = {
+      ...switchedManifest,
+      checkpoint: null,
+      updatedAt: Date.now(),
+    };
+    await this.fileService.writeJSON(this.fileName, completedManifest, {
+      purpose: 'sqlite-delta.legacy-adoption',
+      substep: 'complete-adoption-cleanup',
+    });
+    for (const path of replacedSegmentPaths) {
+      this.verifiedSegmentEvidenceByPath.delete(path);
+    }
+    this.rememberAppendHotPathSnapshot(await this.readSnapshotFromManifest(
+      completedManifest,
+      {
+        allowVerifiedSegmentEvidence: true,
+        purpose: 'sqlite-delta.legacy-adoption',
+        substep: 'remember-adopted-snapshot',
+      },
+    ));
+    return {
+      status: 'adopted',
+      adoptedEntryCount: plan.adoptedEntryCount,
+      firstJournalSequence: plan.firstJournalSequence,
+      lastJournalSequence: plan.lastJournalSequence,
+      nextJournalSequence: plan.nextJournalSequence,
+      replacedSegmentPaths,
+      adoptedSegmentPaths: replacement.manifestEntries.map((entry) => entry.path),
+      unsupportedEntries: [],
     };
   }
 
@@ -2439,6 +2773,20 @@ export class SqliteDeltaCheckpointLayer {
       manifestEntries,
       nextSequence,
     };
+  }
+
+  private protectedSegmentPaths(manifest: SqliteDeltaSegmentManifest): Set<string> {
+    return new Set(uniqueStrings([
+      ...manifest.sealedSegments.map((segment) => segment.path),
+      ...(manifest.openSegment ? [manifest.openSegment.path] : []),
+      ...(manifest.checkpoint?.coveredSegmentPaths ?? []),
+    ]));
+  }
+
+  private isSqliteDeltaSealedSegmentPath(path: string): boolean {
+    return new RegExp(
+      `^${SQLITE_DELTA_LOG_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/sqlite-delta-log\\.v2\\.sealed-\\d+\\.msgpack$`,
+    ).test(path);
   }
 
   getHotPathDiagnostics(): SqliteDeltaHotPathDiagnostics {

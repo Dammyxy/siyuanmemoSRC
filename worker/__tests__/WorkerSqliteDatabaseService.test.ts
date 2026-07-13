@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { encode } from '@msgpack/msgpack';
+import { decode, encode } from '@msgpack/msgpack';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
@@ -11,7 +11,10 @@ import {
   type StorageDurabilityReceipt,
 } from '../../packages/contracts/src/backend-rpc';
 import { CardState, CardType } from '@/types/card';
-import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
+import {
+  createSqliteFileServiceAdapter,
+  WorkerSqliteDatabaseService,
+} from '../db/SqliteDatabaseService';
 import {
   createInMemorySqlitePersistenceBridge,
   type SqlitePersistenceBridge,
@@ -29,6 +32,59 @@ const SQLITE_DELTA_V2_SEALED_SEGMENT = 'sqlite-delta/v2/sqlite-delta-log.v2.seal
 const WORKER_TRUTH_DEVICE_ID = 'device-worker-test';
 
 type InMemorySqliteBridge = ReturnType<typeof createInMemorySqlitePersistenceBridge>;
+
+function checksumSqliteDeltaFixture(bytes: Uint8Array): string {
+  let hash = 0x811c9dc5;
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+async function stripSqliteDeltaMutationEnvelopes(
+  bridge: InMemorySqliteBridge,
+): Promise<void> {
+  const manifest = structuredClone(bridge.jsonSnapshot(SQLITE_DELTA_V2_MANIFEST)) as {
+    sealedSegments: Array<Record<string, unknown> & { path: string }>;
+    openSegment: (Record<string, unknown> & { path: string }) | null;
+    nextMutationSequence: number;
+    checkpoint: unknown;
+  };
+  const segments = [
+    ...manifest.sealedSegments,
+    ...(manifest.openSegment ? [manifest.openSegment] : []),
+  ];
+  const updatedByPath = new Map<string, Record<string, unknown>>();
+  for (const segment of segments) {
+    const bytes = await bridge.readBinary(segment.path);
+    if (!bytes) {
+      throw new Error(`Missing SQLite delta test segment ${segment.path}`);
+    }
+    const envelope = structuredClone(decode(bytes)) as {
+      entries: Array<Record<string, unknown>>;
+    };
+    envelope.entries = envelope.entries.map((entry) => ({
+      ...entry,
+      mutationEnvelope: null,
+      durabilityReceipt: null,
+    }));
+    const rewritten = encode(envelope);
+    await bridge.writeBinary(segment.path, rewritten);
+    updatedByPath.set(segment.path, {
+      ...segment,
+      checksum: checksumSqliteDeltaFixture(rewritten),
+      byteSize: rewritten.byteLength,
+    });
+  }
+  manifest.sealedSegments = manifest.sealedSegments.map((segment) => updatedByPath.get(segment.path)!);
+  manifest.openSegment = manifest.openSegment
+    ? updatedByPath.get(manifest.openSegment.path) as typeof manifest.openSegment
+    : null;
+  manifest.nextMutationSequence = 1;
+  manifest.checkpoint = null;
+  await bridge.writeJSON!(SQLITE_DELTA_V2_MANIFEST, manifest);
+}
 
 async function seedCardMemoryTruth(
   bridge: InMemorySqliteBridge,
@@ -284,6 +340,32 @@ function wrapBridgeWithTrackedTruthWrites(bridge: InMemorySqliteBridge) {
 }
 
 describe('WorkerSqliteDatabaseService', () => {
+  it('advertises SQLite delete and list capabilities only when the bridge implements them', async () => {
+    const bridge: SqlitePersistenceBridge = {
+      readBinary: async () => null,
+      writeBinary: async () => undefined,
+    };
+
+    const adapter = createSqliteFileServiceAdapter(bridge);
+
+    expect(adapter.listFiles).toBeUndefined();
+    expect(adapter.deleteFile).toBeUndefined();
+  });
+
+  it('fails SQLite deletion when the bridge reports success but the file remains', async () => {
+    const path = 'sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack';
+    const bridge: SqlitePersistenceBridge = {
+      readBinary: async (candidate) => candidate === path ? new Uint8Array([1]) : null,
+      writeBinary: async () => undefined,
+      deleteFile: async () => undefined,
+    };
+    const adapter = createSqliteFileServiceAdapter(bridge);
+
+    await expect(adapter.deleteFile?.(path)).rejects.toThrow(
+      `SQLite persistence delete verification failed for ${path}`,
+    );
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -698,7 +780,26 @@ describe('WorkerSqliteDatabaseService', () => {
         status: 'ready',
       },
     });
-    expect(loadResult.deferredWork).toEqual([]);
+    expect(loadResult.deferredWork).toEqual([
+      expect.objectContaining({
+        kind: 'storage-pressure-recovery',
+        owner: 'application-context',
+        phase: 'post-ready',
+        reason: 'db.load',
+        safeToDefer: true,
+        statusReference: {
+          kind: 'kernel-companion-background-work',
+          workKind: 'storage-pressure-recovery',
+        },
+        frontier: expect.objectContaining({
+          pluginInstallationId: WORKER_TRUTH_DEVICE_ID,
+          identityEpoch: 'epoch-worker-test',
+          inputVersion: 'startup-maintenance-input-v1',
+          frontierHash: expect.any(String),
+          recoveryStatus: 'ready',
+        }),
+      }),
+    ]);
     await expect(database.getStorageMaintenanceStatus({
       operationId: 'startup-storage-maintenance-v1:hard-pressure-test',
       migrationId: 'startup-storage-maintenance-v1',
@@ -728,6 +829,297 @@ describe('WorkerSqliteDatabaseService', () => {
         value: ['startup-hard-pressure-card'],
       }],
     })).rejects.toThrow('STORAGE_PRESSURE');
+  });
+
+  it('does not relocate fully uncovered legacy delta during hard-pressure db.load', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const now = Date.now();
+    const segmentPaths = Array.from(
+      { length: 17 },
+      (_, index) => `sqlite-delta/v2/sqlite-delta-log.v2.sealed-${index + 1}.msgpack`,
+    );
+    const sealedSegments = [];
+    for (const [index, path] of segmentPaths.entries()) {
+      const sequence = index + 1;
+      const bytes = encode({
+        version: 2,
+        kind: 'sqlite-delta-segment',
+        path,
+        sequence,
+        sealed: true,
+        createdAt: now + index,
+        updatedAt: now + index,
+        entries: [{
+          id: `legacy-startup-${sequence}`,
+          version: 1,
+          label: 'review.feedback',
+          createdAt: now + index,
+          schemaFingerprints: {},
+          tables: [],
+          changes: [],
+          mutationEnvelope: null,
+          durabilityReceipt: null,
+          byteEstimate: 1,
+        }],
+      });
+      await bridge.writeBinary(path, bytes);
+      sealedSegments.push({
+        version: 2,
+        path,
+        sequence,
+        sealed: true,
+        checksum: checksumSqliteDeltaFixture(bytes),
+        entryCount: 1,
+        byteSize: bytes.byteLength,
+        minCreatedAt: now + index,
+        maxCreatedAt: now + index,
+        sealedAt: now + index,
+      });
+    }
+    await bridge.writeJSON!(SQLITE_DELTA_V2_MANIFEST, {
+      version: 2,
+      path: SQLITE_DELTA_V2_MANIFEST,
+      openSegment: null,
+      sealedSegments,
+      updatedAt: now,
+      nextSequence: segmentPaths.length + 1,
+      nextMutationSequence: 1,
+      checkpoint: null,
+    });
+    const orphanPaths = [
+      'sqlite-delta/v2/sqlite-delta-log.v2.sealed-100.msgpack',
+      'sqlite-delta/v2/sqlite-delta-log.v2.sealed-101.msgpack',
+      'sqlite-delta/v2/sqlite-delta-log.v2.sealed-102.msgpack',
+    ];
+    for (const [index, path] of orphanPaths.entries()) {
+      await bridge.writeBinary(path, new Uint8Array(10 + index));
+    }
+    const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
+    const writeJSON = vi.fn(bridge.writeJSON!.bind(bridge));
+    const deleteFile = vi.fn(bridge.deleteFile!.bind(bridge));
+    const database = new WorkerSqliteDatabaseService(
+      {
+        ...bridge,
+        writeBinary,
+        writeJSON,
+        deleteFile,
+      },
+      undefined,
+      {
+        storageBudgetPolicies: [{
+          family: 'sqlite-delta',
+          files: { target: 1, soft: 1, high: 1, hard: 1 },
+        }],
+      },
+    );
+
+    const loadResult = await database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-legacy-pressure',
+    });
+
+    expect(loadResult.readiness).toMatchObject({
+      status: 'read-only-storage-pressure',
+      projectionReadable: true,
+      writable: false,
+    });
+    expect(writeBinary.mock.calls.filter(([path]) => (
+      String(path).startsWith('sqlite-delta/v2/')
+    ))).toEqual([]);
+    expect(writeJSON.mock.calls.filter(([path]) => (
+      String(path) === SQLITE_DELTA_V2_MANIFEST
+    ))).toEqual([]);
+    expect(deleteFile.mock.calls.filter(([path]) => (
+      segmentPaths.includes(String(path))
+    ))).toEqual([]);
+    await expect(database.getStorageInventory()).resolves.toMatchObject({
+      metrics: expect.arrayContaining([
+        expect.objectContaining({
+          family: 'sqlite-delta',
+          files: 17,
+        }),
+      ]),
+      pressure: {
+        level: 'hard',
+        blockingMutationGrowth: true,
+        reason: expect.stringContaining('no-progress-uncovered'),
+      },
+    });
+
+    expect((await bridge.listFiles!('sqlite-delta/v2/')).map((entry) => entry.path))
+      .toEqual(expect.arrayContaining(orphanPaths));
+    await expect(database.cleanupSqliteDeltaOrphans({ dryRun: true })).resolves.toMatchObject({
+      cleanup: {
+        status: 'dry-run',
+        orphanFileCount: 3,
+        orphanBytes: 33,
+        deletedFiles: [],
+      },
+      inventory: {
+        pressure: {
+          level: 'hard',
+          blockingMutationGrowth: true,
+        },
+      },
+    });
+    const firstCleanup = await database.cleanupSqliteDeltaOrphans({
+      maxFiles: 2,
+      maxBytes: 1_000,
+    });
+    expect(firstCleanup).toMatchObject({
+      cleanup: {
+        status: 'partial',
+        remainingOrphanFileCount: 1,
+      },
+      inventory: {
+        pressure: {
+          level: 'hard',
+          blockingMutationGrowth: true,
+        },
+      },
+    });
+    expect(firstCleanup.cleanup.deletedFiles.map((entry) => entry.path)).toEqual(orphanPaths.slice(0, 2));
+    expect(await Promise.all(segmentPaths.map(async (path) => Boolean(await bridge.readBinary(path)))))
+      .toEqual(segmentPaths.map(() => true));
+    await expect(database.cleanupSqliteDeltaOrphans({
+      maxFiles: 2,
+      maxBytes: 1_000,
+    })).resolves.toMatchObject({
+      cleanup: {
+        status: 'completed',
+        remainingOrphanFileCount: 0,
+      },
+      inventory: {
+        pressure: {
+          level: 'hard',
+          blockingMutationGrowth: true,
+        },
+      },
+    });
+  });
+
+  it('adopts legacy card delta, verifies truth, compacts active storage, and rebuilds after restart', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const writer = new WorkerSqliteDatabaseService(
+      bridge,
+      undefined,
+      { truthPromotionScheduleDelayMs: 60_000 },
+    );
+    await writer.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-legacy-recovery',
+    });
+    for (let index = 1; index <= 17; index += 1) {
+      const cardId = `legacy-recovery-card-${index}`;
+      await writer.commitCardScheduleBatch({
+        mutationId: `legacy-recovery-seed-${index}`,
+        schedulingWriteSource: 'manual-reschedule',
+        cards: [{
+          id: cardId,
+          xiuyuanID: `xy-${cardId}`,
+          blockId: `block-${cardId}`,
+          due: 1_700_000_000_000 + index,
+          stability: 0,
+          difficulty: 0,
+          reps: 0,
+          lapses: 0,
+          state: CardState.New,
+          lastReview: 0,
+          elapsedDays: 0,
+          scheduledDays: 0,
+          priority: 50,
+          type: CardType.Item,
+          tags: [],
+          leechCount: 0,
+          isLeech: false,
+          skipped: false,
+          createdAt: 1_600_000_000_000,
+          updatedAt: 1_700_000_000_000 + index,
+          schedulerType: 'fsrs-v6',
+        }],
+      });
+    }
+    await writer.shutdown();
+    await stripSqliteDeltaMutationEnvelopes(bridge);
+
+    const recovering = new WorkerSqliteDatabaseService(
+      bridge,
+      undefined,
+      {
+        truthPromotionScheduleDelayMs: 60_000,
+        storageBudgetPolicies: [{
+          family: 'sqlite-delta',
+          files: { target: 0, soft: 1, high: 1, hard: 1 },
+        }],
+      },
+    );
+    const loadResult = await recovering.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-legacy-recovery',
+    });
+    expect(loadResult.readiness).toMatchObject({
+      status: 'read-only-storage-pressure',
+      projectionReadable: true,
+      writable: false,
+    });
+
+    const recovery = await recovering.recoverLegacyDeltaStoragePressure({
+      maxCleanupFiles: 64,
+      maxCleanupBytes: 16 * 1024 * 1024,
+    });
+
+    expect(recovery).toMatchObject({
+      ok: true,
+      phase: 'completed',
+      adoption: {
+        status: 'adopted',
+        adoptedEntryCount: 17,
+        firstJournalSequence: 1,
+        lastJournalSequence: 17,
+      },
+      promotion: {
+        truthCoverageFrontier: 17,
+        pendingMutationCount: 0,
+        batchCount: 1,
+      },
+      deltaCompaction: {
+        status: 'compacted',
+        retainedEntryCount: 0,
+        remainingSealedSegmentCount: 0,
+      },
+      orphanCleanup: {
+        status: 'completed',
+        remainingOrphanFileCount: 0,
+      },
+      inventory: {
+        pressure: {
+          level: 'normal',
+          blockingMutationGrowth: false,
+        },
+      },
+      error: null,
+    });
+    await expect(recovering.getCard('legacy-recovery-card-17')).resolves.toMatchObject({
+      id: 'legacy-recovery-card-17',
+      reps: 0,
+    });
+    await recovering.shutdown();
+
+    await bridge.deleteFile?.('siyuanmemo.db');
+    const restarted = new WorkerSqliteDatabaseService(
+      bridge,
+      undefined,
+      { truthPromotionScheduleDelayMs: 60_000 },
+    );
+    await restarted.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-legacy-recovery',
+    });
+    await expect(restarted.getCard('legacy-recovery-card-17')).resolves.toMatchObject({
+      id: 'legacy-recovery-card-17',
+      reps: 0,
+    });
+    await restarted.shutdown();
   });
 
   it('runs production truth compaction behind the Worker publication lock', async () => {
@@ -3556,6 +3948,87 @@ describe('WorkerSqliteDatabaseService', () => {
       'STORAGE_RECOVERY_REQUIRED',
     );
     await expect(database.promotePendingTruth()).rejects.toThrow('STORAGE_RECOVERY_REQUIRED');
+  });
+
+  it('reads each verified sealed sqlite delta segment once during db.load startup', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const now = Date.now();
+    const segmentPaths = Array.from(
+      { length: 12 },
+      (_, index) => `sqlite-delta/v2/sqlite-delta-log.v2.sealed-${3_047 + index}.msgpack`,
+    );
+    const sealedSegments = [];
+    for (const [index, path] of segmentPaths.entries()) {
+      const sequence = 3_047 + index;
+      const bytes = encode({
+        version: 2,
+        kind: 'sqlite-delta-segment',
+        path,
+        sequence,
+        sealed: true,
+        createdAt: now + index,
+        updatedAt: now + index,
+        entries: [{
+          id: `startup-segment-${sequence}`,
+          version: 1,
+          label: 'startup-segment-read-bound',
+          createdAt: now + index,
+          schemaFingerprints: {},
+          tables: [],
+          changes: [],
+          mutationEnvelope: null,
+          durabilityReceipt: null,
+          byteEstimate: 1,
+        }],
+      });
+      await bridge.writeBinary(path, bytes);
+      sealedSegments.push({
+        version: 2,
+        path,
+        sequence,
+        sealed: true,
+        checksum: checksumSqliteDeltaFixture(bytes),
+        entryCount: 1,
+        byteSize: bytes.byteLength,
+        minCreatedAt: now + index,
+        maxCreatedAt: now + index,
+        sealedAt: now + index,
+      });
+    }
+    await bridge.writeJSON!(SQLITE_DELTA_V2_MANIFEST, {
+      version: 2,
+      path: SQLITE_DELTA_V2_MANIFEST,
+      openSegment: null,
+      sealedSegments,
+      updatedAt: now,
+      nextSequence: 3_047 + segmentPaths.length,
+      nextMutationSequence: 1,
+      checkpoint: null,
+    });
+    const readBinary = vi.fn(bridge.readBinary.bind(bridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...bridge,
+      readBinary,
+    });
+
+    const loadResult = await database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-startup-read-bound',
+    });
+
+    expect(loadResult).toMatchObject({
+      ok: true,
+      initialized: true,
+      readiness: {
+        status: 'ready',
+        projectionReadable: true,
+        writable: true,
+      },
+    });
+    const sealedSegmentReads = readBinary.mock.calls
+      .map(([path]) => path)
+      .filter((path) => segmentPaths.includes(path));
+    expect(sealedSegmentReads).toEqual(segmentPaths);
   });
 
   it('quarantines an uncovered delta mutation that cannot be replayed', async () => {

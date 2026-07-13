@@ -4,6 +4,87 @@ import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
 
 describe('BackendKernel', () => {
+  it('keeps Review domain sync status read-only during startup recovery', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await database.load({
+      startupIdentityDisposition: {
+        version: 1,
+        status: 'read-only-recovery-required',
+        writable: false,
+        retryable: false,
+        deviceId: 'device-temp-local',
+        identityEpoch: null,
+        source: 'temp-local',
+        reason: 'Truth Device Identity source is not verified for startup truth mutation: temp-local',
+      },
+    });
+    const mergeExternalDatabaseIfChanged = vi.spyOn(database, 'mergeExternalDatabaseIfChanged');
+    const kernel = new BackendKernel({ database });
+
+    await expect(kernel.handle({
+      id: 'domain-sync-review-preflight-read-only-recovery',
+      jsonrpc: '2.0',
+      method: 'domainSync.status',
+      params: [{
+        context: 'review-feedback-preflight',
+        cardId: 'card-1',
+      }],
+    })).resolves.toMatchObject({
+      result: {
+        ok: true,
+        sanity: { status: 'clean' },
+      },
+    });
+    expect(mergeExternalDatabaseIfChanged).not.toHaveBeenCalled();
+  });
+
+  it('keeps manual domain sync diagnostics read-only during startup recovery', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await database.load({
+      startupIdentityDisposition: {
+        version: 1,
+        status: 'read-only-recovery-required',
+        writable: false,
+        retryable: false,
+        deviceId: 'device-temp-local',
+        identityEpoch: null,
+        source: 'temp-local',
+        reason: 'Truth Device Identity source is not verified for startup truth mutation: temp-local',
+      },
+    });
+    const mergeExternalDatabaseIfChanged = vi.spyOn(database, 'mergeExternalDatabaseIfChanged');
+    const kernel = new BackendKernel({ database });
+
+    await expect(kernel.handle({
+      id: 'domain-sync-status-read-only-recovery',
+      jsonrpc: '2.0',
+      method: 'domainSync.status',
+      params: [{}],
+    })).resolves.toMatchObject({
+      result: {
+        ok: true,
+        sanity: { status: 'clean' },
+      },
+    });
+    await expect(kernel.handle({
+      id: 'domain-sync-repair-preview-read-only-recovery',
+      jsonrpc: '2.0',
+      method: 'domainSync.repair.preview',
+      params: [{}],
+    })).resolves.toMatchObject({
+      result: { ok: true },
+    });
+    await expect(kernel.handle({
+      id: 'domain-sync-cleanup-candidates-read-only-recovery',
+      jsonrpc: '2.0',
+      method: 'domainSync.conflictSources.cleanupCandidates',
+      params: [{}],
+    })).resolves.toMatchObject({
+      result: { ok: true },
+    });
+    expect(mergeExternalDatabaseIfChanged).not.toHaveBeenCalled();
+  });
+
   it('allows queue state read during read-only recovery without storage-refresh preflight', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     await database.load({

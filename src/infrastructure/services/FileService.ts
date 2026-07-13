@@ -498,6 +498,10 @@ export class FileService implements IFileService {
   }
 
   async listFiles(prefix: string): Promise<string[]> {
+    return (await this.listFileEntries(prefix)).map((entry) => entry.path);
+  }
+
+  async listFileEntries(prefix: string): Promise<Array<{ path: string; size: number | null }>> {
     const normalized = String(prefix || '')
       .replace(/\\/g, '/')
       .replace(/^\/+/, '')
@@ -508,7 +512,10 @@ export class FileService implements IFileService {
     const entries = await this.readDir(this.resolvePluginDataPath(normalized));
     return entries
       .filter((entry) => !entry.isDir)
-      .map((entry) => `${normalized}/${entry.name}`);
+      .map((entry) => ({
+        path: `${normalized}/${entry.name}`,
+        size: Number.isFinite(Number(entry.size)) ? Math.max(0, Math.floor(Number(entry.size))) : null,
+      }));
   }
 
   async readSyncConflictDatabaseSources(): Promise<Array<{

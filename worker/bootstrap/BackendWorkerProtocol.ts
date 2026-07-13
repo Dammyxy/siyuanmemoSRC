@@ -14,11 +14,18 @@ export type BackendWorkerHostEffectAttribution = {
   requestMethod?: string | null;
 };
 
+export interface BackendWorkerSqliteFileEntry {
+  path: string;
+  size: number | null;
+}
+
 export type BackendWorkerHostEffect =
   | ({ kind: 'sqlite.readBinary'; path: string } & BackendWorkerHostEffectAttribution)
   | ({ kind: 'sqlite.writeBinary'; path: string; bytes: Uint8Array } & BackendWorkerHostEffectAttribution)
   | ({ kind: 'sqlite.readJSON'; path: string } & BackendWorkerHostEffectAttribution)
   | ({ kind: 'sqlite.writeJSON'; path: string; value: unknown } & BackendWorkerHostEffectAttribution)
+  | ({ kind: 'sqlite.listFiles'; prefix: string } & BackendWorkerHostEffectAttribution)
+  | ({ kind: 'sqlite.deleteFile'; path: string } & BackendWorkerHostEffectAttribution)
   | { kind: 'sqlite.hasLegacyPetalSqliteDb' }
   | ({ kind: 'truth.readBinary'; path: string } & BackendWorkerHostEffectAttribution)
   | ({ kind: 'truth.writeBinary'; path: string; bytes: Uint8Array } & BackendWorkerHostEffectAttribution)

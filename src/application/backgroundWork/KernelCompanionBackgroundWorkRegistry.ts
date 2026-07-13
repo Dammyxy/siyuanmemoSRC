@@ -1,5 +1,6 @@
 export type KernelCompanionBackgroundWorkKind =
   | 'startup-storage-maintenance'
+  | 'storage-pressure-recovery'
   | 'progressive-excerpt-completion-repair'
   | 'review-truth-flush'
   | 'review-truth-backfill'
@@ -88,6 +89,34 @@ export interface KernelCompanionStartupStorageMaintenanceDiagnostics {
   [key: string]: unknown;
 }
 
+export interface KernelCompanionStoragePressureRecoveryDiagnostics {
+  reason?: string;
+  phase?: string;
+  descriptorReason?: string;
+  batchIndex?: number;
+  maxBatches?: number;
+  adoptedEntryCount?: number;
+  unsupportedEntryCount?: number;
+  firstJournalSequence?: number | null;
+  lastJournalSequence?: number | null;
+  promotionBatchCount?: number;
+  truthCoverageFrontier?: number | null;
+  candidateEntryCount?: number;
+  reclaimableEntryCount?: number;
+  retainedEntryCount?: number;
+  deletedFileCount?: number;
+  failedFileCount?: number;
+  remainingOrphanFileCount?: number;
+  remainingOrphanBytes?: number;
+  pressureLevel?: string;
+  pressureReason?: string | null;
+  errorCode?: string | null;
+  deferredDescriptorCount?: number;
+  lifecycleDedupeKeyAvailable?: boolean;
+  unavailable?: boolean;
+  [key: string]: unknown;
+}
+
 export interface KernelCompanionProgressiveExcerptCompletionRepairDiagnostics {
   reason?: string;
   delayMs?: number;
@@ -109,6 +138,7 @@ export interface KernelCompanionReviewTruthFlushDiagnostics {
 
 export type KernelCompanionBackgroundWorkDiagnostics =
   | KernelCompanionStartupStorageMaintenanceDiagnostics
+  | KernelCompanionStoragePressureRecoveryDiagnostics
   | KernelCompanionProgressiveExcerptCompletionRepairDiagnostics
   | KernelCompanionReviewTruthFlushDiagnostics
   | KernelCompanionReviewTruthBackfillDiagnostics

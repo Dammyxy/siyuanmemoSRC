@@ -8,6 +8,8 @@ import type {
   BackendPrivateHealthResult,
   BackendStorageMaintenanceApplyBatchRequest,
   BackendStorageMaintenanceApplyBatchResult,
+  BackendStoragePressureRecoveryRequest,
+  BackendStoragePressureRecoveryResult,
   BackendStorageMaintenanceStatusRequest,
   BackendStorageMaintenanceStatusResult,
   BackendRpcHandlerAdapter,
@@ -26,6 +28,9 @@ export interface BackendCoreRpcDatabase {
   applyStorageMaintenanceBatch(
     request: BackendStorageMaintenanceApplyBatchRequest,
   ): Promise<BackendStorageMaintenanceApplyBatchResult>;
+  recoverLegacyDeltaStoragePressure(
+    request?: BackendStoragePressureRecoveryRequest,
+  ): Promise<BackendStoragePressureRecoveryResult>;
 }
 
 export interface BackendCoreRpcRuntime {
@@ -94,6 +99,18 @@ const BACKEND_CORE_RPC_HANDLER_ADAPTERS: {
         readRequiredNamedParams<BackendStorageMaintenanceApplyBatchRequest>(
           params,
           'storage.maintenance.applyBatch requires named params',
+        ),
+      );
+    },
+  },
+  'storage.pressure.recover': {
+    method: 'storage.pressure.recover',
+    family: 'core',
+    handle(params, context): Promise<BackendStoragePressureRecoveryResult> {
+      return context.core.database.recoverLegacyDeltaStoragePressure(
+        readOptionalNamedParams<BackendStoragePressureRecoveryRequest>(
+          params,
+          'storage.pressure.recover request must be an object',
         ),
       );
     },
@@ -232,6 +249,20 @@ function assertOptionalNumberField(
 function readRequiredNamedParams<TParams extends object>(params: unknown, message: string): TParams {
   const candidate = Array.isArray(params) ? params[0] : params;
   if (!candidate || typeof candidate !== 'object') {
+    throw new Error(`INVALID_REQUEST: ${message}`);
+  }
+  return candidate as TParams;
+}
+
+function readOptionalNamedParams<TParams extends object>(params: unknown, message: string): TParams | undefined {
+  if (params === undefined || (Array.isArray(params) && params.length === 0)) {
+    return undefined;
+  }
+  const candidate = Array.isArray(params) ? params[0] : params;
+  if (candidate === undefined || candidate === null) {
+    return undefined;
+  }
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
     throw new Error(`INVALID_REQUEST: ${message}`);
   }
   return candidate as TParams;

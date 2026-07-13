@@ -119,6 +119,35 @@ describe('BackendCoreRpcAdapter', () => {
             completedAt: 100,
             error: null,
           })),
+          recoverLegacyDeltaStoragePressure: vi.fn(async (request = {}) => ({
+            ok: true,
+            phase: 'completed' as const,
+            adoption: { status: 'noop' },
+            promotion: { batchCount: 0 },
+            deltaCompaction: { status: 'noop' },
+            orphanCleanup: {
+              status: 'completed',
+              deletedFiles: [],
+              failedFiles: [],
+              remainingOrphanFileCount: 0,
+              remainingOrphanBytes: 0,
+            },
+            inventory: {
+              version: 1 as const,
+              measuredAt: 100,
+              metrics: [],
+              pressure: {
+                version: 1 as const,
+                measuredAt: 100,
+                level: 'normal' as const,
+                blockingMutationGrowth: false,
+                code: null,
+                reason: null,
+                metrics: [],
+              },
+            },
+            error: request.maxCleanupFiles === 0 ? 'unused-test-error' : null,
+          })),
         },
         readDiagnosticsStatus: vi.fn(async () => diagnostics),
         getPrivateAuditEventCount: () => 3,
@@ -212,6 +241,28 @@ describe('BackendCoreRpcAdapter', () => {
         operationId: 'test-maintenance',
         status: 'completed',
         completedBatches: 1,
+      },
+    });
+    await expect(dispatchCore(
+      dispatcher,
+      context,
+      'storage.pressure.recover',
+      {
+        maxCleanupFiles: 64,
+        maxCleanupBytes: 1024,
+      },
+    )).resolves.toMatchObject({
+      result: {
+        ok: true,
+        phase: 'completed',
+        orphanCleanup: {
+          remainingOrphanFileCount: 0,
+        },
+        inventory: {
+          pressure: {
+            level: 'normal',
+          },
+        },
       },
     });
     await expect(dispatchCore(dispatcher, context, 'diagnostics.status')).resolves.toMatchObject({

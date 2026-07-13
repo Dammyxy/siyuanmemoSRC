@@ -12,11 +12,17 @@ export interface SqliteConflictDatabaseSource {
   size?: number | null;
 }
 
+export interface SqlitePersistenceFileEntry {
+  path: string;
+  size: number | null;
+}
+
 export interface SqlitePersistenceBridge {
   readBinary(path: string, metadata?: SqlitePersistenceHostEffectMetadata): Promise<Uint8Array | null>;
   writeBinary(path: string, bytes: Uint8Array, metadata?: SqlitePersistenceHostEffectMetadata): Promise<void>;
   readJSON?<T>(path: string, metadata?: SqlitePersistenceHostEffectMetadata): Promise<T | null>;
   writeJSON?(path: string, value: unknown, metadata?: SqlitePersistenceHostEffectMetadata): Promise<void>;
+  listFiles?(prefix: string): Promise<SqlitePersistenceFileEntry[]>;
   deleteFile?(path: string): Promise<void>;
   hasLegacyPetalSqliteDb?(): Promise<boolean>;
   reviewFeedbackJournalStore?: ReviewFeedbackJournalStore;
@@ -53,6 +59,9 @@ export function createUnavailableSqlitePersistenceBridge(reason: string): Sqlite
       throw new Error(reason);
     },
     async writeJSON(): Promise<void> {
+      throw new Error(reason);
+    },
+    async listFiles(): Promise<SqlitePersistenceFileEntry[]> {
       throw new Error(reason);
     },
     async deleteFile(): Promise<void> {
@@ -124,6 +133,12 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
     },
     async writeJSON(path: string, value: unknown): Promise<void> {
       json.set(path, value);
+    },
+    async listFiles(prefix: string): Promise<SqlitePersistenceFileEntry[]> {
+      return [
+        ...Array.from(json.keys()).map((path) => ({ path, size: null })),
+        ...Array.from(binary.entries()).map(([path, bytes]) => ({ path, size: bytes.byteLength })),
+      ].filter((entry) => entry.path.startsWith(prefix));
     },
     async deleteFile(path: string): Promise<void> {
       json.delete(path);

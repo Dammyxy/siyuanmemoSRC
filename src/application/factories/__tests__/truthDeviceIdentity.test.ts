@@ -459,7 +459,7 @@ describe('truth device identity', () => {
     })).resolves.toMatchObject({
       deviceId: 'device-new',
       identityEpoch: 'epoch-new',
-      source: 'generated',
+      source: 'authority-copies',
       persisted: true,
       cacheUpdated: true,
       error: null,
@@ -528,7 +528,7 @@ describe('truth device identity', () => {
       now: () => 30,
     })).resolves.toMatchObject({
       deviceId: 'device-legacy',
-      source: 'legacy-localStorage',
+      source: 'authority-copies',
       error: null,
     });
 
@@ -544,7 +544,7 @@ describe('truth device identity', () => {
     expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(expectedRecord);
   });
 
-  it('migrates a temp-only device identity into both authority copies', async () => {
+  it('migrates and verifies a temp-only device identity in both authority copies', async () => {
     const storage = new MemoryStorage();
     const identityStore = new MemoryIdentityRecordStore();
     const localStore = new MemoryLocalIdentityStore();
@@ -561,7 +561,7 @@ describe('truth device identity', () => {
     })).resolves.toMatchObject({
       deviceId: 'device-temp',
       identityEpoch: 'epoch-1',
-      source: 'temp-local',
+      source: 'authority-copies',
       error: null,
     });
 
@@ -575,6 +575,28 @@ describe('truth device identity', () => {
     };
     expect(identityStore.writeRecord).toHaveBeenCalledWith(expectedRecord);
     expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(expectedRecord);
+  });
+
+  it('fails closed when a migrated authority copy cannot be verified after writing', async () => {
+    const storage = new MemoryStorage();
+    const identityStore = new MemoryIdentityRecordStore();
+    const localStore = new MemoryLocalIdentityStore();
+    localStore.state.set(TRUTH_DEVICE_ID_LOCAL_STATE_PATH, { deviceId: 'device-temp' });
+    identityStore.writeRecord.mockImplementationOnce(async () => undefined);
+
+    await expect(resolveTruthDeviceIdentity({
+      localStore,
+      storage,
+      identityStore,
+      hostFingerprint: 'host-1',
+      createEpoch: () => 'epoch-1',
+      createId: () => 'device-new',
+      now: () => 30,
+    })).resolves.toMatchObject({
+      deviceId: null,
+      source: 'identity-recovery-required',
+      error: expect.stringContaining('identity authority write verification failed'),
+    });
   });
 
   it('migrates the v1 truth device key without changing its writable directory identity', async () => {
@@ -594,7 +616,7 @@ describe('truth device identity', () => {
     })).resolves.toMatchObject({
       deviceId: 'device-existing-directory',
       identityEpoch: 'epoch-1',
-      source: 'localStorage',
+      source: 'authority-copies',
       error: null,
     });
 
@@ -626,7 +648,7 @@ describe('truth device identity', () => {
       })).resolves.toMatchObject({
         deviceId: 'device-window-localstorage',
         identityEpoch: 'epoch-1',
-        source: 'localStorage',
+        source: 'authority-copies',
         error: null,
       });
 
@@ -661,7 +683,7 @@ describe('truth device identity', () => {
       now: () => 30,
     })).resolves.toMatchObject({
       deviceId: 'device-legacy',
-      source: 'legacy-localStorage',
+      source: 'authority-copies',
       error: null,
     });
   });
@@ -710,7 +732,7 @@ describe('truth device identity', () => {
     })).resolves.toMatchObject({
       deviceId: 'device-new',
       identityEpoch: 'epoch-new',
-      source: 'generated',
+      source: 'authority-copies',
       error: null,
     });
 

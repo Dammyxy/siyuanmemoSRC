@@ -20,6 +20,8 @@ import {
   type SqliteDeltaDiagnosticsContext,
   type SqliteDeltaDiagnostics,
   type SqliteDeltaCompactionResult,
+  type SqliteDeltaOrphanCleanupResult,
+  type SqliteDeltaLegacyAdoptionResult,
   type SqliteDeltaHotPathDiagnostics,
   type SqliteJournaledMutationEntry,
   type SqliteCheckpointStorageClass,
@@ -256,6 +258,9 @@ export class SqliteDatabaseService {
             diagnostics: metadata ? { sqliteDeltaPurpose: metadata.purpose, sqliteDeltaSubstep: metadata.substep } : undefined,
           });
         },
+        ...(fileService.listFiles
+          ? { listFiles: (prefix: string) => fileService.listFiles!(prefix) }
+          : {}),
         ...(fileService.deleteFile
           ? { deleteFile: (fileName: string) => fileService.deleteFile!(fileName) }
           : {}),
@@ -315,8 +320,8 @@ export class SqliteDatabaseService {
       && !droppedStoredDatabaseOnSchemaMismatch
       && options.skipDeltaReplay !== true
     ) {
-      await this.deltaLayer.replayPending(this.requireDb());
-      if (await this.deltaLayer.hasPendingDeltas()) {
+      const replay = await this.deltaLayer.replayPending(this.requireDb());
+      if ((replay.pendingCount ?? 0) > 0) {
         this.dirtySincePersist = true;
       }
     }
@@ -740,6 +745,22 @@ export class SqliteDatabaseService {
     retainSealedSegments?: number;
   }): Promise<SqliteDeltaCompactionResult | null> {
     return this.deltaLayer ? this.deltaLayer.compactCoveredSegments(input) : null;
+  }
+
+  async cleanupSqliteDeltaOrphans(input: {
+    dryRun?: boolean;
+    maxFiles?: number;
+    maxBytes?: number;
+  } = {}): Promise<SqliteDeltaOrphanCleanupResult | null> {
+    return this.deltaLayer ? this.deltaLayer.cleanupOrphanSegments(input) : null;
+  }
+
+  async adoptSqliteLegacyDelta(input: {
+    deviceId: string;
+    identityEpoch: string;
+    afterJournalSequence: number;
+  }): Promise<SqliteDeltaLegacyAdoptionResult | null> {
+    return this.deltaLayer ? this.deltaLayer.adoptLegacyEntries(input) : null;
   }
 
   async listJournaledMutations(input: {

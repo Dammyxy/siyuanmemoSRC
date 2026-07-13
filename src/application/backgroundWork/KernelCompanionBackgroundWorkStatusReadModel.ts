@@ -58,6 +58,32 @@ const WORK_KIND_SAFE_DIAGNOSTICS: Record<KernelCompanionBackgroundWorkKind, Read
     'lifecycleDedupeKeyAvailable',
     'unavailable',
   ]),
+  'storage-pressure-recovery': new Set([
+    'reason',
+    'phase',
+    'descriptorReason',
+    'batchIndex',
+    'maxBatches',
+    'adoptedEntryCount',
+    'unsupportedEntryCount',
+    'firstJournalSequence',
+    'lastJournalSequence',
+    'promotionBatchCount',
+    'truthCoverageFrontier',
+    'candidateEntryCount',
+    'reclaimableEntryCount',
+    'retainedEntryCount',
+    'deletedFileCount',
+    'failedFileCount',
+    'remainingOrphanFileCount',
+    'remainingOrphanBytes',
+    'pressureLevel',
+    'pressureReason',
+    'errorCode',
+    'deferredDescriptorCount',
+    'lifecycleDedupeKeyAvailable',
+    'unavailable',
+  ]),
   'progressive-excerpt-completion-repair': new Set([
     'reason',
     'delayMs',
@@ -118,6 +144,7 @@ const WORK_KIND_SAFE_DIAGNOSTICS: Record<KernelCompanionBackgroundWorkKind, Read
 
 const STRICT_WORK_KIND_SAFE_DIAGNOSTICS = new Set<KernelCompanionBackgroundWorkKind>([
   'startup-storage-maintenance',
+  'storage-pressure-recovery',
 ]);
 
 const CONTENT_BEARING_DIAGNOSTIC_KEY_PATTERN = /(?:content|body|payload|sql|query|card|block|hosteffect|request|response|html|markdown|text)/i;
