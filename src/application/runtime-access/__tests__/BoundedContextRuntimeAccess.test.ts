@@ -75,6 +75,27 @@ describe('bounded-context runtime access', () => {
     );
   });
 
+  it('keeps integration runtime service providers lazy until first access', () => {
+    const integration = new IntegrationRuntimeAccess();
+    const storage = {};
+    const cardService = {};
+    const getStorage = vi.fn(() => storage);
+    const getCardService = vi.fn(() => cardService);
+
+    integration.bindRuntime({
+      storage: getStorage,
+      cardService: getCardService,
+    } as never);
+
+    expect(getStorage).not.toHaveBeenCalled();
+    expect(getCardService).not.toHaveBeenCalled();
+    expect(integration.storage).toBe(storage);
+    expect(getStorage).toHaveBeenCalledTimes(1);
+    expect(getCardService).not.toHaveBeenCalled();
+    expect(integration.cardService).toBe(cardService);
+    expect(getCardService).toHaveBeenCalledTimes(1);
+  });
+
   it('fails access after centralized disposal', () => {
     const review = new ReviewRuntimeAccess({
       reviewService: () => ({}) as never,

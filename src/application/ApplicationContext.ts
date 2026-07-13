@@ -1907,18 +1907,18 @@ export class ApplicationContext {
     await measureRuntimePerformance('startup', 'settings-service.init', () => settingsService.init());
     logger.info('[ApplicationContext] ✅ SettingsService initialized');
     integrationRuntimeAccess.bindRuntime({
-      plugin: context.getPlugin(),
-      storage: context.getStorage(),
-      cardService: context.getCardService(),
-      unifiedDataSourceManager: context.getUnifiedDataSourceManager(),
-      neuralRoamEntryActionService: context.getNeuralRoamEntryActionService(),
-      xiuyuanApplicationService: context.getXiuyuanApplicationService(),
-      reviewService: context.getReviewService(),
-      docTreeReviewScopeService: context.getDocTreeReviewScopeService(),
-      selectionExcerptService: context.getSelectionExcerptService(),
-      selectionTopicContinuationService: context.getSelectionTopicContinuationService(),
-      settingsService,
-      dialogManager: context.getDialogManager(),
+      plugin: () => context.getPlugin(),
+      storage: () => context.getStorage(),
+      cardService: () => context.getCardService(),
+      unifiedDataSourceManager: () => context.getUnifiedDataSourceManager(),
+      neuralRoamEntryActionService: () => context.getNeuralRoamEntryActionService(),
+      xiuyuanApplicationService: () => context.getXiuyuanApplicationService(),
+      reviewService: () => context.getReviewService(),
+      docTreeReviewScopeService: () => context.getDocTreeReviewScopeService(),
+      selectionExcerptService: () => context.getSelectionExcerptService(),
+      selectionTopicContinuationService: () => context.getSelectionTopicContinuationService(),
+      settingsService: () => settingsService,
+      dialogManager: () => context.getDialogManager(),
     });
 
     const startupConflictStrategy = settingsService.getSettings().storageConflictResolution;

@@ -25,6 +25,7 @@ import {
 } from './BindOnceCallbackPort';
 
 type Provider<T> = () => T;
+type RuntimeBinding<T> = T | Provider<T>;
 
 function requireProvider<T>(
   provider: Provider<T> | undefined,
@@ -261,18 +262,18 @@ export interface IntegrationRuntimeAccessDeps<TRequest = Record<string, unknown>
 }
 
 export interface IntegrationRuntimeBindings {
-  plugin: Plugin;
-  storage: StorageManager;
-  cardService: CardApplicationService;
-  unifiedDataSourceManager: UnifiedDataSourceManager;
-  neuralRoamEntryActionService: NeuralRoamEntryActionService;
-  xiuyuanApplicationService: Promise<XiuyuanApplicationService>;
-  reviewService: ReviewApplicationService;
-  docTreeReviewScopeService: DocTreeReviewScopeService;
-  selectionExcerptService: SelectionExcerptService;
-  selectionTopicContinuationService: SelectionTopicContinuationService;
-  settingsService: SettingsService;
-  dialogManager: DialogManager;
+  plugin: RuntimeBinding<Plugin>;
+  storage: RuntimeBinding<StorageManager>;
+  cardService: RuntimeBinding<CardApplicationService>;
+  unifiedDataSourceManager: RuntimeBinding<UnifiedDataSourceManager>;
+  neuralRoamEntryActionService: RuntimeBinding<NeuralRoamEntryActionService>;
+  xiuyuanApplicationService: RuntimeBinding<Promise<XiuyuanApplicationService>>;
+  reviewService: RuntimeBinding<ReviewApplicationService>;
+  docTreeReviewScopeService: RuntimeBinding<DocTreeReviewScopeService>;
+  selectionExcerptService: RuntimeBinding<SelectionExcerptService>;
+  selectionTopicContinuationService: RuntimeBinding<SelectionTopicContinuationService>;
+  settingsService: RuntimeBinding<SettingsService>;
+  dialogManager: RuntimeBinding<DialogManager>;
 }
 
 export class IntegrationRuntimeAccess<
@@ -306,51 +307,51 @@ export class IntegrationRuntimeAccess<
   }
 
   get plugin(): Plugin {
-    return this.runtimeBindings().plugin;
+    return this.resolveRuntimeBinding('plugin');
   }
 
   get storage(): StorageManager {
-    return this.runtimeBindings().storage;
+    return this.resolveRuntimeBinding('storage');
   }
 
   get cardService(): CardApplicationService {
-    return this.runtimeBindings().cardService;
+    return this.resolveRuntimeBinding('cardService');
   }
 
   get unifiedDataSourceManager(): UnifiedDataSourceManager {
-    return this.runtimeBindings().unifiedDataSourceManager;
+    return this.resolveRuntimeBinding('unifiedDataSourceManager');
   }
 
   get neuralRoamEntryActionService(): NeuralRoamEntryActionService {
-    return this.runtimeBindings().neuralRoamEntryActionService;
+    return this.resolveRuntimeBinding('neuralRoamEntryActionService');
   }
 
   get xiuyuanApplicationService(): Promise<XiuyuanApplicationService> {
-    return this.runtimeBindings().xiuyuanApplicationService;
+    return this.resolveRuntimeBinding('xiuyuanApplicationService');
   }
 
   get reviewService(): ReviewApplicationService {
-    return this.runtimeBindings().reviewService;
+    return this.resolveRuntimeBinding('reviewService');
   }
 
   get docTreeReviewScopeService(): DocTreeReviewScopeService {
-    return this.runtimeBindings().docTreeReviewScopeService;
+    return this.resolveRuntimeBinding('docTreeReviewScopeService');
   }
 
   get selectionExcerptService(): SelectionExcerptService {
-    return this.runtimeBindings().selectionExcerptService;
+    return this.resolveRuntimeBinding('selectionExcerptService');
   }
 
   get selectionTopicContinuationService(): SelectionTopicContinuationService {
-    return this.runtimeBindings().selectionTopicContinuationService;
+    return this.resolveRuntimeBinding('selectionTopicContinuationService');
   }
 
   get settingsService(): SettingsService {
-    return this.runtimeBindings().settingsService;
+    return this.resolveRuntimeBinding('settingsService');
   }
 
   get dialogManager(): DialogManager {
-    return this.runtimeBindings().dialogManager;
+    return this.resolveRuntimeBinding('dialogManager');
   }
 
   executeAgentTool(request: TRequest): TResult | Promise<TResult> {
@@ -367,5 +368,16 @@ export class IntegrationRuntimeAccess<
   private runtimeBindings(): IntegrationRuntimeBindings {
     this.assertAvailable('IntegrationRuntimeAccess');
     return this.runtimeBindingsPort.invoke();
+  }
+
+  private resolveRuntimeBinding<TKey extends keyof IntegrationRuntimeBindings>(
+    key: TKey,
+  ): IntegrationRuntimeBindings[TKey] extends RuntimeBinding<infer TValue> ? TValue : never {
+    const binding = this.runtimeBindings()[key];
+    return (
+      typeof binding === 'function'
+        ? (binding as Provider<unknown>)()
+        : binding
+    ) as IntegrationRuntimeBindings[TKey] extends RuntimeBinding<infer TValue> ? TValue : never;
   }
 }

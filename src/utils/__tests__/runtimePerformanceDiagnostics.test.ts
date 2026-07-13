@@ -394,4 +394,21 @@ describe('runtimePerformanceDiagnostics', () => {
       phase: 'settings',
     });
   });
+
+  it('keeps backend worker startup spans named in the slow profile', () => {
+    beginStartupPerformanceAttempt();
+    recordRuntimePerformanceSpan('startup', 'backend-worker.bootstrap', 20_000);
+    recordRuntimePerformanceSpan('startup', 'frontend-instance-runtime.start', 300);
+
+    const profile = reportStartupSlowProfile({
+      startupDurationMs: 21_000,
+      thresholdMs: 5000,
+      logger: { warn: vi.fn() },
+    });
+
+    expect(profile?.slowestSpans.map((span) => span.operation)).toEqual([
+      'backend-worker.bootstrap',
+      'frontend-instance-runtime.start',
+    ]);
+  });
 });
