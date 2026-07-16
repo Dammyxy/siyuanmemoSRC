@@ -126,6 +126,16 @@ export interface MessagePackTruthCompactionPlan {
   candidateSegments: MessagePackTruthSegmentManifestEntry[];
 }
 
+export interface MessagePackTruthCompactionResult {
+  status: 'compacted' | 'noop';
+  reason: MessagePackTruthCompactionPlan['reason'];
+  sourceSegmentCount: number;
+  replacementSegmentCount: number;
+  remainingSegmentCount: number;
+  recordCount: number;
+  deletedPaths: string[];
+}
+
 export interface MessagePackTruthLocalSegmentIndex {
   family: string | null;
   schemaVersion: number | null;
@@ -392,6 +402,28 @@ function validateSegmentEnvelope(value: unknown): MessagePackTruthSegmentEnvelop
   };
 }
 
+function decodeSegmentEnvelope(
+  bytes: Uint8Array,
+  path: string,
+  diagnostics: MessagePackTruthValidationDiagnostic[],
+): MessagePackTruthSegmentEnvelope | null {
+  try {
+    const envelope = validateSegmentEnvelope(decode(bytes));
+    if (!envelope) {
+      diagnostics.push({ reason: 'segment-unreadable', path });
+      return null;
+    }
+    return envelope;
+  } catch (error) {
+    diagnostics.push({
+      reason: 'segment-unreadable',
+      path,
+      actual: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 export class MessagePackTruthSegmentStore {
   private readonly fileStore: MessagePackTruthSegmentFileStore;
   private readonly family: string;
@@ -524,6 +556,151 @@ export class MessagePackTruthSegmentStore {
     };
   }
 
+  async compactSegments(
+    options: MessagePackTruthCompactionPlanOptions = {},
+  ): Promise<MessagePackTruthCompactionResult> {
+    const manifest = await this.readManifest();
+    this.throwIfManifestInvalid(manifest);
+    const resumedDeletedPaths = await this.deleteManifestProvenOrphans(manifest);
+    const maxClosedSegments = resolveFamilyTargetClosedSegments(this.family, options.maxClosedSegments);
+    if (manifest.segments.length <= maxClosedSegments) {
+      return {
+        status: 'noop',
+        reason: 'within-budget',
+        sourceSegmentCount: 0,
+        replacementSegmentCount: 0,
+        remainingSegmentCount: manifest.segments.length,
+        recordCount: 0,
+        deletedPaths: resumedDeletedPaths,
+      };
+    }
+    if (!this.fileStore.deleteFile) {
+      throw new Error(`truth-compaction-delete-unavailable:${this.family}`);
+    }
+    const candidateSegments = manifest.segments.slice(
+      0,
+      manifest.segments.length - maxClosedSegments + 1,
+    );
+    const diagnostics: MessagePackTruthValidationDiagnostic[] = [];
+    const records: MessagePackTruthRecord[] = [];
+    for (const segment of candidateSegments) {
+      const envelope = await this.readAndValidateSegment(segment, diagnostics);
+      if (envelope) {
+        records.push(...envelope.records.map(cloneRecord));
+      }
+    }
+    if (diagnostics.length > 0) {
+      throw new MessagePackTruthValidationError(diagnostics);
+    }
+    const nextSequence = manifest.segments.reduce(
+      (maximum, segment) => Math.max(maximum, segment.sequence),
+      0,
+    ) + 1;
+    const replacements = this.buildCandidateSegments(records, nextSequence);
+    if (replacements.length >= candidateSegments.length) {
+      return {
+        status: 'noop',
+        reason: 'within-budget',
+        sourceSegmentCount: candidateSegments.length,
+        replacementSegmentCount: 0,
+        remainingSegmentCount: manifest.segments.length,
+        recordCount: records.length,
+        deletedPaths: [],
+      };
+    }
+    const replacementEntries: MessagePackTruthSegmentManifestEntry[] = [];
+    for (const [index, replacement] of replacements.entries()) {
+      const entry = await this.writeSegment(replacement);
+      entry.compactedFrom = index === 0
+        ? candidateSegments.map((segment) => segment.path)
+        : [];
+      const verificationDiagnostics: MessagePackTruthValidationDiagnostic[] = [];
+      await this.readAndValidateSegment(entry, verificationDiagnostics);
+      if (verificationDiagnostics.length > 0) {
+        throw new MessagePackTruthValidationError(verificationDiagnostics);
+      }
+      replacementEntries.push(entry);
+    }
+    const candidatePaths = new Set(candidateSegments.map((segment) => segment.path));
+    const nextManifest: MessagePackTruthSegmentManifest = {
+      ...manifest,
+      segments: [
+        ...manifest.segments.filter((segment) => !candidatePaths.has(segment.path)),
+        ...replacementEntries,
+      ].sort((left, right) => left.sequence - right.sequence),
+      updatedAt: Date.now(),
+    };
+    await this.fileStore.writeJSON(this.manifestPath, nextManifest);
+    const published = await this.readManifest();
+    this.throwIfManifestInvalid(published);
+    if (JSON.stringify(published) !== JSON.stringify(nextManifest)) {
+      throw new Error(`truth-compaction-manifest-verification-failed:${this.family}`);
+    }
+    const deletedPaths = this.fileStore.listFiles
+      ? await this.deleteManifestProvenOrphans(nextManifest)
+      : await this.deleteCompactedSegments(candidateSegments);
+    return {
+      status: 'compacted',
+      reason: 'closed-segment-count-exceeded',
+      sourceSegmentCount: candidateSegments.length,
+      replacementSegmentCount: replacementEntries.length,
+      remainingSegmentCount: nextManifest.segments.length,
+      recordCount: records.length,
+      deletedPaths: Array.from(new Set([...resumedDeletedPaths, ...deletedPaths])),
+    };
+  }
+
+  private async deleteManifestProvenOrphans(
+    manifest: MessagePackTruthSegmentManifest,
+  ): Promise<string[]> {
+    if (!this.fileStore.listFiles || !this.fileStore.deleteFile) {
+      return [];
+    }
+    const committedSegmentPaths = new Set(manifest.segments.map((segment) => segment.path));
+    const committedChecksumPaths = new Set(
+      manifest.segments.map((segment) => `${segment.path}.checksum.json`),
+    );
+    const devicePrefix = `${this.deviceDirectory}/`;
+    const listedPaths = Array.from(new Set(
+      (await this.fileStore.listFiles(this.deviceDirectory))
+        .map((path) => String(path || '').replace(/\\/g, '/').trim())
+        .filter((path) => path.startsWith(devicePrefix)),
+    )).sort();
+    const orphanSegmentPaths = listedPaths.filter((path) => (
+      path.endsWith('.msgpack') && !committedSegmentPaths.has(path)
+    ));
+    const orphanChecksumPaths = listedPaths.filter((path) => (
+      path.endsWith('.msgpack.checksum.json') && !committedChecksumPaths.has(path)
+    ));
+    const deletedPaths: string[] = [];
+    for (const path of orphanSegmentPaths) {
+      await this.fileStore.deleteFile(path);
+      if (await this.fileStore.readBinary(path)) {
+        throw new Error(`truth-compaction-delete-verification-failed:${path}`);
+      }
+      deletedPaths.push(path);
+    }
+    for (const path of orphanChecksumPaths) {
+      await this.fileStore.deleteFile(path);
+    }
+    return deletedPaths;
+  }
+
+  private async deleteCompactedSegments(
+    segments: MessagePackTruthSegmentManifestEntry[],
+  ): Promise<string[]> {
+    const deletedPaths: string[] = [];
+    for (const segment of segments) {
+      await this.fileStore.deleteFile!(segment.path);
+      await this.fileStore.deleteFile!(`${segment.path}.checksum.json`);
+      if (await this.fileStore.readBinary(segment.path)) {
+        throw new Error(`truth-compaction-delete-verification-failed:${segment.path}`);
+      }
+      deletedPaths.push(segment.path);
+    }
+    return deletedPaths;
+  }
+
   private get deviceDirectory(): string {
     return `${this.basePath}/${this.family}/${this.generationId}/device-${this.deviceId}`;
   }
@@ -610,15 +787,18 @@ export class MessagePackTruthSegmentStore {
         currentRecords = candidateRecords;
         continue;
       }
-      if (currentRecords.length === 0) {
-        throw new Error(`MessagePack truth record exceeds segment budget: ${candidate.bytes.byteLength}/${this.maxSegmentBytes}`);
+      if (currentRecords.length > 0) {
+        candidates.push(this.buildCandidateSegment(currentRecords, sequence));
+        sequence += 1;
       }
-      candidates.push(this.buildCandidateSegment(currentRecords, sequence));
-      sequence += 1;
-      currentRecords = [record];
-      const single = this.buildCandidateSegment(currentRecords, sequence);
+      const singleRecord = [record];
+      const single = this.buildCandidateSegment(singleRecord, sequence);
       if (single.bytes.byteLength > this.maxSegmentBytes) {
-        throw new Error(`MessagePack truth record exceeds segment budget: ${single.bytes.byteLength}/${this.maxSegmentBytes}`);
+        candidates.push(single);
+        sequence += 1;
+        currentRecords = [];
+      } else {
+        currentRecords = singleRecord;
       }
     }
     if (currentRecords.length > 0) {
@@ -718,9 +898,8 @@ export class MessagePackTruthSegmentStore {
       });
       return null;
     }
-    const envelope = validateSegmentEnvelope(decode(bytes));
+    const envelope = decodeSegmentEnvelope(bytes, entry.path, diagnostics);
     if (!envelope) {
-      diagnostics.push({ reason: 'segment-unreadable', path: entry.path });
       return null;
     }
     if (envelope.version !== MESSAGEPACK_TRUTH_MANIFEST_VERSION) {
@@ -883,9 +1062,8 @@ async function readAndValidateRemoteSegment(
     });
     return null;
   }
-  const envelope = validateSegmentEnvelope(decode(bytes));
+  const envelope = decodeSegmentEnvelope(bytes, entry.path, diagnostics);
   if (!envelope) {
-    diagnostics.push({ reason: 'segment-unreadable', path: entry.path });
     return null;
   }
   if (envelope.version !== MESSAGEPACK_TRUTH_MANIFEST_VERSION) {

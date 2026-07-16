@@ -102,6 +102,41 @@ describe('WorkerTruthPromotionModule', () => {
     });
   });
 
+  it('allows storage recovery to request a larger bounded promotion batch', async () => {
+    let state: WorkerTruthPromotionState | null = null;
+    const publishBatch = vi.fn(async (entries: WorkerTruthPromotionJournalEntry[]) => ({
+      generationId: 'review-events-v1',
+      verifiedMutationIds: entries.map((entry) => entry.mutationEnvelope.mutationId),
+    }));
+    const module = new WorkerTruthPromotionModule({
+      deviceId: 'device-A',
+      identityEpoch: 'epoch-A',
+      maxBatchSize: 2,
+      journalSource: {
+        listJournaledMutations: async () => [
+          journalEntry(1),
+          journalEntry(2),
+          journalEntry(3),
+          journalEntry(4),
+        ],
+      },
+      stateStore: {
+        read: async () => state,
+        write: async (nextState) => {
+          state = structuredClone(nextState);
+        },
+      },
+      publisher: { publishBatch },
+    });
+
+    await expect(module.promotePending({ maxBatchSize: 4 })).resolves.toMatchObject({
+      ok: true,
+      promotedMutationIds: ['mutation-1', 'mutation-2', 'mutation-3', 'mutation-4'],
+      coveredJournalSequence: 4,
+    });
+    expect(publishBatch).toHaveBeenCalledOnce();
+  });
+
   it('fails closed when the next journal sequence is missing', async () => {
     let state: WorkerTruthPromotionState | null = null;
     const publishBatch = vi.fn();

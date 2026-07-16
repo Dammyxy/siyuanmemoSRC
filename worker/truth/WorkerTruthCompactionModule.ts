@@ -12,6 +12,7 @@ import {
 import {
   createMessagePackTruthSegmentStore,
   type MessagePackTruthRecord,
+  type MessagePackTruthCompactionResult,
   type MessagePackTruthSegmentFileStore,
   type MessagePackTruthSegmentStore,
 } from './MessagePackTruthSegmentStore';
@@ -26,6 +27,7 @@ export interface WorkerTruthCompactionModuleOptions {
   deviceId: string;
   schemaVersion: number;
   sourceGenerationIds: Record<WorkerCompactableTruthFamily, string>;
+  reviewGenerationId: string;
   maxSegmentBytes?: number;
   maxSegmentRecords?: number;
 }
@@ -44,6 +46,7 @@ export interface WorkerTruthFamilyCompactionResult {
 
 export interface WorkerTruthCompactionResult {
   families: WorkerTruthFamilyCompactionResult[];
+  reviewEvents: MessagePackTruthCompactionResult;
 }
 
 function normalizeIdentity(value: string, label: string): string {
@@ -80,6 +83,7 @@ export class WorkerTruthCompactionModule {
   private readonly deviceId: string;
   private readonly schemaVersion: number;
   private readonly sourceGenerationIds: Record<WorkerCompactableTruthFamily, string>;
+  private readonly reviewGenerationId: string;
   private readonly maxSegmentBytes?: number;
   private readonly maxSegmentRecords?: number;
   private readonly sourceStores = new Map<WorkerCompactableTruthFamily, MessagePackTruthSegmentStore>();
@@ -102,6 +106,7 @@ export class WorkerTruthCompactionModule {
         'queue source generationId',
       ),
     };
+    this.reviewGenerationId = normalizeIdentity(options.reviewGenerationId, 'review generationId');
     this.maxSegmentBytes = options.maxSegmentBytes;
     this.maxSegmentRecords = options.maxSegmentRecords;
   }
@@ -112,6 +117,15 @@ export class WorkerTruthCompactionModule {
         await this.compactFamily('card-memory-facts'),
         await this.compactFamily('queue-facts'),
       ],
+      reviewEvents: await createMessagePackTruthSegmentStore({
+        fileStore: this.fileStore,
+        family: 'review-events',
+        deviceId: this.deviceId,
+        generationId: this.reviewGenerationId,
+        schemaVersion: this.schemaVersion,
+        maxSegmentBytes: this.maxSegmentBytes,
+        maxSegmentRecords: this.maxSegmentRecords,
+      }).compactSegments(),
     };
   }
 

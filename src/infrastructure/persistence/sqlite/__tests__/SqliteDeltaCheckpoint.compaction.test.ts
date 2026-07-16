@@ -230,6 +230,44 @@ describe('SqliteDeltaCheckpointLayer coverage compaction', () => {
     expect(files.binary.has('sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack')).toBe(false);
   });
 
+  it('clears a resumed coverage compaction checkpoint when covered paths are already absent', async () => {
+    const files = new MemoryFileService();
+    const layer = new SqliteDeltaCheckpointLayer(files);
+    for (let index = 1; index <= 32; index += 1) {
+      await layer.persistCommittedTransaction({
+        label: `mutation-${index}`,
+        capture: capture(index),
+        schemaChanged: false,
+        mutationEnvelope: mutation(index),
+      });
+    }
+    files.deleteError = new Error('coverage-delete-interrupted');
+
+    await expect(layer.compactCoveredSegments({
+      coveredJournalSequence: 8,
+      retainSealedSegments: 1,
+    })).rejects.toThrow('coverage-delete-interrupted');
+    const interruptedManifest = files.json.get(SQLITE_DELTA_LOG_FILE) as {
+      checkpoint: { reason: string; coveredSegmentPaths: string[] } | null;
+    };
+    const stalePath = interruptedManifest.checkpoint?.coveredSegmentPaths[0];
+    expect(stalePath).toBe('sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack');
+    files.binary.delete(stalePath!);
+    files.deleteError = new Error('absent checkpoint path must not be deleted again');
+    files.clearEffects();
+
+    await expect(layer.compactCoveredSegments({
+      coveredJournalSequence: 8,
+      retainSealedSegments: 1,
+    })).resolves.toMatchObject({
+      status: 'no-progress',
+      reason: 'no-progress-uncovered',
+    });
+
+    expect(files.deletes).toEqual([]);
+    expect((files.json.get(SQLITE_DELTA_LOG_FILE) as { checkpoint: unknown }).checkpoint).toBeNull();
+  });
+
   it('inventories and deletes only manifest-proven orphan segments within each budget', async () => {
     const files = new MemoryFileService();
     const layer = new SqliteDeltaCheckpointLayer(files);

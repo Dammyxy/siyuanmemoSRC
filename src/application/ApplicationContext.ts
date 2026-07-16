@@ -485,6 +485,11 @@ function delayStoragePressureRecoveryContinuation(): Promise<void> {
     setTimeout(resolve, 0);
   });
 }
+
+function storagePressureRecoveryExceptionCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.split(':', 1)[0]?.trim() || 'storage-pressure-recovery-threw';
+}
 type DisposableSrsBackendTransport = ApplicationBackendRuntimeTransport;
 type DisposalErrorCollector = Array<{ service: string; error: unknown }>;
 type DisposalStepOutcome<TResult> =
@@ -3164,6 +3169,11 @@ export class ApplicationContext {
         lifecycleDedupeKeyAvailable: lifecycleDedupeKey !== null,
       },
       run: async (job) => {
+        logger.info('[ApplicationContext] storage pressure recovery started', {
+          reason,
+          jobId: job.jobId,
+          descriptorReason: descriptor?.reason ?? null,
+        });
         let diagnostics: KernelCompanionStoragePressureRecoveryDiagnostics = {
           reason,
           phase: 'planning',
@@ -3179,20 +3189,57 @@ export class ApplicationContext {
               diagnostics: { ...diagnostics, unavailable: true },
             };
           }
-          const result = await measureRuntimePerformance(
-            'startup',
-            'storage-pressure-recovery',
-            () => runRecovery({
-              maxCleanupFiles: STORAGE_PRESSURE_RECOVERY_CLEANUP_FILE_BATCH_LIMIT,
-              maxCleanupBytes: STORAGE_PRESSURE_RECOVERY_CLEANUP_BYTE_BATCH_LIMIT,
-            }),
-          );
+          let result: BackendStoragePressureRecoveryResult;
+          try {
+            result = await measureRuntimePerformance(
+              'startup',
+              'storage-pressure-recovery',
+              () => runRecovery({
+                maxCleanupFiles: STORAGE_PRESSURE_RECOVERY_CLEANUP_FILE_BATCH_LIMIT,
+                maxCleanupBytes: STORAGE_PRESSURE_RECOVERY_CLEANUP_BYTE_BATCH_LIMIT,
+              }),
+            );
+          } catch (error) {
+            const errorCode = storagePressureRecoveryExceptionCode(error);
+            diagnostics = {
+              ...diagnostics,
+              phase: batchIndex < STORAGE_PRESSURE_RECOVERY_MAX_BATCHES ? 'retrying' : 'failed',
+              batchIndex,
+              maxBatches: STORAGE_PRESSURE_RECOVERY_MAX_BATCHES,
+              errorCode,
+            };
+            logger.warn('[ApplicationContext] storage pressure recovery batch interrupted', {
+              jobId: job.jobId,
+              batchIndex,
+              error: error instanceof Error ? error.message : String(error),
+              willRetry: batchIndex < STORAGE_PRESSURE_RECOVERY_MAX_BATCHES,
+            });
+            if (batchIndex >= STORAGE_PRESSURE_RECOVERY_MAX_BATCHES) {
+              return {
+                state: 'failed',
+                reason: errorCode,
+                error: errorCode,
+                diagnostics,
+              };
+            }
+            await delayStoragePressureRecoveryContinuation();
+            continue;
+          }
           diagnostics = summarizeStoragePressureRecoveryResult(
             result,
             reason,
             batchIndex,
             STORAGE_PRESSURE_RECOVERY_MAX_BATCHES,
           );
+          logger.info('[ApplicationContext] storage pressure recovery batch finished', {
+            jobId: job.jobId,
+            batchIndex,
+            phase: result.phase,
+            ok: result.ok,
+            pressureLevel: result.inventory.pressure.level,
+            remainingOrphanFileCount: result.orphanCleanup?.remainingOrphanFileCount ?? null,
+            error: result.error,
+          });
           if (job.isCanceled() || this.disposed) {
             return {
               state: 'canceled',
@@ -3231,6 +3278,13 @@ export class ApplicationContext {
       },
     });
     this.postReadyStoragePressureRecoveryJobId = submitResult.job.jobId;
+    logger.info('[ApplicationContext] storage pressure recovery submitted', {
+      reason,
+      jobId: submitResult.job.jobId,
+      accepted: submitResult.accepted,
+      coalesced: submitResult.coalesced,
+      skipped: submitResult.skipped,
+    });
     return this.postReadyStoragePressureRecoveryJobId;
   }
   async reloadBackendDatabaseAfterReady(reason = 'post-ready-reload'): Promise<BackendDbReloadResult> {

@@ -145,6 +145,7 @@ function createModule(fileStore: MemoryFileStore): WorkerTruthCompactionModule {
       'card-memory-facts': 'card-memory-facts-v1',
       'queue-facts': 'queue-facts-v1',
     },
+    reviewGenerationId: 'review-events-v1',
     maxSegmentBytes: 64 * 1024,
     maxSegmentRecords: 2,
   });
@@ -194,6 +195,10 @@ describe('WorkerTruthCompactionModule', () => {
         coveredJournalSequence: 2,
       }),
     ]);
+    expect(result.reviewEvents).toMatchObject({
+      status: 'noop',
+      remainingSegmentCount: 0,
+    });
     for (const family of result.families) {
       expect(family.generationId).toBeTruthy();
       const snapshotStore = createMessagePackTruthSegmentStore({

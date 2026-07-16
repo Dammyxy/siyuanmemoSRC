@@ -952,6 +952,8 @@ function isSqliteDeltaValidationError(error: unknown): boolean {
   return /(?:SQLite delta|SQLITE_DELTA)/.test(errorMessage(error));
 }
 
+const STORAGE_PRESSURE_RECOVERY_TRUTH_PROMOTION_BATCH_SIZE = 128;
+
 export class WorkerSqliteDatabaseService {
   private readonly fileService: SqliteFileServiceAdapter;
   private readonly runtime: RuntimeSqliteDatabaseService;
@@ -1509,6 +1511,7 @@ export class WorkerSqliteDatabaseService {
         'card-memory-facts': options.cardTruthGenerationId,
         'queue-facts': options.queueTruthGenerationId,
       },
+      reviewGenerationId: options.reviewTruthGenerationId,
       maxSegmentBytes: options.maxSegmentBytes,
       maxSegmentRecords: 512,
     });
@@ -8392,10 +8395,16 @@ export class WorkerSqliteDatabaseService {
     }
 
     let promotion = await this.truthPromotionModule.diagnostics();
-    const targetSequence = adoption.lastJournalSequence ?? promotion.truthCoverageFrontier;
+    const targetSequence = Math.max(
+      adoption.lastJournalSequence ?? 0,
+      promotion.journalSequenceFrontier,
+      promotion.truthCoverageFrontier,
+    );
     let promotionBatchCount = 0;
     while (promotion.truthCoverageFrontier < targetSequence) {
-      const result = await this.truthPromotionModule.promotePending();
+      const result = await this.truthPromotionModule.promotePending({
+        maxBatchSize: STORAGE_PRESSURE_RECOVERY_TRUTH_PROMOTION_BATCH_SIZE,
+      });
       promotionBatchCount += 1;
       if (!result.ok) {
         return {
@@ -8427,6 +8436,10 @@ export class WorkerSqliteDatabaseService {
       }
       promotion = next;
     }
+
+    await this.truthPromotionModule.runExclusivePublication(
+      () => this.truthCompactionModule!.compactAll(),
+    );
 
     const deltaCompaction = await this.runtime.compactSqliteDelta({
       coveredJournalSequence: promotion.truthCoverageFrontier,

@@ -2140,12 +2140,25 @@ export class SqliteDeltaCheckpointLayer {
     };
   }
 
-  private async deleteCoveredSegmentFiles(paths: string[]): Promise<string | null> {
+  private async deleteCoveredSegmentFiles(
+    paths: string[],
+    options: { skipAbsent?: boolean } = {},
+  ): Promise<string | null> {
     if (!this.fileService.deleteFile) {
       return null;
     }
+    const uniquePaths = uniqueStrings(paths);
+    let pathsToDelete = uniquePaths;
+    if (options.skipAbsent && this.fileService.listFiles) {
+      const listedPaths = new Set(
+        (await this.fileService.listFiles(SQLITE_DELTA_LOG_DIR))
+          .map((entry) => normalizeString(entry.path).replace(/\\/g, '/'))
+          .filter(Boolean),
+      );
+      pathsToDelete = uniquePaths.filter((path) => listedPaths.has(path));
+    }
     const failures: string[] = [];
-    for (const path of uniqueStrings(paths)) {
+    for (const path of pathsToDelete) {
       try {
         await this.fileService.deleteFile(path);
       } catch (error) {
@@ -2267,6 +2280,7 @@ export class SqliteDeltaCheckpointLayer {
       }
       const pendingCleanupError = await this.deleteCoveredSegmentFiles(
         manifest.checkpoint.coveredSegmentPaths,
+        { skipAbsent: true },
       );
       if (pendingCleanupError) {
         throw new Error(pendingCleanupError);

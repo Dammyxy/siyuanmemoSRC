@@ -11,7 +11,8 @@ import {
 class MemoryTruthSegmentFileStore implements MessagePackTruthSegmentFileStore {
   readonly jsonFiles = new Map<string, unknown>();
   readonly binaryFiles = new Map<string, Uint8Array>();
-  readonly operations: Array<{ type: 'read-json' | 'write-json' | 'read-binary' | 'write-binary'; path: string }> = [];
+  readonly operations: Array<{ type: 'read-json' | 'write-json' | 'read-binary' | 'write-binary' | 'delete'; path: string }> = [];
+  deleteErrorAfterRemovalOnce: Error | null = null;
 
   async readJSON<T>(fileName: string): Promise<T | null> {
     this.operations.push({ type: 'read-json', path: fileName });
@@ -39,6 +40,17 @@ class MemoryTruthSegmentFileStore implements MessagePackTruthSegmentFileStore {
       ...Array.from(this.jsonFiles.keys()),
       ...Array.from(this.binaryFiles.keys()),
     ].filter((path) => path.startsWith(prefix));
+  }
+
+  async deleteFile(path: string): Promise<void> {
+    this.operations.push({ type: 'delete', path });
+    this.jsonFiles.delete(path);
+    this.binaryFiles.delete(path);
+    if (this.deleteErrorAfterRemovalOnce) {
+      const error = this.deleteErrorAfterRemovalOnce;
+      this.deleteErrorAfterRemovalOnce = null;
+      throw error;
+    }
   }
 }
 
@@ -132,6 +144,28 @@ describe('MessagePackTruthSegmentStore', () => {
 
     expect(result.segments.map((segment) => segment.recordCount)).toEqual([2, 2, 1]);
     expect(result.segments.every((segment) => segment.byteSize < 64 * 1024)).toBe(true);
+  });
+
+  it('stores a record larger than the segment target in its own verified segment', async () => {
+    const fileStore = new MemoryTruthSegmentFileStore();
+    const store = createStore(fileStore, 640);
+
+    const append = await store.appendRecords([
+      record('before', 10, 32),
+      record('oversized', 20, 1_200),
+      record('after', 30, 32),
+    ]);
+
+    expect(append.segments.map((segment) => segment.recordCount)).toEqual([1, 1, 1]);
+    expect(append.segments[1]?.byteSize).toBeGreaterThan(640);
+    await expect(store.replayRecords()).resolves.toMatchObject({
+      records: [
+        expect.objectContaining({ id: 'before' }),
+        expect.objectContaining({ id: 'oversized' }),
+        expect.objectContaining({ id: 'after' }),
+      ],
+      diagnostics: [],
+    });
   });
 
   it('commits segment, checksum sidecar, then manifest and reports orphan segments without applying them', async () => {
@@ -299,6 +333,29 @@ describe('MessagePackTruthSegmentStore', () => {
     });
   });
 
+  it('reports checksum-matching but undecodable segment bytes as validation diagnostics', async () => {
+    const fileStore = new MemoryTruthSegmentFileStore();
+    const store = createStore(fileStore, 1024);
+    const append = await store.appendRecords([record('a', 10)]);
+    const segmentPath = append.segments[0].path;
+    const undecodableBytes = new TextEncoder().encode('not-a-messagepack-segment-payload');
+    fileStore.binaryFiles.set(segmentPath, undecodableBytes);
+    const manifest = structuredClone(fileStore.jsonFiles.get(append.manifest.path)) as {
+      segments: Array<Record<string, unknown>>;
+    };
+    manifest.segments[0].checksum = await sha256(undecodableBytes);
+    manifest.segments[0].byteSize = undecodableBytes.byteLength;
+    fileStore.jsonFiles.set(append.manifest.path, manifest);
+
+    await expect(store.replayRecords()).rejects.toMatchObject({
+      diagnostics: [expect.objectContaining({
+        reason: 'segment-unreadable',
+        path: segmentPath,
+        actual: expect.stringContaining('Extra '),
+      })],
+    });
+  });
+
   it('fails closed on a future manifest version', async () => {
     const fileStore = new MemoryTruthSegmentFileStore();
     const store = createStore(fileStore, 1024);
@@ -354,6 +411,66 @@ describe('MessagePackTruthSegmentStore', () => {
     expect(plan.reason).toBe('closed-segment-count-exceeded');
     expect(plan.candidateSegments.map((segment) => segment.sequence)).toEqual([1, 2]);
     expect(Array.from(fileStore.jsonFiles.keys()).some((path) => path.includes('global'))).toBe(false);
+  });
+
+  it('repackages immutable event segments before switching the manifest and deleting inputs', async () => {
+    const fileStore = new MemoryTruthSegmentFileStore();
+    const store = createStore(fileStore, 1024);
+    const sourcePaths: string[] = [];
+    for (const [index, id] of ['a', 'b', 'c', 'd'].entries()) {
+      const append = await store.appendRecords([record(id, index + 1, 8)]);
+      sourcePaths.push(...append.segments.map((segment) => segment.path));
+    }
+
+    const result = await store.compactSegments({ maxClosedSegments: 2 });
+
+    expect(result).toMatchObject({
+      status: 'compacted',
+      sourceSegmentCount: 3,
+      replacementSegmentCount: 1,
+      remainingSegmentCount: 2,
+      recordCount: 3,
+    });
+    expect(sourcePaths.slice(0, 3).every((path) => !fileStore.binaryFiles.has(path))).toBe(true);
+    await expect(store.replayRecords()).resolves.toMatchObject({
+      records: [
+        expect.objectContaining({ id: 'a' }),
+        expect.objectContaining({ id: 'b' }),
+        expect.objectContaining({ id: 'c' }),
+        expect.objectContaining({ id: 'd' }),
+      ],
+      diagnostics: [],
+    });
+  });
+
+  it('resumes manifest-proven orphan cleanup after deletion is interrupted post-removal', async () => {
+    const fileStore = new MemoryTruthSegmentFileStore();
+    const store = createStore(fileStore, 1024);
+    for (const [index, id] of ['a', 'b', 'c', 'd'].entries()) {
+      await store.appendRecords([record(id, index + 1, 8)]);
+    }
+    fileStore.deleteErrorAfterRemovalOnce = new Error('truth-delete-verification-interrupted');
+
+    await expect(store.compactSegments({ maxClosedSegments: 2 }))
+      .rejects.toThrow('truth-delete-verification-interrupted');
+
+    await expect(store.compactSegments({ maxClosedSegments: 2 })).resolves.toMatchObject({
+      status: 'noop',
+      reason: 'within-budget',
+      remainingSegmentCount: 2,
+    });
+    const manifestPath = 'truth/review-events/projection-gen-1/device-device-A/manifest.v1.json';
+    const manifest = fileStore.jsonFiles.get(manifestPath) as { segments: Array<{ path: string }> };
+    const activeSegments = new Set(manifest.segments.map((segment) => segment.path));
+    const remainingOrphanSegments = Array.from(fileStore.binaryFiles.keys())
+      .filter((path) => path.endsWith('.msgpack'))
+      .filter((path) => !activeSegments.has(path));
+    const remainingOrphanChecksums = Array.from(fileStore.jsonFiles.keys())
+      .filter((path) => path.endsWith('.msgpack.checksum.json'))
+      .filter((path) => !activeSegments.has(path.slice(0, -'.checksum.json'.length)));
+
+    expect(remainingOrphanSegments).toEqual([]);
+    expect(remainingOrphanChecksums).toEqual([]);
   });
 
   it('builds a local global index from per-device manifests without a shared write target', async () => {

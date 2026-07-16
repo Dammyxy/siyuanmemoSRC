@@ -59,6 +59,10 @@ export interface WorkerTruthPromotionResult {
   error: string | null;
 }
 
+export interface WorkerTruthPromotionRequest {
+  maxBatchSize?: number;
+}
+
 export interface WorkerTruthPromotionDiagnostics {
   active: boolean;
   shutdownStarted: boolean;
@@ -128,7 +132,7 @@ export class WorkerTruthPromotionModule {
     this.now = options.now ?? Date.now;
   }
 
-  promotePending(): Promise<WorkerTruthPromotionResult> {
+  promotePending(request: WorkerTruthPromotionRequest = {}): Promise<WorkerTruthPromotionResult> {
     if (this.activePromotion) {
       return this.activePromotion;
     }
@@ -141,7 +145,11 @@ export class WorkerTruthPromotionModule {
         error: 'truth-promotion-shutdown',
       });
     }
-    this.activePromotion = this.enqueuePublication(() => this.runPromotion()).finally(() => {
+    const requestedBatchSize = Math.floor(Number(request.maxBatchSize));
+    const batchSize = Number.isFinite(requestedBatchSize) && requestedBatchSize > 0
+      ? requestedBatchSize
+      : this.maxBatchSize;
+    this.activePromotion = this.enqueuePublication(() => this.runPromotion(batchSize)).finally(() => {
       this.activePromotion = null;
     });
     return this.activePromotion;
@@ -204,10 +212,10 @@ export class WorkerTruthPromotionModule {
     await this.publicationQueue;
   }
 
-  private async runPromotion(): Promise<WorkerTruthPromotionResult> {
+  private async runPromotion(batchSize: number): Promise<WorkerTruthPromotionResult> {
     const state = await this.readState();
     const coveredSequence = state.coverage?.coveredJournalSequence ?? 0;
-    const candidates = await this.readOrderedPending(coveredSequence, this.maxBatchSize);
+    const candidates = await this.readOrderedPending(coveredSequence, batchSize);
     if (candidates.length === 0) {
       return {
         ok: true,

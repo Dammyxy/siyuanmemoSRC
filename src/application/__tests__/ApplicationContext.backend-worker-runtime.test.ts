@@ -392,6 +392,9 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(storageDirectMutation).toBeGreaterThan(storageEnsureWritable);
     expect(storageFollowerRelay).toBeGreaterThan(storageDirectMutation);
     expect(storageMaintenanceSource).toContain("method: 'storage.maintenance.applyBatch'");
+    expect(storageStatusSource).toContain('return srsBackendClient.storageMaintenanceStatus(request);');
+    expect(storageStatusSource).toContain('submitAndWait<BackendStorageMaintenanceStatusResult>');
+    expect(storageStatusSource).toContain("method: 'storage.maintenance.status'");
 
     const scheduleWriterMode = scheduleMaintenanceSource.indexOf("frontendInstanceRuntime.getMode() === 'writer'");
     const scheduleEnsureWritable = scheduleMaintenanceSource.indexOf('await frontendInstanceRuntime.ensureWritable();', scheduleWriterMode);
@@ -641,7 +644,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(runMaintenance).not.toHaveBeenCalled();
   });
 
-  it('deduplicates storage-pressure recovery and yields bounded cleanup before writable restoration', async () => {
+  it('deduplicates storage-pressure recovery and resumes after an interrupted cleanup checkpoint', async () => {
     const submitted: Array<KernelCompanionBackgroundWorkSubmitRequest<KernelCompanionStoragePressureRecoveryDiagnostics>> = [];
     const submit = vi.fn((
       request: KernelCompanionBackgroundWorkSubmitRequest<KernelCompanionStoragePressureRecoveryDiagnostics>,
@@ -670,6 +673,9 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       };
     });
     const recover = vi.fn()
+      .mockRejectedValueOnce(new Error(
+        'sqlite-delta-segment-cleanup-failed: delete verification interrupted',
+      ))
       .mockResolvedValueOnce(createStoragePressureRecoveryResult({
         phase: 'cleaning-orphans',
         orphanCleanup: {
