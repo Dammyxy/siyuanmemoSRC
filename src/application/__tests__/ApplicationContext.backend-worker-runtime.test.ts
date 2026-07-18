@@ -168,15 +168,19 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     const identitySource = readTruthDeviceIdentitySource();
 
     expect(factorySource).toContain('resolveTruthDeviceIdentity({');
-    expect(factorySource).toContain('localStore: options.fileService');
-    expect(factorySource).toContain('identityStore: new IndexedDbTruthDeviceIdentityStore()');
+    expect(factorySource).toContain('const identityAuthority = new SiyuanConfTruthDeviceIdentityAuthorityStore(options.fileService)');
+    expect(factorySource).toContain('authority: identityAuthority');
+    expect(factorySource).toContain('new IndexedDbTruthDeviceIdentityCache()');
+    expect(factorySource).toContain('new LocalStorageTruthDeviceIdentityCache()');
+    expect(factorySource).toContain('new TempLocalTruthDeviceIdentityCache(options.fileService)');
+    expect(factorySource).toContain('evidenceProbe: new SiyuanTruthDeviceIdentityEvidenceProbe(options.fileService)');
+    expect(factorySource).toContain('const identityInitializationFence = new KernelTruthDeviceIdentityInitializationFence(kernelSidecarClient');
+    expect(factorySource).toContain('initializationFence: identityInitializationFence');
     expect(factorySource).toContain('hostFingerprint: (options.resolveSiyuanSystemId ?? resolveSiyuanSystemId)()');
-    expect(factorySource).toContain('STORAGE_RECOVERY_REQUIRED');
-    expect(identitySource).toContain("TRUTH_DEVICE_IDENTITY_STORAGE_KEY = 'siyuanmemo.truth.identity.v2'");
-    expect(identitySource).toContain("TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1'");
-    expect(identitySource).toContain("LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
-    expect(identitySource).toContain("TRUTH_DEVICE_ID_LOCAL_STATE_PATH = 'truth-device-id.v1.json'");
-    expect(identitySource).not.toContain("const REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
+    expect(factorySource).not.toContain('STORAGE_VALIDATION_ERROR');
+    expect(identitySource).toContain("TRUTH_DEVICE_IDENTITY_LOCAL_STATE_PATH = '/conf/siyuan-plugin-siyuanmemo/truth-device-identity.v1.json'");
+    expect(identitySource).not.toContain('IndexedDbTruthDeviceIdentityStore');
+    expect(identitySource).not.toContain("source: 'authority-copies'");
   });
 
   it('hydrates renderer memory from the Worker projection without renderer sqlite composition', () => {
@@ -201,10 +205,12 @@ describe('ApplicationContext backend worker runtime boundary', () => {
 
     expect(source).toContain('path === SQLITE_PROJECTION_DB_FILE');
     expect(source).toContain('fileService.readTempProjectionBinary(path)');
-    expect(source).toContain('fileService.writeTempProjectionBinary(path, bytes)');
+    expect(source).toContain('fileService.writeTempProjectionBinary(path, bytes, sqliteHostEffectDiagnostics(metadata))');
     expect(source).toContain('truthFileStore');
+    expect(source).toContain('listFiles: (prefix: string) => fileService.listFiles(prefix)');
+    expect(source).toContain('listFiles: (prefix: string) => fileService.listFileEntries(prefix)');
     expect(source).toContain('return fileService.readBinary(path)');
-    expect(source).toContain('await fileService.writeBinary(path, bytes)');
+    expect(source).toContain('await fileService.writeBinary(path, bytes, sqliteHostEffectDiagnostics(metadata))');
     expect(workerSource).toContain("checkpointStorageClass: 'volatile-projection'");
   });
 
@@ -284,21 +290,21 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     );
     const migrationGateSource = createSource.slice(
       createSource.indexOf('const startupReadiness = initialLoadResult?.readiness ?? null;'),
-      createSource.indexOf('const unifiedLoad = async (): Promise<UnifiedCardStore>'),
+      createSource.indexOf('const unifiedLoad = async'),
     );
 
     expect(factorySource).toContain('initialLoadResult = await srsBackendClient.loadDatabase();');
     expect(contextSource).toContain('initialLoadResult,');
     expect(createSource).toContain('recordStartupDeferredWorkDescriptors(startupDeferredWorkDescriptors, initialLoadResult);');
-    expect(migrationGateSource).toContain('const canRunStartupStorageMigrations = !startupReadiness');
+    expect(migrationGateSource).toContain('const canRunStartupStorageMigrations');
     expect(migrationGateSource).toContain("startupReadiness.status === 'ready'");
     expect(migrationGateSource).toContain('startupReadiness.writable === true');
     expect(migrationGateSource).toContain('runPendingLegacyStorageMigrations({');
     expect(migrationGateSource).toContain('executeBatch: executeStorageMaintenanceBatch');
-    expect(migrationGateSource).toContain('skipped startup storage migrations because backend readiness is read-only');
+    expect(migrationGateSource).toContain('skipped startup storage migrations');
   });
 
-  it('routes hard storage-pressure readiness to a post-ready recovery descriptor', () => {
+  it('keeps startup maintenance descriptors fail-closed while retaining storage pressure recovery jobs', () => {
     const workerSource = readFileSync(
       resolve(process.cwd(), 'worker/db/SqliteDatabaseService.ts'),
       'utf8',
@@ -314,9 +320,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
 
     expect(descriptorSource).toContain("if (readiness.status === 'read-only-storage-pressure')");
     expect(descriptorSource).toContain("kind: 'storage-pressure-recovery'");
-    expect(descriptorSource).toContain("workKind: 'storage-pressure-recovery'");
-    expect(descriptorSource).toContain('if (readiness.status !== \'ready\')');
-    expect(descriptorSource).toContain('return [];');
+    expect(descriptorSource).toContain("if (readiness.status !== 'ready')");
     expect(descriptorSource).toContain("kind: 'startup-storage-maintenance'");
     expect(coordinatorSource).toContain('const hasStartupMaintenance = hasStartupStorageMaintenanceDescriptor(deferredDescriptors);');
     expect(coordinatorSource).toContain('const hasTruthPromotion = hasTruthPromotionDescriptor(deferredDescriptors);');
@@ -354,12 +358,16 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(contextSource).toContain('async reloadBackendDatabaseAfterReady(reason = \'post-ready-reload\'): Promise<BackendDbReloadResult>');
   });
 
-  it('keeps startup maintenance mutations behind writer relay and election seams', () => {
+  it('keeps startup maintenance reads and mutations behind writer relay and election seams', () => {
     const contextSource = readApplicationContextSource();
     const factorySource = readBackendRuntimeFactorySource();
     const storageMaintenanceSource = contextSource.slice(
       contextSource.indexOf('const executeStorageMaintenanceBatch = async'),
       contextSource.indexOf('const executeStorageMaintenanceStatus = async'),
+    );
+    const storageStatusSource = contextSource.slice(
+      contextSource.indexOf('const executeStorageMaintenanceStatus = async'),
+      contextSource.indexOf('const executeStoragePressureRecovery = async'),
     );
     const scheduleMaintenanceSource = contextSource.slice(
       contextSource.indexOf('const executeCardScheduleBatch = async'),
@@ -715,6 +723,16 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       }));
     const srsBackendClient = {
       getBackgroundWorkRegistry: () => ({ submit }),
+      reloadDatabase: vi.fn(async () => ({
+        ok: true,
+        reloaded: true,
+        dbFile: 'siyuanmemo.db',
+        readiness: {
+          status: 'ready',
+          writable: true,
+        },
+        deferredWork: [],
+      })),
       scheduleTruthPromotionTracking: vi.fn(),
     };
     const frontendInstanceRuntime = {
@@ -780,7 +798,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(submit).toHaveBeenCalledTimes(1);
     expect(submitted[0]).toMatchObject({
       kind: 'storage-pressure-recovery',
-      dedupeKey: 'storage-pressure-recovery-lifecycle-v1:storage-pressure-recovery:application-context:post-ready:runtime-A:plugin-A:epoch-A:startup-maintenance-input-v1:frontier-A:0:external-merge-clean:ready',
+      dedupeKey: 'storage-pressure-recovery-lifecycle-v1:storage-pressure-recovery:application-context:post-ready:plugin-A:epoch-A:startup-maintenance-input-v1:frontier-A:0:external-merge-clean:ready',
       diagnostics: {
         reason: 'plugin.onload-ready',
         phase: 'planning',
@@ -794,13 +812,14 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       diagnostics: {
         reason: 'plugin.onload-ready',
         phase: 'completed',
-        batchIndex: 3,
+        batchIndex: 4,
         maxBatches: 16,
         remainingOrphanFileCount: 0,
         pressureLevel: 'normal',
       },
     });
-    expect(recover).toHaveBeenCalledTimes(3);
+    expect(recover).toHaveBeenCalledTimes(4);
+    expect(srsBackendClient.reloadDatabase).toHaveBeenCalledTimes(1);
     expect(recover).toHaveBeenCalledWith({
       maxCleanupFiles: 64,
       maxCleanupBytes: 16 * 1024 * 1024,
@@ -967,6 +986,34 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       },
     });
     expect(failedRecovery).toHaveBeenCalledTimes(1);
+
+    const deterministicFailure = vi.fn(async () => {
+      throw new Error(
+        'INTERNAL_ERROR: MessagePack truth validation failed: segment-unreadable:truth/card-memory-facts/gen/device-device-A/seg-1.msgpack',
+      );
+    });
+    const deterministicContext = createContextWithRecovery(deterministicFailure);
+    const deterministicJobId = deterministicContext.context.startPostReadyStartupMaintenance(
+      'plugin.onload-ready',
+      [createStoragePressureRecoveryDescriptor()],
+    );
+    const deterministic = await deterministicContext.submitted[0]!.run({
+      jobId: deterministicJobId!,
+      kind: 'storage-pressure-recovery',
+      isCanceled: () => false,
+    });
+
+    expect(deterministic).toMatchObject({
+      state: 'failed',
+      reason: 'TRUTH_VALIDATION_FAILED',
+      error: 'TRUTH_VALIDATION_FAILED',
+      diagnostics: {
+        phase: 'failed',
+        batchIndex: 1,
+        errorCode: 'TRUTH_VALIDATION_FAILED',
+      },
+    });
+    expect(deterministicFailure).toHaveBeenCalledTimes(1);
   });
 
   it('defines startup lifecycle dedupe key without persisting ephemeral runtime id into receipts', () => {
@@ -988,6 +1035,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(contextSource).toContain('frontier.inputVersion');
     expect(contextSource).toContain('frontier.frontierHash');
     expect(contextSource).toContain('dedupeKey: lifecycleDedupeKey');
+    expect(contextSource).toContain('createStoragePressureRecoveryLifecycleDedupeKey(descriptors)');
     expect(workerSource).toContain('createStartupMaintenanceFrontier(readiness)');
     expect(receiptSource).not.toContain('runtimeInstanceId');
     expect(receiptSource).not.toContain('runtime-A');
@@ -1542,7 +1590,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
       },
     });
 
-    await expect(context.readDomainSyncDiagnostics({ context: 'read-only-preflight' })).resolves.toBe(statusResult);
+    await expect(context.readDomainSyncDiagnostics({ context: 'snapshot-preflight' })).resolves.toBe(statusResult);
     await expect(context.previewDomainSyncRepair({ limit: 10 })).resolves.toBe(previewResult);
     await expect(context.listDomainSyncConflictSourceCleanupCandidates()).resolves.toBe(candidatesResult);
 
@@ -1552,7 +1600,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(submitAndWait).toHaveBeenCalledWith({
       instanceId: 'follower-domain-sync',
       method: 'domainSync.status',
-      params: { context: 'read-only-preflight' },
+      params: { context: 'snapshot-preflight' },
     });
     expect(submitAndWait).toHaveBeenCalledWith({
       instanceId: 'follower-domain-sync',

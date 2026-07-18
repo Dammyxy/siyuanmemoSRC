@@ -37,6 +37,7 @@ export interface BackendCoreRpcRuntime {
   readonly database: BackendCoreRpcDatabase;
   readDiagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> | BackendDiagnosticsStatusResult;
   getPrivateAuditEventCount(): number;
+  onDatabaseReadinessClassified?(readiness: BackendDbLoadResult['readiness']): Promise<void>;
 }
 
 export interface BackendCoreRpcHandlerContext extends BackendRpcHandlerContext {
@@ -68,15 +69,19 @@ const BACKEND_CORE_RPC_HANDLER_ADAPTERS: {
   'db.load': {
     method: 'db.load',
     family: 'core',
-    handle(params, context): Promise<BackendDbLoadResult> | BackendDbLoadResult {
-      return context.core.database.load(readDbLoadRequest(params, 'db.load'));
+    async handle(params, context): Promise<BackendDbLoadResult> {
+      const result = await context.core.database.load(readDbLoadRequest(params, 'db.load'));
+      await context.core.onDatabaseReadinessClassified?.(result.readiness);
+      return result;
     },
   },
   'db.reload': {
     method: 'db.reload',
     family: 'core',
-    handle(params, context): Promise<BackendDbReloadResult> {
-      return context.core.database.reloadFromDisk(readDbLoadRequest(params, 'db.reload'));
+    async handle(params, context): Promise<BackendDbReloadResult> {
+      const result = await context.core.database.reloadFromDisk(readDbLoadRequest(params, 'db.reload'));
+      await context.core.onDatabaseReadinessClassified?.(result.readiness);
+      return result;
     },
   },
   'storage.maintenance.status': {

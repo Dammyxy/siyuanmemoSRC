@@ -224,7 +224,7 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
 
         return this.cloneResolvedCards(this.applyCustomOrder(orderedCards));
     }
-    
+
     /**
      * 添加卡片到队列
      * 

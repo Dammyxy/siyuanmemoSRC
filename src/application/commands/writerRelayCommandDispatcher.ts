@@ -312,6 +312,14 @@ export async function executeWriterRelayCommand(
       command.params as Parameters<SrsBackendClient['storageMaintenanceStatus']>[0],
     );
   }
+  if (command.method === 'storage.pressure.recover') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: storage.pressure.recover relay requires params object');
+    }
+    return srsBackendClient.storagePressureRecover(
+      command.params as Parameters<SrsBackendClient['storagePressureRecover']>[0],
+    );
+  }
   if (command.method === 'queue.state.loadAll') {
     return srsBackendClient.queueStateLoadAll();
   }

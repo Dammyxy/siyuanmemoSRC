@@ -1,6 +1,7 @@
 export * from './BackendBrowserRpcClient';
 export * from './BackendCardRpcClient';
 export * from './BackendCoreRpcClient';
+export * from './BackendForeignEpochRecoveryRpcClient';
 export * from './BackendIntegrationRpcClient';
 export * from './BackendNeuralRoamRpcClient';
 export * from './BackendPrivateApiRpcClient';

@@ -301,7 +301,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
         }
         return this.cloneResolvedCards(cards);
     }
-    
+
     /**
      * 添加卡片到队列
      * 

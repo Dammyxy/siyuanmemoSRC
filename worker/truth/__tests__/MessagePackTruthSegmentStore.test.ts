@@ -710,6 +710,7 @@ describe('MessagePackTruthValidationError', () => {
     ]);
 
     expect(error.message).toContain('checksum-mismatch');
+    expect(error.message).toContain('truth/review-events/projection-gen-1/device-device-A/seg-000001-test.msgpack');
     expect(error.diagnostics[0]).toMatchObject({ reason: 'checksum-mismatch' });
   });
 });

@@ -1,7 +1,9 @@
 # ADR-005 Browser Read Model Contract
 
+- Series: Runtime Architecture
 - Status: Accepted
 - Date: 2026-06-02
+- Registry: [Architecture Decision Registry](./ADR-INDEX.md)
 
 ## Context
 

@@ -157,7 +157,7 @@ describe('DomainSyncDiagnosticsApplicationService', () => {
 
   it('routes diagnostics status through writer relay when runtime is follower', async () => {
     const request = {
-      context: 'read-only-preflight' as const,
+      context: 'snapshot-preflight' as const,
       cardId: 'card-status-follower',
     };
     const relayResult = cleanStatusResult();

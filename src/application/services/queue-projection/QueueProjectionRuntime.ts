@@ -145,14 +145,24 @@ const QUEUE_PROJECTION_PENDING_NEXT_STEPS: Partial<Record<QueueType, string>> = 
   [QueueType.NeuralRoam]: 'Wire neural-roam.advance before NeuralRoam can enter review; projection is browser/count/diagnostic only.',
 };
 const QUEUE_PROJECTION_DIAGNOSTIC_ID_LIMIT = 8;
+const QUEUE_PROJECTION_READINESS_NEGATIVE_CACHE_TTL_MS = 300;
+
+interface QueueProjectionReadinessNegativeCacheEntry {
+  readiness: QueueProjectionReadiness;
+  expiresAt: number;
+}
 
 export class QueueProjectionRuntime {
   private readonly materializedProjectionEchoes = new Map<QueueType, MaterializedQueueProjectionEcho>();
   private readonly queueProjectionReadiness: QueueProjectionReadinessService;
   private readonly queueProjectionUnavailableDiagnostics = new Map<QueueType, QueueProjectionUnavailableDiagnostic>();
+  private readonly queueProjectionNonReadyDiagnosticSignatures = new Map<QueueType, string>();
   private readonly liveIdentityListeners = new Set<QueueProjectionLiveIdentityListener>();
   private readonly publishedReadyIdentities = new Map<QueueType, string>();
   private readonly materializationInFlight = new Map<string, Promise<BackendQueueProjectionReplaceResult | null>>();
+  private readonly readinessInFlight = new Map<string, Promise<QueueProjectionReadiness>>();
+  private readonly readinessNegativeCache = new Map<string, QueueProjectionReadinessNegativeCacheEntry>();
+  private readonly readinessCacheEpoch = new Map<QueueType, number>();
   private readonly locallyDeletedProjectionCardIds = new Set<string>();
   private readonly locallyDeletedProjectionBlockIds = new Set<string>();
 
@@ -175,11 +185,41 @@ export class QueueProjectionRuntime {
       };
     }
 
-    const readiness = await this.queueProjectionReadiness.ensureReady({
+    const readinessRequest = {
       ...request,
       queueType,
-    });
+    };
+    const readinessKey = this.buildReadinessInFlightKey(readinessRequest);
+    const cached = this.getCachedNegativeReadiness(readinessKey);
+    if (cached) {
+      return cached;
+    }
+
+    const inFlight = this.readinessInFlight.get(readinessKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const readinessEpoch = this.getQueueProjectionReadinessEpoch(queueType);
+    const readinessPromise = this.queueProjectionReadiness.ensureReady(readinessRequest)
+      .then((readiness) => this.applyQueueProjectionReadiness(queueType, readinessKey, readiness, readinessEpoch))
+      .finally(() => {
+        if (this.readinessInFlight.get(readinessKey) === readinessPromise) {
+          this.readinessInFlight.delete(readinessKey);
+        }
+      });
+    this.readinessInFlight.set(readinessKey, readinessPromise);
+    return readinessPromise;
+  }
+
+  private applyQueueProjectionReadiness(
+    queueType: QueueType,
+    readinessKey: string,
+    readiness: QueueProjectionReadiness,
+    readinessEpoch: number,
+  ): QueueProjectionReadiness {
     if (readiness.status === 'ready') {
+      this.readinessNegativeCache.delete(readinessKey);
       this.clearQueueProjectionUnavailable(queueType);
       this.emitReadyLiveIdentity(queueType, {
         policyHash: readiness.policyId,
@@ -189,6 +229,11 @@ export class QueueProjectionRuntime {
       });
       return readiness;
     }
+
+    if (this.getQueueProjectionReadinessEpoch(queueType) !== readinessEpoch) {
+      return readiness;
+    }
+    this.cacheNegativeReadiness(readinessKey, readiness);
     if (readiness.status === 'refreshing') {
       const currentDiagnostic = this.queueProjectionUnavailableDiagnostics.get(queueType);
       this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
@@ -680,6 +725,51 @@ export class QueueProjectionRuntime {
     return `${queueType}:${policyHash}:${generation}`;
   }
 
+  private buildReadinessInFlightKey(request: QueueProjectionReadinessRequest): string {
+    return `${request.queueType}:${this.queueProjectionReadiness.buildPolicyId(request)}`;
+  }
+
+  private getCachedNegativeReadiness(readinessKey: string): QueueProjectionReadiness | null {
+    const entry = this.readinessNegativeCache.get(readinessKey);
+    if (!entry) {
+      return null;
+    }
+    if (entry.expiresAt <= Date.now()) {
+      this.readinessNegativeCache.delete(readinessKey);
+      return null;
+    }
+    return entry.readiness;
+  }
+
+  private cacheNegativeReadiness(readinessKey: string, readiness: QueueProjectionReadiness): void {
+    if (readiness.status === 'ready') {
+      this.readinessNegativeCache.delete(readinessKey);
+      return;
+    }
+    const retryAfterMs = Number(readiness.retryAfterMs);
+    const ttlMs = Number.isFinite(retryAfterMs)
+      ? Math.max(1, Math.min(QUEUE_PROJECTION_READINESS_NEGATIVE_CACHE_TTL_MS, Math.floor(retryAfterMs)))
+      : QUEUE_PROJECTION_READINESS_NEGATIVE_CACHE_TTL_MS;
+    this.readinessNegativeCache.set(readinessKey, {
+      readiness,
+      expiresAt: Date.now() + ttlMs,
+    });
+  }
+
+  private clearQueueProjectionReadinessCache(queueType: QueueType): void {
+    const prefix = `${queueType}:`;
+    for (const key of this.readinessNegativeCache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.readinessNegativeCache.delete(key);
+      }
+    }
+    this.readinessCacheEpoch.set(queueType, this.getQueueProjectionReadinessEpoch(queueType) + 1);
+  }
+
+  private getQueueProjectionReadinessEpoch(queueType: QueueType): number {
+    return this.readinessCacheEpoch.get(queueType) ?? 0;
+  }
+
   private async submitQueueProjectionReplace(
     backend: QueueProjectionBackendClient | null | undefined,
     request: QueueProjectionReplaceRequestLike,
@@ -753,7 +843,7 @@ export class QueueProjectionRuntime {
       generationValid: boolean;
     },
   ): void {
-    this.deps.logger.info('[SiYuanMemo][QueueProjectionRuntime] Queue projection snapshot not ready', {
+    const diagnostic = {
       queueType,
       status: typeof result.status === 'string' ? result.status : String(result.status),
       unavailableReason: context.unavailableReason,
@@ -766,7 +856,33 @@ export class QueueProjectionRuntime {
       rowCount: Array.isArray(result.rows) ? result.rows.length : 0,
       counters: this.summarizeProjectionCounters(result.counters),
       freshness: this.summarizeProjectionFreshness(result.freshness),
+    };
+    const signature = JSON.stringify({
+      status: diagnostic.status,
+      unavailableReason: diagnostic.unavailableReason,
+      policyHash: diagnostic.policyHash,
+      policyHashValid: diagnostic.policyHashValid,
+      generation: diagnostic.generation,
+      generationValid: diagnostic.generationValid,
+      cacheState: diagnostic.cacheState,
+      rowCount: diagnostic.rowCount,
+      counters: diagnostic.counters,
+      freshness: diagnostic.freshness
+        ? {
+          totalRows: diagnostic.freshness.totalRows,
+          freshRows: diagnostic.freshness.freshRows,
+          staleRows: diagnostic.freshness.staleRows,
+          missingRows: diagnostic.freshness.missingRows,
+          staleCardIds: diagnostic.freshness.staleCardIds,
+          missingCardIds: diagnostic.freshness.missingCardIds,
+        }
+        : null,
     });
+    if (this.queueProjectionNonReadyDiagnosticSignatures.get(queueType) === signature) {
+      return;
+    }
+    this.queueProjectionNonReadyDiagnosticSignatures.set(queueType, signature);
+    this.deps.logger.info('[SiYuanMemo][QueueProjectionRuntime] Queue projection snapshot not ready', diagnostic);
   }
 
   private summarizeProjectionCounters(counters: BackendQueueProjectionSnapshotResult['counters'] | null | undefined): Record<string, unknown> | null {
@@ -1276,6 +1392,8 @@ export class QueueProjectionRuntime {
 
   private clearQueueProjectionUnavailable(queueType: QueueType): void {
     this.queueProjectionUnavailableDiagnostics.delete(queueType);
+    this.queueProjectionNonReadyDiagnosticSignatures.delete(queueType);
+    this.clearQueueProjectionReadinessCache(queueType);
   }
 
   private emitReadyLiveIdentity(
@@ -1325,6 +1443,7 @@ export class QueueProjectionRuntime {
       return;
     }
     this.publishedReadyIdentities.delete(queueType);
+    this.clearQueueProjectionReadinessCache(queueType);
     this.emitLiveIdentityEvent({
       type: 'queue-projection-live-identity',
       queueId: queueType,

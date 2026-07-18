@@ -19,6 +19,9 @@ import type {
   KernelWriterRenewLeaseRequest,
   KernelWriterSubmitCommandEnvelope,
   KernelWriterSubmitCommandRequest,
+  KernelIdentityInitializationFenceAcquireRequest,
+  KernelIdentityInitializationFenceEnvelope,
+  KernelIdentityInitializationFenceReleaseRequest,
   KernelNetworkFetchExternalRequest,
   KernelNetworkFetchExternalResult,
   QueueProjectionIdentityBroadcastPayload,
@@ -46,6 +49,28 @@ export class KernelSidecarClient {
   async writerHello(request: KernelWriterHelloRequest): Promise<KernelWriterLeaseSuccessEnvelope> {
     const result = await this.call<KernelWriterLeaseEnvelope>('writer.hello', request);
     return this.unwrapWriterLeaseEnvelope('writer.hello', result);
+  }
+
+  async identityAcquireInitializationFence(
+    request: KernelIdentityInitializationFenceAcquireRequest,
+  ): Promise<KernelIdentityInitializationFenceEnvelope> {
+    const result = await this.call<KernelIdentityInitializationFenceEnvelope>(
+      'identity.acquireInitializationFence',
+      request,
+    );
+    this.assertIdentityFenceEnvelope('identity.acquireInitializationFence', result);
+    return result;
+  }
+
+  async identityReleaseInitializationFence(
+    request: KernelIdentityInitializationFenceReleaseRequest,
+  ): Promise<KernelIdentityInitializationFenceEnvelope> {
+    const result = await this.call<KernelIdentityInitializationFenceEnvelope>(
+      'identity.releaseInitializationFence',
+      request,
+    );
+    this.assertIdentityFenceEnvelope('identity.releaseInitializationFence', result);
+    return result;
   }
 
   async writerGetLease(): Promise<KernelWriterLeaseSuccessEnvelope> {
@@ -234,6 +259,18 @@ export class KernelSidecarClient {
     }
     if (!('ok' in envelope) || (envelope as { ok?: unknown }).ok !== true) {
       throw new Error(`Kernel companion ${method} response missing ok=true`);
+    }
+  }
+
+  private assertIdentityFenceEnvelope(
+    method: string,
+    envelope: KernelIdentityInitializationFenceEnvelope,
+  ): void {
+    if (!envelope || typeof envelope !== 'object' || !('ok' in envelope) || typeof envelope.now !== 'number') {
+      throw new Error(`Kernel companion ${method} returned invalid response envelope`);
+    }
+    if (envelope.ok === false && (!envelope.error || typeof envelope.error.message !== 'string')) {
+      throw new Error(`Kernel companion ${method} returned invalid error envelope`);
     }
   }
 

@@ -14,6 +14,7 @@ const scanPrefixes = [
 
 const ignoredPathPatterns = [
   /(^|\/)__tests__\//,
+  /(^|\/)__fixtures__\//,
   /\.(test|spec)\.[cm]?[tj]sx?$/,
   /(^|\/)(dist|node_modules|coverage)\//,
   /(^|\/)\.vite\//,

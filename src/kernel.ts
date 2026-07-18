@@ -8,6 +8,9 @@ const WRITER_LEASE_STALE_OWNER_RECLAIM_GRACE_MS = 30_000;
 const WRITER_COMMAND_PENDING_TTL_MS = 60_000;
 const WRITER_COMMAND_RESULT_TTL_MS = 300_000;
 const WRITER_COMMAND_DISPATCH_TTL_MS = 5_000;
+const IDENTITY_INITIALIZATION_FENCE_DEFAULT_TTL_MS = 15_000;
+const IDENTITY_INITIALIZATION_FENCE_MIN_TTL_MS = 1_000;
+const IDENTITY_INITIALIZATION_FENCE_MAX_TTL_MS = 30_000;
 const PRIVATE_COMMAND_WAIT_TIMEOUT_MS = 30_000;
 const PRIVATE_COMMAND_POLL_INTERVAL_MS = 250;
 const AGENT_MCP_TOOL_NAMES = ['memo_query', 'memo_card', 'memo_review', 'memo_ui'];
@@ -30,6 +33,7 @@ const QUEUE_PROJECTION_IDENTITY_QUEUE_TYPES = new Set([
 ]);
 let writerLease = null;
 let writerLeaseEpoch = 0;
+let identityInitializationFence = null;
 const writerCommandsPending = new Map();
 const writerCommandResults = new Map();
 const registeredAgentMcpTools = new Set();
@@ -58,6 +62,104 @@ function normalizeInstanceId(value) {
     throw new Error('writer lease requires non-empty instanceId');
   }
   return instanceId;
+}
+
+function normalizeIdentityFenceInstanceId(value) {
+  const instanceId = String(value || '').trim();
+  if (!instanceId) {
+    throw new Error('identity initialization fence requires non-empty instanceId');
+  }
+  return instanceId.slice(0, 256);
+}
+
+function normalizeIdentityFenceToken(value) {
+  const token = String(value || '').trim();
+  if (!token) {
+    throw new Error('identity initialization fence requires non-empty token');
+  }
+  return token.slice(0, 256);
+}
+
+function cloneIdentityInitializationFence(fence) {
+  return fence ? { ...fence } : null;
+}
+
+function getActiveIdentityInitializationFence(at = nowMs()) {
+  if (identityInitializationFence && identityInitializationFence.expiresAt <= at) {
+    identityInitializationFence = null;
+  }
+  return cloneIdentityInitializationFence(identityInitializationFence);
+}
+
+function identityAcquireInitializationFence(params) {
+  const at = nowMs();
+  const named = toObjectParams(params);
+  let instanceId;
+  try {
+    instanceId = normalizeIdentityFenceInstanceId(named.instanceId);
+  } catch (error) {
+    return {
+      ok: false,
+      error: { code: 'INVALID_REQUEST', message: error instanceof Error ? error.message : String(error) },
+      fence: getActiveIdentityInitializationFence(at),
+      now: at,
+    };
+  }
+  const active = getActiveIdentityInitializationFence(at);
+  if (active && active.instanceId !== instanceId) {
+    return {
+      ok: false,
+      error: {
+        code: 'FENCE_UNAVAILABLE',
+        message: `identity initialization fence held by another instance: ${active.instanceId}`,
+      },
+      fence: active,
+      now: at,
+    };
+  }
+  const requestedTtl = Math.floor(Number(named.ttlMs));
+  const ttlMs = Number.isFinite(requestedTtl)
+    ? Math.max(IDENTITY_INITIALIZATION_FENCE_MIN_TTL_MS, Math.min(IDENTITY_INITIALIZATION_FENCE_MAX_TTL_MS, requestedTtl))
+    : IDENTITY_INITIALIZATION_FENCE_DEFAULT_TTL_MS;
+  identityInitializationFence = {
+    instanceId,
+    token: active?.token || `identity-fence-${at.toString(36)}-${Math.random().toString(36).slice(2, 12)}`,
+    acquiredAt: active?.acquiredAt || at,
+    expiresAt: at + ttlMs,
+  };
+  return { ok: true, fence: cloneIdentityInitializationFence(identityInitializationFence), now: at };
+}
+
+function identityReleaseInitializationFence(params) {
+  const at = nowMs();
+  const named = toObjectParams(params);
+  let instanceId;
+  let token;
+  try {
+    instanceId = normalizeIdentityFenceInstanceId(named.instanceId);
+    token = normalizeIdentityFenceToken(named.token);
+  } catch (error) {
+    return {
+      ok: false,
+      error: { code: 'INVALID_REQUEST', message: error instanceof Error ? error.message : String(error) },
+      fence: getActiveIdentityInitializationFence(at),
+      now: at,
+    };
+  }
+  const active = getActiveIdentityInitializationFence(at);
+  if (!active) {
+    return { ok: true, fence: null, now: at };
+  }
+  if (active.instanceId !== instanceId || active.token !== token) {
+    return {
+      ok: false,
+      error: { code: 'FENCE_UNAVAILABLE', message: 'identity initialization fence is owned by another instance' },
+      fence: active,
+      now: at,
+    };
+  }
+  identityInitializationFence = null;
+  return { ok: true, fence: null, now: at };
 }
 
 function normalizeCommandId(value) {
@@ -818,7 +920,7 @@ async function unregisterAgentMcpTools() {
 
 function buildCapabilities() {
   return {
-    version: 8,
+    version: 9,
     methods: [
       'health',
       'version',
@@ -833,6 +935,8 @@ function buildCapabilities() {
       'writer.failCommand',
       'writer.getCommandResult',
       'writer.takeCommand',
+      'identity.acquireInitializationFence',
+      'identity.releaseInitializationFence',
       'network.fetchExternal',
       'agent.mcp.memo_query',
       'agent.mcp.memo_card',
@@ -857,6 +961,11 @@ function buildCapabilities() {
       minTtlMs: WRITER_LEASE_MIN_TTL_MS,
       maxTtlMs: WRITER_LEASE_MAX_TTL_MS,
       payloadFields: ['leaseEpoch', 'ownerChangedAt'],
+    },
+    identityInitializationFence: {
+      defaultTtlMs: IDENTITY_INITIALIZATION_FENCE_DEFAULT_TTL_MS,
+      minTtlMs: IDENTITY_INITIALIZATION_FENCE_MIN_TTL_MS,
+      maxTtlMs: IDENTITY_INITIALIZATION_FENCE_MAX_TTL_MS,
     },
   };
 }
@@ -1519,6 +1628,8 @@ siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind('writer.failCommand', async (params) => writerFailCommand(params), 'Submit failed writer command result from active writer instance.');
   await siyuan.rpc.bind('writer.getCommandResult', async (params) => writerGetCommandResult(params), 'Poll writer command relay result.');
   await siyuan.rpc.bind('writer.takeCommand', async (params) => writerTakeCommand(params), 'Poll next pending writer relay command for active writer instance.');
+  await siyuan.rpc.bind('identity.acquireInitializationFence', async (params) => identityAcquireInitializationFence(params), 'Serialize Truth Device Identity authority initialization across frontend origins.');
+  await siyuan.rpc.bind('identity.releaseInitializationFence', async (params) => identityReleaseInitializationFence(params), 'Release Truth Device Identity authority initialization fence.');
   await siyuan.rpc.bind('queueProjection.publishIdentityChanged', async (params) => queueProjectionPublishIdentityChanged(params), 'Relay queue projection identity changes to active frontend instances.');
   await siyuan.rpc.bind('network.fetchExternal', async (params) => networkFetchExternal(params), 'Fetch external HTTP endpoint through kernel network proxy.');
   await registerAgentMcpTools();
@@ -1533,5 +1644,6 @@ siyuan.plugin.lifecycle.onrunning = async () => {
 
 siyuan.plugin.lifecycle.onunload = async () => {
   await siyuan.logger.info('[SiYuanMemo kernel] unloading');
+  identityInitializationFence = null;
   await unregisterAgentMcpTools();
 };

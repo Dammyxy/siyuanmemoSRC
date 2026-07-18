@@ -66,6 +66,16 @@ export interface LegacyStorageMaintenanceStatus {
 export interface LegacyStorageMigrationRunResult {
   requiredOperationIds: string[];
   appliedOperationIds: string[];
+  deferredOperationIds: string[];
+  deferredOperations: LegacyStorageMigrationDeferredOperation[];
+}
+
+export interface LegacyStorageMigrationDeferredOperation {
+  operationId: string;
+  migrationId: string;
+  batchIndex: number;
+  totalBatches: number;
+  error: string;
 }
 
 const LEGACY_STORAGE_MIGRATION_OPERATIONS = Object.freeze([
@@ -91,9 +101,18 @@ const LEGACY_STORAGE_MIGRATION_OPERATIONS = Object.freeze([
   },
 ] satisfies LegacyStorageMigrationOperationDescriptor[]);
 
+const DEFERRED_SAFE_LEGACY_STORAGE_MIGRATION_OPERATION_IDS = new Set<string>([
+  ALGORITHM_CARD_STATE_REPAIR_MIGRATION_ID,
+  NEURAL_ROAM_ROUTE_MIGRATION_ID,
+]);
+
 export function getLegacyStorageMigrationOperationDescriptors():
 LegacyStorageMigrationOperationDescriptor[] {
   return LEGACY_STORAGE_MIGRATION_OPERATIONS.map((operation) => ({ ...operation }));
+}
+
+export function isDeferredSafeLegacyStorageMigrationOperation(operationId: string): boolean {
+  return DEFERRED_SAFE_LEGACY_STORAGE_MIGRATION_OPERATION_IDS.has(operationId);
 }
 
 export class LegacyStorageMigrationSourcePlanner {
@@ -304,6 +323,7 @@ export async function runPendingLegacyStorageMigrations(options: {
   const now = options.now ?? Date.now;
   const requiredOperationIds: string[] = [];
   const appliedOperationIds: string[] = [];
+  const deferredOperations: LegacyStorageMigrationDeferredOperation[] = [];
   for (const descriptor of getLegacyStorageMigrationOperationDescriptors()) {
     const status = await options.readStatus(descriptor);
     if (!status.required) {
@@ -324,13 +344,43 @@ export async function runPendingLegacyStorageMigrations(options: {
       await options.writeBackup(operation.backup.fileName, operation.backup.data);
     }
     while (batchIndex < operation.batches.length) {
-      const result = await options.executeBatch({
-        operationId: operation.operationId,
-        migrationId: operation.migrationId,
-        batchIndex,
-        totalBatches: operation.batches.length,
-        batch: operation.batches[batchIndex],
-      });
+      let result: LegacyStorageMaintenanceStatus;
+      try {
+        result = await options.executeBatch({
+          operationId: operation.operationId,
+          migrationId: operation.migrationId,
+          batchIndex,
+          totalBatches: operation.batches.length,
+          batch: operation.batches[batchIndex],
+        });
+      } catch (error) {
+        if (isDeferredSafeLegacyStorageMigrationOperation(operation.operationId)) {
+          deferredOperations.push({
+            operationId: operation.operationId,
+            migrationId: operation.migrationId,
+            batchIndex,
+            totalBatches: operation.batches.length,
+            error: errorMessage(error),
+          });
+          break;
+        }
+        throw error;
+      }
+      if (result.status === 'failed') {
+        const message = result.error
+          || `storage maintenance operation ${operation.operationId} failed`;
+        if (isDeferredSafeLegacyStorageMigrationOperation(operation.operationId)) {
+          deferredOperations.push({
+            operationId: operation.operationId,
+            migrationId: operation.migrationId,
+            batchIndex,
+            totalBatches: operation.batches.length,
+            error: message,
+          });
+          break;
+        }
+        throw new Error(`STORAGE_MAINTENANCE_FAILED: ${operation.operationId}: ${message}`);
+      }
       appliedOperationIds.push(operation.operationId);
       if (
         batchIndex === 0
@@ -354,6 +404,10 @@ export async function runPendingLegacyStorageMigrations(options: {
   return {
     requiredOperationIds,
     appliedOperationIds: Array.from(new Set(appliedOperationIds)),
+    deferredOperationIds: Array.from(new Set(
+      deferredOperations.map((operation) => operation.operationId),
+    )),
+    deferredOperations,
   };
 }
 
@@ -405,4 +459,8 @@ function chunk<T>(items: T[], size: number): T[][] {
     batches.push(items.slice(index, index + size));
   }
   return batches;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -327,11 +327,58 @@ function adoptEntry(
   };
 }
 
+function sameCanonicalValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonicalValue(left)) === JSON.stringify(canonicalValue(right));
+}
+
+function rebindProvisionalLegacyAdoption(
+  entry: SqliteDeltaEntry,
+  classification: Exclude<ReturnType<typeof classifyEntry>, { error: string }>,
+  input: { deviceId: string; identityEpoch: string },
+): SqliteDeltaEntry | null {
+  const envelope = entry.mutationEnvelope;
+  const receipt = entry.durabilityReceipt;
+  const sequence = envelope?.journalSequence;
+  if (
+    !envelope
+    || !receipt
+    || envelope.deviceId !== input.deviceId
+    || envelope.identityEpoch === input.identityEpoch
+    || !Number.isInteger(sequence)
+    || sequence < 1
+  ) {
+    return null;
+  }
+  const source: SqliteDeltaEntry = {
+    ...structuredClone(entry),
+    mutationEnvelope: null,
+    durabilityReceipt: null,
+  };
+  const expected = adoptEntry(source, classification, {
+    deviceId: envelope.deviceId,
+    identityEpoch: envelope.identityEpoch,
+    journalSequence: sequence,
+  });
+  if (
+    !sameCanonicalValue(envelope, expected.mutationEnvelope)
+    || !sameCanonicalValue(receipt, expected.durabilityReceipt)
+  ) {
+    return null;
+  }
+  return adoptEntry(source, classification, {
+    deviceId: input.deviceId,
+    identityEpoch: input.identityEpoch,
+    journalSequence: sequence,
+  });
+}
+
 export function planSqliteLegacyDeltaAdoption(input: {
   entries: SqliteDeltaEntry[];
   deviceId: string;
   identityEpoch: string;
   startingJournalSequence: number;
+  coveredJournalSequence?: number;
+  rebindableLegacyMutationIds?: string[];
 }): SqliteLegacyDeltaAdoptionPlan {
   const deviceId = normalizedString(input.deviceId);
   const identityEpoch = normalizedString(input.identityEpoch);
@@ -344,6 +391,8 @@ export function planSqliteLegacyDeltaAdoption(input: {
   let adoptedEntryCount = 0;
   let firstJournalSequence: number | null = null;
   let lastJournalSequence: number | null = null;
+  const coveredJournalSequence = Math.max(0, Math.floor(Number(input.coveredJournalSequence) || 0));
+  const rebindableLegacyMutationIds = new Set(input.rebindableLegacyMutationIds ?? []);
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     if (entry.mutationEnvelope && entry.durabilityReceipt) {
@@ -351,6 +400,37 @@ export function planSqliteLegacyDeltaAdoption(input: {
       if (typeof sequence === 'number' && sequence >= nextJournalSequence) {
         nextJournalSequence = sequence + 1;
       }
+      if (
+        entry.mutationEnvelope.deviceId === deviceId
+        && entry.mutationEnvelope.identityEpoch === identityEpoch
+      ) {
+        continue;
+      }
+      if (
+        typeof sequence === 'number'
+        && sequence >= 1
+        && sequence <= coveredJournalSequence
+      ) {
+        continue;
+      }
+      const classification = classifyEntry(entry);
+      const rebound = !('error' in classification)
+        && rebindableLegacyMutationIds.has(entry.mutationEnvelope.mutationId)
+        ? rebindProvisionalLegacyAdoption(entry, classification, { deviceId, identityEpoch })
+        : null;
+      if (!rebound) {
+        unsupportedEntries.push({
+          entryId: entry.id,
+          label: entry.label,
+          reason: 'journal-identity-mismatch',
+          tables: uniqueSorted(entry.changes.map((change) => change.table)),
+        });
+        continue;
+      }
+      entries[index] = rebound;
+      firstJournalSequence ??= sequence;
+      lastJournalSequence = sequence;
+      adoptedEntryCount += 1;
       continue;
     }
     const classification = classifyEntry(entry);

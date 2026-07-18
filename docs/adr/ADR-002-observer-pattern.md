@@ -1,8 +1,10 @@
 # ADR-002: 观察者模式用于缓存失效
 
+> Series: Legacy DDD（已冻结）。权威状态见 [Architecture Decision Registry](../ADR-INDEX.md)。
+
 ## 状态
 
-已接受
+部分已替代（2026-07-17）：订阅驱动的缓存失效概念仍有效；本 ADR 的 Sequencer/ObservableDataSource 模型已退役。
 
 ## 背景
 
@@ -426,16 +428,16 @@ it('Property 1: DataSource notifies all observers', () => {
 
 ## 参考资料
 
-- [Observer Pattern 文档](../../src/core/queue/abstraction/OBSERVER_PATTERN.md)
+- Observer Pattern 实现文档（已随该抽象退役）：`src/core/queue/abstraction/OBSERVER_PATTERN.md`
 - [Observer Pattern (Wikipedia)](https://en.wikipedia.org/wiki/Observer_pattern)
 - [Design Patterns: Observer](https://refactoring.guru/design-patterns/observer)
-- [ObservableDataSource 实现](../../src/core/queue/datasource/ObservableDataSource.ts)
+- ObservableDataSource 实现（已退役）：`src/core/queue/datasource/ObservableDataSource.ts`
 
 ## 元数据
 
 - **作者**: Kiro AI Assistant
 - **日期**: 2026-02-02
 - **审阅者**: Architecture Team
-- **相关 ADR**: ADR-001 (Trait 模式)
+- **相关 ADR**: Legacy DDD ADR-001 (Trait 模式)
 - **相关需求**: 需求 1.1, 1.2, 1.3, 1.4, 1.5
 - **替代**: 无（这是新的决策）

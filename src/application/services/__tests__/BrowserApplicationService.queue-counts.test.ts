@@ -509,25 +509,67 @@ describe('BrowserApplicationService queue counts', () => {
     expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(2);
   });
 
-  it('uses Browser-visible read-only recovery cards for counts when projection is stale', async () => {
-    const retrievalQueue = createQueue(11, 11, 11);
-    retrievalQueue.getSnapshotRows.mockClear();
-    (retrievalQueue as QueueMock & { getReadOnlyRecoveryCards: ReturnType<typeof vi.fn> }).getReadOnlyRecoveryCards = vi.fn(async () => [
-      { id: 'card-a', blockId: 'block-a' },
-      { id: 'card-b', blockId: 'block-b' },
-    ]);
+  it('uses Browser local queue preview for passive queue counts while projection is refreshing', async () => {
     manager.readQueueProjection = vi.fn(async () => ({
       type: 'snapshot',
       status: 'refreshing',
       readiness: {
         status: 'refreshing',
         queueId: QueueType.RetrievalPractice,
-        policyId: 'policy-retrieval',
-        generation: 1,
-        cause: 'projection_stale',
+        policyId: 'retrieval-policy',
+        generation: 2,
+        cause: 'materialization_in_progress',
       },
       snapshot: null,
     }));
+    const retrievalQueue = createQueue(0, 0, 0);
+    const recoveryCards = Array.from({ length: 2 }, (_, index) => ({
+      id: `recovery-card-${index}`,
+      xiuyuanID: '',
+      blockId: `recovery-block-${index}`,
+      due: Date.now(),
+      stability: 3,
+      difficulty: 4,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: Date.now() - 60_000,
+      elapsedDays: 1,
+      scheduledDays: 2,
+      priority: 50,
+      type: CardType.Item,
+      tags: [],
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: Date.now() - 120_000,
+      updatedAt: Date.now(),
+      meta: {
+        content: `recovery-card-${index}`,
+        rootId: 'doc-a',
+        deckId: 'deck-a',
+      },
+    }));
+    (retrievalQueue as QueueMock & { getReadOnlyRecoveryCards: ReturnType<typeof vi.fn> }).getReadOnlyRecoveryCards = vi.fn(async () => recoveryCards);
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+
+    const counts = await service.getQueueCounts({
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+    });
+
+    expect(counts.retrieval).toBe(2);
+    expect(manager.readQueueProjection).toHaveBeenCalledTimes(1);
+    expect((retrievalQueue as QueueMock & { getReadOnlyRecoveryCards: ReturnType<typeof vi.fn> }).getReadOnlyRecoveryCards).toHaveBeenCalledTimes(1);
+    expect(browserLoggerMocks.info).not.toHaveBeenCalledWith(
+      'QUEUE_COUNT_UNAVAILABLE: passive queue count unavailable; keeping empty count until projection is readable',
+      expect.anything(),
+    );
+  });
+
+  it('keeps passive queue count refreshes fail-closed under storage pressure', async () => {
+    manager.readQueueProjection = vi.fn(async () => {
+      throw new Error('STORAGE_PRESSURE: sqlite-delta:device-A:seg-1.msgpack: Extra 51 of 52 byte(s) found at buffer[1]');
+    });
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
       if (queueType === QueueType.RetrievalPractice) {
         return [{
@@ -536,40 +578,27 @@ describe('BrowserApplicationService queue counts', () => {
           state: 'backend-projection',
           readPath: 'backend-projection',
           reason: 'rollout-enabled',
-          unavailableReason: 'refresh-required',
           nextCoverageTask: null,
         }];
       }
       return [];
     });
-    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
-    service = new BrowserApplicationService(
-      {
-        getCard: vi.fn(),
-        queryCards: vi.fn(() => []),
-        getAllCards: vi.fn(() => []),
-      } as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      manager as never,
-      { sql: vi.fn(async () => [{ id: 'block-a' }]) } as never,
-      { sql: vi.fn(async () => [{ id: 'block-a' }]) } as never,
-      null,
-      null,
-      { isStartupWriteCapable: vi.fn(() => false) } as never,
-    );
 
     const counts = await service.getQueueCounts({
       affectedQueueTypes: [QueueType.RetrievalPractice],
     });
 
-    expect(counts.retrieval).toBe(1);
-    expect(retrievalQueue.getReadOnlyRecoveryCards).toHaveBeenCalledTimes(1);
-    expect(retrievalQueue.getSnapshotRows).not.toHaveBeenCalled();
-    expect(retrievalQueue.getCards).not.toHaveBeenCalled();
-    expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
-    expect(retrievalQueue.getSize).not.toHaveBeenCalled();
+    expect(counts.retrieval).toBe(0);
+    expect(manager.readQueueProjection).toHaveBeenCalledTimes(1);
+    expect(browserLoggerMocks.info).toHaveBeenCalledWith(
+      'QUEUE_COUNT_UNAVAILABLE: passive queue count unavailable; keeping empty count until projection is readable',
+      expect.objectContaining({
+        queueId: 'retrieval',
+        queueType: QueueType.RetrievalPractice,
+        forceRefresh: false,
+        error: expect.stringContaining('STORAGE_PRESSURE'),
+      }),
+    );
   });
 
   it('keeps the last known projection-backed queue count when a refresh is temporarily unavailable', async () => {

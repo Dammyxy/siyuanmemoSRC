@@ -576,12 +576,6 @@ describe('SrsV2SessionQueueRuntime', () => {
         action: 'rate',
         rating: 3,
         commitIdempotencyKey: 'worker-feedback',
-        repairGate: {
-          state: 'clean',
-          reason: 'test',
-          createdAt: Date.now(),
-          cardId: first.id,
-        },
       },
     });
     expect(answer.undoToken).toBe('worker-undo:1');

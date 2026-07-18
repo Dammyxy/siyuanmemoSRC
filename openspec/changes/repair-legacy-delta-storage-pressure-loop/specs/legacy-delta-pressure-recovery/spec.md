@@ -22,6 +22,14 @@ The recovery planner SHALL derive mutation identity, journal order, affected agg
 - **WHEN** an entry contains an unknown table, schema mismatch, incomplete aggregate identity, or unsupported operation shape
 - **THEN** recovery reports `unsupported-evidence`, keeps storage read-only, and retains every source segment
 
+#### Scenario: Provisional adoption used an earlier identity epoch
+- **WHEN** a journaled `LEGACY_DELTA_ADOPTED` entry belongs to the same device under another identity epoch, exactly matches deterministic adoption evidence, and that epoch's promotion state does not cover its sequence
+- **THEN** recovery preserves its mutation ID and journal sequence, corrects only its identity epoch to the verified current identity, and resumes contiguous promotion
+
+#### Scenario: Foreign identity evidence cannot be proven provisional and uncovered
+- **WHEN** a foreign-epoch entry is a formal mutation, belongs to another device, differs from deterministic adoption evidence, or is covered by its epoch's promotion state
+- **THEN** recovery reports unsupported evidence, does not skip the journal position, and retains all source segments
+
 ### Requirement: Adoption coverage requires verified canonical truth
 Adopted entries SHALL pass through the ordered Truth Promotion pipeline. Coverage MUST advance only after all required Review, Card/Schedule, Queue, tombstone, Undo, and metadata outputs declared by the adopted mutation are replay-verified in canonical truth.
 
@@ -43,6 +51,10 @@ Legacy adoption and compaction SHALL write immutable replacement files before pu
 #### Scenario: Process stops after manifest switch
 - **WHEN** the replacement manifest is authoritative but superseded files remain
 - **THEN** the next recovery resumes deletion from the cleanup checkpoint without relocating the entries again
+
+#### Scenario: Process stops after deletion before cleanup checkpoint clear
+- **WHEN** the replacement manifest is authoritative, superseded files were deleted, and the cleanup checkpoint still lists their absent paths
+- **THEN** startup treats those paths as cleanup metadata rather than replayable delta, preserves the replacement manifest as authority, and allows recovery to clear the completed cleanup checkpoint
 
 ### Requirement: Orphan cleanup must be bounded and manifest proven
 The recovery service SHALL delete only normalized SQLite delta segment paths proven unreachable from the latest verified manifest, active checkpoint, and in-progress recovery generation. Each run MUST enforce file and byte budgets and report deleted, skipped, failed, and remaining inventory.

@@ -586,7 +586,12 @@ import {
 import {
   createBrowserQueueProjectionWarmupRuntime,
   type BrowserQueueProjectionReviewPressure,
+  type BrowserQueueProjectionWarmupStatus,
 } from './browserQueueProjectionWarmupRuntime';
+import type {
+  ReviewProjectionActivitySnapshot,
+  ReviewProjectionWorkCoordinator,
+} from '@/application/services/ReviewProjectionWorkCoordinator';
 import { createBrowserSourceExistenceRuntime } from './browserSourceExistenceRuntime';
 import { openBrowserSpreadDialog } from './browserSpreadDialog';
 import {
@@ -641,6 +646,7 @@ type BrowserPluginContext = {
   getTabApplicationService?: () => BrowserTabApplicationServicePort | null;
   getDialogManager?: () => BrowserDialogManagerPort | null;
   getTabManager?: () => BrowserTabManagerPort | null;
+  getReviewProjectionWorkCoordinator?: () => BrowserReviewProjectionWorkCoordinatorPort | null;
   getDocTreeReviewScopeService?: () => BrowserDocTreeReviewScopeService | null;
   getSemanticActivationCommandClient?: () => SemanticActivationCommandClient | null;
   getSemanticActivationBrowserReadClient?: () => SemanticActivationBrowserReadClient | null;
@@ -665,7 +671,6 @@ type BrowserTabApplicationServicePort = {
 };
 
 type BrowserDialogManagerPort = {
-  getActiveReviewQueueType?: () => QueueType | null;
   hasOpenNeuralReviewDialog?: () => boolean;
   openSrsCardSemanticsRepairDialog?: () => Promise<void> | void;
   openNeuralRoamDialog?: (options?: {
@@ -679,7 +684,6 @@ type BrowserDialogManagerPort = {
 };
 
 type BrowserTabManagerPort = {
-  getActiveReviewQueueType?: () => QueueType | null;
   hasOpenNeuralReviewTab?: () => boolean;
   syncExistingNeuralReviewTabToCurrentNode?: (options?: {
     fallbackNodeId?: string | null;
@@ -691,6 +695,11 @@ type BrowserTabManagerPort = {
   ) => Promise<'synced' | 'missing' | 'failed'> | 'synced' | 'missing' | 'failed';
 };
 
+type BrowserReviewProjectionWorkCoordinatorPort = Pick<
+  ReviewProjectionWorkCoordinator,
+  'cancelWork' | 'getSnapshot' | 'scheduleWork' | 'subscribe'
+>;
+
 const props = defineProps<{
   app?: App;
   i18n?: Record<string, string>;
@@ -699,6 +708,7 @@ const props = defineProps<{
   mobileMode?: boolean;
   plugin?: BrowserPluginPort;
   browserService?: IBrowserApplicationService;
+  reviewProjectionWorkCoordinator?: BrowserReviewProjectionWorkCoordinatorPort;
   tabApplicationService?: BrowserTabApplicationServicePort;
   initialQueueId?: string;
   initialNeuralSubview?: NeuralSubview;
@@ -737,16 +747,23 @@ const browserSiyuanApi = computed(() => browserAppServiceRef.value?.getSiyuanApi
 const browserPreviewSiyuanApi = computed(() => (
   browserSiyuanApi.value as unknown as BrowserPreviewSiyuanPort | undefined
 ));
-const browserQueueProjectionReviewPressure = computed<BrowserQueueProjectionReviewPressure>(() => {
-  const dialogQueueType = pluginContext.value?.getDialogManager?.()?.getActiveReviewQueueType?.() ?? null;
-  const tabQueueType = pluginContext.value?.getTabManager?.()?.getActiveReviewQueueType?.() ?? null;
-  const activeQueueType = dialogQueueType ?? tabQueueType;
+const reviewProjectionWorkCoordinatorRef = computed(
+  () => props.reviewProjectionWorkCoordinator
+    || pluginContext.value?.getReviewProjectionWorkCoordinator?.()
+    || null,
+);
+function toBrowserReviewPressure(
+  snapshot: ReviewProjectionActivitySnapshot | null | undefined,
+): BrowserQueueProjectionReviewPressure {
   return {
-    active: Boolean(activeQueueType),
-    activeQueueType,
+    active: snapshot?.active === true,
+    activeQueueType: snapshot?.activeQueueType ?? null,
   };
-});
-let hasDeferredQueueCountRefresh = false;
+}
+const browserQueueProjectionReviewPressure = ref<BrowserQueueProjectionReviewPressure>(
+  toBrowserReviewPressure(reviewProjectionWorkCoordinatorRef.value?.getSnapshot()),
+);
+const BROWSER_QUEUE_COUNT_CATCHUP_WORK_KEY = 'browser:queue-counts:idle-catch-up';
 const {
   getQueueById: resolveQueueById,
   refreshQueueCounts: refreshQueueCountsBridge,
@@ -1008,6 +1025,8 @@ let isApplyingSelectionToGrid = false;
 let browserRootResizeObserver: ResizeObserver | null = null;
 let suspendBrowserChromePersistence = false;
 let suspendBrowserStateBootstrap = false;
+const firstPageWarmupRetryKeys = new Set<string>();
+let firstPageWarmupRetryScopeKey = '';
 
 const calculateInitialPreviewSize = (): number => {
   if (isMobileMode.value) {
@@ -2327,8 +2346,47 @@ let abortLoadData = () => {};
 let docSelectionScopeTaskId = 0;
 
 async function loadData(forceRefresh = false, options: BrowserLoadDataOptions = {}) {
+  resetFirstPageWarmupRetryKeysIfScopeChanged(forceRefresh);
   await loadDataImpl(forceRefresh, options);
   scheduleHierarchyDocumentCountsAfterFirstRows();
+}
+
+function currentFirstPageWarmupRetryScopeKey(): string {
+  return JSON.stringify({
+    activeDocId: activeDocId.value,
+    activeQueueId: activeQueueId.value,
+    activeScopeDocIds: activeScopeDocIds.value,
+    cardType: currentCardType.value,
+    preset: currentPreset.value,
+    searchText: searchQuery.value,
+  });
+}
+
+function resetFirstPageWarmupRetryKeysIfScopeChanged(force = false): void {
+  const scopeKey = currentFirstPageWarmupRetryScopeKey();
+  if (!force && scopeKey === firstPageWarmupRetryScopeKey) {
+    return;
+  }
+  firstPageWarmupRetryScopeKey = scopeKey;
+  firstPageWarmupRetryKeys.clear();
+}
+
+function browserQueueWarmupReadyKey(status: Extract<BrowserQueueProjectionWarmupStatus, { status: 'ready' }>): string {
+  return `${status.queueId}:${status.queueType}:${status.policyId}:${status.generation}`;
+}
+
+function shouldRetryFirstPageForWarmupReady(
+  status: Extract<BrowserQueueProjectionWarmupStatus, { status: 'ready' }>,
+): boolean {
+  if (!currentDataSource.value || hasFirstDataBlockLoaded.value || firstRowsStatus.value === 'pending') {
+    return false;
+  }
+  const key = browserQueueWarmupReadyKey(status);
+  if (firstPageWarmupRetryKeys.has(key)) {
+    return false;
+  }
+  firstPageWarmupRetryKeys.add(key);
+  return true;
 }
 
 function buildHierarchyDocumentCountsScope(): BrowserDocumentCountsScope {
@@ -3214,6 +3272,7 @@ function setupLongTaskMonitor(): void {
 let unsubscribe: (() => void) | null = null;
 let unsubscribeSourceExistence: (() => void) | null = null;
 let unsubscribeQueueProjectionLiveIdentity: (() => void) | null = null;
+let unsubscribeReviewProjectionActivity: (() => void) | null = null;
 
 onBeforeUnmount(() => {
   disposeIncrementalGridUpdates();
@@ -3257,6 +3316,11 @@ onBeforeUnmount(() => {
     unsubscribeQueueProjectionLiveIdentity();
     unsubscribeQueueProjectionLiveIdentity = null;
   }
+  if (unsubscribeReviewProjectionActivity) {
+    unsubscribeReviewProjectionActivity();
+    unsubscribeReviewProjectionActivity = null;
+  }
+  reviewProjectionWorkCoordinatorRef.value?.cancelWork(BROWSER_QUEUE_COUNT_CATCHUP_WORK_KEY);
 
   browserRootResizeObserver?.disconnect();
   browserRootResizeObserver = null;
@@ -3273,6 +3337,15 @@ onMounted(() => {
   unsubscribeSourceExistence = browserAppServiceRef.value?.subscribeSourceExistenceUpdates?.(handleSourceExistenceUpdate) ?? null;
   unsubscribeQueueProjectionLiveIdentity = pluginUnifiedDataSourceManager.value
     ?.observeQueueProjection?.(browserLoadDataRuntime.handleQueueProjectionLiveIdentityEvent) ?? null;
+  const reviewProjectionWorkCoordinator = reviewProjectionWorkCoordinatorRef.value;
+  if (reviewProjectionWorkCoordinator) {
+    browserQueueProjectionReviewPressure.value = toBrowserReviewPressure(
+      reviewProjectionWorkCoordinator.getSnapshot(),
+    );
+    unsubscribeReviewProjectionActivity = reviewProjectionWorkCoordinator.subscribe((snapshot) => {
+      browserQueueProjectionReviewPressure.value = toBrowserReviewPressure(snapshot);
+    });
+  }
 
   // Subscribe to incremental updates
   unsubscribe = subscribeCacheUpdate((cards, isComplete) => {
@@ -3458,7 +3531,6 @@ const browserQueueProjectionWarmupRuntime = createBrowserQueueProjectionWarmupRu
   currentCardType,
   currentPreset,
   logger,
-  reviewPressure: browserQueueProjectionReviewPressure,
   onQueueReady: (status) => {
     if (normalizeBrowserQueueId(activeQueueId.value) === status.queueId) {
       browserQueueViewLifecycle.setProjectionIdentity({
@@ -3467,6 +3539,9 @@ const browserQueueProjectionWarmupRuntime = createBrowserQueueProjectionWarmupRu
         policyId: status.policyId,
         generation: status.generation,
       });
+      if (shouldRetryFirstPageForWarmupReady(status)) {
+        rebuildInfiniteDatasource(false);
+      }
     }
     void refreshQueueCounts({
       forceRefresh: true,
@@ -3474,6 +3549,7 @@ const browserQueueProjectionWarmupRuntime = createBrowserQueueProjectionWarmupRu
     });
   },
   searchQuery,
+  workCoordinator: () => reviewProjectionWorkCoordinatorRef.value,
 });
 
 const browserLoadDataRuntime = createBrowserLoadDataRuntime({
@@ -3566,7 +3642,17 @@ const cardTypeDetection = useCardTypeDetection(() => rows.value, {
 async function refreshQueueCounts(request: BrowserQueueCountsRequest = {}) {
   const reviewPressure = browserQueueProjectionReviewPressure.value;
   if (hasNonActiveQueueCountWorkDuringReview(request, reviewPressure)) {
-    hasDeferredQueueCountRefresh = true;
+    reviewProjectionWorkCoordinatorRef.value?.scheduleWork({
+      key: BROWSER_QUEUE_COUNT_CATCHUP_WORK_KEY,
+      queueType: null,
+      run: () => refreshQueueCountsBridge(queueCounts, {
+        forceRefresh: true,
+        reviewPressure: {
+          active: false,
+          activeQueueType: null,
+        },
+      }),
+    });
   }
   await refreshQueueCountsBridge(queueCounts, {
     ...request,
@@ -3587,14 +3673,6 @@ function hasNonActiveQueueCountWorkDuringReview(
   }
   return affectedQueueTypes.some((queueType) => queueType !== reviewPressure.activeQueueType);
 }
-
-watch(browserQueueProjectionReviewPressure, (pressure, previousPressure) => {
-  if (pressure.active || previousPressure?.active !== true || !hasDeferredQueueCountRefresh) {
-    return;
-  }
-  hasDeferredQueueCountRefresh = false;
-  void refreshQueueCounts({ forceRefresh: true });
-});
 
 async function handleSelectQueue(queueId: string) {
   if (activeQueueId.value === queueId && activeDocId.value === null && shouldFocusDocList.value) {

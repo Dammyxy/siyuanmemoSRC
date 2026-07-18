@@ -4,6 +4,7 @@ import type {
   BackendAutoCardExecuteBatchRequest,
   BackendAutoCardExecuteBatchResult,
   BackendDbLoadRequest,
+  BackendDbLoadResult,
   BackendDbReloadResult,
   BackendBrowserAggregateFocusRequest,
   BackendBrowserAggregateFocusResult,
@@ -110,6 +111,7 @@ import type {
   BackendDiagnosticsStatusResult,
   BackendReviewTruthDeviceDiagnostics,
   BackendStartupIdentityDisposition,
+  BackendStartupReadinessDisposition,
   BackendHealthResult,
   BackendPrivateDiagnosticsStatusResult,
   BackendPrivateHealthResult,
@@ -123,6 +125,12 @@ import type {
   BackendProgressiveCommandExecuteResult,
   BackendTopicDerivedCommandExecuteRequest,
   BackendTopicDerivedCommandExecuteResult,
+  BackendForeignEpochRecoveryApplyRequest,
+  BackendForeignEpochRecoveryApplyResult,
+  BackendForeignEpochRecoveryPreviewRequest,
+  BackendForeignEpochRecoveryPreviewResult,
+  BackendForeignEpochRecoveryStatusRequest,
+  BackendForeignEpochRecoveryStatusResult,
 } from '../../../packages/contracts/src/backend-rpc';
 import { MESSAGEPACK_TRUTH_SCHEMA_VERSION } from '../../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
@@ -133,6 +141,7 @@ import {
   BackendBrowserRpcClient,
   BackendCardRpcClient,
   BackendCoreRpcClient,
+  BackendForeignEpochRecoveryRpcClient,
   BackendIntegrationRpcClient,
   BackendNeuralRoamRpcClient,
   BackendPrivateApiRpcClient,
@@ -170,11 +179,6 @@ const REVIEW_TRUTH_BACKFILL_DEFAULT_BATCH_LIMIT = 64;
 const REVIEW_TRUTH_BACKFILL_MAX_STARTUP_BATCHES = 16;
 const TRUTH_PROMOTION_STATUS_MAX_POLLS = 16;
 const TRUTH_PROMOTION_STATUS_POLL_MS = 25;
-const REVIEW_TRUTH_MUTATION_IDENTITY_SOURCES = new Set<BackendReviewTruthDeviceDiagnostics['source']>([
-  'authority-copies',
-  'indexeddb-repaired-localStorage',
-  'localStorage-repaired-indexeddb',
-]);
 
 function isReviewTruthFlushPressureSuppressed(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -214,6 +218,7 @@ export interface SrsBackendClientOptions {
 export class SrsBackendClient {
   private readonly coreClient: BackendCoreRpcClient;
   private readonly browserClient: BackendBrowserRpcClient;
+  private readonly foreignEpochRecoveryClient: BackendForeignEpochRecoveryRpcClient;
   private readonly cardClient: BackendCardRpcClient;
   private readonly queueClient: BackendQueueRpcClient;
   private readonly queueProjectionClient: BackendQueueProjectionRpcClient;
@@ -223,6 +228,7 @@ export class SrsBackendClient {
   private readonly privateApiClient: BackendPrivateApiRpcClient;
   private readonly integrationClient: BackendIntegrationRpcClient;
   private readonly startupIdentityDisposition: BackendStartupIdentityDisposition | null;
+  private startupReadinessDisposition: BackendStartupReadinessDisposition | null = null;
   private readonly reviewTruthFlushOptions: SrsBackendReviewTruthFlushSchedulerOptions | null;
   private readonly reviewTruthDeviceDiagnostics: BackendReviewTruthDeviceDiagnostics | null;
   private readonly canWriteReviewTruth: () => boolean;
@@ -242,6 +248,7 @@ export class SrsBackendClient {
   ) {
     const rpcCaller = new BackendRpcCaller(transport);
     this.coreClient = new BackendCoreRpcClient(rpcCaller);
+    this.foreignEpochRecoveryClient = new BackendForeignEpochRecoveryRpcClient(rpcCaller);
     this.browserClient = new BackendBrowserRpcClient(rpcCaller);
     this.cardClient = new BackendCardRpcClient(rpcCaller);
     this.queueClient = new BackendQueueRpcClient(rpcCaller);
@@ -264,15 +271,24 @@ export class SrsBackendClient {
   }
 
   async loadDatabase(): Promise<BackendDbLoadResult> {
-    return this.coreClient.loadDatabase(this.createDbLoadRequest());
+    const result = await this.coreClient.loadDatabase(this.createDbLoadRequest());
+    if (result.readiness) {
+      this.startupReadinessDisposition = result.readiness;
+    }
+    return result;
   }
 
   async reloadDatabase(): Promise<BackendDbReloadResult> {
-    return this.coreClient.reloadDatabase(this.createDbLoadRequest());
+    const result = await this.coreClient.reloadDatabase(this.createDbLoadRequest());
+    if (result.readiness) {
+      this.startupReadinessDisposition = result.readiness;
+    }
+    return result;
   }
 
   isStartupWriteCapable(): boolean {
-    return this.startupIdentityDisposition?.writable !== false;
+    return this.startupReadinessDisposition?.writable
+      ?? (this.startupIdentityDisposition?.writable !== false);
   }
 
   async storageMaintenanceStatus(
@@ -291,6 +307,24 @@ export class SrsBackendClient {
     request: BackendStoragePressureRecoveryRequest = {},
   ): Promise<BackendStoragePressureRecoveryResult> {
     return this.coreClient.storagePressureRecover(request);
+  }
+
+  async foreignEpochRecoveryPreview(
+    request: BackendForeignEpochRecoveryPreviewRequest = {},
+  ): Promise<BackendForeignEpochRecoveryPreviewResult> {
+    return this.foreignEpochRecoveryClient.preview(request);
+  }
+
+  async foreignEpochRecoveryApply(
+    request: BackendForeignEpochRecoveryApplyRequest,
+  ): Promise<BackendForeignEpochRecoveryApplyResult> {
+    return this.foreignEpochRecoveryClient.apply(request);
+  }
+
+  async foreignEpochRecoveryStatus(
+    request: BackendForeignEpochRecoveryStatusRequest = {},
+  ): Promise<BackendForeignEpochRecoveryStatusResult> {
+    return this.foreignEpochRecoveryClient.status(request);
   }
 
   private createDbLoadRequest(): BackendDbLoadRequest | undefined {
@@ -1339,7 +1373,7 @@ export class SrsBackendClient {
     if (
       diagnosticDeviceId !== deviceId
       || diagnosticIdentityEpoch !== identityEpoch
-      || !REVIEW_TRUTH_MUTATION_IDENTITY_SOURCES.has(this.reviewTruthDeviceDiagnostics.source)
+      || this.reviewTruthDeviceDiagnostics.status !== 'verified'
     ) {
       return null;
     }

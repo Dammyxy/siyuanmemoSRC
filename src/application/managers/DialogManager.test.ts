@@ -9,8 +9,9 @@ import type { ApplicationContext } from '../ApplicationContext';
 import type { Plugin } from 'siyuan';
 import { createVueDialog } from '@/utils/dialog';
 import { QueueType } from '@/types/unified-data-source';
+import { ReviewProjectionWorkCoordinator } from '@/application/services/ReviewProjectionWorkCoordinator';
 
-const { dialogInstances, DialogMock, openManualSyncConflictResolutionDialogMock } = vi.hoisted(() => ({
+const { dialogInstances, DialogMock } = vi.hoisted(() => ({
   dialogInstances: [] as Array<{
     options: { title: string; content: string; width?: string };
     element: HTMLElement;
@@ -27,7 +28,6 @@ const { dialogInstances, DialogMock, openManualSyncConflictResolutionDialogMock 
     dialogInstances.push(dialog);
     return dialog;
   }),
-  openManualSyncConflictResolutionDialogMock: vi.fn(async () => undefined),
 }));
 
 // Mock dependencies
@@ -68,56 +68,6 @@ vi.mock('siyuan', () => ({
   Dialog: DialogMock,
 }));
 
-vi.mock('@/ui/syncConflict/manualSyncConflictResolutionDialog', () => ({
-  openManualSyncConflictResolutionDialog: openManualSyncConflictResolutionDialogMock,
-}));
-
-function buildDomainStatus(
-  status: 'clean' | 'merged' | 'repairable' | 'divergent' | 'needs-direction' | 'source-error',
-  overrides: {
-    repairableDivergenceCount?: number;
-    divergentCardCount?: number;
-    skippedSourceCount?: number;
-    pendingImportCount?: number;
-    reasonCounts?: Record<string, number>;
-  } = {},
-) {
-  const repairableDivergenceCount = overrides.repairableDivergenceCount ?? 0;
-  const skippedSourceCount = overrides.skippedSourceCount ?? 0;
-  return {
-    ok: true,
-    ledger: {
-      operationCount: 1,
-      newestOperationAt: 1,
-      operationTypes: {},
-    },
-    processedSources: {
-      recent: [],
-      skipped: [],
-      totalProcessed: 0,
-      totalSkipped: skippedSourceCount,
-    },
-    sanity: {
-      status,
-      checkedAt: 1,
-      ledgerOperationCount: 1,
-      pendingImportCount: overrides.pendingImportCount ?? 0,
-      processedSourceCount: 0,
-      skippedSourceCount,
-      repairableDivergenceCount,
-      divergentCardCount: overrides.divergentCardCount ?? repairableDivergenceCount,
-      reasonCounts: overrides.reasonCounts ?? {},
-      affectedCardIds: [],
-      truncated: false,
-    },
-    repair: {
-      available: repairableDivergenceCount > 0,
-      repairableDivergenceCount,
-      latestPlanId: null,
-    },
-  };
-}
-
 describe('DialogManager', () => {
   let dialogManager: DialogManager;
   let mockContext: ApplicationContext;
@@ -134,6 +84,7 @@ describe('DialogManager', () => {
   let mockTabManager: any;
   let mockNativeRiffImportModule: any;
   let mockNativeRiffAdoptionModule: any;
+  let mockReviewProjectionWorkCoordinator: ReviewProjectionWorkCoordinator;
 
   beforeEach(() => {
     // 创建 mock 对象
@@ -162,7 +113,13 @@ describe('DialogManager', () => {
       pushMsg: vi.fn(async () => undefined),
     };
     mockProgressiveSiyuanApi = {};
-    mockReadDomainSyncDiagnostics = vi.fn(async () => buildDomainStatus('clean'));
+    mockReviewProjectionWorkCoordinator = new ReviewProjectionWorkCoordinator({
+      info: vi.fn(),
+      warn: vi.fn(),
+    });
+    mockReadDomainSyncDiagnostics = vi.fn(async () => {
+      throw new Error('Review entry must not read domain sync diagnostics');
+    });
     mockTabManager = {
       openReviewTabInNewTab: vi.fn(),
     };
@@ -213,6 +170,7 @@ describe('DialogManager', () => {
       getTabApplicationService: vi.fn(() => ({})),
       getEventBus: vi.fn(() => ({})),
       getReviewRuntimeAccess: vi.fn(() => ({})),
+      getReviewProjectionWorkCoordinator: vi.fn(() => mockReviewProjectionWorkCoordinator),
       getReviewQueuePreparationService: vi.fn(() => null),
       getReviewAdmissionModule: vi.fn(() => ({
         admitReviewSession: vi.fn(async ({ target }) => ({
@@ -397,15 +355,7 @@ describe('DialogManager', () => {
       expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalled();
     });
 
-    it('allows standard Review entry when domain sync repairable drift is reps-only', async () => {
-      mockReadDomainSyncDiagnostics.mockResolvedValueOnce(buildDomainStatus('repairable', {
-        repairableDivergenceCount: 2,
-        reasonCounts: {
-          'review-history-newer-than-card-state': 0,
-          'review-event-count-exceeds-card-reps': 2,
-        },
-      }));
-
+    it('opens Review without consulting domain sync diagnostics', async () => {
       await dialogManager.openReviewDialog();
 
       expect(createUnifiedReviewDialogMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -413,53 +363,7 @@ describe('DialogManager', () => {
           queueType: QueueType.RetrievalPractice,
         }),
       }));
-      expect(openManualSyncConflictResolutionDialogMock).not.toHaveBeenCalled();
-    });
-
-    it('blocks tab-mode Review before opening a Review tab', async () => {
-      mockSettingsService.getSettings.mockReturnValueOnce({
-        ui: {
-          reviewOpenInNewTabByDefault: true,
-        },
-      });
-      mockReadDomainSyncDiagnostics.mockResolvedValueOnce(buildDomainStatus('needs-direction'));
-
-      await dialogManager.openFinalDrillDialog();
-
-      expect(mockTabManager.openReviewTabInNewTab).not.toHaveBeenCalled();
-      expect(createUnifiedReviewDialogMock).not.toHaveBeenCalled();
-      expect(openManualSyncConflictResolutionDialogMock).toHaveBeenCalledWith(
-        mockContext,
-        expect.objectContaining({
-          reviewBlockDecision: expect.objectContaining({ kind: 'block-needs-direction' }),
-        }),
-      );
-    });
-
-    it('blocks scoped Review before creating a subset queue', async () => {
-      const manager = {
-        getQueue: vi.fn(() => ({ cards: [] })),
-        repairQueueProjection: vi.fn(async () => ({
-          status: 'unavailable',
-          queueType: QueueType.FilterGroup,
-          reason: 'unused-test-repair',
-        })),
-      };
-      vi.mocked(mockContext.getUnifiedDataSourceManager).mockReturnValueOnce(manager as never);
-      mockReadDomainSyncDiagnostics.mockResolvedValueOnce(buildDomainStatus('source-error', {
-        skippedSourceCount: 1,
-      }));
-
-      await dialogManager.openSubsetReviewDialog(['20260520191142-k4so8as']);
-
-      expect(manager.getQueue).not.toHaveBeenCalled();
-      expect(createUnifiedReviewDialogMock).not.toHaveBeenCalled();
-      expect(openManualSyncConflictResolutionDialogMock).toHaveBeenCalledWith(
-        mockContext,
-        expect.objectContaining({
-          reviewBlockDecision: expect.objectContaining({ kind: 'block-source-error' }),
-        }),
-      );
+      expect(mockReadDomainSyncDiagnostics).not.toHaveBeenCalled();
     });
 
     it('keeps safe Review entry behavior for representative surfaces', async () => {
@@ -675,6 +579,37 @@ describe('DialogManager', () => {
   });
 
   describe('生命周期管理', () => {
+    it('publishes and releases Review dialog activity from register, close, and destroy paths', () => {
+      let closeCurrent: (() => void) | null = null;
+      const firstDialog = { destroy: vi.fn() };
+      (dialogManager as any).registerCurrentReviewDialog(
+        QueueType.IncrementalLearning,
+        (onClose: () => void) => {
+          closeCurrent = onClose;
+          return firstDialog;
+        },
+      );
+
+      expect(mockReviewProjectionWorkCoordinator.getSnapshot()).toMatchObject({
+        active: true,
+        activeQueueType: QueueType.IncrementalLearning,
+        surfaceKind: 'dialog',
+      });
+
+      closeCurrent?.();
+      expect(mockReviewProjectionWorkCoordinator.getSnapshot().active).toBe(false);
+
+      const secondDialog = { destroy: vi.fn() };
+      (dialogManager as any).registerCurrentReviewDialog(
+        QueueType.FinalDrill,
+        () => secondDialog,
+      );
+      (dialogManager as any).destroyCurrentReviewDialog();
+
+      expect(secondDialog.destroy).toHaveBeenCalledTimes(1);
+      expect(mockReviewProjectionWorkCoordinator.getSnapshot().active).toBe(false);
+    });
+
     it('dispose 应该关闭所有对话框', async () => {
       await dialogManager.openSettingsDialog();
       await dialogManager.openBrowserDialog();

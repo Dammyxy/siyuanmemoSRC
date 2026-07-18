@@ -203,6 +203,18 @@ function createStorageMaintenanceApplyBatchRequest(id = 1): BackendRpcRequest {
   };
 }
 
+function createStoragePressureRecoveryRequest(id = 1): BackendRpcRequest {
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'storage.pressure.recover',
+    params: [{
+      maxCleanupFiles: 64,
+      maxCleanupBytes: 16 * 1024 * 1024,
+    }],
+  };
+}
+
 function createBrowserDeckPageRequest(id = 1): BackendRpcRequest {
   return {
     jsonrpc: BACKEND_RPC_VERSION,
@@ -1070,6 +1082,92 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('routes identity recovery evidence and certified authority publication with apply attribution', async () => {
+    const worker = new FakeWorker();
+    const evidence = {
+      currentAuthority: null,
+      previousAuthority: null,
+      tempLocalIdentity: { version: 1, deviceId: 'device-redacted' },
+      browserCacheObservations: [],
+    };
+    const planHash = `sha256:${'a'.repeat(64)}` as const;
+    const intent = { intentHash: `sha256:${'b'.repeat(64)}` } as never;
+    const readIdentityRecoveryEvidence = vi.fn(async () => evidence);
+    const ensureRecoveryActiveWriter = vi.fn(async () => undefined);
+    const publishCertifiedAuthority = vi.fn(async () => ({ authorityHash: planHash }));
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {
+        readIdentityRecoveryEvidence,
+        ensureRecoveryActiveWriter,
+        publishCertifiedAuthority,
+      },
+    });
+
+    worker.emit({ kind: 'ready' });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-identity-read',
+      effect: {
+        kind: 'identity.readRecoveryEvidence',
+        requestMethod: 'recovery.foreignEpoch.preview',
+      },
+    });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(readIdentityRecoveryEvidence).toHaveBeenCalledTimes(1);
+    expect(worker.posted[0]).toMatchObject({
+      kind: 'host-effect-result',
+      effectId: 'effect-identity-read',
+      ok: true,
+      result: evidence,
+    });
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-recovery-writer',
+      effect: {
+        kind: 'recovery.ensureActiveWriter',
+        requestMethod: 'recovery.foreignEpoch.apply',
+        operationId: 'operation-redacted',
+        planHash,
+        stage: 'continuity',
+      },
+    });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    expect(ensureRecoveryActiveWriter).toHaveBeenCalledWith({
+      requestMethod: 'recovery.foreignEpoch.apply',
+      operationId: 'operation-redacted',
+      planHash,
+      stage: 'continuity',
+    });
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-identity-publish',
+      effect: {
+        kind: 'identity.publishCertifiedAuthority',
+        requestMethod: 'recovery.foreignEpoch.apply',
+        operationId: 'operation-redacted',
+        planHash,
+        intent,
+      },
+    });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(3));
+    expect(publishCertifiedAuthority).toHaveBeenCalledWith({
+      requestMethod: 'recovery.foreignEpoch.apply',
+      operationId: 'operation-redacted',
+      planHash,
+      intent,
+    });
+    expect(worker.posted[2]).toMatchObject({
+      kind: 'host-effect-result',
+      effectId: 'effect-identity-publish',
+      ok: true,
+      result: { authorityHash: planHash },
+    });
+    transport.dispose();
+  });
+
   it('logs worker-returned review session feedback timing so grading latency can be split', async () => {
     vi.setSystemTime(4_000);
     const worker = new FakeWorker();
@@ -1135,7 +1233,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
               sourceCount: 0,
               sanityStatus: 'clean',
               mainDbReadSkipped: true,
-              mainDbReadSkipReason: 'read-only-preflight',
+              mainDbReadSkipReason: 'snapshot-preflight',
               conflictSourceCount: 0,
               nonEmptyConflictSourceCount: 0,
             },
@@ -1885,6 +1983,43 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('forwards maintenance sqlite write metadata to the host file effect', async () => {
+    const worker = new FakeWorker();
+    const writeBinary = vi.fn(async () => undefined);
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { writeBinary },
+    });
+    worker.emit({ kind: 'ready' });
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-maintenance-db-write',
+      effect: {
+        kind: 'sqlite.writeBinary',
+        path: 'siyuanmemo.db',
+        bytes: new Uint8Array([1, 2, 3]),
+        requestMethod: 'storage.maintenance.applyBatch',
+        purpose: 'sqlite.persist',
+        substep: 'maintenance-commit',
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(writeBinary).toHaveBeenCalledWith(
+      'siyuanmemo.db',
+      new Uint8Array([1, 2, 3]),
+      { purpose: 'sqlite.persist', substep: 'maintenance-commit' },
+    );
+    expect(worker.posted[0]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-maintenance-db-write',
+      ok: true,
+      result: null,
+    });
+    transport.dispose();
+  });
+
   it('serves neural graph query host effects through the typed bridge', async () => {
     const worker = new FakeWorker();
     const resolveNeuralGraphQuery = vi.fn(async () => ({
@@ -2078,7 +2213,12 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       'maintenance-mutation',
     );
     await expectOperationRequestTimeout(
-      createStorageProjectionRebuildRequest(105),
+      createStoragePressureRecoveryRequest(105),
+      600_000,
+      'storage-pressure-recovery',
+    );
+    await expectOperationRequestTimeout(
+      createStorageProjectionRebuildRequest(106),
       120_000,
       'projection-rebuild',
     );
@@ -2197,6 +2337,125 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       response,
     });
     await expect(pending).resolves.toEqual(response);
+    transport.dispose();
+  });
+
+  it('holds later projection and review feedback requests behind active storage pressure recovery', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      requestTimeoutMs: 20,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const recoveryRequest = createStoragePressureRecoveryRequest(106);
+    const recovery = transport.request(recoveryRequest);
+    await Promise.resolve();
+    const projectionRequest = createBrowserDeckPageRequest(107);
+    const projection = transport.request(projectionRequest);
+    const feedbackRequest = createReviewSessionFeedbackRequest(108);
+    const feedback = transport.request(feedbackRequest);
+    await Promise.resolve();
+
+    expect(worker.posted).toEqual([
+      expect.objectContaining({ kind: 'request', request: recoveryRequest }),
+    ]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(worker.terminated).not.toHaveBeenCalled();
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'healthy',
+      requestTimeouts: 0,
+      pendingRequests: 1,
+    }));
+
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: recoveryRequest.id,
+        result: { ok: true, phase: 'completed' },
+      },
+    });
+    await expect(recovery).resolves.toMatchObject({ result: { ok: true } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(worker.posted).toHaveLength(3);
+    expect(worker.posted[1]).toEqual(expect.objectContaining({
+      kind: 'request',
+      request: projectionRequest,
+    }));
+    expect(worker.posted[2]).toEqual(expect.objectContaining({
+      kind: 'request',
+      request: feedbackRequest,
+    }));
+
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[1] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: projectionRequest.id,
+        result: { rows: [] },
+      },
+    });
+    await expect(projection).resolves.toMatchObject({ result: { rows: [] } });
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[2] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: feedbackRequest.id,
+        result: { committed: true },
+      },
+    });
+    await expect(feedback).resolves.toMatchObject({ result: { committed: true } });
+    transport.dispose();
+  });
+
+  it('does not terminate an active storage recovery when an earlier generic request times out', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      requestTimeoutMs: 20,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const earlier = transport.request(createRequest(109));
+    await Promise.resolve();
+    const recoveryRequest = createStoragePressureRecoveryRequest(110);
+    const recovery = transport.request(recoveryRequest);
+    await Promise.resolve();
+    const earlierAssertion = expect(earlier).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: backend worker request timed out after 20ms operation=system.health',
+    );
+
+    await vi.advanceTimersByTimeAsync(20);
+    await earlierAssertion;
+    expect(worker.terminated).not.toHaveBeenCalled();
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'healthy',
+      requestTimeouts: 1,
+      pendingRequests: 1,
+    }));
+
+    const recoveryMessage = worker.posted.find((message) => (
+      (message as { request?: BackendRpcRequest }).request?.method === 'storage.pressure.recover'
+    )) as { requestId: string };
+    worker.emit({
+      kind: 'response',
+      requestId: recoveryMessage.requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: recoveryRequest.id,
+        result: { ok: true, phase: 'completed' },
+      },
+    });
+    await expect(recovery).resolves.toMatchObject({ result: { ok: true } });
     transport.dispose();
   });
 

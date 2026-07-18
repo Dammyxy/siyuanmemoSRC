@@ -1,8 +1,10 @@
 # ADR-001: Trait 模式用于队列能力扩展
 
+> Series: Legacy DDD（已冻结）。权威状态见 [Architecture Decision Registry](../ADR-INDEX.md)。
+
 ## 状态
 
-已接受
+已替代（2026-07-17）：Trait interfaces 与 `getTrait()` 已退役；当前队列能力由公开 Queue/Strategy contracts 表达。
 
 ## 背景
 
@@ -251,7 +253,7 @@ async function addCards(queue: IQueueStrategy<ReviewCard>, cards: ReviewCard[]) 
 
 ## 参考资料
 
-- [Trait Pattern 文档](../../src/core/queue/abstraction/TRAIT_PATTERN.md)
+- Trait Pattern 实现文档（已随该抽象退役）：`src/core/queue/abstraction/TRAIT_PATTERN.md`
 - [Trait Pattern (Wikipedia)](https://en.wikipedia.org/wiki/Trait_(computer_programming))
 - [Composition over Inheritance](https://en.wikipedia.org/wiki/Composition_over_inheritance)
 - [TypeScript Mixins](https://www.typescriptlang.org/docs/handbook/mixins.html)
@@ -261,5 +263,5 @@ async function addCards(queue: IQueueStrategy<ReviewCard>, cards: ReviewCard[]) 
 - **作者**: Kiro AI Assistant
 - **日期**: 2026-02-02
 - **审阅者**: Architecture Team
-- **相关 ADR**: ADR-002 (观察者模式)
+- **相关 ADR**: Legacy DDD ADR-002 (观察者模式)
 - **相关需求**: 需求 15.1, 15.2, 15.4

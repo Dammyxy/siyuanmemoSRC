@@ -42,8 +42,8 @@ The implementation occurs in a dirty worktree containing the reviewed fixes and 
 
 The startup composition seam will carry a typed disposition with at least:
 
-- `writable-ready`: both Truth Device Identity authorities agree on `pluginInstallationId` and `identityEpoch`, authoritative storage evidence is trusted, the projection is readable, and no hard-pressure gate remains.
-- `read-only-recovery-required`: identity authorities conflict, an identity record is invalid, authoritative continuity cannot be proven, or storage evidence already requires recovery. The externally visible reason remains `STORAGE_RECOVERY_REQUIRED` with a safe identity/storage subreason.
+- `writable-ready`: the installation-local Truth Device Identity authority verifies `pluginInstallationId` and `identityEpoch`, authoritative storage evidence is trusted, the projection is readable, and no hard-pressure gate remains.
+- `read-only-recovery-required`: the installation authority is invalid, legacy/immutable continuity evidence is ambiguous, authoritative continuity cannot be proven, or storage evidence already requires recovery. The externally visible reason remains `STORAGE_RECOVERY_REQUIRED` with a safe identity/storage subreason.
 - `read-only-authority-unavailable`: identity authority cannot currently be read. The external recovery code is `STORAGE_RECOVERY_REQUIRED`, with a retryable `IDENTITY_AUTHORITY_UNAVAILABLE` subreason that remains distinguishable from durable identity conflict and valid first-install absence.
 
 The disposition is computed before any truth write, Review journal replay mutation, or normal write-capable readiness. `db.load`/`db.reload` must accept or derive the verified identity evidence without reintroducing storage preflight before identity resolution. A valid first-install identity may only be created through the existing authoritative identity creation protocol; a conflict or invalid record never triggers replacement generation.

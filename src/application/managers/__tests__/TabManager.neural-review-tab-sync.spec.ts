@@ -51,6 +51,12 @@ function createManager() {
     neuralRoamCommand: vi.fn(async () => ({ ok: true })),
   };
   const context = {
+    getReviewProjectionWorkCoordinator: vi.fn(() => ({
+      activateSurface: vi.fn(() => ({
+        markActive: vi.fn(),
+        release: vi.fn(),
+      })),
+    })),
     getI18n: vi.fn(() => ({
       reviewTitle: 'Review',
     })),

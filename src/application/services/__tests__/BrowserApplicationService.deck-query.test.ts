@@ -423,20 +423,13 @@ describe('BrowserApplicationService deck query kernel', () => {
     );
   });
 
-  it('does not run source-existence sweep mutations while startup readiness is read-only', async () => {
-    const card = buildCard({
-      id: 'card-read-only-recovery',
-      blockId: 'block-read-only-recovery',
-      meta: { content: 'Worker read-only recovery card', rootId: 'doc-worker' },
-    });
+  it('keeps Browser stats readable when a background source-existence sweep fails', async () => {
     const backendClient: Pick<SrsBackendClient,
-      | 'browserDeckPage'
       | 'browserStats'
       | 'browserSourceExistenceRefreshCandidates'
       | 'browserSourceExistenceApplySweepHost'
       | 'browserSourceExistenceByBlockIds'
-    > & { isStartupWriteCapable: () => boolean } = {
-      browserDeckPage: vi.fn(async () => ({ total: 1, cards: [card] })),
+    > = {
       browserStats: vi.fn(async () => ({
         totalCards: 1,
         dueCards: 0,
@@ -447,27 +440,15 @@ describe('BrowserApplicationService deck query kernel', () => {
         lostCards: 0,
       })),
       browserSourceExistenceRefreshCandidates: vi.fn(async () => [{
-        cardId: 'card-read-only-recovery',
-        blockId: 'block-read-only-recovery',
+        cardId: 'card-storage-recovery',
+        blockId: 'block-storage-recovery',
         sourceExists: null,
         sourceCheckedAt: null,
       }]),
       browserSourceExistenceApplySweepHost: vi.fn(async () => {
-        throw new Error('source-existence sweep mutation must not run in read-only recovery');
+        throw new Error('STORAGE_VALIDATION_ERROR: SQLite delta segment checksum mismatch');
       }),
       browserSourceExistenceByBlockIds: vi.fn(async () => new Map()),
-      isStartupWriteCapable: vi.fn(() => false),
-    };
-    const siyuanApi = {
-      ATTR_CARD_ID: 'custom-fsrs-card-id',
-      ATTR_PRIORITY: 'custom-fsrs-priority',
-      ATTR_SUSPENDED: 'custom-fsrs-suspended',
-      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
-      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
-      sql: vi.fn(async () => [{ id: 'block-read-only-recovery' }]),
-      setBlockAttrs: vi.fn(),
-      pushMsg: vi.fn(),
-      pushErrMsg: vi.fn(),
     };
     const service = new BrowserApplicationService(
       {
@@ -479,20 +460,19 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardFilterService(),
       new CardSortService(),
       null,
-      siyuanApi as never,
-      siyuanApi as never,
+      { sql: vi.fn(async () => []) } as never,
+      { sql: vi.fn(async () => []) } as never,
       null,
       null,
       backendClient as SrsBackendClient,
     );
 
-    await expect(service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 }))
-      .resolves.toMatchObject({ total: 1 });
     await expect(service.getStats()).resolves.toMatchObject({ totalCards: 1 });
     await flushBackgroundTimers();
 
-    expect(backendClient.browserSourceExistenceRefreshCandidates).not.toHaveBeenCalled();
-    expect(backendClient.browserSourceExistenceApplySweepHost).not.toHaveBeenCalled();
+    expect(backendClient.browserSourceExistenceRefreshCandidates).toHaveBeenCalledTimes(1);
+    expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalledTimes(1);
+    await expect(service.getStats()).resolves.toMatchObject({ totalCards: 1 });
   });
 
   it('reads Browser document counts through the backend count-only seam without hydrating rows by id', async () => {

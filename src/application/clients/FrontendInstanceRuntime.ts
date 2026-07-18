@@ -868,7 +868,8 @@ export class FrontendInstanceRuntime {
         return false;
       }
       if (isDocumentHidden()) {
-        return false;
+        return currentProfile?.surfaceRole === 'primary-app'
+          && currentProfile.writerEligibility === 'canonical';
       }
       return true;
     }

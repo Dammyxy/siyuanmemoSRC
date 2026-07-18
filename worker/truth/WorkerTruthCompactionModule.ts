@@ -18,6 +18,7 @@ import {
 } from './MessagePackTruthSegmentStore';
 import {
   MessagePackTruthSnapshotGenerationStore,
+  type MessagePackTruthPublishGenerationResult,
 } from './MessagePackTruthSnapshotGenerationStore';
 
 export type WorkerCompactableTruthFamily = 'card-memory-facts' | 'queue-facts';
@@ -76,6 +77,31 @@ function deterministicGenerationId(
   snapshotRecordCount: number,
 ): string {
   return `compact-${family}-${coveredJournalSequence}-${snapshotRecordCount}`;
+}
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableValue);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, stableValue((value as Record<string, unknown>)[key])]),
+  );
+}
+
+function recordsEquivalent(left: MessagePackTruthRecord[], right: MessagePackTruthRecord[]): boolean {
+  return left.length === right.length
+    && JSON.stringify(left.map(stableValue)) === JSON.stringify(right.map(stableValue));
+}
+
+function isRecoverableOrphanGenerationConflict(error: unknown): boolean {
+  const message = errorMessage(error);
+  return message.startsWith('snapshot-generation-descriptor-immutable-conflict:')
+    || message.startsWith('snapshot-generation-immutable-conflict:');
 }
 
 export class WorkerTruthCompactionModule {
@@ -153,9 +179,11 @@ export class WorkerTruthCompactionModule {
     const generationStore = this.getGenerationStore(family);
     const inspection = await generationStore.inspectGenerations();
     let recoveryPreviousGenerationId: string | undefined;
+    let currentRecordsEquivalent = false;
     if (inspection.fence.current) {
       try {
-        await generationStore.replayVerifiedGeneration(inspection.fence.current);
+        const current = await generationStore.replayVerifiedGeneration(inspection.fence.current);
+        currentRecordsEquivalent = recordsEquivalent(current.records, snapshotRecords);
       } catch (currentError) {
         if (!inspection.fence.previous) {
           throw new Error(
@@ -177,9 +205,19 @@ export class WorkerTruthCompactionModule {
       deterministicGeneration === null
       || (
         recoveryPreviousGenerationId === undefined
-        && inspection.fence.current?.generationId === deterministicGeneration
+        && (
+          inspection.fence.current?.generationId === deterministicGeneration
+          || currentRecordsEquivalent
+        )
       )
     ) {
+      const retention = inspection.orphanPaths.length > 0 && this.fileStore.deleteFile
+        ? await generationStore.reclaimObsoleteGenerations()
+        : {
+            retainedGenerationIds: inspection.retainedGenerationIds,
+            deletedPaths: [],
+          };
+      const retainedInspection = await generationStore.inspectGenerations();
       return {
         family,
         status: 'noop',
@@ -188,21 +226,47 @@ export class WorkerTruthCompactionModule {
         sourceRecordCount: source.records.length,
         snapshotRecordCount: snapshotRecords.length,
         coveredJournalSequence,
-        orphanPaths: inspection.orphanPaths,
-        reclaimedPaths: [],
+        orphanPaths: retainedInspection.orphanPaths,
+        reclaimedPaths: retention.deletedPaths,
       };
     }
-    const generationId = recoveryPreviousGenerationId
-      && inspection.fence.current?.generationId === deterministicGeneration
+    const deterministicGenerationRetained = deterministicGeneration !== null
+      && (
+        inspection.fence.current?.generationId === deterministicGeneration
+        || inspection.fence.previous?.generationId === deterministicGeneration
+      );
+    const generationId = deterministicGenerationRetained
       ? `${deterministicGeneration}-recovered-${inspection.fence.fence + 1}`
       : deterministicGeneration;
 
-    const published = await generationStore.publishGeneration({
-      generationId,
-      records: snapshotRecords,
-      expectedCurrentGenerationId: inspection.fence.current?.generationId ?? null,
-      recoveryPreviousGenerationId,
-    });
+    let published: MessagePackTruthPublishGenerationResult;
+    let prePublishReclaimedPaths: string[] = [];
+    try {
+      published = await generationStore.publishGeneration({
+        generationId,
+        records: snapshotRecords,
+        expectedCurrentGenerationId: inspection.fence.current?.generationId ?? null,
+        recoveryPreviousGenerationId,
+      });
+    } catch (error) {
+      const generationIsRetained = generationId === inspection.fence.current?.generationId
+        || generationId === inspection.fence.previous?.generationId;
+      if (
+        recoveryPreviousGenerationId !== undefined
+        || generationIsRetained
+        || !isRecoverableOrphanGenerationConflict(error)
+      ) {
+        throw error;
+      }
+      const prePublishRetention = await generationStore.reclaimObsoleteGenerations();
+      prePublishReclaimedPaths = prePublishRetention.deletedPaths;
+      const reclaimedInspection = await generationStore.inspectGenerations();
+      published = await generationStore.publishGeneration({
+        generationId,
+        records: snapshotRecords,
+        expectedCurrentGenerationId: reclaimedInspection.fence.current?.generationId ?? null,
+      });
+    }
     const retention = recoveryPreviousGenerationId
       ? {
           retainedGenerationIds: published.retainedGenerationIds,
@@ -219,7 +283,7 @@ export class WorkerTruthCompactionModule {
       snapshotRecordCount: snapshotRecords.length,
       coveredJournalSequence,
       orphanPaths: retainedInspection.orphanPaths,
-      reclaimedPaths: retention.deletedPaths,
+      reclaimedPaths: [...prePublishReclaimedPaths, ...retention.deletedPaths],
     };
   }
 

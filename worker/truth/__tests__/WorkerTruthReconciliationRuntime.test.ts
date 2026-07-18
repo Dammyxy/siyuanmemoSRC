@@ -159,6 +159,47 @@ describe('WorkerTruthReconciliationRuntime', () => {
     });
   });
 
+  it('keeps the current equivalent generation when a deterministic reconcile generation is previous', async () => {
+    const fileStore = createTrackedFileStore();
+    const source = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      generationId: 'card-memory-facts-v1',
+      schemaVersion: 1,
+    });
+    await source.appendRecords([cardRecord('mutation-A', 'card-A', 'revision-A', 1)]);
+    const runtime = new WorkerTruthReconciliationRuntime({
+      fileStore,
+      localDeviceId: 'device-A',
+      localIdentityEpoch: 'epoch-A',
+      schemaVersion: 1,
+    });
+    const first = await runtime.reconcile();
+    const generationStore = new MessagePackTruthSnapshotGenerationStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      schemaVersion: 1,
+    });
+    const firstInspection = await generationStore.inspectGenerations();
+    const firstReplay = await generationStore.replayVerifiedGeneration(firstInspection.fence.current!);
+    await generationStore.publishGeneration({
+      generationId: 'compact-card-memory-facts-equivalent',
+      records: firstReplay.records,
+      expectedCurrentGenerationId: first.generationIds.card,
+    });
+    const writeJsonCount = fileStore.writeJSON.mock.calls.length;
+    const writeBinaryCount = fileStore.writeBinary.mock.calls.length;
+
+    const second = await runtime.reconcile();
+
+    expect(second.generationIds.card).toBe('compact-card-memory-facts-equivalent');
+    expect(second.reconciliation.conflicts).toEqual([]);
+    expect(fileStore.writeJSON).toHaveBeenCalledTimes(writeJsonCount);
+    expect(fileStore.writeBinary).toHaveBeenCalledTimes(writeBinaryCount);
+  });
+
   it('does not rebuild projections when reconciliation publication fails', async () => {
     const fileStore = createTrackedFileStore();
     const source = createMessagePackTruthSegmentStore({

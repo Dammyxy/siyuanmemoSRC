@@ -110,13 +110,9 @@ type ReviewSessionAuthorityRuntime = {
     ensureWritable?: () => Promise<void>;
 };
 
-type ReviewSessionBackendWithStartupDisposition = WorkerReviewSessionBackendClient & {
-    isStartupWriteCapable?: () => boolean;
-};
-
 type ReviewSessionAuthorityContext = {
     getFrontendInstanceRuntime?: () => ReviewSessionAuthorityRuntime | null | undefined;
-    getSrsBackendClient?: () => ReviewSessionBackendWithStartupDisposition | null | undefined;
+    getSrsBackendClient?: () => WorkerReviewSessionBackendClient | null | undefined;
 };
 
 type CdfLiveRelationReviewOpenRefresher = {
@@ -420,7 +416,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 return refreshedCard;
             }
 
-            if (this.queueType === QueueType.NeuralRoam && !this.isReadOnlyRecoveryQueueStateAllowed()) {
+            if (this.queueType === QueueType.NeuralRoam) {
                 return await this.nextFromNeuralRoamAdvance();
             }
 
@@ -492,7 +488,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             logger.warn(`[SiYuanMemo][UnifiedQueueStrategy] No current item for feedback`);
             return;
         }
-
         let activeTransaction: ReviewTransaction | null = null;
         let activeTransactionPushed = false;
         const frontendTimingSteps: ReviewFeedbackFrontendTimingStep[] = [];
@@ -1060,9 +1055,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private shouldUseSrsV2SessionRuntime(): boolean {
-        if (this.isReadOnlyRecoveryQueueStateAllowed()) {
-            return false;
-        }
         return this.queueType === QueueType.IncrementalLearning
             || this.queueType === QueueType.RetrievalPractice;
     }
@@ -1098,47 +1090,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return null;
         }
         return backend;
-    }
-
-    private isReadOnlyRecoveryQueueStateAllowed(): boolean {
-        if (this.reviewAdmissionTicket?.source === 'read-only-recovery-queue-state') {
-            return true;
-        }
-        const backend = this.resolveReviewSessionAuthorityContext()?.getSrsBackendClient?.() ?? null;
-        return backend?.isStartupWriteCapable?.() === false;
-    }
-
-    private async loadReadOnlyRecoveryCards(operation: string): Promise<FSRSCard[]> {
-        if (typeof this.queue.getReadOnlyRecoveryCards !== 'function') {
-            throw new Error(`QUEUE_RECOVERY_READ_UNAVAILABLE: ${this.queueType} ${operation} requires read-only recovery queue state`);
-        }
-        const recoveryCards = await this.queue.getReadOnlyRecoveryCards();
-        const cards = await this.filterRecoveryCardsToExistingSources(recoveryCards);
-        this.cursor.load(cards, { cacheValid: true, resetIndex: true });
-        this.refreshLocalCounterSnapshot('reconciled', this.cursor.counterSnapshot);
-        logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Using read-only recovery queue state for Review read path:', {
-            queueType: this.queueType,
-            operation,
-            cardCount: this.cursor.length,
-        });
-        return cards;
-    }
-
-    private async filterRecoveryCardsToExistingSources(cards: FSRSCard[]): Promise<FSRSCard[]> {
-        const blockIds = Array.from(new Set(
-            cards
-                .map((card) => String(card.blockId || '').trim())
-                .filter(Boolean),
-        ));
-        if (blockIds.length === 0) {
-            return cards;
-        }
-
-        const existingSources = await this.manager.getBlockContentsWithType(blockIds);
-        return cards.filter((card) => {
-            const blockId = String(card.blockId || '').trim();
-            return !blockId || existingSources.has(blockId);
-        });
     }
 
     private createSrsV2CommandAuthority(): ReviewSessionCommandAuthority | null {
@@ -1884,16 +1835,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             }
         }
 
-        if (this.isReadOnlyRecoveryQueueStateAllowed()) {
-            if (!this.cursor.valid) {
-                await this.loadReadOnlyRecoveryCards('counter snapshot read');
-            } else {
-                this.refreshLocalCounterSnapshot('reconciled', this.cursor.counterSnapshot);
-            }
-            const recoverySnapshot = this.cursor.counterSnapshot;
-            return recoverySnapshot ? this.cloneCounterSnapshot(recoverySnapshot) : null;
-        }
-
         if (this.hasSessionExclusions()) {
             if (!this.cursor.valid) {
                 await this.reloadCards();
@@ -1915,16 +1856,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private async refreshQueueCounterSnapshot(operation: string): Promise<QueueCounterSnapshot | null> {
-        if (this.isReadOnlyRecoveryQueueStateAllowed()) {
-            if (!this.cursor.valid) {
-                await this.loadReadOnlyRecoveryCards(operation);
-            } else {
-                this.refreshLocalCounterSnapshot('reconciled', this.cursor.counterSnapshot);
-            }
-            const recoverySnapshot = this.cursor.counterSnapshot;
-            return recoverySnapshot ? this.cloneCounterSnapshot(recoverySnapshot) : null;
-        }
-
         if (typeof this.queue.getCounterSnapshot !== 'function') {
             return null;
         }
@@ -2472,12 +2403,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return null;
         }
 
-        if (this.isReadOnlyRecoveryQueueStateAllowed()) {
-            return this.loadReadOnlyRecoveryCards(forceRefresh
-                ? 'projection-backed forced read'
-                : 'projection-backed read');
-        }
-
         const rows = await this.queue.getSnapshotRows(forceRefresh);
         const rowIds = rows.map((row) => String(row.id || '')).filter(Boolean);
         if (rowIds.length === 0) {
@@ -2499,9 +2424,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Reloading cards: ${this.queueType}`);
 
             const startTime = Date.now();
-            const loadedCards = this.isReadOnlyRecoveryQueueStateAllowed()
-                ? await this.loadReadOnlyRecoveryCards('reload cards')
-                : await this.loadProjectionBackedCards(true) ?? await this.queue.getCards();
+            const loadedCards = await this.loadProjectionBackedCards(true) ?? await this.queue.getCards();
             this.cursor.load(loadedCards);
             if (this.learnAheadSession && this.learnAheadAdvancePolicy.shouldSupersedeWithNormalQueue(this.cursor.length)) {
                 this.learnAheadSession = false;

@@ -56,7 +56,6 @@ import {
   BlockAttrCleanupService,
   type BlockAttrCleanupMode,
 } from '@/application/services';
-import { buildReviewDomainSyncSafetyDecision } from '@/application/services/ReviewDomainSyncSafetyService';
 import {
   isValidReviewAdmissionTicket,
   type ReviewAdmissionTicket,
@@ -68,7 +67,6 @@ import {
   ReviewEntryTargetResolver,
   type ReviewEntryTarget,
 } from '@/application/services/ReviewEntryTargetResolver';
-import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 import {
   ProgressiveSplitCancelledError,
   type ProgressiveSplitConfig,
@@ -93,6 +91,7 @@ import type {
 import type {
   NativeRiffAdoptionPreview,
 } from '@/application/services/NativeRiffAdoptionModule';
+import type { ReviewProjectionSurfaceHandle } from '@/application/services/ReviewProjectionWorkCoordinator';
 
 const logger = createLogger('DialogManager');
 
@@ -164,6 +163,7 @@ interface ProgressiveSplitDialogState {
 }
 
 const HIDDEN_TEMPLATE_IDS_IN_QUICK_CARD_DIALOG = new Set<string>(['builtin-concept-simple']);
+const REVIEW_STORAGE_RECOVERY_ADMISSION_MARKER = 'storage recovery disables Review writes';
 
 function resolveStorageUnavailableMessage(startupError: string | null): string {
   const code = STORAGE_ERROR_CODES.find((candidate) => startupError?.includes(candidate)) ?? null;
@@ -175,6 +175,12 @@ function resolveStorageUnavailableMessage(startupError: string | null): string {
     return `SiYuanMemo 存储不可用：${summary}`;
   }
   return 'SiYuanMemo 存储尚未就绪，请查看控制台日志后重启插件。';
+}
+
+function isStorageRecoveryReviewAdmissionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('REVIEW_ADMISSION_UNAVAILABLE')
+    && message.includes(REVIEW_STORAGE_RECOVERY_ADMISSION_MARKER);
 }
 
 /**
@@ -207,6 +213,7 @@ export class DialogManager implements IDialogManager {
   private progressiveSplitDialog: VueDialogHandle | null = null;
   private currentReviewDialog: VueDialogHandle | null = null;
   private currentReviewDialogQueueType: QueueType | null = null;
+  private currentReviewDialogSurface: ReviewProjectionSurfaceHandle | null = null;
   private readonly conceptCardEnsureInFlight = new Set<string>();
   
   // ========================================================================
@@ -384,52 +391,6 @@ export class DialogManager implements IDialogManager {
       : null;
   }
 
-  private async ensureDomainSyncSafeForReviewEntry(options: {
-    queueType: QueueType;
-    title?: string;
-    surface?: string;
-  }): Promise<boolean> {
-    try {
-      const status = await this.context.readDomainSyncDiagnostics();
-      const decision = buildReviewDomainSyncSafetyDecision(status, undefined, {
-        surface: 'review-entry',
-      });
-      if (decision.canOpenReview) {
-        return true;
-      }
-
-      logger.warn('[DialogManager] Review entry blocked by domain sync safety gate', {
-        queueType: options.queueType,
-        title: options.title,
-        surface: options.surface,
-        kind: decision.kind,
-        sanityStatus: decision.sanityStatus,
-        repairableDivergenceCount: decision.repairableDivergenceCount,
-        skippedSourceCount: decision.skippedSourceCount,
-        pendingImportCount: decision.pendingImportCount,
-        divergentCardCount: decision.divergentCardCount,
-      });
-      await openManualSyncConflictResolutionDialog(this.context, {
-        initialDomainStatus: status,
-        reviewBlockDecision: decision,
-      });
-      return false;
-    } catch (error) {
-      const decision = buildReviewDomainSyncSafetyDecision(null, error);
-      logger.warn('[DialogManager] Review entry blocked because domain sync diagnostics are unavailable', {
-        queueType: options.queueType,
-        title: options.title,
-        surface: options.surface,
-        error,
-      });
-      await openManualSyncConflictResolutionDialog(this.context, {
-        reviewBlockDecision: decision,
-        diagnosticsUnavailableReason: decision.message,
-      });
-      return false;
-    }
-  }
-
   private async openStandardReviewEntry(options: {
     entryTarget: ReviewEntryTarget;
     title: string;
@@ -439,21 +400,9 @@ export class DialogManager implements IDialogManager {
     initialSessionState?: InitialReviewSessionState;
     allowNewTab?: boolean;
     suppressSnapshotRecovery?: boolean;
-    skipDomainSyncGate?: boolean;
     reviewAdmissionTicket?: ReviewAdmissionTicket | null;
   }): Promise<void> {
     const queueType = options.entryTarget.queueType;
-    if (options.skipDomainSyncGate !== true) {
-      const safe = await this.ensureDomainSyncSafeForReviewEntry({
-        queueType,
-        title: options.title,
-        surface: 'standard-review-entry',
-      });
-      if (!safe) {
-        return;
-      }
-    }
-
     const reviewAdmissionTicket = await this.admitReviewEntry({
       entryTarget: options.entryTarget,
       queueInstance: options.queueInstance,
@@ -559,14 +508,6 @@ export class DialogManager implements IDialogManager {
       return;
     }
 
-    if (!(await this.ensureDomainSyncSafeForReviewEntry({
-      queueType,
-      title: preset.title,
-      surface: 'switch-standard-review-dialog-queue',
-    }))) {
-      return;
-    }
-
     this.destroyCurrentReviewDialog();
     await this.prepareQueueBeforeReview(queueType);
     await this.openStandardReviewEntry({
@@ -577,7 +518,6 @@ export class DialogManager implements IDialogManager {
       title: preset.title,
       headerVariant: preset.headerVariant,
       allowNewTab: false,
-      skipDomainSyncGate: true,
     });
   }
 
@@ -1163,6 +1103,24 @@ export class DialogManager implements IDialogManager {
     return error instanceof Error ? error.message : String(error);
   }
 
+  private resolveReviewOpenFailureMessage(error: unknown, fallback: string): string {
+    if (isStorageRecoveryReviewAdmissionError(error)) {
+      return this.context.getI18n()?.reviewStorageRecoveryRequired
+        || '存储恢复未完成，暂时不能开始复习；请先完成存储恢复后再重试。';
+    }
+    return fallback;
+  }
+
+  private logReviewOpenFailure(message: string, error: unknown): void {
+    if (isStorageRecoveryReviewAdmissionError(error)) {
+      logger.warn('[DialogManager] Review entry blocked while storage recovery disables writes', {
+        reason: this.formatError(error),
+      });
+      return;
+    }
+    logger.error(message, error);
+  }
+
   private closeProgressiveSplitDialog(): void {
     if (this.progressiveSplitDialog) {
       this.progressiveSplitDialog.destroy();
@@ -1319,6 +1277,8 @@ export class DialogManager implements IDialogManager {
     if (dialogHandle) {
       this.currentReviewDialog = null;
       this.currentReviewDialogQueueType = null;
+      this.currentReviewDialogSurface?.release();
+      this.currentReviewDialogSurface = null;
       dialogHandle.destroy();
     }
   }
@@ -1328,16 +1288,27 @@ export class DialogManager implements IDialogManager {
     factory: (onClose: () => void) => T,
   ): T {
     let dialogHandle: T | null = null;
+    let reviewSurface: ReviewProjectionSurfaceHandle | null = null;
     const clearIfCurrent = () => {
       if (this.currentReviewDialog === dialogHandle) {
         this.currentReviewDialog = null;
         this.currentReviewDialogQueueType = null;
+        reviewSurface?.release();
+        if (this.currentReviewDialogSurface === reviewSurface) {
+          this.currentReviewDialogSurface = null;
+        }
       }
     };
 
     dialogHandle = factory(clearIfCurrent);
+    reviewSurface = this.context.getReviewProjectionWorkCoordinator().activateSurface({
+      surfaceId: 'review-dialog',
+      surfaceKind: 'dialog',
+      queueType,
+    });
     this.currentReviewDialog = dialogHandle;
     this.currentReviewDialogQueueType = queueType;
+    this.currentReviewDialogSurface = reviewSurface;
     return dialogHandle;
   }
 
@@ -1345,10 +1316,6 @@ export class DialogManager implements IDialogManager {
     return this.currentReviewDialog !== null && this.currentReviewDialogQueueType === QueueType.NeuralRoam;
   }
 
-  getActiveReviewQueueType(): QueueType | null {
-    return this.currentReviewDialog ? this.currentReviewDialogQueueType : null;
-  }
-  
   /**
    * 检查初始化状态
    */
@@ -1427,11 +1394,6 @@ export class DialogManager implements IDialogManager {
       title,
       route: this.shouldOpenReviewInNewTabByDefault() ? 'tab' : 'dialog',
     });
-    if (!(await this.ensureDomainSyncSafeForReviewEntry({
-      queueType: QueueType.RetrievalPractice,
-      title,
-      surface: 'open-review-dialog',
-    }))) return;
     this.destroyCurrentReviewDialog();
     logger.info('[SiYuanMemo][ReviewEntryDiagnostic] prepare queue before review start', {
       entrySurface,
@@ -1451,13 +1413,14 @@ export class DialogManager implements IDialogManager {
         ),
         title,
         headerVariant: 'retrieval-practice',
-        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Retrieval practice opened');
     } catch (err) {
-      logger.error('[DialogManager] Failed to open retrieval practice dialog:', err);
-      await this.siyuanApi.pushErrMsg(this.context.getI18n()?.loadFailed || '加载失败');
+      this.logReviewOpenFailure('[DialogManager] Failed to open retrieval practice dialog:', err);
+      await this.siyuanApi.pushErrMsg(
+        this.resolveReviewOpenFailureMessage(err, this.context.getI18n()?.loadFailed || '加载失败'),
+      );
     }
   }
   
@@ -1467,11 +1430,6 @@ export class DialogManager implements IDialogManager {
   async openIncrementalLearningDialog(): Promise<void> {
     if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.incrementalLearning || '渐进学习';
-    if (!(await this.ensureDomainSyncSafeForReviewEntry({
-      queueType: QueueType.IncrementalLearning,
-      title,
-      surface: 'open-incremental-learning-dialog',
-    }))) return;
     this.destroyCurrentReviewDialog();
     await this.prepareQueueBeforeReview(QueueType.IncrementalLearning);
 
@@ -1483,13 +1441,14 @@ export class DialogManager implements IDialogManager {
         ),
         title,
         headerVariant: 'incremental-learning',
-        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Incremental learning opened');
     } catch (err) {
-      logger.error('[DialogManager] Failed to open incremental learning dialog:', err);
-      await this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || '打开渐进学习失败');
+      this.logReviewOpenFailure('[DialogManager] Failed to open incremental learning dialog:', err);
+      await this.siyuanApi.pushErrMsg(
+        this.resolveReviewOpenFailureMessage(err, this.context.getI18n()?.openFailed || '打开渐进学习失败'),
+      );
     }
   }
   
@@ -1499,11 +1458,6 @@ export class DialogManager implements IDialogManager {
   async openFinalDrillDialog(): Promise<void> {
     if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.finalDrill || '刻意练习';
-    if (!(await this.ensureDomainSyncSafeForReviewEntry({
-      queueType: QueueType.FinalDrill,
-      title,
-      surface: 'open-final-drill-dialog',
-    }))) return;
     this.destroyCurrentReviewDialog();
 
     try {
@@ -1514,7 +1468,6 @@ export class DialogManager implements IDialogManager {
         ),
         title,
         headerVariant: 'final-drill',
-        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Final drill opened');
@@ -1530,11 +1483,6 @@ export class DialogManager implements IDialogManager {
   async openFilterGroupPracticeDialog(): Promise<void> {
     if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.filterGroupPractice || '分组队列';
-    if (!(await this.ensureDomainSyncSafeForReviewEntry({
-      queueType: QueueType.FilterGroup,
-      title,
-      surface: 'open-filter-group-practice-dialog',
-    }))) return;
     this.destroyCurrentReviewDialog();
 
     try {
@@ -1545,7 +1493,6 @@ export class DialogManager implements IDialogManager {
         ),
         title,
         headerVariant: 'filter-group',
-        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Filter group review opened');
@@ -1579,12 +1526,6 @@ export class DialogManager implements IDialogManager {
   }): Promise<void> {
     if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.neuralReviewTitle || '神经漫游';
-    if (!(await this.ensureDomainSyncSafeForReviewEntry({
-      queueType: QueueType.NeuralRoam,
-      title,
-      surface: 'open-neural-roam-dialog',
-    }))) return;
-
     const existingSurface = await this.syncExistingNeuralReviewSurface({
       fallbackNodeId: options?.focusBlockId ?? null,
     });
@@ -1661,7 +1602,6 @@ export class DialogManager implements IDialogManager {
         title,
         headerVariant: 'neural-roam',
         suppressSnapshotRecovery: Boolean(options?.focusBlockId || options?.resetHistory || options?.startNewSession),
-        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Neural roam opened');
@@ -1677,11 +1617,6 @@ export class DialogManager implements IDialogManager {
   async openLeechReviewDialog(): Promise<void> {
     if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.startLeechPractice || '难点攻坚';
-    if (!(await this.ensureDomainSyncSafeForReviewEntry({
-      queueType: QueueType.Leech,
-      title,
-      surface: 'open-leech-review-dialog',
-    }))) return;
     this.destroyCurrentReviewDialog();
 
     try {
@@ -1712,7 +1647,6 @@ export class DialogManager implements IDialogManager {
         title,
         headerVariant: 'leech',
         allowNewTab: false,
-        skipDomainSyncGate: true,
       });
     } catch (err) {
       logger.error('[DialogManager] Failed to open leech review dialog:', err);
@@ -1742,11 +1676,6 @@ export class DialogManager implements IDialogManager {
     try {
       const titleCount = cardIds.length > 0 ? cardIds.length : ids.length;
       const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(titleCount));
-      if (!(await this.ensureDomainSyncSafeForReviewEntry({
-        queueType: QueueType.FilterGroup,
-        title,
-        surface: 'open-subset-review-dialog',
-      }))) return;
       this.destroyCurrentReviewDialog();
 
       const manager = this.context.getUnifiedDataSourceManager();
@@ -1777,7 +1706,6 @@ export class DialogManager implements IDialogManager {
         title,
         headerVariant: 'subset-review',
         allowNewTab: false,
-        skipDomainSyncGate: true,
       });
     } catch (err) {
       logger.error('[DialogManager] Failed to open subset review dialog:', err);
@@ -1812,11 +1740,6 @@ export class DialogManager implements IDialogManager {
       }
 
       const title = this.context.getI18n()?.retrievalPractice || '提取练习';
-      if (!(await this.ensureDomainSyncSafeForReviewEntry({
-        queueType: QueueType.FilterGroup,
-        title,
-        surface: 'open-retrieval-practice-with-filter',
-      }))) return;
       this.destroyCurrentReviewDialog();
 
       const manager = this.context.getUnifiedDataSourceManager();
@@ -1850,7 +1773,6 @@ export class DialogManager implements IDialogManager {
         ),
         title,
         headerVariant: 'retrieval-practice',
-        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Scoped retrieval practice opened');
@@ -1887,11 +1809,6 @@ export class DialogManager implements IDialogManager {
       }
 
       const title = this.context.getI18n()?.incrementalLearning || '渐进学习';
-      if (!(await this.ensureDomainSyncSafeForReviewEntry({
-        queueType: QueueType.FilterGroup,
-        title,
-        surface: 'open-incremental-learning-with-filter',
-      }))) return;
       this.destroyCurrentReviewDialog();
 
       const manager = this.context.getUnifiedDataSourceManager();
@@ -1925,7 +1842,6 @@ export class DialogManager implements IDialogManager {
         ),
         title,
         headerVariant: 'incremental-learning',
-        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Scoped incremental learning opened');
@@ -1959,11 +1875,6 @@ export class DialogManager implements IDialogManager {
     try {
       const titleCount = cardIds.length > 0 ? cardIds.length : ids.length;
       const title = (this.context.getI18n()?.temporaryDrill || '临时练习') + ` (${titleCount} 张)`;
-      if (!(await this.ensureDomainSyncSafeForReviewEntry({
-        queueType: QueueType.FinalDrill,
-        title,
-        surface: 'open-temporary-drill',
-      }))) return;
       this.destroyCurrentReviewDialog();
 
       const manager = this.context.getUnifiedDataSourceManager();
@@ -1993,7 +1904,6 @@ export class DialogManager implements IDialogManager {
         title,
         headerVariant: 'temporary-drill',
         allowNewTab: false,
-        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Temporary drill dialog opened');

@@ -752,27 +752,28 @@ describe('useNeuralBrowserController', () => {
   });
 
   it('uses backend view-state routes for the Browser route selector when available', async () => {
-    const queue = createQueue({
-      listRoutes: vi.fn(async () => [
-        {
-          id: 'stale-route',
-          name: 'Stale Route',
-          temporary: false,
-          previousRouteId: null,
-          initialSeedNodeIds: [],
-          createdAt: 1,
-          updatedAt: 1,
-          lastUsedAt: 1,
-          isActive: true,
-          stats: {
-            routeId: 'stale-route',
-            seedCount: 0,
-            anchorCount: 0,
-            historyCount: 0,
-            totalPoolEntries: 0,
-          },
+    const listRoutes = vi.fn(async () => [
+      {
+        id: 'stale-route',
+        name: 'Stale Route',
+        temporary: false,
+        previousRouteId: null,
+        initialSeedNodeIds: [],
+        createdAt: 1,
+        updatedAt: 1,
+        lastUsedAt: 1,
+        isActive: true,
+        stats: {
+          routeId: 'stale-route',
+          seedCount: 0,
+          anchorCount: 0,
+          historyCount: 0,
+          totalPoolEntries: 0,
         },
-      ]),
+      },
+    ]);
+    const queue = createQueue({
+      listRoutes,
     });
     const { controller } = createController(queue, {
       readNeuralRoamViewState: async () => ({
@@ -849,6 +850,40 @@ describe('useNeuralBrowserController', () => {
         name: 'Backend Route',
         isActive: true,
       }),
+    ]);
+    expect(listRoutes).not.toHaveBeenCalled();
+  });
+
+  it('does not touch an unconfigured local route catalog when backend routes are readable', async () => {
+    const listRoutes = vi.fn(async () => {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    });
+    const queue = createQueue({ listRoutes });
+    const { controller } = createController(queue, {
+      readNeuralRoamViewState: async () => ({
+        ...createBackendRouteCommandResult('route-backend', 'Backend Route').viewState,
+        routes: [
+          {
+            id: 'route-backend',
+            name: 'Backend Route',
+            temporary: false,
+            previousRouteId: null,
+            initialSeedNodeIds: [],
+            createdAt: 2,
+            updatedAt: 3,
+            lastUsedAt: 4,
+            isActive: true,
+            stats: { routeId: 'route-backend', seedCount: 0, anchorCount: 0, historyCount: 0, totalPoolEntries: 0 },
+          },
+        ],
+      }),
+    });
+
+    await controller.refreshNeuralSubviewData();
+
+    expect(listRoutes).not.toHaveBeenCalled();
+    expect(controller.neuralRoutes.value).toEqual([
+      expect.objectContaining({ id: 'route-backend', isActive: true }),
     ]);
   });
 

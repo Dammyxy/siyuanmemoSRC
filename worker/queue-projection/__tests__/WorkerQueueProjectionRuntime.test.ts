@@ -86,6 +86,63 @@ function createProjectionRow(overrides: Partial<QueueProjectionRow> = {}): Queue
 }
 
 describe('WorkerQueueProjectionRuntime', () => {
+  it('does not report ready-empty for an explicit policy with no derived counters', async () => {
+    const queueType = QueueType.IncrementalLearning;
+    const activePolicyHash = 'canonical-truth-policy';
+    const requestedPolicyHash = 'queue-projection:{"queueType":"incremental-learning","source":"browser"}';
+    const readRows = vi.fn((): QueueProjectionRow[] => []);
+    const runtime = new WorkerQueueProjectionRuntime({
+      repository: {
+        getCardsByExactIds: vi.fn(() => []),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType,
+          policyHash: activePolicyHash,
+          generation: 17,
+          status: 'ready',
+          rebuildReason: null,
+          updatedAt: 1_700_000_000_000,
+          metadata: {},
+        })),
+        readLastReadyGeneration: vi.fn(() => null),
+        readCounters: vi.fn((_queueType: QueueType, policyHash?: string | null) => (
+          policyHash === activePolicyHash
+            ? buildQueueProjectionCountersFromRows({
+              queueType,
+              policyHash: activePolicyHash,
+              generation: 17,
+              updatedAt: 1_700_000_000_000,
+              now: 1_700_000_000_000,
+              rows: [],
+            })
+            : null
+        )),
+        readRows,
+        replaceQueueProjection: vi.fn(),
+      },
+      runtime: {
+        runTransaction: vi.fn(async (_name, callback) => callback()),
+      },
+    });
+
+    const snapshot = await runtime.snapshot({
+      queueType,
+      policyHash: requestedPolicyHash,
+    });
+
+    expect(snapshot).toMatchObject({
+      queueType,
+      policyHash: requestedPolicyHash,
+      generation: 17,
+      status: 'refreshing',
+      rows: [],
+      counters: null,
+      cacheState: 'missing-derived-cache',
+    });
+    expect(readRows).not.toHaveBeenCalled();
+  });
+
   it('returns refreshing when ready generation rows reference missing cards', async () => {
     const queueType = QueueType.IncrementalLearning;
     const policyHash = 'policy-browser';

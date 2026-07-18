@@ -268,6 +268,45 @@ describe('SqliteDeltaCheckpointLayer coverage compaction', () => {
     expect((files.json.get(SQLITE_DELTA_LOG_FILE) as { checkpoint: unknown }).checkpoint).toBeNull();
   });
 
+  it('does not replay deleted cleanup paths from an interrupted coverage compaction checkpoint', async () => {
+    const files = new MemoryFileService();
+    const writer = new SqliteDeltaCheckpointLayer(files);
+    for (let index = 1; index <= 32; index += 1) {
+      await writer.persistCommittedTransaction({
+        label: `mutation-${index}`,
+        capture: capture(index),
+        schemaChanged: false,
+        mutationEnvelope: mutation(index),
+      });
+    }
+    files.deleteError = new Error('coverage-delete-interrupted');
+
+    await expect(writer.compactCoveredSegments({
+      coveredJournalSequence: 8,
+      retainSealedSegments: 1,
+    })).rejects.toThrow('coverage-delete-interrupted');
+    const interruptedManifest = files.json.get(SQLITE_DELTA_LOG_FILE) as {
+      checkpoint: { reason: string; coveredSegmentPaths: string[] } | null;
+    };
+    expect(interruptedManifest.checkpoint?.reason).toBe('coverage-compaction');
+    for (const path of interruptedManifest.checkpoint?.coveredSegmentPaths ?? []) {
+      files.binary.delete(path);
+    }
+
+    const restartedReader = new SqliteDeltaCheckpointLayer(files, SQLITE_DELTA_LOG_FILE, {
+      checkpointStorageClass: 'volatile-projection',
+    });
+
+    await expect(restartedReader.listJournaledMutations({
+      afterJournalSequence: 8,
+      limit: 100,
+    })).resolves.toSatisfy((entries: Array<{ mutationEnvelope: { journalSequence: number } }>) => (
+      entries.length === 24
+      && entries[0]?.mutationEnvelope.journalSequence === 9
+      && entries.at(-1)?.mutationEnvelope.journalSequence === 32
+    ));
+  });
+
   it('inventories and deletes only manifest-proven orphan segments within each budget', async () => {
     const files = new MemoryFileService();
     const layer = new SqliteDeltaCheckpointLayer(files);
@@ -519,5 +558,79 @@ describe('SqliteDeltaCheckpointLayer coverage compaction', () => {
     expect(resumedManifest.checkpoint).toBeNull();
     expect(files.binary.has('sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack')).toBe(false);
     expect(files.binary.has('sqlite-delta/v2/sqlite-delta-log.v2.sealed-2.msgpack')).toBe(true);
+  });
+
+  it('clears a resumed legacy adoption checkpoint without deleting paths that are already absent', async () => {
+    const files = new MemoryFileService();
+    const layer = new SqliteDeltaCheckpointLayer(files);
+    for (let index = 1; index <= 16; index += 1) {
+      await layer.persistCommittedTransaction({
+        label: 'source-existence.sweep',
+        capture: capture(index),
+        schemaChanged: false,
+        mutationEnvelope: null,
+      });
+    }
+    files.deleteError = new Error('adoption-delete-interrupted');
+
+    await expect(layer.adoptLegacyEntries({
+      deviceId: 'device-adoption',
+      identityEpoch: 'epoch-adoption',
+      afterJournalSequence: 0,
+    })).rejects.toThrow('adoption-delete-interrupted');
+    const interruptedManifest = files.json.get(SQLITE_DELTA_LOG_FILE) as {
+      checkpoint: { reason: string; coveredSegmentPaths: string[] } | null;
+    };
+    const stalePath = interruptedManifest.checkpoint?.coveredSegmentPaths[0];
+    expect(stalePath).toBe('sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack');
+    files.binary.delete(stalePath!);
+    files.deleteError = new Error('absent checkpoint path must not be deleted again');
+    files.clearEffects();
+
+    await expect(layer.adoptLegacyEntries({
+      deviceId: 'device-adoption',
+      identityEpoch: 'epoch-adoption',
+      afterJournalSequence: 0,
+    })).resolves.toMatchObject({
+      status: 'not-needed',
+      adoptedEntryCount: 0,
+    });
+
+    expect(files.deletes).toEqual([]);
+    expect((files.json.get(SQLITE_DELTA_LOG_FILE) as { checkpoint: unknown }).checkpoint).toBeNull();
+  });
+
+  it('does not replay legacy adoption cleanup checkpoints for volatile projections', async () => {
+    const files = new MemoryFileService();
+    const layer = new SqliteDeltaCheckpointLayer(files, undefined, {
+      checkpointStorageClass: 'volatile-projection',
+    });
+    for (let index = 1; index <= 16; index += 1) {
+      await layer.persistCommittedTransaction({
+        label: 'source-existence.sweep',
+        capture: capture(index),
+        schemaChanged: false,
+        mutationEnvelope: null,
+      });
+    }
+    files.deleteError = new Error('adoption-delete-interrupted');
+
+    await expect(layer.adoptLegacyEntries({
+      deviceId: 'device-adoption',
+      identityEpoch: 'epoch-adoption',
+      afterJournalSequence: 0,
+    })).rejects.toThrow('adoption-delete-interrupted');
+    const interruptedManifest = files.json.get(SQLITE_DELTA_LOG_FILE) as {
+      checkpoint: { reason: string; coveredSegmentPaths: string[] } | null;
+    };
+    expect(interruptedManifest.checkpoint).toMatchObject({
+      reason: 'legacy-adoption',
+      coveredSegmentPaths: ['sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack'],
+    });
+    files.binary.set('sqlite-delta/v2/sqlite-delta-log.v2.sealed-1.msgpack', new Uint8Array(52));
+
+    await expect(layer.getDiagnostics()).resolves.toMatchObject({
+      pendingCount: 16,
+    });
   });
 });

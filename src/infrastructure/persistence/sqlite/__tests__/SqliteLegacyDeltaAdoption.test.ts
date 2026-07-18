@@ -44,6 +44,22 @@ function plan(entries: SqliteDeltaEntry[]) {
   });
 }
 
+function planForIdentity(
+  entries: SqliteDeltaEntry[],
+  identityEpoch: string,
+  rebindableLegacyMutationIds: string[] = [],
+  coveredJournalSequence = 0,
+) {
+  return planSqliteLegacyDeltaAdoption({
+    entries,
+    deviceId: 'device-legacy-adoption',
+    identityEpoch,
+    startingJournalSequence: 11,
+    coveredJournalSequence,
+    rebindableLegacyMutationIds,
+  });
+}
+
 describe('planSqliteLegacyDeltaAdoption', () => {
   it('maps Review feedback to review, card schedule, queue, and metadata truth outputs', () => {
     const candidate = entry('review.feedback', [
@@ -153,5 +169,61 @@ describe('planSqliteLegacyDeltaAdoption', () => {
       }],
     });
     expect(blocked.entries.every((candidate) => candidate.mutationEnvelope === null)).toBe(true);
+  });
+
+  it('rebinds only an authorized deterministic provisional adoption without changing its journal identity', () => {
+    const candidate = entry('queue.state.batchMutate', [change('queue_state', {
+      key: 'retrievalPracticeQueue',
+      value_json: '{"cardIds":["card-1"]}',
+    })]);
+    const provisional = planForIdentity([candidate], 'epoch-old');
+    const mutationId = provisional.entries[0].mutationEnvelope!.mutationId;
+
+    const blocked = planForIdentity(provisional.entries, 'epoch-current');
+    expect(blocked).toMatchObject({
+      status: 'blocked',
+      adoptedEntryCount: 0,
+      unsupportedEntries: [{
+        entryId: candidate.id,
+        reason: 'journal-identity-mismatch',
+      }],
+    });
+
+    const rebound = planForIdentity(provisional.entries, 'epoch-current', [mutationId]);
+    expect(rebound).toMatchObject({
+      status: 'ready',
+      adoptedEntryCount: 1,
+      firstJournalSequence: 11,
+      lastJournalSequence: 11,
+      nextJournalSequence: 12,
+    });
+    expect(rebound.entries[0].mutationEnvelope).toMatchObject({
+      mutationId,
+      deviceId: 'device-legacy-adoption',
+      identityEpoch: 'epoch-current',
+      journalSequence: 11,
+    });
+  });
+
+  it('does not block adoption on already covered foreign-epoch journal entries', () => {
+    const candidate = entry('review.feedback', [
+      change('cards', { id: 'card-1', due: 10, state: 2, priority: 50 }),
+      change('review_events', { id: 'review-1', card_id: 'card-1', rating: 3 }),
+      change('review_transaction_undo_journal', {
+        undo_token: 'undo-1',
+        card_id: 'card-1',
+        queue_type: 'retrieval-practice',
+      }),
+    ]);
+    const oldEpoch = planForIdentity([candidate], 'epoch-old');
+
+    const recovered = planForIdentity(oldEpoch.entries, 'epoch-current', [], 11);
+
+    expect(recovered).toMatchObject({
+      status: 'not-needed',
+      adoptedEntryCount: 0,
+      unsupportedEntries: [],
+      nextJournalSequence: 12,
+    });
   });
 });

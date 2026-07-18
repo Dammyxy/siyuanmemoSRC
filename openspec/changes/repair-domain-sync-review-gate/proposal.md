@@ -1,3 +1,5 @@
+> Superseded on 2026-07-16 by `review-domain-sync-independence`: domain-sync diagnostics are passive and cannot block Review or open a conflict dialog. This completed change is retained only as historical context and must not be reapplied.
+
 ## Why
 
 Domain sync diagnostics can report `repairable` from stale review-history/card-state drift even when no external sync is active, which currently hard-blocks Review entry. The repair dialog then fails on preview because the worker SQLite repair path calls a missing `fnv1a32` instance method.

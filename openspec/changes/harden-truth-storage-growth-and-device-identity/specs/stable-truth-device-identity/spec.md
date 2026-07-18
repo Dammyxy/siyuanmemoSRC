@@ -1,5 +1,7 @@
 ## ADDED Requirements
 
+> Historical supersession (2026-07-17): these completed browser-authority requirements are superseded by [Runtime ADR-006](../../../../../docs/ADR-006-truth-device-identity-authority.md) and the active `installation-truth-device-identity-authority` capability. They remain only as migration history.
+
 ### Requirement: Plugin installation identity owns the local truth directory
 The system SHALL derive the writable device-owned truth directory from a stable SiYuanMemo plugin installation identity rather than from temporary files, synchronized manifests, or SiYuan runtime `System.ID` alone.
 

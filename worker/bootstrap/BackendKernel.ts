@@ -19,6 +19,7 @@ import {
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import type { MessagePackTruthSegmentFileStore } from '../truth/MessagePackTruthSegmentStore';
 import { BackendHotspotCommandRuntime } from './BackendHotspotCommandRuntime';
+import type { BackendForeignEpochRecoveryRpcRuntime } from './rpc/BackendForeignEpochRecoveryRpcAdapter';
 import { WorkerBrowserAggregateReadService } from './WorkerBrowserAggregateReadService';
 import { WorkerGraphQueryService } from './WorkerGraphQueryService';
 import { WorkerNeuralRoamAdvanceService } from './WorkerNeuralRoamAdvanceService';
@@ -50,6 +51,17 @@ import { WorkerSrsReviewKernel, type SrsReviewKernel } from '../review/SrsReview
 
 const logger = createLogger('BackendKernel');
 const REVIEW_FEEDBACK_KERNEL_STEP_SLOW_MS = 120;
+const unavailableForeignEpochRecoveryRuntime: BackendForeignEpochRecoveryRpcRuntime = {
+  async preview() {
+    throw new Error('BACKEND_UNAVAILABLE: foreign-epoch recovery runtime is not configured');
+  },
+  async apply() {
+    throw new Error('BACKEND_UNAVAILABLE: foreign-epoch recovery runtime is not configured');
+  },
+  async status() {
+    throw new Error('BACKEND_UNAVAILABLE: foreign-epoch recovery runtime is not configured');
+  },
+};
 const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'browser.deck.page',
   'browser.stats',
@@ -76,6 +88,7 @@ interface BackendKernelDependencies {
     request: BackendTopicDerivedCommandExecuteRequest,
   ) => Promise<BackendTopicDerivedCommandExecuteResult>;
   truthFileStore?: MessagePackTruthSegmentFileStore;
+  foreignEpochRecoveryRuntime?: BackendForeignEpochRecoveryRpcRuntime;
 }
 
 const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
@@ -94,6 +107,9 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'review.truth.backfill',
   'storage.maintenance.status',
   'storage.pressure.recover',
+  'recovery.foreignEpoch.preview',
+  'recovery.foreignEpoch.apply',
+  'recovery.foreignEpoch.status',
   'storage.projection.rebuild',
   'queue.state.loadAll',
   'queue.projection.replace',
@@ -114,6 +130,9 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS = new Set<string>([
   'review.truth.flush',
   'review.truth.backfill',
   'storage.maintenance.status',
+  'recovery.foreignEpoch.preview',
+  'recovery.foreignEpoch.apply',
+  'recovery.foreignEpoch.status',
   'kernel.transaction.dequeue',
   'queue.projection.replace',
 ]);
@@ -130,11 +149,14 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS = new Set<string>([
   'browser.sourceExistence.summary',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
+  'review.session.start',
+  'review.session.current',
   'neural-roam.viewState',
 ]);
 
 const PREFLIGHT_MAIN_DB_SKIP_METHODS = new Set<string>([
   ...REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS,
+  'card.schedule.batchUpdate',
   'browser.sourceExistence.update',
   'browser.sourceExistence.applySweep',
   'browser.sourceExistence.applySweepHost',
@@ -246,7 +268,11 @@ export class BackendKernel {
         database: this.deps.database,
         readDiagnosticsStatus: () => this.diagnosticsStatus(),
         getPrivateAuditEventCount: () => this.privateApiRuntime.auditEventCount(),
+        onDatabaseReadinessClassified: (readiness) => (
+          this.deps.foreignEpochRecoveryRuntime?.verifyRestart?.(readiness) ?? Promise.resolve(false)
+        ).then(() => undefined),
       },
+      foreignEpochRecovery: this.deps.foreignEpochRecoveryRuntime ?? unavailableForeignEpochRecoveryRuntime,
       browser: this.createBrowserRpcRuntime(),
       card: this.cardRuntime,
       queue: this.queueRuntime,
@@ -341,7 +367,7 @@ export class BackendKernel {
     const merge = await this.deps.database.mergeExternalDatabaseIfChanged(
       undefined,
       shouldSkipPreflightMainDbRead
-        ? { context: 'read-only-preflight', skipMainDbRead: true }
+        ? { context: 'snapshot-preflight', skipMainDbRead: true }
         : {},
     );
     if (!isReviewFeedback && DIAGNOSTIC_TIMING_METHODS.has(method)) {

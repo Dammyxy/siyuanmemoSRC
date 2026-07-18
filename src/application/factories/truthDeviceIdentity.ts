@@ -1,65 +1,63 @@
 import {
+  TRUTH_DEVICE_IDENTITY_AUTHORITY_ENVELOPE_VERSION,
   TRUTH_DEVICE_IDENTITY_VERSION,
-  type TruthDeviceIdentityPort,
+  type TruthDeviceIdentityAuthorityEnvelope,
+  type TruthDeviceIdentityAuthorityPort,
+  type TruthDeviceIdentityCacheDiagnostic,
+  type TruthDeviceIdentityCachePort,
+  type TruthDeviceIdentityEvidenceProbePort,
+  type TruthDeviceIdentityInitializationFencePort,
+  type TruthDeviceIdentityInstallationEvidence,
   type TruthDeviceIdentityRecord,
+  type TruthDeviceIdentityStatus,
 } from '@/application/ports/TruthDeviceIdentityPort';
 
-export const TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1';
-export const LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1';
-export const TRUTH_DEVICE_ID_LOCAL_STATE_PATH = 'truth-device-id.v1.json';
-export const TRUTH_DEVICE_IDENTITY_STORAGE_KEY = 'siyuanmemo.truth.identity.v2';
-
-export interface TruthDeviceIdentityLocalStore {
-  readTempLocalJSON?: <T>(path: string) => Promise<T | null>;
-  writeTempLocalJSON?: (path: string, value: unknown) => Promise<void>;
-}
-
-export interface TruthDeviceIdentityStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
-
-interface TruthDeviceIdentityState {
-  deviceId?: unknown;
-}
-
-type TruthDeviceIdentityRecordRead =
-  | { status: 'missing'; record: null; error: null }
-  | { status: 'valid'; record: TruthDeviceIdentityRecord; error: null }
-  | { status: 'invalid'; record: null; error: string }
-  | { status: 'error'; record: null; error: string };
+export const TRUTH_DEVICE_IDENTITY_LOCAL_STATE_PATH = '/conf/siyuan-plugin-siyuanmemo/truth-device-identity.v1.json';
 
 export type TruthDeviceIdentitySource =
-  | 'authority-copies'
-  | 'indexeddb-repaired-localStorage'
-  | 'localStorage-repaired-indexeddb'
+  | 'installation-authority'
+  | 'legacy-browser-authority-migration'
+  | 'first-install'
   | 'identity-recovery-required'
-  | 'temp-local'
-  | 'localStorage'
-  | 'legacy-localStorage'
-  | 'generated'
-  | 'unavailable';
+  | 'authority-unavailable';
 
 export interface TruthDeviceIdentityResolution {
+  status: TruthDeviceIdentityStatus;
   deviceId: string | null;
-  identityEpoch?: string | null;
+  identityEpoch: string | null;
   source: TruthDeviceIdentitySource;
-  localStatePath: typeof TRUTH_DEVICE_ID_LOCAL_STATE_PATH;
+  authorityRevision: number | null;
+  localStatePath: typeof TRUTH_DEVICE_IDENTITY_LOCAL_STATE_PATH;
   persisted: boolean;
   cacheUpdated: boolean;
-  hostFingerprintMatch?: 'match' | 'changed' | 'unknown';
+  cacheDiagnostics: TruthDeviceIdentityCacheDiagnostic[];
+  installationEvidence: TruthDeviceIdentityInstallationEvidence | null;
+  hostFingerprintMatch: 'match' | 'changed' | 'unknown';
   error: string | null;
 }
 
-export interface ResolveTruthDeviceIdOptions {
-  localStore?: TruthDeviceIdentityLocalStore | null;
-  storage?: TruthDeviceIdentityStorage | null;
-  identityStore?: TruthDeviceIdentityPort | null;
+export interface ResolveTruthDeviceIdentityOptions {
+  authority: TruthDeviceIdentityAuthorityPort;
+  caches: TruthDeviceIdentityCachePort[];
+  evidenceProbe: TruthDeviceIdentityEvidenceProbePort;
+  initializationFence: TruthDeviceIdentityInitializationFencePort;
   hostFingerprint?: string | null;
   createId?: () => string;
   createEpoch?: () => string;
   now?: () => number;
 }
+
+interface CacheReadResult {
+  cache: TruthDeviceIdentityCachePort;
+  raw: unknown | null;
+  record: TruthDeviceIdentityRecord | null;
+  error: string | null;
+}
+
+type FencedResolution =
+  | { kind: 'verified'; envelope: TruthDeviceIdentityAuthorityEnvelope; source: 'installation-authority' | 'legacy-browser-authority-migration' | 'first-install'; evidence: TruthDeviceIdentityInstallationEvidence | null }
+  | { kind: 'recovery'; error: string; evidence: TruthDeviceIdentityInstallationEvidence | null }
+  | { kind: 'unavailable'; error: string; evidence: TruthDeviceIdentityInstallationEvidence | null };
 
 export function isMessagePackTruthIdentity(value: unknown): value is string {
   return typeof value === 'string'
@@ -75,230 +73,7 @@ export function createTruthDeviceId(): string {
   return `device-${randomId}`;
 }
 
-export async function resolveTruthDeviceId(options: ResolveTruthDeviceIdOptions = {}): Promise<string | null> {
-  return (await resolveTruthDeviceIdentity(options)).deviceId;
-}
-
-export async function resolveTruthDeviceIdentity(options: ResolveTruthDeviceIdOptions = {}): Promise<TruthDeviceIdentityResolution> {
-  const localStore = options.localStore ?? null;
-  const storage = options.storage ?? resolveGlobalStorage();
-  const identityStore = options.identityStore ?? null;
-  const now = options.now ?? Date.now;
-  const authorityRead = await readIdentityRecord(identityStore);
-  const storageRead = readStorageIdentityRecord(storage);
-  if (authorityRead.status === 'error') {
-    return unavailable(`indexedDB identity authority read failed: ${authorityRead.error}`);
-  }
-  if (storageRead.status === 'error') {
-    return unavailable(`localStorage identity authority read failed: ${storageRead.error}`);
-  }
-  if (authorityRead.status === 'invalid') {
-    return identityRecoveryRequired(authorityRead.error);
-  }
-  if (storageRead.status === 'invalid') {
-    return identityRecoveryRequired(storageRead.error);
-  }
-  const authorityRecord = authorityRead.record;
-  const storageRecord = storageRead.record;
-  const legacyStoredDeviceId = identityStore
-    ? readStorageDeviceId(storage, TRUTH_DEVICE_ID_STORAGE_KEY)
-    : null;
-  const legacyReviewDeviceId = identityStore
-    ? readStorageDeviceId(storage, LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY)
-    : null;
-  const tempLocalDeviceId = identityStore
-    ? await readTempLocalDeviceId(localStore)
-    : null;
-  const legacyEvidence = [
-    legacyStoredDeviceId,
-    legacyReviewDeviceId,
-    tempLocalDeviceId?.deviceId ?? null,
-  ].filter((deviceId): deviceId is string => Boolean(deviceId));
-  const versionedDeviceId = authorityRecord?.deviceId ?? storageRecord?.deviceId ?? null;
-  if (versionedDeviceId && legacyEvidence.some((deviceId) => deviceId !== versionedDeviceId)) {
-    return identityRecoveryRequired(
-      `versioned identity conflicts with legacy evidence: versioned=${versionedDeviceId}, localStorage=${legacyStoredDeviceId ?? 'missing'}, legacyLocalStorage=${legacyReviewDeviceId ?? 'missing'}, tempLocal=${tempLocalDeviceId?.deviceId ?? 'missing'}`,
-    );
-  }
-  if (!versionedDeviceId && new Set(legacyEvidence).size > 1) {
-    return identityRecoveryRequired(
-      `legacy identity sources disagree: localStorage=${legacyStoredDeviceId ?? 'missing'}, legacyLocalStorage=${legacyReviewDeviceId ?? 'missing'}, tempLocal=${tempLocalDeviceId?.deviceId ?? 'missing'}`,
-    );
-  }
-  if (authorityRecord && storageRecord && sameIdentityRecord(authorityRecord, storageRecord)) {
-    const observed = observeHostFingerprint(authorityRecord, options.hostFingerprint, now);
-    const resolvedRecord = observed.record;
-    const hostFingerprintChanged = observed.changed;
-    if (hostFingerprintChanged && identityStore) {
-      try {
-        await identityStore.writeRecord(resolvedRecord);
-      } catch (error) {
-        return unavailable(`indexedDB identity authority write failed: ${toErrorMessage(error)}`);
-      }
-      if (!writeStorageIdentityRecord(storage, resolvedRecord)) {
-        return unavailable('localStorage identity authority write failed');
-      }
-      await writeTempLocalDeviceId(localStore, resolvedRecord.deviceId, 'temp-local', now);
-    }
-    return {
-      deviceId: resolvedRecord.deviceId,
-      identityEpoch: resolvedRecord.identityEpoch,
-      source: 'authority-copies',
-      localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
-      persisted: true,
-      cacheUpdated: hostFingerprintChanged,
-      hostFingerprintMatch: hostFingerprintChanged
-        ? 'changed'
-        : options.hostFingerprint == null || resolvedRecord.hostFingerprint == null
-          ? 'unknown'
-          : 'match',
-      error: null,
-    };
-  }
-  if (authorityRecord && storageRecord) {
-    return identityRecoveryRequired(
-      `identity authority copies disagree: indexedDB=${authorityRecord.deviceId}/${authorityRecord.identityEpoch}, localStorage=${storageRecord.deviceId}/${storageRecord.identityEpoch}`,
-    );
-  }
-  if (authorityRecord && !storageRecord) {
-    const observed = observeHostFingerprint(authorityRecord, options.hostFingerprint, now);
-    if (observed.changed && identityStore) {
-      try {
-        await identityStore.writeRecord(observed.record);
-      } catch (error) {
-        return unavailable(`indexedDB identity authority write failed: ${toErrorMessage(error)}`);
-      }
-    }
-    const cacheUpdated = writeStorageIdentityRecord(storage, observed.record);
-    if (!cacheUpdated) {
-      return unavailable('localStorage identity authority write failed');
-    }
-    return {
-      deviceId: observed.record.deviceId,
-      identityEpoch: observed.record.identityEpoch,
-      source: 'indexeddb-repaired-localStorage',
-      localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
-      persisted: true,
-      cacheUpdated: true,
-      hostFingerprintMatch: observed.changed
-        ? 'changed'
-        : resolveHostFingerprintMatch(observed.record, options.hostFingerprint),
-      error: null,
-    };
-  }
-  if (!authorityRecord && storageRecord && identityStore) {
-    const observed = observeHostFingerprint(storageRecord, options.hostFingerprint, now);
-    try {
-      await identityStore.writeRecord(observed.record);
-    } catch (error) {
-      return unavailable(`indexedDB identity authority write failed: ${toErrorMessage(error)}`);
-    }
-    if (observed.changed && !writeStorageIdentityRecord(storage, observed.record)) {
-      return unavailable('localStorage identity authority write failed');
-    }
-    return {
-      deviceId: observed.record.deviceId,
-      identityEpoch: observed.record.identityEpoch,
-      source: 'localStorage-repaired-indexeddb',
-      localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
-      persisted: true,
-      cacheUpdated: observed.changed,
-      hostFingerprintMatch: observed.changed
-        ? 'changed'
-        : resolveHostFingerprintMatch(observed.record, options.hostFingerprint),
-      error: null,
-    };
-  }
-
-  const localDeviceId = tempLocalDeviceId ?? await readTempLocalDeviceId(localStore);
-  if (identityStore) {
-    const migratedDeviceId = legacyStoredDeviceId ?? legacyReviewDeviceId ?? localDeviceId.deviceId;
-    if (migratedDeviceId) {
-      const source = legacyStoredDeviceId
-        ? 'localStorage'
-        : legacyReviewDeviceId
-          ? 'legacy-localStorage'
-          : 'temp-local';
-      return persistAuthorityAndReturn(
-        identityStore,
-        localStore,
-        storage,
-        createIdentityRecord(migratedDeviceId, options, now),
-        source,
-        now,
-      );
-    }
-  }
-
-  if (localDeviceId.error && !identityStore) {
-    return unavailable(localDeviceId.error);
-  }
-  if (localDeviceId.deviceId) {
-    if (identityStore) {
-      return persistAuthorityAndReturn(
-        identityStore,
-        localStore,
-        storage,
-        createIdentityRecord(localDeviceId.deviceId, options, now),
-        'temp-local',
-        now,
-      );
-    }
-    const cacheUpdated = writeStorageDeviceId(storage, TRUTH_DEVICE_ID_STORAGE_KEY, localDeviceId.deviceId);
-    return {
-      deviceId: localDeviceId.deviceId,
-      source: 'temp-local',
-      localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
-      persisted: true,
-      cacheUpdated,
-      error: null,
-    };
-  }
-
-  const stored = readStorageDeviceId(storage, TRUTH_DEVICE_ID_STORAGE_KEY);
-  if (stored) {
-    return await persistAndReturn(localStore, storage, stored, 'localStorage', now);
-  }
-
-  const legacyStored = readStorageDeviceId(storage, LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY);
-  if (legacyStored) {
-    return await persistAndReturn(localStore, storage, legacyStored, 'legacy-localStorage', now);
-  }
-
-  const next = (options.createId ?? createTruthDeviceId)();
-  if (!isMessagePackTruthIdentity(next)) {
-    return unavailable(`invalid generated truth device id: ${String(next)}`);
-  }
-  if (identityStore) {
-    return persistAuthorityAndReturn(
-      identityStore,
-      localStore,
-      storage,
-      createIdentityRecord(next.trim(), options, now),
-      'generated',
-      now,
-    );
-  }
-  return await persistAndReturn(localStore, storage, next.trim(), 'generated', now);
-}
-
-function createIdentityRecord(
-  deviceId: string,
-  options: ResolveTruthDeviceIdOptions,
-  now: () => number,
-): TruthDeviceIdentityRecord {
-  const timestamp = now();
-  return {
-    version: TRUTH_DEVICE_IDENTITY_VERSION,
-    deviceId,
-    identityEpoch: (options.createEpoch ?? createTruthIdentityEpoch)(),
-    hostFingerprint: options.hostFingerprint ?? null,
-    createdAt: timestamp,
-    lastSeenAt: timestamp,
-  };
-}
-
-function createTruthIdentityEpoch(): string {
+export function createTruthIdentityEpoch(): string {
   const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
   const randomId = typeof cryptoApi?.randomUUID === 'function'
     ? cryptoApi.randomUUID()
@@ -306,112 +81,7 @@ function createTruthIdentityEpoch(): string {
   return `epoch-${randomId}`;
 }
 
-async function readIdentityRecord(
-  identityStore: TruthDeviceIdentityPort | null,
-): Promise<TruthDeviceIdentityRecordRead> {
-  if (!identityStore) {
-    return { status: 'missing', record: null, error: null };
-  }
-  try {
-    const value = await identityStore.readRecord();
-    if (value == null) {
-      return { status: 'missing', record: null, error: null };
-    }
-    if (!isTruthDeviceIdentityRecord(value)) {
-      return {
-        status: 'invalid',
-        record: null,
-        error: invalidIdentityRecordReason(value, 'indexedDB'),
-      };
-    }
-    return { status: 'valid', record: value, error: null };
-  } catch (error) {
-    return { status: 'error', record: null, error: toErrorMessage(error) };
-  }
-}
-
-function readStorageIdentityRecord(
-  storage: TruthDeviceIdentityStorage | null,
-): TruthDeviceIdentityRecordRead {
-  try {
-    const serialized = storage?.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY);
-    if (!serialized) {
-      return { status: 'missing', record: null, error: null };
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(serialized) as unknown;
-    } catch (error) {
-      return {
-        status: 'invalid',
-        record: null,
-        error: `invalid localStorage identity JSON: ${toErrorMessage(error)}`,
-      };
-    }
-    if (!isTruthDeviceIdentityRecord(parsed)) {
-      return {
-        status: 'invalid',
-        record: null,
-        error: invalidIdentityRecordReason(parsed, 'localStorage'),
-      };
-    }
-    return { status: 'valid', record: parsed, error: null };
-  } catch (error) {
-    return { status: 'error', record: null, error: toErrorMessage(error) };
-  }
-}
-
-function invalidIdentityRecordReason(value: unknown, source: 'indexedDB' | 'localStorage'): string {
-  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-    const version = (value as { version?: unknown }).version;
-    if (version !== undefined && version !== TRUTH_DEVICE_IDENTITY_VERSION) {
-      return `unsupported ${source} identity version: ${String(version)}`;
-    }
-  }
-  return `invalid ${source} identity record`;
-}
-
-function resolveHostFingerprintMatch(
-  record: TruthDeviceIdentityRecord,
-  hostFingerprint: string | null | undefined,
-): 'match' | 'changed' | 'unknown' {
-  if (hostFingerprint == null || record.hostFingerprint == null) {
-    return 'unknown';
-  }
-  return hostFingerprint === record.hostFingerprint ? 'match' : 'changed';
-}
-
-function observeHostFingerprint(
-  record: TruthDeviceIdentityRecord,
-  hostFingerprint: string | null | undefined,
-  now: () => number,
-): { record: TruthDeviceIdentityRecord; changed: boolean } {
-  const changed = hostFingerprint != null && hostFingerprint !== record.hostFingerprint;
-  return {
-    record: changed
-      ? {
-          ...record,
-          hostFingerprint,
-          lastSeenAt: now(),
-        }
-      : record,
-    changed,
-  };
-}
-
-function writeStorageIdentityRecord(
-  storage: TruthDeviceIdentityStorage | null,
-  record: TruthDeviceIdentityRecord,
-): boolean {
-  try {
-    storage?.setItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY, JSON.stringify(record));
-    return Boolean(storage);
-  } catch {
-    return false;
-  }
-}
-
-function isTruthDeviceIdentityRecord(value: unknown): value is TruthDeviceIdentityRecord {
+export function isTruthDeviceIdentityRecord(value: unknown): value is TruthDeviceIdentityRecord {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
@@ -427,6 +97,265 @@ function isTruthDeviceIdentityRecord(value: unknown): value is TruthDeviceIdenti
     && Number.isFinite(record.lastSeenAt);
 }
 
+export function isTruthDeviceIdentityAuthorityEnvelope(
+  value: unknown,
+): value is TruthDeviceIdentityAuthorityEnvelope {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const envelope = value as Partial<TruthDeviceIdentityAuthorityEnvelope>;
+  return envelope.version === TRUTH_DEVICE_IDENTITY_AUTHORITY_ENVELOPE_VERSION
+    && Number.isSafeInteger(envelope.revision)
+    && Number(envelope.revision) > 0
+    && (
+      envelope.previousRevision === null
+      || (Number.isSafeInteger(envelope.previousRevision) && Number(envelope.previousRevision) > 0)
+    )
+    && typeof envelope.publishedAt === 'number'
+    && Number.isFinite(envelope.publishedAt)
+    && envelope.publishedAt > 0
+    && isTruthDeviceIdentityRecord(envelope.identity);
+}
+
+export async function resolveTruthDeviceId(
+  options: ResolveTruthDeviceIdentityOptions,
+): Promise<string | null> {
+  return (await resolveTruthDeviceIdentity(options)).deviceId;
+}
+
+export async function resolveTruthDeviceIdentity(
+  options: ResolveTruthDeviceIdentityOptions,
+): Promise<TruthDeviceIdentityResolution> {
+  const now = options.now ?? Date.now;
+  const authorityRead = await readAuthority(options.authority);
+  if (authorityRead.error) {
+    return authorityUnavailable(authorityRead.error);
+  }
+  if (authorityRead.value != null) {
+    if (!isTruthDeviceIdentityAuthorityEnvelope(authorityRead.value)) {
+      return identityRecoveryRequired('invalid or unsupported installation identity authority');
+    }
+    return verifiedResolution(
+      authorityRead.value,
+      'installation-authority',
+      await reconcileCaches(options.caches, authorityRead.value.identity),
+      null,
+      options.hostFingerprint,
+    );
+  }
+
+  if (!options.initializationFence) {
+    return authorityUnavailable('installation identity initialization fence unavailable');
+  }
+
+  let fenced: FencedResolution;
+  try {
+    fenced = await options.initializationFence.runExclusive(async () => {
+      const current = await readAuthority(options.authority);
+      if (current.error) {
+        return { kind: 'unavailable', error: current.error, evidence: null };
+      }
+      if (current.value != null) {
+        if (!isTruthDeviceIdentityAuthorityEnvelope(current.value)) {
+          return { kind: 'recovery', error: 'invalid or unsupported installation identity authority', evidence: null };
+        }
+        return { kind: 'verified', envelope: current.value, source: 'installation-authority', evidence: null };
+      }
+
+      const cacheReads = await readCaches(options.caches);
+      const indexedDb = cacheReads.find((entry) => entry.cache.kind === 'indexeddb');
+      const localStorage = cacheReads.find((entry) => entry.cache.kind === 'local-storage');
+      if (
+        indexedDb?.record
+        && localStorage?.record
+        && sameIdentityRecord(indexedDb.record, localStorage.record)
+      ) {
+        const envelope = createAuthorityEnvelope(indexedDb.record, now());
+        const publication = await publishAuthority(options.authority, envelope);
+        if (publication.kind !== 'ok') {
+          return publication;
+        }
+        return {
+          kind: 'verified',
+          envelope,
+          source: 'legacy-browser-authority-migration',
+          evidence: null,
+        };
+      }
+
+      const evidence = await options.evidenceProbe.probeEvidence();
+      if (evidence.status === 'unavailable') {
+        return {
+          kind: 'unavailable',
+          error: `installation identity evidence unavailable: ${evidence.error ?? 'unknown'}`,
+          evidence,
+        };
+      }
+      if (evidence.status === 'non-empty') {
+        return {
+          kind: 'recovery',
+          error: describeAmbiguousLegacyEvidence(cacheReads, evidence),
+          evidence,
+        };
+      }
+
+      const identity = createIdentityRecord(options, now);
+      if (!identity) {
+        return {
+          kind: 'unavailable',
+          error: 'generated Truth Device Identity is invalid',
+          evidence,
+        };
+      }
+      const envelope = createAuthorityEnvelope(identity, now());
+      const publication = await publishAuthority(options.authority, envelope);
+      if (publication.kind !== 'ok') {
+        return { ...publication, evidence };
+      }
+      return { kind: 'verified', envelope, source: 'first-install', evidence };
+    });
+  } catch (error) {
+    return authorityUnavailable(`installation identity initialization fence failed: ${toErrorMessage(error)}`);
+  }
+
+  if (fenced.kind === 'unavailable') {
+    return authorityUnavailable(fenced.error, fenced.evidence);
+  }
+  if (fenced.kind === 'recovery') {
+    return identityRecoveryRequired(fenced.error, fenced.evidence);
+  }
+  return verifiedResolution(
+    fenced.envelope,
+    fenced.source,
+    await reconcileCaches(options.caches, fenced.envelope.identity),
+    fenced.evidence,
+    options.hostFingerprint,
+  );
+}
+
+function createIdentityRecord(
+  options: ResolveTruthDeviceIdentityOptions,
+  now: () => number,
+): TruthDeviceIdentityRecord | null {
+  const deviceId = (options.createId ?? createTruthDeviceId)().trim();
+  const identityEpoch = (options.createEpoch ?? createTruthIdentityEpoch)().trim();
+  if (!isMessagePackTruthIdentity(deviceId) || !identityEpoch) {
+    return null;
+  }
+  const timestamp = now();
+  return {
+    version: TRUTH_DEVICE_IDENTITY_VERSION,
+    deviceId,
+    identityEpoch,
+    hostFingerprint: options.hostFingerprint ?? null,
+    createdAt: timestamp,
+    lastSeenAt: timestamp,
+  };
+}
+
+function createAuthorityEnvelope(
+  identity: TruthDeviceIdentityRecord,
+  publishedAt: number,
+): TruthDeviceIdentityAuthorityEnvelope {
+  return {
+    version: TRUTH_DEVICE_IDENTITY_AUTHORITY_ENVELOPE_VERSION,
+    revision: 1,
+    identity,
+    previousRevision: null,
+    publishedAt,
+  };
+}
+
+async function readAuthority(
+  authority: TruthDeviceIdentityAuthorityPort,
+): Promise<{ value: unknown | null; error: string | null }> {
+  try {
+    return { value: await authority.readAuthority(), error: null };
+  } catch (error) {
+    return { value: null, error: `installation identity authority read failed: ${toErrorMessage(error)}` };
+  }
+}
+
+async function publishAuthority(
+  authority: TruthDeviceIdentityAuthorityPort,
+  envelope: TruthDeviceIdentityAuthorityEnvelope,
+): Promise<
+  | { kind: 'ok' }
+  | { kind: 'recovery'; error: string; evidence: null }
+  | { kind: 'unavailable'; error: string; evidence: null }
+> {
+  try {
+    await authority.publishAuthority(envelope);
+    return { kind: 'ok' };
+  } catch (error) {
+    const message = toErrorMessage(error);
+    if (
+      message.includes('VERIFICATION_FAILED')
+      || message.includes('REVISION_CONFLICT')
+      || message.includes('AUTHORITY_INVALID')
+    ) {
+      return { kind: 'recovery', error: message, evidence: null };
+    }
+    return { kind: 'unavailable', error: message, evidence: null };
+  }
+}
+
+async function readCaches(caches: TruthDeviceIdentityCachePort[]): Promise<CacheReadResult[]> {
+  return Promise.all(caches.map(async (cache) => {
+    try {
+      const raw = await cache.readCache();
+      return {
+        cache,
+        raw,
+        record: isTruthDeviceIdentityRecord(raw) ? raw : null,
+        error: null,
+      };
+    } catch (error) {
+      return {
+        cache,
+        raw: null,
+        record: null,
+        error: toErrorMessage(error),
+      };
+    }
+  }));
+}
+
+async function reconcileCaches(
+  caches: TruthDeviceIdentityCachePort[],
+  authority: TruthDeviceIdentityRecord,
+): Promise<TruthDeviceIdentityCacheDiagnostic[]> {
+  const reads = await readCaches(caches);
+  return Promise.all(reads.map(async (read): Promise<TruthDeviceIdentityCacheDiagnostic> => {
+    if (read.record && sameIdentityRecord(read.record, authority)) {
+      return { kind: read.cache.kind, status: 'match', message: null };
+    }
+    try {
+      await read.cache.writeCache(authority);
+      return {
+        kind: read.cache.kind,
+        status: 'repaired',
+        message: read.error ?? (read.raw == null ? 'cache was missing' : 'cache disagreed with authority'),
+      };
+    } catch (writeError) {
+      try {
+        await read.cache.clearCache();
+        return {
+          kind: read.cache.kind,
+          status: 'invalidated',
+          message: `cache repair failed and cache was invalidated: ${toErrorMessage(writeError)}`,
+        };
+      } catch (clearError) {
+        return {
+          kind: read.cache.kind,
+          status: 'unavailable',
+          message: `cache repair failed: ${toErrorMessage(writeError)}; invalidation failed: ${toErrorMessage(clearError)}`,
+        };
+      }
+    }
+  }));
+}
+
 function sameIdentityRecord(
   left: TruthDeviceIdentityRecord,
   right: TruthDeviceIdentityRecord,
@@ -439,172 +368,86 @@ function sameIdentityRecord(
     && left.lastSeenAt === right.lastSeenAt;
 }
 
-function resolveGlobalStorage(): TruthDeviceIdentityStorage | null {
-  try {
-    if (typeof globalThis === 'undefined') {
-      return null;
-    }
-    const runtimeGlobal = globalThis as typeof globalThis & {
-      localStorage?: TruthDeviceIdentityStorage;
-      window?: { localStorage?: TruthDeviceIdentityStorage };
-    };
-    return runtimeGlobal.localStorage ?? runtimeGlobal.window?.localStorage ?? null;
-  } catch {
-    return null;
-  }
+function describeAmbiguousLegacyEvidence(
+  cacheReads: CacheReadResult[],
+  evidence: TruthDeviceIdentityInstallationEvidence,
+): string {
+  const browser = cacheReads
+    .filter((entry) => entry.cache.kind === 'indexeddb' || entry.cache.kind === 'local-storage')
+    .map((entry) => `${entry.cache.kind}=${entry.record ? `${entry.record.deviceId}/${entry.record.identityEpoch}` : entry.error ? 'unavailable' : entry.raw == null ? 'missing' : 'invalid'}`)
+    .join(', ');
+  return `installation identity authority missing for non-empty installation (${evidence.reasons.join(', ') || 'unknown evidence'}); ${browser || 'browser caches unavailable'}`;
 }
 
-async function readTempLocalDeviceId(localStore: TruthDeviceIdentityLocalStore | null): Promise<{
-  deviceId: string | null;
-  error: string | null;
-}> {
-  if (!localStore?.readTempLocalJSON) {
-    return { deviceId: null, error: null };
-  }
-  try {
-    const state = await localStore.readTempLocalJSON<TruthDeviceIdentityState>(TRUTH_DEVICE_ID_LOCAL_STATE_PATH);
-    const deviceId = state?.deviceId;
-    return {
-      deviceId: isMessagePackTruthIdentity(deviceId) ? deviceId.trim() : null,
-      error: null,
-    };
-  } catch (error) {
-    return { deviceId: null, error: toErrorMessage(error) };
-  }
-}
-
-async function persistAndReturn(
-  localStore: TruthDeviceIdentityLocalStore | null,
-  storage: TruthDeviceIdentityStorage | null,
-  deviceId: string,
-  source: 'localStorage' | 'legacy-localStorage' | 'generated',
-  now: () => number,
-): Promise<TruthDeviceIdentityResolution> {
-  const persisted = await writeTempLocalDeviceId(localStore, deviceId, source, now);
-  if (!persisted.ok && localStore) {
-    return unavailable(persisted.error);
-  }
-  const cacheUpdated = writeStorageDeviceId(storage, TRUTH_DEVICE_ID_STORAGE_KEY, deviceId);
-  return {
-    deviceId,
-    source,
-    localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
-    persisted: persisted.ok,
-    cacheUpdated,
-    error: null,
-  };
-}
-
-async function persistAuthorityAndReturn(
-  identityStore: TruthDeviceIdentityPort,
-  localStore: TruthDeviceIdentityLocalStore | null,
-  storage: TruthDeviceIdentityStorage | null,
+function resolveHostFingerprintMatch(
   record: TruthDeviceIdentityRecord,
-  migrationSource: 'temp-local' | 'localStorage' | 'legacy-localStorage' | 'generated',
-  now: () => number,
-): Promise<TruthDeviceIdentityResolution> {
-  try {
-    await identityStore.writeRecord(record);
-  } catch (error) {
-    return unavailable(`indexedDB identity authority write failed: ${toErrorMessage(error)}`);
+  hostFingerprint: string | null | undefined,
+): 'match' | 'changed' | 'unknown' {
+  if (hostFingerprint == null || record.hostFingerprint == null) {
+    return 'unknown';
   }
-  if (!writeStorageIdentityRecord(storage, record)) {
-    return unavailable('localStorage identity authority write failed');
-  }
-  const persistedAuthorityRead = await readIdentityRecord(identityStore);
-  const persistedStorageRead = readStorageIdentityRecord(storage);
-  if (persistedAuthorityRead.status === 'error') {
-    return unavailable(`indexedDB identity authority verification failed: ${persistedAuthorityRead.error}`);
-  }
-  if (persistedStorageRead.status === 'error') {
-    return unavailable(`localStorage identity authority verification failed: ${persistedStorageRead.error}`);
-  }
-  if (
-    persistedAuthorityRead.status !== 'valid'
-    || persistedStorageRead.status !== 'valid'
-    || !sameIdentityRecord(persistedAuthorityRead.record, record)
-    || !sameIdentityRecord(persistedStorageRead.record, record)
-  ) {
-    return identityRecoveryRequired(
-      `identity authority write verification failed: indexedDB=${persistedAuthorityRead.status}, localStorage=${persistedStorageRead.status}`,
-    );
-  }
-  await writeTempLocalDeviceId(localStore, record.deviceId, migrationSource, now);
+  return hostFingerprint === record.hostFingerprint ? 'match' : 'changed';
+}
+
+function verifiedResolution(
+  envelope: TruthDeviceIdentityAuthorityEnvelope,
+  source: 'installation-authority' | 'legacy-browser-authority-migration' | 'first-install',
+  cacheDiagnostics: TruthDeviceIdentityCacheDiagnostic[],
+  evidence: TruthDeviceIdentityInstallationEvidence | null,
+  hostFingerprint: string | null | undefined,
+): TruthDeviceIdentityResolution {
   return {
-    deviceId: record.deviceId,
-    identityEpoch: record.identityEpoch,
-    source: 'authority-copies',
-    localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
+    status: 'verified',
+    deviceId: envelope.identity.deviceId,
+    identityEpoch: envelope.identity.identityEpoch,
+    source,
+    authorityRevision: envelope.revision,
+    localStatePath: TRUTH_DEVICE_IDENTITY_LOCAL_STATE_PATH,
     persisted: true,
-    cacheUpdated: true,
-    hostFingerprintMatch: record.hostFingerprint == null ? 'unknown' : 'match',
+    cacheUpdated: cacheDiagnostics.some((diagnostic) => diagnostic.status === 'repaired' || diagnostic.status === 'invalidated'),
+    cacheDiagnostics,
+    installationEvidence: evidence,
+    hostFingerprintMatch: resolveHostFingerprintMatch(envelope.identity, hostFingerprint),
     error: null,
   };
 }
 
-async function writeTempLocalDeviceId(
-  localStore: TruthDeviceIdentityLocalStore | null,
-  deviceId: string,
-  source: 'temp-local' | 'localStorage' | 'legacy-localStorage' | 'generated',
-  now: () => number,
-): Promise<{ ok: boolean; error: string | null }> {
-  if (!localStore?.writeTempLocalJSON) {
-    return { ok: false, error: 'temp-local write API unavailable' };
-  }
-  try {
-    await localStore.writeTempLocalJSON(TRUTH_DEVICE_ID_LOCAL_STATE_PATH, {
-      version: 1,
-      deviceId,
-      source,
-      updatedAt: now(),
-    });
-    return { ok: true, error: null };
-  } catch (error) {
-    return { ok: false, error: toErrorMessage(error) };
-  }
-}
-
-function readStorageDeviceId(storage: TruthDeviceIdentityStorage | null, key: string): string | null {
-  try {
-    const value = storage?.getItem(key);
-    return isMessagePackTruthIdentity(value) ? value.trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStorageDeviceId(
-  storage: TruthDeviceIdentityStorage | null,
-  key: string,
-  deviceId: string,
-): boolean {
-  try {
-    storage?.setItem(key, deviceId);
-    return Boolean(storage);
-  } catch {
-    // Temp-local state is authoritative; localStorage is only a cache.
-    return false;
-  }
-}
-
-function unavailable(error: string | null): TruthDeviceIdentityResolution {
+function authorityUnavailable(
+  error: string,
+  evidence: TruthDeviceIdentityInstallationEvidence | null = null,
+): TruthDeviceIdentityResolution {
   return {
+    status: 'authority-unavailable',
     deviceId: null,
-    source: 'unavailable',
-    localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
+    identityEpoch: null,
+    source: 'authority-unavailable',
+    authorityRevision: null,
+    localStatePath: TRUTH_DEVICE_IDENTITY_LOCAL_STATE_PATH,
     persisted: false,
     cacheUpdated: false,
+    cacheDiagnostics: [],
+    installationEvidence: evidence,
+    hostFingerprintMatch: 'unknown',
     error,
   };
 }
 
-function identityRecoveryRequired(error: string): TruthDeviceIdentityResolution {
+function identityRecoveryRequired(
+  error: string,
+  evidence: TruthDeviceIdentityInstallationEvidence | null = null,
+): TruthDeviceIdentityResolution {
   return {
+    status: 'identity-recovery-required',
     deviceId: null,
+    identityEpoch: null,
     source: 'identity-recovery-required',
-    localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
+    authorityRevision: null,
+    localStatePath: TRUTH_DEVICE_IDENTITY_LOCAL_STATE_PATH,
     persisted: false,
     cacheUpdated: false,
+    cacheDiagnostics: [],
+    installationEvidence: evidence,
+    hostFingerprintMatch: 'unknown',
     error,
   };
 }

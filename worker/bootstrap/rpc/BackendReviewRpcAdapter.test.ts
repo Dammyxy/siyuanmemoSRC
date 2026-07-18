@@ -245,12 +245,6 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
         rating: 3,
         reviewedAt: NOW,
         idempotencyKey: 'session-feedback-1',
-        repairGate: {
-          state: 'clean',
-          reason: 'test-clean-gate',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       },
     }, { review });
 
@@ -484,12 +478,6 @@ describe('BackendReviewRpcAdapter worker session methods', () => {
         rating: 3,
         reviewedAt: NOW,
         idempotencyKey: 'session-feedback-1',
-        repairGate: {
-          state: 'clean',
-          reason: 'test-clean-gate',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       },
     }, { review });
     const undoToken = (feedback.result as {

@@ -1,7 +1,9 @@
 # ADR-003 Kernel Sidecar Coordinator
 
+- Series: Runtime Architecture
 - Status: Accepted
 - Date: 2026-04-30
+- Registry: [Architecture Decision Registry](./ADR-INDEX.md)
 
 ## Context
 

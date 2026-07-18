@@ -62,6 +62,52 @@ describe('FileService', () => {
     );
   });
 
+  it('treats a successful HTTP response carrying a SiYuan missing-file envelope as absent binary', async () => {
+    const errorBytes = new TextEncoder().encode('{"code":404,"msg":"file does not exist","data":null}');
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 202,
+      headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
+      arrayBuffer: async () => errorBytes.buffer.slice(0),
+    }) as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+
+    await expect(service.readBinary(
+      'sqlite-delta/v2/sqlite-delta-log.v2.sealed-4883.msgpack',
+    )).resolves.toBeNull();
+  });
+
+  it('recursively lists nested truth files while keeping direct file entries shallow', async () => {
+    const directories = new Map<string, Array<{ name: string; isDir: boolean; size?: number }>>([
+      ['/data/storage/petal/siyuan-plugin-siyuanmemo/truth/promotion', [
+        { name: 'device-redacted', isDir: true },
+      ]],
+      ['/data/storage/petal/siyuan-plugin-siyuanmemo/truth/promotion/device-redacted', [
+        { name: 'frontier.v1.json', isDir: false, size: 567 },
+        { name: 'epoch-original', isDir: true },
+      ]],
+      ['/data/storage/petal/siyuan-plugin-siyuanmemo/truth/promotion/device-redacted/epoch-original', [
+        { name: 'state.v1.json', isDir: false, size: 454 },
+      ]],
+    ]);
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as { path?: string };
+      return {
+        ok: true,
+        json: async () => ({ code: 0, data: directories.get(String(body.path)) ?? [] }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+
+    await expect(service.listFiles('truth/promotion/')).resolves.toEqual([
+      'truth/promotion/device-redacted/epoch-original/state.v1.json',
+      'truth/promotion/device-redacted/frontier.v1.json',
+    ]);
+    await expect(service.listFileEntries('truth/promotion/')).resolves.toEqual([]);
+  });
+
   it('reads SiYuan sync conflict database copies from temp repo paths', async () => {
     const dbBytes = new Uint8Array([
       ...Array.from(new TextEncoder().encode('SQLite format 3')),
@@ -287,6 +333,82 @@ describe('FileService', () => {
       path: '/temp/siyuan-plugin-siyuanmemo/local/truth-device-id.v1.json',
       text: JSON.stringify({ deviceId: 'device-stable' }, null, 2),
     }]);
+  });
+
+  it('reads installation identity from the strict workspace conf path', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"version":1}', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+
+    await expect(service.readInstallationIdentityText('truth-device-identity.v1.json'))
+      .resolves.toBe('{"version":1}');
+    expect(fetchMock).toHaveBeenCalledWith('/api/file/getFile', expect.objectContaining({
+      body: JSON.stringify({
+        path: '/conf/siyuan-plugin-siyuanmemo/truth-device-identity.v1.json',
+      }),
+    }));
+  });
+
+  it('treats a SiYuan missing conf identity envelope as absent', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      '{"code":404,"msg":"file does not exist","data":null}',
+      { status: 202, headers: { 'content-type': 'application/json' } },
+    )));
+    const service = new FileService(createPlugin(vi.fn()));
+    await expect(service.readInstallationIdentityText('truth-device-identity.v1.json'))
+      .resolves.toBeNull();
+  });
+
+  it('writes installation identity only to the strict workspace conf path', async () => {
+    const writes: Array<{ path: string; text: string }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const formData = init?.body as FormData;
+      const file = formData.get('file') as Blob;
+      writes.push({
+        path: String(formData.get('path')),
+        text: await file.text(),
+      });
+      return new Response('{"code":0,"data":null}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }));
+    const service = new FileService(createPlugin(vi.fn()));
+    await service.writeInstallationIdentityText('truth-device-identity.v1.json', '{"version":1}');
+    expect(writes).toEqual([{
+      path: '/conf/siyuan-plugin-siyuanmemo/truth-device-identity.v1.json',
+      text: '{"version":1}',
+    }]);
+  });
+
+  it('rejects installation identity path traversal before host access', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+    await expect(service.readInstallationIdentityText('../conf.json'))
+      .rejects.toThrow('invalid installation identity path');
+    await expect(service.writeInstallationIdentityText('other.json', '{}'))
+      .rejects.toThrow('invalid installation identity path');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('probes plugin-data evidence subtrees without reading their contents', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      code: 0,
+      data: [{ name: 'device-a', isDir: true }],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+    await expect(service.hasPluginDataEntries('truth')).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith('/api/file/readDir', expect.objectContaining({
+      body: JSON.stringify({ path: '/data/storage/petal/siyuan-plugin-siyuanmemo/truth' }),
+    }));
   });
 
   it('backs up the current sqlite database before replacement', async () => {

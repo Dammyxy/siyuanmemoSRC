@@ -1,12 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import { QueueType } from '@/types/unified-data-source';
 import { createBrowserQueueProjectionWarmupRuntime } from '../browserQueueProjectionWarmupRuntime';
+import { ReviewProjectionWorkCoordinator } from '@/application/services/ReviewProjectionWorkCoordinator';
 
 function ref<T>(value: T): { value: T } {
   return { value };
 }
 
 function createDeps(overrides: Record<string, unknown> = {}) {
+  const workCoordinator = new ReviewProjectionWorkCoordinator({
+    info: vi.fn(),
+    warn: vi.fn(),
+  });
   return {
     activeDocId: ref<string | null>(null),
     activeQueueId: ref<string | null>(null),
@@ -28,8 +33,22 @@ function createDeps(overrides: Record<string, unknown> = {}) {
       warn: vi.fn(),
     },
     searchQuery: ref(''),
+    workCoordinator: () => workCoordinator,
     ...overrides,
   };
+}
+
+function createActiveReview(queueType: QueueType) {
+  const workCoordinator = new ReviewProjectionWorkCoordinator({
+    info: vi.fn(),
+    warn: vi.fn(),
+  });
+  const surface = workCoordinator.activateSurface({
+    surfaceId: `review-${queueType}`,
+    surfaceKind: 'dialog',
+    queueType,
+  });
+  return { surface, workCoordinator };
 }
 
 describe('browserQueueProjectionWarmupRuntime', () => {
@@ -41,13 +60,11 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       policyId: `policy-${request.queueType}`,
       generation: 12,
     }));
+    const { workCoordinator } = createActiveReview(QueueType.IncrementalLearning);
     const deps = createDeps({
       activeQueueId: ref('incremental-learning'),
       browserAppService: ref({ ensureQueueReadModelReady }),
-      reviewPressure: ref({
-        active: true,
-        activeQueueType: QueueType.IncrementalLearning,
-      }),
+      workCoordinator: () => workCoordinator,
     });
     const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
 
@@ -80,13 +97,11 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       policyId: `policy-${request.queueType}`,
       generation: 13,
     }));
+    const { surface, workCoordinator } = createActiveReview(QueueType.IncrementalLearning);
     const deps = createDeps({
       activeQueueId: ref('incremental-learning'),
       browserAppService: ref({ ensureQueueReadModelReady }),
-      reviewPressure: ref({
-        active: true,
-        activeQueueType: QueueType.IncrementalLearning,
-      }),
+      workCoordinator: () => workCoordinator,
     });
     const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
 
@@ -111,14 +126,11 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       timestamp: 2,
     });
 
-    await vi.advanceTimersByTimeAsync(749);
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(ensureQueueReadModelReady).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(1);
-    expect(ensureQueueReadModelReady).not.toHaveBeenCalled();
-
-    deps.reviewPressure.value = { active: false, activeQueueType: null };
-    await vi.advanceTimersByTimeAsync(750);
+    surface.release();
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
     expect(ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
@@ -150,13 +162,11 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       retryAfterMs: 300,
     }));
     const repairQueueReadModel = vi.fn(async () => true);
+    const { surface, workCoordinator } = createActiveReview(QueueType.IncrementalLearning);
     const deps = createDeps({
       activeQueueId: ref('incremental-learning'),
       browserAppService: ref({ ensureQueueReadModelReady, repairQueueReadModel }),
-      reviewPressure: ref({
-        active: true,
-        activeQueueType: QueueType.IncrementalLearning,
-      }),
+      workCoordinator: () => workCoordinator,
     });
     const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
 
@@ -171,13 +181,13 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       timestamp: 1,
     });
 
-    await vi.advanceTimersByTimeAsync(750);
+    await vi.advanceTimersByTimeAsync(10_000);
 
     expect(ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(repairQueueReadModel).not.toHaveBeenCalled();
 
-    deps.reviewPressure.value = { active: false, activeQueueType: null };
-    await vi.advanceTimersByTimeAsync(750);
+    surface.release();
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
     expect(repairQueueReadModel).toHaveBeenCalledTimes(1);
@@ -185,7 +195,7 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     vi.useRealTimers();
   });
 
-  it('keeps deferred non-active warmup deferred when Review pressure is still active', async () => {
+  it('keeps deferred non-active warmup pending without a Review-period timer loop', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({
       status: 'refreshing',
@@ -195,28 +205,25 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       retryAfterMs: 300,
     }));
     const repairQueueReadModel = vi.fn(async () => true);
-    const reviewPressure = ref({
-      active: true,
-      activeQueueType: QueueType.RetrievalPractice,
-    });
+    const { surface, workCoordinator } = createActiveReview(QueueType.RetrievalPractice);
     const deps = createDeps({
       activeQueueId: ref('retrieval'),
       browserAppService: ref({ ensureQueueReadModelReady, repairQueueReadModel }),
-      reviewPressure,
+      workCoordinator: () => workCoordinator,
     });
     const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
 
     runtime.schedule('browser-open', 0);
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(750);
+    await vi.advanceTimersByTimeAsync(10_000);
 
     expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
       QueueType.RetrievalPractice,
     ]);
     expect(repairQueueReadModel).toHaveBeenCalledTimes(1);
 
-    reviewPressure.value = { active: false, activeQueueType: null };
-    await vi.advanceTimersByTimeAsync(750);
+    surface.release();
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
       QueueType.RetrievalPractice,
@@ -397,7 +404,7 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     vi.useRealTimers();
   });
 
-  it('does not retry non-retryable storage recovery repair failures', async () => {
+  it('retries queue projection repair failures on the readiness delay', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({
       status: 'refreshing',
@@ -407,7 +414,7 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       retryAfterMs: 300,
     }));
     const repairQueueReadModel = vi.fn(async () => {
-      throw new Error('STORAGE_RECOVERY_REQUIRED: browser queue projection repair requires writable startup readiness');
+      throw new Error('STORAGE_VALIDATION_ERROR: browser queue projection repair failed validation');
     });
     const deps = createDeps({
       activeQueueId: ref('retrieval'),
@@ -419,8 +426,8 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(1_000);
 
-    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
-    expect(repairQueueReadModel).toHaveBeenCalledTimes(1);
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(4);
+    expect(repairQueueReadModel).toHaveBeenCalledTimes(4);
     expect(runtime.getStatus('retrieval')).toMatchObject({
       status: 'refreshing',
       cause: 'projection_stale',
@@ -428,13 +435,13 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     expect(deps.logger.warn).toHaveBeenCalledWith(
       '[SiYuanMemo][SRSBrowser] Queue projection warmup repair failed',
       expect.objectContaining({
-        nonRetryable: true,
+        error: expect.stringContaining('STORAGE_VALIDATION_ERROR'),
       }),
     );
     vi.useRealTimers();
   });
 
-  it('skips repair attempts when Browser projection mutation is not allowed', async () => {
+  it('skips projection repair when the service repair gate is closed', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({
       status: 'refreshing',
@@ -444,7 +451,7 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       retryAfterMs: 300,
     }));
     const repairQueueReadModel = vi.fn(async () => {
-      throw new Error('repair must not run while startup is read-only recovery');
+      throw new Error('repair failed');
     });
     const canRepairQueueReadModel = vi.fn(() => false);
     const deps = createDeps({
@@ -467,6 +474,43 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     expect(deps.logger.warn).not.toHaveBeenCalledWith(
       '[SiYuanMemo][SRSBrowser] Queue projection warmup repair failed',
       expect.anything(),
+    );
+    expect(runtime.getStatus('retrieval')).toMatchObject({
+      status: 'refreshing',
+      cause: 'projection_stale',
+    });
+    vi.useRealTimers();
+  });
+
+  it('does not retry storage pressure projection repair failures', async () => {
+    vi.useFakeTimers();
+    const ensureQueueReadModelReady = vi.fn(async (request) => ({
+      status: 'refreshing',
+      queueId: request.queueType,
+      policyId: `policy-${request.queueType}`,
+      cause: 'projection_stale',
+      retryAfterMs: 300,
+    }));
+    const repairQueueReadModel = vi.fn(async () => {
+      throw new Error('STORAGE_PRESSURE: sqlite-delta:device-A:seg-1.msgpack: Extra 51 of 52 byte(s) found at buffer[1]');
+    });
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      browserAppService: ref({ ensureQueueReadModelReady, repairQueueReadModel }),
+    });
+    const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.schedule('browser-open', 0, ['retrieval']);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(repairQueueReadModel).toHaveBeenCalledTimes(1);
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      '[SiYuanMemo][SRSBrowser] Queue projection warmup repair failed',
+      expect.objectContaining({
+        error: expect.stringContaining('STORAGE_PRESSURE'),
+      }),
     );
     expect(runtime.getStatus('retrieval')).toMatchObject({
       status: 'refreshing',

@@ -40,7 +40,7 @@ function extractCjsWorkerHelperBundle() {
     ? bundle.lastIndexOf(`const ${payloadNameMatch[1]}=`, workerCtorStart)
     : -1;
   const transportLoggerMatch = workerCtorStart >= 0
-    ? bundle.slice(workerCtorStart).match(/const\s+[A-Za-z_$][\w$]*=Ne\("BrowserSrsBackendWorkerTransport"\)/)
+    ? bundle.slice(workerCtorStart).match(/const\s+[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\("BrowserSrsBackendWorkerTransport"\)/)
     : null;
   const transportLoggerStart = transportLoggerMatch?.index === undefined
     ? -1

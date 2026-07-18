@@ -30,9 +30,13 @@ _Avoid_: SQL committed means canonical, database saved
 Worker-owned single-writer Module，按 journal sequence 提升 `journaled` mutation 到 Canonical Truth，并维护有限 coverage state、retry 与 lag 诊断。
 _Avoid_: renderer truth flush authority, parallel manifest writers
 
+**Verified Mutation Frontier**:
+Worker-owned device-level control state，关联当前 **Truth Device Identity** epoch、device-wide SQLite delta journal allocation 与已验证 **Truth Promotion** coverage。它只从可验证的同 device predecessor evidence 继承 epoch coverage，用缓存状态准入正式 mutation，并把确定性连续性失败转换成 **Storage Recovery State**。
+_Avoid_: epoch-local coverage reset, journal sequence skip/renumber, formal mutation rebind, deterministic gap retry loop
+
 **Truth Device Identity**:
-由匹配 IndexedDB 与 localStorage authority copies 保存的 `pluginInstallationId + identityEpoch`。SiYuan `System.ID` 仅是 host fingerprint；旧 epoch namespace 永远只读参与 reconciliation。
-_Avoid_: temp-file device ID, synchronized identity authority, System.ID as truth owner
+由一个本地 installation authority 保存的稳定 `pluginInstallationId + identityEpoch`；浏览器 origin 副本与可丢弃镜像只是 cache。SiYuan `System.ID` 仅是 host fingerprint；旧 epoch namespace 永远只读参与 reconciliation。
+_Avoid_: IndexedDB/localStorage authority, temp-file authority, synchronized identity authority, System.ID as truth owner
 
 **Storage Recovery State**:
 启动时基于 identity、verified generations、truth segments、delta coverage、checkpoints 与 Disposable SQLite Projection 计算的能力状态。无法证明 canonical continuity 时进入 read-only `STORAGE_RECOVERY_REQUIRED` 并显式禁用写能力。
@@ -182,6 +186,10 @@ _Avoid_: grid cache, Browser UI state, Review projection builder, local queue fa
 The lightweight Browser count Interface that reads queue count evidence from projection counters, visible projection rows, or active Review session counter evidence without creating full Queue Modules for ordinary sidebar count refresh. During active Review pressure, it scopes immediate count work to the active Review queue and defers non-active Browser-derived count work until Review is idle.
 _Avoid_: queue creation as count read, full queue materialization for sidebar badges, stale row fallback
 
+**Review Projection Work Coordinator**:
+The application-owned lifecycle Module that publishes the effective active Review dialog/tab queue and admits coalesced BrowserProjectionIndex background work by stable key. Dialog activity outranks Tab activity; non-active warmup and queue-count catch-up remain pending until the active queue or idle transition makes them eligible, without Review-period polling.
+_Avoid_: Vue polling of manager getters, repeated Review deferral timers, general background scheduler, Review answer authority
+
 **SessionQueueIndex**:
 The active Review session Module that owns current card, lookahead, session exclusions, session counters, and post-feedback advancement after a session starts. It may seed from a valid projection snapshot at session start, but Browser projection warmup, filter repair, and count refresh do not choose the next card after feedback.
 _Avoid_: Browser projection cache, Review UI presentation prepare, queue projection read model, renderer fallback cursor
@@ -281,6 +289,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 ## Relationships
 
 - **Truth Device Identity** owns one writable truth namespace; prior namespaces remain read-only **Truth Reconciliation** inputs.
+- **Verified Mutation Frontier** proves how a new **Truth Device Identity** epoch continues the device journal before formal writes or **Truth Promotion** proceed.
 - A formal Worker mutation returns a **Durability Receipt** at `journaled`; **Truth Promotion** advances it to `truth-committed`.
 - **Canonical Truth** plus uncovered replayable delta rebuilds the **Disposable SQLite Projection**.
 - **Storage Recovery State** gates formal writes, promotion, compaction, sync upload, and reconciliation without blocking verified read-only inspection.
@@ -293,6 +302,8 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - **Learn Ahead** may serve only future **Learning Steps**, bounded by both a time window and a maximum card count.
 - **Queue Projection Readiness** is consumed by Browser views and owned by application/backend coordination, not by UI retry logic.
 - **Browser Queue View Lifecycle** consumes **Queue Projection Readiness** and owns Browser-side retry/attach decisions, but does not materialize queue projections.
+- **Review Projection Work Coordinator** consumes Review surface lifecycle only as pressure evidence and coordinates derived **BrowserProjectionIndex** work without entering the Review answer pipeline.
+- **Browser Queue Count Read Model** uses **Review Projection Work Coordinator** to coalesce non-active count catch-up until Review becomes idle.
 - **Topic Container** identity must not depend on whether the owning block is a document block.
 - **AutoCard Decision Relay** chooses the decision owner before AutoCard execute side effects run.
 - **AutoCard Execute Relay** chooses the backend/writer owner for AutoCard execution envelopes, but does not execute local card creation itself.
@@ -355,6 +366,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - `Learn Ahead` was considered as a card-count-only setting. Resolved: it follows Anki-style time-window semantics with an additional maximum-card limit for user experience control.
 - Queue projection "not ready" was used for normal preparation, transient infrastructure unavailability, and terminal projection failures. Resolved: **Queue Projection Readiness** separates readable, preparing, and unavailable states.
 - Browser queue loading mixed readiness, retry, datasource creation, and attach decisions. Resolved: **Browser Queue View Lifecycle** owns Browser-side queue preparation before grid attach.
+- Review activity was inferred from plain DialogManager/TabManager getters and Browser projection work repeatedly polled while deferred. Resolved: **Review Projection Work Coordinator** owns the observable activity snapshot and lifecycle-driven release of coalesced Browser work.
 - Topic was implicitly treated as document-block-only in some creation flows. Resolved: **Topic Container** includes non-document blocks such as super blocks when they own Topic-derived item creation.
 - AutoCard decision routing was ambiguous with AutoCard execution and Xiuyuan writes. Resolved: **AutoCard Decision Relay** owns only decision resolve routing/local compatibility-read; execute side effects remain separate.
 - AutoCard execute routing was ambiguous with local execution side effects. Resolved: **AutoCard Execute Relay** owns backend/follower/writer relay routing and unavailable diagnostics; local planner, Xiuyuan, and Topic-derived writes remain behind application execution runtime/services.

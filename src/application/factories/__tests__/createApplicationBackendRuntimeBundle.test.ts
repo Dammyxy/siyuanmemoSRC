@@ -27,10 +27,17 @@ const runtimeBundleMocks = vi.hoisted(() => ({
     debug: vi.fn(),
   },
   resolveTruthDeviceIdentity: vi.fn(async () => ({
+    status: 'verified',
     deviceId: 'truth-device-1',
     identityEpoch: 'epoch-1',
-    source: 'authority-copies',
-    localStatePath: 'truth-device-id.v1.json',
+    source: 'installation-authority',
+    authorityRevision: 1,
+    localStatePath: '/conf/siyuan-plugin-siyuanmemo/truth-device-identity.v1.json',
+    persisted: true,
+    cacheUpdated: false,
+    cacheDiagnostics: [],
+    installationEvidence: null,
+    hostFingerprintMatch: 'match',
     error: null,
   })),
 }));
@@ -146,7 +153,12 @@ function createRuntimeBundleOptions() {
       sql: vi.fn(async () => []),
     }),
     createNeuralRoamGraphQuery: () => ({
-      query: vi.fn(async () => ({ nodes: [], edges: [] })),
+      query: vi.fn(async (request: { blockId: string }) => ({
+        status: 'found' as const,
+        blockId: request.blockId,
+        data: { nodes: [], edges: [] },
+        error: null,
+      })),
     }),
     resolveKernelWriterLeaseInstanceId: () => 'writer-instance-1',
     resolveKernelWriterLeaseTtlMs: () => 5000,
@@ -183,7 +195,7 @@ describe('createApplicationBackendRuntimeBundle', () => {
       retryable: false,
       deviceId: 'truth-device-1',
       identityEpoch: 'epoch-1',
-      source: 'authority-copies',
+      source: 'installation-authority',
       reason: null,
     });
     expect(runtimeBundleMocks.backendClients[0].options.reviewTruthFlush).toMatchObject({
@@ -192,9 +204,11 @@ describe('createApplicationBackendRuntimeBundle', () => {
     });
     expect(runtimeBundleMocks.backendClients[0].schedulePendingReviewTruthFlush).not.toHaveBeenCalled();
     expect(runtimeBundleMocks.resolveTruthDeviceIdentity).toHaveBeenCalledWith(expect.objectContaining({
-      localStore: options.fileService,
+      authority: expect.anything(),
+      caches: expect.arrayContaining([expect.anything()]),
+      evidenceProbe: expect.anything(),
+      initializationFence: expect.anything(),
       hostFingerprint: 'host-system-1',
-      identityStore: expect.anything(),
     }));
     expect(runtimeBundleMocks.logger.warn).not.toHaveBeenCalledWith(
       '[ApplicationContext] Frontend instance runtime unavailable; backend write families fail closed with explicit unavailable',
@@ -202,17 +216,24 @@ describe('createApplicationBackendRuntimeBundle', () => {
     );
   });
 
-  it('keeps backend load available but disables truth writes when identity epoch is missing', async () => {
+  it('keeps backend load read-only when identity epoch is missing', async () => {
     runtimeBundleMocks.backendClients.length = 0;
     runtimeBundleMocks.frontendRuntimes.length = 0;
     runtimeBundleMocks.transports.length = 0;
     Object.values(runtimeBundleMocks.logger).forEach((fn) => fn.mockClear());
     runtimeBundleMocks.resolveTruthDeviceIdentity.mockResolvedValueOnce({
-      deviceId: 'truth-device-1',
+      status: 'identity-recovery-required',
+      deviceId: null,
       identityEpoch: null,
-      source: 'temp-local',
-      localStatePath: 'truth-device-id.v1.json',
-      error: null,
+      source: 'identity-recovery-required',
+      authorityRevision: null,
+      localStatePath: '/conf/siyuan-plugin-siyuanmemo/truth-device-identity.v1.json',
+      persisted: false,
+      cacheUpdated: false,
+      cacheDiagnostics: [],
+      installationEvidence: null,
+      hostFingerprintMatch: 'unknown',
+      error: 'full identity continuity is not proven',
     });
 
     const bundle = await createApplicationBackendRuntimeBundle(createRuntimeBundleOptions());
@@ -225,32 +246,35 @@ describe('createApplicationBackendRuntimeBundle', () => {
       status: 'read-only-recovery-required',
       writable: false,
       retryable: false,
-      deviceId: 'truth-device-1',
+      deviceId: null,
       identityEpoch: null,
-      source: 'temp-local',
+      source: 'identity-recovery-required',
+      reason: 'full identity continuity is not proven',
     });
-    expect(runtimeBundleMocks.logger.warn).toHaveBeenCalledWith(
-      '[ApplicationContext] STORAGE_RECOVERY_REQUIRED: MessagePack truth writes are unavailable because startup identity disposition is not writable',
-      expect.objectContaining({
-        deviceId: 'truth-device-1',
-        identityEpoch: null,
-        disposition: 'read-only-recovery-required',
-        retryable: false,
-      }),
+    expect(runtimeBundleMocks.logger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('STORAGE_VALIDATION_ERROR'),
+      expect.anything(),
     );
   });
 
-  it('keeps backend load read-only and retryable when identity authority is unavailable', async () => {
+  it('keeps backend load read-only when identity authority is unavailable', async () => {
     runtimeBundleMocks.backendClients.length = 0;
     runtimeBundleMocks.frontendRuntimes.length = 0;
     runtimeBundleMocks.transports.length = 0;
     Object.values(runtimeBundleMocks.logger).forEach((fn) => fn.mockClear());
     runtimeBundleMocks.resolveTruthDeviceIdentity.mockResolvedValueOnce({
+      status: 'authority-unavailable',
       deviceId: null,
       identityEpoch: null,
-      source: 'unavailable',
-      localStatePath: 'truth-device-id.v1.json',
-      error: 'indexedDB identity authority read failed: read denied',
+      source: 'authority-unavailable',
+      authorityRevision: null,
+      localStatePath: '/conf/siyuan-plugin-siyuanmemo/truth-device-identity.v1.json',
+      persisted: false,
+      cacheUpdated: false,
+      cacheDiagnostics: [],
+      installationEvidence: null,
+      hostFingerprintMatch: 'unknown',
+      error: 'installation identity authority read failed: read denied',
     });
 
     const bundle = await createApplicationBackendRuntimeBundle(createRuntimeBundleOptions());
@@ -264,7 +288,7 @@ describe('createApplicationBackendRuntimeBundle', () => {
       retryable: true,
       deviceId: null,
       identityEpoch: null,
-      source: 'unavailable',
+      source: 'authority-unavailable',
       reason: expect.stringContaining('IDENTITY_AUTHORITY_UNAVAILABLE'),
     });
     expect(runtimeBundleMocks.backendClients[0].schedulePendingReviewTruthFlush).not.toHaveBeenCalled();
@@ -284,5 +308,24 @@ describe('createApplicationBackendRuntimeBundle', () => {
       };
     };
     expect(transportOptions.hostEffects.executeAutoCardBatch).toBe(options.executeAutoCardBatch);
+  });
+
+  it('wires the explicit identity recovery host effects into the backend worker transport', async () => {
+    runtimeBundleMocks.backendClients.length = 0;
+    runtimeBundleMocks.frontendRuntimes.length = 0;
+    runtimeBundleMocks.transports.length = 0;
+
+    await createApplicationBackendRuntimeBundle(createRuntimeBundleOptions());
+
+    const transportOptions = runtimeBundleMocks.transports[0].options as {
+      hostEffects: {
+        readIdentityRecoveryEvidence?: () => Promise<unknown>;
+        ensureRecoveryActiveWriter?: (input: unknown) => Promise<void>;
+        publishCertifiedAuthority?: (input: unknown) => Promise<unknown>;
+      };
+    };
+    expect(transportOptions.hostEffects.readIdentityRecoveryEvidence).toEqual(expect.any(Function));
+    expect(transportOptions.hostEffects.ensureRecoveryActiveWriter).toEqual(expect.any(Function));
+    expect(transportOptions.hostEffects.publishCertifiedAuthority).toEqual(expect.any(Function));
   });
 });

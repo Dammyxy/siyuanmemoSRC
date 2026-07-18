@@ -1,3 +1,5 @@
+> Superseded on 2026-07-16 by `review-domain-sync-independence`: Review no longer has a repair gate or user-facing sync-conflict workflow. This completed change is retained only as historical context and must not be reapplied.
+
 ## Why
 
 Live Review grading logs now prove ordinary rating still waits on repairable domain-sync `pre-request-merge` before the worker can answer. The current hot path mixes two responsibilities that should be separate: applying the current card rating, and repairing cross-source domain-sync drift.

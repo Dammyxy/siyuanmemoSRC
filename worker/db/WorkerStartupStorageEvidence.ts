@@ -107,6 +107,7 @@ export function classifyWorkerStartupStorageEvidence(
     && identityEpoch
     && (!identityDisposition || identityDisposition.status === 'verified'),
   );
+  const identityDispositionInvalid = identityDisposition?.status === 'verified' && !identityVerified;
   const truthValidationError = normalizeOptionalString(input.truth.validationError);
   const deltaValidationError = normalizeOptionalString(input.delta.validationError);
   const manifestCount = normalizeCount(input.truth.manifestCount);
@@ -127,12 +128,16 @@ export function classifyWorkerStartupStorageEvidence(
     input.projection.status === 'missing'
     || input.projection.status === 'corrupt'
   );
-  const identityRecoveryReason = normalizeOptionalString(identityDisposition?.reason);
+  const identityRecoveryReason = normalizeOptionalString(identityDisposition?.reason)
+    ?? (identityDispositionInvalid
+      ? 'verified startup identity disposition requires both deviceId and identityEpoch'
+      : null);
   const recoveryRequired = Boolean(
     truthValidationError
     || deltaValidationError
     || identityRecoveryRequired
     || identityAuthorityUnavailable
+    || identityDispositionInvalid
   );
   const recoveryDiagnosticReason = uniqueStrings([
     ...(identityRecoveryReason ? [identityRecoveryReason] : []),
@@ -183,7 +188,7 @@ export function classifyWorkerStartupStorageEvidence(
         ? 'verified'
         : identityAuthorityUnavailable
           ? 'unavailable'
-          : identityRecoveryRequired
+          : identityRecoveryRequired || identityDispositionInvalid
             ? 'invalid'
             : 'missing',
       deviceId,

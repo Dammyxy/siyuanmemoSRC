@@ -67,12 +67,17 @@ function createReviewTruthDeviceDiagnostics(
   overrides: Partial<BackendReviewTruthDeviceDiagnostics> = {},
 ): BackendReviewTruthDeviceDiagnostics {
   return {
+    status: 'verified',
     deviceId: 'device-A',
     identityEpoch: 'epoch-A',
-    source: 'authority-copies',
-    localStatePath: 'truth-device-id.v1.json',
+    source: 'installation-authority',
+    authorityRevision: 1,
+    localStatePath: '/conf/siyuan-plugin-siyuanmemo/truth-device-identity.v1.json',
     persisted: true,
     cacheUpdated: true,
+    cacheDiagnostics: [],
+    installationEvidence: null,
+    hostFingerprintMatch: 'match',
     error: null,
     ...overrides,
   };
@@ -169,17 +174,54 @@ describe('SrsBackendClient', () => {
     }));
   });
 
+  it('routes foreign-epoch recovery preview, apply, and status through dedicated RPC methods', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: { method: request.method },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+    const planHash = `sha256:${'a'.repeat(64)}` as const;
+    const backupReceipt = {
+      version: 1,
+      receiptId: 'backup-a',
+      planHash,
+      backupArtifactHash: `sha256:${'b'.repeat(64)}` as const,
+      capturedAt: 100,
+      verifiedAt: 101,
+    } as const;
+
+    await client.foreignEpochRecoveryPreview({ expectedStage: 'authority-publication' });
+    await client.foreignEpochRecoveryApply({ operationId: 'operation-a', planHash, backupReceipt });
+    await client.foreignEpochRecoveryStatus({ operationId: 'operation-a' });
+
+    expect(transport.request).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      method: 'recovery.foreignEpoch.preview',
+      params: [{ expectedStage: 'authority-publication' }],
+    }));
+    expect(transport.request).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      method: 'recovery.foreignEpoch.apply',
+      params: [{ operationId: 'operation-a', planHash, backupReceipt }],
+    }));
+    expect(transport.request).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      method: 'recovery.foreignEpoch.status',
+      params: [{ operationId: 'operation-a' }],
+    }));
+  });
+
   it('passes typed startup identity disposition through pure load and reload RPCs', async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const disposition: BackendStartupIdentityDisposition = {
       version: 1,
-      status: 'read-only-authority-unavailable',
-      writable: false,
-      retryable: true,
-      deviceId: null,
-      identityEpoch: null,
-      source: 'unavailable',
-      reason: 'IDENTITY_AUTHORITY_UNAVAILABLE: indexedDB read denied',
+      status: 'verified',
+      writable: true,
+      retryable: false,
+      deviceId: 'device-A',
+      identityEpoch: 'epoch-A',
+      source: 'installation-authority',
+      reason: null,
     };
     const transport: SrsBackendTransport = {
       request: vi.fn(async (request) => {
@@ -192,7 +234,7 @@ describe('SrsBackendClient', () => {
                 ok: true,
                 reloaded: true,
                 dbFile: 'siyuanmemo.db',
-                readiness: { status: 'read-only-authority-unavailable' },
+                readiness: { status: 'ready' },
                 deferredWork: [],
               }
             : {
@@ -200,7 +242,7 @@ describe('SrsBackendClient', () => {
                 initialized: true,
                 dbFile: 'siyuanmemo.db',
                 projectionSnapshot: { version: 2, xiuyuans: {}, cards: {} },
-                readiness: { status: 'read-only-authority-unavailable' },
+                readiness: { status: 'ready' },
                 deferredWork: [],
               },
         };
@@ -224,8 +266,8 @@ describe('SrsBackendClient', () => {
         method: 'db.load',
         params: [expect.objectContaining({
           startupIdentityDisposition: disposition,
-          truthDeviceId: null,
-          identityEpoch: null,
+          truthDeviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           reviewTruthGenerationId: 'review-events-v1',
         })],
       },
@@ -233,12 +275,87 @@ describe('SrsBackendClient', () => {
         method: 'db.reload',
         params: [expect.objectContaining({
           startupIdentityDisposition: disposition,
-          truthDeviceId: null,
-          identityEpoch: null,
+          truthDeviceId: 'device-A',
+          identityEpoch: 'epoch-A',
           reviewTruthGenerationId: 'review-events-v1',
         })],
       },
     ]);
+  });
+
+  it('reports startup write capability from the identity disposition', () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(),
+    };
+    const readOnlyDisposition: BackendStartupIdentityDisposition = {
+      version: 1,
+      status: 'verified',
+      writable: false,
+      retryable: false,
+      deviceId: 'device-A',
+      identityEpoch: 'epoch-A',
+      source: 'installation-authority',
+      reason: 'storage-pressure',
+    };
+    const writableClient = new SrsBackendClient(transport);
+    const readOnlyClient = new SrsBackendClient(transport, {
+      startupIdentityDisposition: readOnlyDisposition,
+    });
+
+    expect(writableClient.isStartupWriteCapable()).toBe(true);
+    expect(readOnlyClient.isStartupWriteCapable()).toBe(false);
+  });
+
+  it('updates startup write capability from backend load and reload readiness', async () => {
+    let writable = false;
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: request.method === 'db.reload'
+          ? {
+              ok: true,
+              reloaded: true,
+              dbFile: 'siyuanmemo.db',
+              readiness: {
+                status: 'ready',
+                writable: true,
+              },
+              deferredWork: [],
+            }
+          : {
+              ok: true,
+              initialized: true,
+              dbFile: 'siyuanmemo.db',
+              projectionSnapshot: { version: 2, xiuyuans: {}, cards: {} },
+              readiness: {
+                status: 'read-only-recovery-required',
+                writable,
+              },
+              deferredWork: [],
+            },
+      })),
+    };
+    const client = new SrsBackendClient(transport, {
+      startupIdentityDisposition: {
+        version: 1,
+        status: 'verified',
+        writable: true,
+        retryable: false,
+        deviceId: 'device-A',
+        identityEpoch: 'epoch-A',
+        source: 'installation-authority',
+        reason: null,
+      },
+    });
+
+    expect(client.isStartupWriteCapable()).toBe(true);
+    await client.loadDatabase();
+    expect(client.isStartupWriteCapable()).toBe(false);
+
+    writable = true;
+    await client.reloadDatabase();
+    expect(client.isStartupWriteCapable()).toBe(true);
   });
 
   it('reads Native Riff import exclusion through the Card RPC facade', async () => {
@@ -448,6 +565,32 @@ describe('SrsBackendClient', () => {
     }
   });
 
+  it('skips Review truth mutation when diagnostics source is not trusted authority', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        throw new Error(`Unexpected backend method ${request.method}`);
+      }),
+    };
+    const client = new SrsBackendClient(transport, {
+      reviewTruthFlush: {
+        deviceId: 'device-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+        batchLimit: 4,
+        delayMs: 25,
+      },
+      reviewTruthDevice: createReviewTruthDeviceDiagnostics({
+        status: 'identity-recovery-required',
+        source: 'identity-recovery-required',
+      }),
+    });
+
+    await expect(client.schedulePendingReviewTruthFlush('startup')).resolves.toBe(false);
+    expect(client.requestReviewTruthFlush('manual')).toBe(false);
+    await expect(client.flushReviewTruthNow('manual')).resolves.toBe(false);
+    expect(transport.request).not.toHaveBeenCalled();
+  });
+
   it.each<[string, SrsBackendClientOptions]>([
     ['device-only flush options', {
       reviewTruthFlush: {
@@ -464,43 +607,7 @@ describe('SrsBackendClient', () => {
         schemaVersion: 1,
       },
     }],
-    ['generated diagnostics source', {
-      reviewTruthFlush: {
-        deviceId: 'device-A',
-        identityEpoch: 'epoch-A',
-        generationId: 'review-events-v1',
-        schemaVersion: 1,
-      },
-      reviewTruthDevice: createReviewTruthDeviceDiagnostics({ source: 'generated' }),
-    }],
-    ['legacy localStorage diagnostics source', {
-      reviewTruthFlush: {
-        deviceId: 'device-A',
-        identityEpoch: 'epoch-A',
-        generationId: 'review-events-v1',
-        schemaVersion: 1,
-      },
-      reviewTruthDevice: createReviewTruthDeviceDiagnostics({ source: 'legacy-localStorage' }),
-    }],
-    ['mismatched diagnostics device', {
-      reviewTruthFlush: {
-        deviceId: 'device-A',
-        identityEpoch: 'epoch-A',
-        generationId: 'review-events-v1',
-        schemaVersion: 1,
-      },
-      reviewTruthDevice: createReviewTruthDeviceDiagnostics({ deviceId: 'device-B' }),
-    }],
-    ['mismatched diagnostics epoch', {
-      reviewTruthFlush: {
-        deviceId: 'device-A',
-        identityEpoch: 'epoch-A',
-        generationId: 'review-events-v1',
-        schemaVersion: 1,
-      },
-      reviewTruthDevice: createReviewTruthDeviceDiagnostics({ identityEpoch: 'epoch-B' }),
-    }],
-  ])('blocks Review truth mutation for %s', async (_caseName, options) => {
+  ])('skips Review truth mutation when identity is incomplete for %s', async (_caseName, options) => {
     const transport: SrsBackendTransport = {
       request: vi.fn(async (request) => {
         throw new Error(`Unexpected backend method ${request.method}`);
@@ -1802,9 +1909,10 @@ describe('SrsBackendClient', () => {
     };
     const client = new SrsBackendClient(transport, {
       reviewTruthDevice: {
+        status: 'identity-recovery-required',
         deviceId: 'device-stable',
-        source: 'temp-local',
-        localStatePath: 'truth-device-id.v1.json',
+        source: 'identity-recovery-required',
+        localStatePath: '/conf/siyuan-plugin-siyuanmemo/truth-device-identity.v1.json',
         persisted: true,
         cacheUpdated: true,
         error: null,
@@ -1815,8 +1923,9 @@ describe('SrsBackendClient', () => {
       review: {
         truthDevice: {
           deviceId: 'device-stable',
-          source: 'temp-local',
-          localStatePath: 'truth-device-id.v1.json',
+          status: 'identity-recovery-required',
+          source: 'identity-recovery-required',
+          localStatePath: '/conf/siyuan-plugin-siyuanmemo/truth-device-identity.v1.json',
           persisted: true,
           cacheUpdated: true,
           error: null,

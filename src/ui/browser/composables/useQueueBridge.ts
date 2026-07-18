@@ -113,6 +113,9 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
   ): Promise<void> => {
     const requestSequence = ++queueCountRefreshSequence;
     const patchQueueIds = resolveQueueCountPatchIds(refreshOptions);
+    if (patchQueueIds.length === 0) {
+      return;
+    }
     const service = getBrowserService('refreshQueueCounts');
     if (!service) {
       applyQueueCountPatch(target, EMPTY_QUEUE_COUNTS, patchQueueIds, requestSequence);

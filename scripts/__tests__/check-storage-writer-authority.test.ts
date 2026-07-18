@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   evaluate,
   evaluateMutationFamilyAuthorities,
+  evaluateTruthDeviceIdentityAuthority,
   legacyWriterInventory,
   mutationFamilyAuthorityRules,
 } from '../check-storage-writer-authority.cjs';
@@ -82,6 +83,24 @@ describe('check-storage-writer-authority', () => {
       expect.stringContaining('whole-database-manager-save-caller'),
       expect.stringContaining('whole-database-rpc-persist-caller'),
     ]));
+  });
+
+  it('keeps installation conf as the sole production Truth Device Identity authority', () => {
+    expect(evaluateTruthDeviceIdentityAuthority()).toEqual([]);
+
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/factories/createApplicationBackendRuntimeBundle.ts', `
+      const resolution = resolveTruthDeviceIdentity({
+        authority: new IndexedDbTruthDeviceIdentityCache(),
+      });
+    `);
+
+    expect(evaluate({ rootDir, approvedSites: [] })).toEqual(expect.arrayContaining([
+      expect.stringContaining('browser-truth-device-identity-authority-construction'),
+    ]));
+    expect(evaluateTruthDeviceIdentityAuthority({ rootDir })).toEqual([
+      expect.stringContaining('installation-truth-device-identity-authority-construction occurrences 0'),
+    ]);
   });
 
   it('permits only the exact legacy count and rejects another caller in the same file', () => {

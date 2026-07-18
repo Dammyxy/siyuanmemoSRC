@@ -1,826 +1,342 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY,
-  resolveTruthDeviceIdentity,
-  resolveTruthDeviceId,
-  TRUTH_DEVICE_IDENTITY_STORAGE_KEY,
-  TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
-  TRUTH_DEVICE_ID_STORAGE_KEY,
-} from '../truthDeviceIdentity';
+  TRUTH_DEVICE_IDENTITY_AUTHORITY_ENVELOPE_VERSION,
+  TRUTH_DEVICE_IDENTITY_VERSION,
+  type TruthDeviceIdentityAuthorityEnvelope,
+  type TruthDeviceIdentityAuthorityPort,
+  type TruthDeviceIdentityCacheKind,
+  type TruthDeviceIdentityCachePort,
+  type TruthDeviceIdentityEvidenceProbePort,
+  type TruthDeviceIdentityInitializationFencePort,
+  type TruthDeviceIdentityInstallationEvidence,
+  type TruthDeviceIdentityRecord,
+} from '@/application/ports/TruthDeviceIdentityPort';
+import { resolveTruthDeviceIdentity } from '../truthDeviceIdentity';
 
-class MemoryStorage {
-  private readonly values = new Map<string, string>();
+class MemoryAuthority implements TruthDeviceIdentityAuthorityPort {
+  current: unknown | null = null;
+  previous: unknown | null = null;
   readError: Error | null = null;
-  writeError: Error | null = null;
+  publishError: Error | null = null;
+  readonly publishAuthority = vi.fn(async (envelope: TruthDeviceIdentityAuthorityEnvelope) => {
+    if (this.publishError) throw this.publishError;
+    if (this.current != null) this.previous = this.current;
+    this.current = structuredClone(envelope);
+  });
 
-  getItem(key: string): string | null {
-    if (this.readError) {
-      throw this.readError;
-    }
-    return this.values.get(key) ?? null;
+  async readAuthority(): Promise<unknown | null> {
+    if (this.readError) throw this.readError;
+    return structuredClone(this.current);
   }
 
-  setItem(key: string, value: string): void {
-    if (this.writeError) {
-      throw this.writeError;
-    }
-    this.values.set(key, value);
+  async readPreviousAuthority(): Promise<unknown | null> {
+    return structuredClone(this.previous);
   }
 }
 
-class MemoryLocalIdentityStore {
-  readonly state = new Map<string, unknown>();
+class MemoryCache implements TruthDeviceIdentityCachePort {
+  raw: unknown | null = null;
   readError: Error | null = null;
   writeError: Error | null = null;
-
-  readTempLocalJSON = vi.fn(async <T>(path: string): Promise<T | null> => {
-    if (this.readError) {
-      throw this.readError;
-    }
-    return (this.state.get(path) as T | undefined) ?? null;
+  clearError: Error | null = null;
+  readonly writeCache = vi.fn(async (record: TruthDeviceIdentityRecord) => {
+    if (this.writeError) throw this.writeError;
+    this.raw = structuredClone(record);
+  });
+  readonly clearCache = vi.fn(async () => {
+    if (this.clearError) throw this.clearError;
+    this.raw = null;
   });
 
-  writeTempLocalJSON = vi.fn(async (path: string, value: unknown): Promise<void> => {
-    if (this.writeError) {
-      throw this.writeError;
-    }
-    this.state.set(path, value);
-  });
+  constructor(readonly kind: TruthDeviceIdentityCacheKind) {}
+
+  async readCache(): Promise<unknown | null> {
+    if (this.readError) throw this.readError;
+    return structuredClone(this.raw);
+  }
 }
 
-class MemoryIdentityRecordStore {
-  record: unknown = null;
-  readError: Error | null = null;
-  writeError: Error | null = null;
-
-  readRecord = vi.fn(async (): Promise<unknown | null> => {
-    if (this.readError) {
-      throw this.readError;
-    }
-    return this.record;
-  });
-
-  writeRecord = vi.fn(async (record: unknown): Promise<void> => {
-    if (this.writeError) {
-      throw this.writeError;
-    }
-    this.record = record;
-  });
+class MemoryEvidenceProbe implements TruthDeviceIdentityEvidenceProbePort {
+  constructor(public evidence: TruthDeviceIdentityInstallationEvidence) {}
+  async probeEvidence(): Promise<TruthDeviceIdentityInstallationEvidence> {
+    return structuredClone(this.evidence);
+  }
 }
 
-describe('truth device identity', () => {
-  it('uses matching authority copies when the temp mirror cannot be read', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    const record = {
-      version: 2,
-      deviceId: 'device-stable',
-      identityEpoch: 'epoch-1',
-      hostFingerprint: 'host-1',
-      createdAt: 10,
-      lastSeenAt: 20,
-    };
-    identityStore.record = record;
-    storage.setItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY, JSON.stringify(record));
-    localStore.readError = new Error('temp read denied');
-    const createId = vi.fn(() => 'device-new');
+class SerializedFence implements TruthDeviceIdentityInitializationFencePort {
+  private tail: Promise<void> = Promise.resolve();
 
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId,
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: 'device-stable',
-      source: 'authority-copies',
-      error: null,
-    });
-
-    expect(createId).not.toHaveBeenCalled();
-    expect(identityStore.writeRecord).not.toHaveBeenCalled();
-  });
-
-  it('records a host fingerprint change without rotating device identity', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    const record = {
-      version: 2,
-      deviceId: 'device-stable',
-      identityEpoch: 'epoch-1',
-      hostFingerprint: 'host-old',
-      createdAt: 10,
-      lastSeenAt: 20,
-    };
-    identityStore.record = record;
-    storage.setItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY, JSON.stringify(record));
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-new',
-      createId: () => 'device-new',
-      createEpoch: () => 'epoch-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: 'device-stable',
-      identityEpoch: 'epoch-1',
-      source: 'authority-copies',
-      hostFingerprintMatch: 'changed',
-      error: null,
-    });
-
-    const updatedRecord = {
-      ...record,
-      hostFingerprint: 'host-new',
-      lastSeenAt: 30,
-    };
-    expect(identityStore.writeRecord).toHaveBeenCalledWith(updatedRecord);
-    expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(updatedRecord);
-  });
-
-  it('repairs missing localStorage authority from IndexedDB before reading the temp mirror', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    const record = {
-      version: 2,
-      deviceId: 'device-stable',
-      identityEpoch: 'epoch-1',
-      hostFingerprint: 'host-1',
-      createdAt: 10,
-      lastSeenAt: 20,
-    };
-    identityStore.record = record;
-    localStore.readError = new Error('temp read denied');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId: () => 'device-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: 'device-stable',
-      source: 'indexeddb-repaired-localStorage',
-      error: null,
-    });
-
-    expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(record);
-  });
-
-  it('records a host change while repairing a missing localStorage authority copy', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    const record = {
-      version: 2,
-      deviceId: 'device-stable',
-      identityEpoch: 'epoch-1',
-      hostFingerprint: 'host-old',
-      createdAt: 10,
-      lastSeenAt: 20,
-    };
-    identityStore.record = record;
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-new',
-      createId: () => 'device-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: 'device-stable',
-      identityEpoch: 'epoch-1',
-      source: 'indexeddb-repaired-localStorage',
-      hostFingerprintMatch: 'changed',
-      error: null,
-    });
-
-    const updatedRecord = {
-      ...record,
-      hostFingerprint: 'host-new',
-      lastSeenAt: 30,
-    };
-    expect(identityStore.writeRecord).toHaveBeenCalledWith(updatedRecord);
-    expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(updatedRecord);
-  });
-
-  it('repairs missing IndexedDB authority from localStorage before reading the temp mirror', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    const record = {
-      version: 2,
-      deviceId: 'device-stable',
-      identityEpoch: 'epoch-1',
-      hostFingerprint: 'host-1',
-      createdAt: 10,
-      lastSeenAt: 20,
-    };
-    storage.setItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY, JSON.stringify(record));
-    localStore.readError = new Error('temp read denied');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId: () => 'device-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: 'device-stable',
-      source: 'localStorage-repaired-indexeddb',
-      error: null,
-    });
-
-    expect(identityStore.writeRecord).toHaveBeenCalledWith(record);
-  });
-
-  it('fails closed when valid authority copies disagree', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    identityStore.record = {
-      version: 2,
-      deviceId: 'device-indexeddb',
-      identityEpoch: 'epoch-1',
-      hostFingerprint: 'host-1',
-      createdAt: 10,
-      lastSeenAt: 20,
-    };
-    storage.setItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY, JSON.stringify({
-      version: 2,
-      deviceId: 'device-localstorage',
-      identityEpoch: 'epoch-2',
-      hostFingerprint: 'host-1',
-      createdAt: 11,
-      lastSeenAt: 21,
-    }));
-    localStore.state.set(TRUTH_DEVICE_ID_LOCAL_STATE_PATH, { deviceId: 'device-indexeddb' });
-    const createId = vi.fn(() => 'device-new');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId,
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: null,
-      source: 'identity-recovery-required',
-      error: expect.stringContaining('authority copies disagree'),
-    });
-
-    expect(createId).not.toHaveBeenCalled();
-    expect(identityStore.writeRecord).not.toHaveBeenCalled();
-  });
-
-  it('fails closed with diagnostics for an unsupported localStorage identity version', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    storage.setItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY, JSON.stringify({
-      version: 99,
-      deviceId: 'device-future',
-      identityEpoch: 'epoch-future',
-      hostFingerprint: 'host-future',
-      createdAt: 10,
-      lastSeenAt: 20,
-    }));
-    const createId = vi.fn(() => 'device-new');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId,
-      createEpoch: () => 'epoch-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: null,
-      source: 'identity-recovery-required',
-      error: expect.stringContaining('unsupported localStorage identity version: 99'),
-    });
-
-    expect(createId).not.toHaveBeenCalled();
-    expect(identityStore.writeRecord).not.toHaveBeenCalled();
-  });
-
-  it('fails closed with diagnostics for an unsupported IndexedDB identity version', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    identityStore.record = {
-      version: 99,
-      deviceId: 'device-future',
-      identityEpoch: 'epoch-future',
-      hostFingerprint: 'host-future',
-      createdAt: 10,
-      lastSeenAt: 20,
-    };
-    const createId = vi.fn(() => 'device-new');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId,
-      createEpoch: () => 'epoch-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: null,
-      source: 'identity-recovery-required',
-      error: expect.stringContaining('unsupported indexedDB identity version: 99'),
-    });
-
-    expect(createId).not.toHaveBeenCalled();
-    expect(identityStore.writeRecord).not.toHaveBeenCalled();
-  });
-
-  it('treats transient IndexedDB authority read failure as unavailable', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    identityStore.readError = new Error('indexedDB read denied');
-    const createId = vi.fn(() => 'device-new');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId,
-      createEpoch: () => 'epoch-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: null,
-      source: 'unavailable',
-      error: expect.stringContaining('indexedDB identity authority read failed: indexedDB read denied'),
-    });
-
-    expect(createId).not.toHaveBeenCalled();
-    expect(identityStore.writeRecord).not.toHaveBeenCalled();
-  });
-
-  it('treats transient localStorage authority read failure as unavailable', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    storage.readError = new Error('localStorage read denied');
-    const createId = vi.fn(() => 'device-new');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId,
-      createEpoch: () => 'epoch-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: null,
-      source: 'unavailable',
-      error: expect.stringContaining('localStorage identity authority read failed: localStorage read denied'),
-    });
-
-    expect(createId).not.toHaveBeenCalled();
-    expect(identityStore.writeRecord).not.toHaveBeenCalled();
-  });
-
-  it('fails closed when versioned authority conflicts with legacy identity evidence', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    const record = {
-      version: 2,
-      deviceId: 'device-current',
-      identityEpoch: 'epoch-current',
-      hostFingerprint: 'host-1',
-      createdAt: 10,
-      lastSeenAt: 20,
-    };
-    identityStore.record = record;
-    storage.setItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY, JSON.stringify(record));
-    storage.setItem(LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY, 'device-stale');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId: () => 'device-new',
-      createEpoch: () => 'epoch-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: null,
-      source: 'identity-recovery-required',
-      error: expect.stringContaining('versioned identity conflicts with legacy evidence'),
-    });
-
-    expect(identityStore.writeRecord).not.toHaveBeenCalled();
-  });
-
-  it('reuses temp-local identity and refreshes localStorage without generating a new device', async () => {
-    const storage = new MemoryStorage();
-    const localStore = new MemoryLocalIdentityStore();
-    localStore.state.set(TRUTH_DEVICE_ID_LOCAL_STATE_PATH, { deviceId: 'device-stable' });
-    const createId = vi.fn(() => 'device-new');
-
-    await expect(resolveTruthDeviceId({ localStore, storage, createId })).resolves.toBe('device-stable');
-
-    expect(createId).not.toHaveBeenCalled();
-    expect(storage.getItem(TRUTH_DEVICE_ID_STORAGE_KEY)).toBe('device-stable');
-    expect(localStore.writeTempLocalJSON).not.toHaveBeenCalled();
-  });
-
-  it('creates a verified first-install identity in both authority copies', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId: () => 'device-new',
-      createEpoch: () => 'epoch-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: 'device-new',
-      identityEpoch: 'epoch-new',
-      source: 'authority-copies',
-      persisted: true,
-      cacheUpdated: true,
-      error: null,
-    });
-
-    const expectedRecord = {
-      version: 2,
-      deviceId: 'device-new',
-      identityEpoch: 'epoch-new',
-      hostFingerprint: 'host-1',
-      createdAt: 30,
-      lastSeenAt: 30,
-    };
-    expect(identityStore.writeRecord).toHaveBeenCalledWith(expectedRecord);
-    expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(expectedRecord);
-    expect(localStore.writeTempLocalJSON).toHaveBeenCalledWith(
-      TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
-      expect.objectContaining({ deviceId: 'device-new' }),
-    );
-  });
-
-  it('exposes temp-local identity diagnostics for startup status', async () => {
-    const storage = new MemoryStorage();
-    const localStore = new MemoryLocalIdentityStore();
-    localStore.state.set(TRUTH_DEVICE_ID_LOCAL_STATE_PATH, { deviceId: 'device-stable' });
-
-    await expect(resolveTruthDeviceIdentity({ localStore, storage, createId: () => 'device-new' }))
-      .resolves.toMatchObject({
-        deviceId: 'device-stable',
-        source: 'temp-local',
-        localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
-        persisted: true,
-        cacheUpdated: true,
-        error: null,
-      });
-  });
-
-  it('migrates legacy localStorage identity into temp-local state', async () => {
-    const storage = new MemoryStorage();
-    const localStore = new MemoryLocalIdentityStore();
-    storage.setItem(LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY, 'device-legacy');
-
-    await expect(resolveTruthDeviceId({ localStore, storage, createId: () => 'device-new' })).resolves.toBe('device-legacy');
-
-    expect(storage.getItem(TRUTH_DEVICE_ID_STORAGE_KEY)).toBe('device-legacy');
-    expect(localStore.writeTempLocalJSON).toHaveBeenCalledWith(
-      TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
-      expect.objectContaining({ deviceId: 'device-legacy' }),
-    );
-  });
-
-  it('migrates legacy localStorage identity into both authority copies when the temp mirror write fails', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    localStore.writeError = new Error('temp write denied');
-    storage.setItem(LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY, 'device-legacy');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createEpoch: () => 'epoch-1',
-      createId: () => 'device-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: 'device-legacy',
-      source: 'authority-copies',
-      error: null,
-    });
-
-    const expectedRecord = {
-      version: 2,
-      deviceId: 'device-legacy',
-      identityEpoch: 'epoch-1',
-      hostFingerprint: 'host-1',
-      createdAt: 30,
-      lastSeenAt: 30,
-    };
-    expect(identityStore.writeRecord).toHaveBeenCalledWith(expectedRecord);
-    expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(expectedRecord);
-  });
-
-  it('migrates and verifies a temp-only device identity in both authority copies', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    localStore.state.set(TRUTH_DEVICE_ID_LOCAL_STATE_PATH, { deviceId: 'device-temp' });
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createEpoch: () => 'epoch-1',
-      createId: () => 'device-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: 'device-temp',
-      identityEpoch: 'epoch-1',
-      source: 'authority-copies',
-      error: null,
-    });
-
-    const expectedRecord = {
-      version: 2,
-      deviceId: 'device-temp',
-      identityEpoch: 'epoch-1',
-      hostFingerprint: 'host-1',
-      createdAt: 30,
-      lastSeenAt: 30,
-    };
-    expect(identityStore.writeRecord).toHaveBeenCalledWith(expectedRecord);
-    expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(expectedRecord);
-  });
-
-  it('fails closed when a migrated authority copy cannot be verified after writing', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    localStore.state.set(TRUTH_DEVICE_ID_LOCAL_STATE_PATH, { deviceId: 'device-temp' });
-    identityStore.writeRecord.mockImplementationOnce(async () => undefined);
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createEpoch: () => 'epoch-1',
-      createId: () => 'device-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: null,
-      source: 'identity-recovery-required',
-      error: expect.stringContaining('identity authority write verification failed'),
-    });
-  });
-
-  it('migrates the v1 truth device key without changing its writable directory identity', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    storage.setItem(TRUTH_DEVICE_ID_STORAGE_KEY, 'device-existing-directory');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createEpoch: () => 'epoch-1',
-      createId: () => 'device-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: 'device-existing-directory',
-      identityEpoch: 'epoch-1',
-      source: 'authority-copies',
-      error: null,
-    });
-
-    expect(identityStore.writeRecord).toHaveBeenCalledWith(expect.objectContaining({
-      deviceId: 'device-existing-directory',
-      identityEpoch: 'epoch-1',
-    }));
-  });
-
-  it('reads browser window localStorage when CJS global localStorage is absent', async () => {
-    const originalWindow = (globalThis as typeof globalThis & { window?: unknown }).window;
-    const originalLocalStorage = (globalThis as typeof globalThis & { localStorage?: unknown }).localStorage;
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    storage.setItem(TRUTH_DEVICE_ID_STORAGE_KEY, 'device-window-localstorage');
-
+  async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.tail;
+    let release!: () => void;
+    this.tail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
     try {
-      delete (globalThis as typeof globalThis & { localStorage?: unknown }).localStorage;
-      (globalThis as typeof globalThis & { window?: unknown }).window = {
-        localStorage: storage,
-      };
-
-      await expect(resolveTruthDeviceIdentity({
-        identityStore,
-        hostFingerprint: 'host-1',
-        createEpoch: () => 'epoch-1',
-        createId: () => 'device-new',
-        now: () => 30,
-      })).resolves.toMatchObject({
-        deviceId: 'device-window-localstorage',
-        identityEpoch: 'epoch-1',
-        source: 'authority-copies',
-        error: null,
-      });
-
-      expect(identityStore.writeRecord).toHaveBeenCalledWith(expect.objectContaining({
-        deviceId: 'device-window-localstorage',
-        identityEpoch: 'epoch-1',
-      }));
+      return await operation();
     } finally {
-      if (typeof originalLocalStorage === 'undefined') {
-        delete (globalThis as typeof globalThis & { localStorage?: unknown }).localStorage;
-      } else {
-        (globalThis as typeof globalThis & { localStorage?: unknown }).localStorage = originalLocalStorage;
-      }
-      (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
+      release();
     }
-  });
+  }
+}
 
-  it('migrates legacy localStorage identity when the temp mirror cannot be read', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    localStore.readError = new Error('temp read denied');
-    storage.setItem(LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY, 'device-legacy');
+class FailingFence implements TruthDeviceIdentityInitializationFencePort {
+  async runExclusive<T>(_operation: () => Promise<T>): Promise<T> {
+    throw new Error('kernel fence unavailable');
+  }
+}
 
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createEpoch: () => 'epoch-1',
-      createId: () => 'device-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: 'device-legacy',
-      source: 'authority-copies',
-      error: null,
+function identity(overrides: Partial<TruthDeviceIdentityRecord> = {}): TruthDeviceIdentityRecord {
+  return {
+    version: TRUTH_DEVICE_IDENTITY_VERSION,
+    deviceId: 'device-stable',
+    identityEpoch: 'epoch-stable',
+    hostFingerprint: 'host-a',
+    createdAt: 10,
+    lastSeenAt: 10,
+    ...overrides,
+  };
+}
+
+function envelope(record = identity()): TruthDeviceIdentityAuthorityEnvelope {
+  return {
+    version: TRUTH_DEVICE_IDENTITY_AUTHORITY_ENVELOPE_VERSION,
+    revision: 1,
+    identity: record,
+    previousRevision: null,
+    publishedAt: 10,
+  };
+}
+
+function evidence(
+  status: TruthDeviceIdentityInstallationEvidence['status'],
+  reasons: string[] = [],
+): TruthDeviceIdentityInstallationEvidence {
+  return {
+    status,
+    reasons,
+    checkedAt: 20,
+    error: status === 'unavailable' ? 'probe failed' : null,
+  };
+}
+
+function createHarness(input: {
+  authority?: MemoryAuthority;
+  caches?: MemoryCache[];
+  evidence?: TruthDeviceIdentityInstallationEvidence;
+  fence?: TruthDeviceIdentityInitializationFencePort;
+} = {}) {
+  return {
+    authority: input.authority ?? new MemoryAuthority(),
+    caches: input.caches ?? [new MemoryCache('indexeddb'), new MemoryCache('local-storage'), new MemoryCache('temp-local')],
+    evidenceProbe: new MemoryEvidenceProbe(input.evidence ?? evidence('empty')),
+    initializationFence: input.fence ?? new SerializedFence(),
+    hostFingerprint: 'host-a',
+    createId: vi.fn(() => 'device-new'),
+    createEpoch: vi.fn(() => 'epoch-new'),
+    now: vi.fn(() => 30),
+  };
+}
+
+describe('Truth Device Identity module', () => {
+  it('uses an existing installation authority without rewriting it', async () => {
+    const harness = createHarness();
+    harness.authority.current = envelope();
+    for (const cache of harness.caches) cache.raw = identity();
+
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'verified',
+      source: 'installation-authority',
+      deviceId: 'device-stable',
+      identityEpoch: 'epoch-stable',
+      authorityRevision: 1,
+      cacheUpdated: false,
+      hostFingerprintMatch: 'match',
     });
+    expect(harness.authority.publishAuthority).not.toHaveBeenCalled();
+    expect(harness.createId).not.toHaveBeenCalled();
+    expect(harness.createEpoch).not.toHaveBeenCalled();
   });
 
-  it('fails closed when legacy localStorage and temp identity disagree', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    storage.setItem(LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY, 'device-legacy');
-    localStore.state.set(TRUTH_DEVICE_ID_LOCAL_STATE_PATH, { deviceId: 'device-temp' });
-    const createId = vi.fn(() => 'device-new');
+  it('keeps identity stable across an origin/host change with cleared browser caches', async () => {
+    const harness = createHarness();
+    harness.authority.current = envelope();
+    harness.hostFingerprint = 'host-b';
 
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId,
-      createEpoch: () => 'epoch-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: null,
+    const resolved = await resolveTruthDeviceIdentity(harness);
+    expect(resolved).toMatchObject({
+      status: 'verified',
+      deviceId: 'device-stable',
+      identityEpoch: 'epoch-stable',
+      hostFingerprintMatch: 'changed',
+      cacheUpdated: true,
+    });
+    expect(resolved.cacheDiagnostics.every((item) => item.status === 'repaired')).toBe(true);
+    expect(harness.authority.publishAuthority).not.toHaveBeenCalled();
+  });
+
+  it('does not block verified authority when browser cache access fails', async () => {
+    const harness = createHarness();
+    harness.authority.current = envelope();
+    const browser = harness.caches[0];
+    browser.readError = new Error('read denied');
+    browser.writeError = new Error('write denied');
+    browser.clearError = new Error('clear denied');
+
+    const resolved = await resolveTruthDeviceIdentity(harness);
+    expect(resolved.status).toBe('verified');
+    expect(resolved.cacheDiagnostics).toContainEqual(expect.objectContaining({
+      kind: 'indexeddb',
+      status: 'unavailable',
+    }));
+  });
+
+  it('migrates only a matching full IndexedDB/localStorage pair', async () => {
+    const harness = createHarness({ evidence: evidence('non-empty', ['canonical-truth-or-frontier']) });
+    harness.caches[0].raw = identity();
+    harness.caches[1].raw = identity();
+
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'verified',
+      source: 'legacy-browser-authority-migration',
+      deviceId: 'device-stable',
+      identityEpoch: 'epoch-stable',
+    });
+    expect(harness.authority.publishAuthority).toHaveBeenCalledTimes(1);
+    expect(harness.createEpoch).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for conflicting legacy browser identities in a non-empty install', async () => {
+    const harness = createHarness({ evidence: evidence('non-empty', ['sqlite-delta']) });
+    harness.caches[0].raw = identity();
+    harness.caches[1].raw = identity({ identityEpoch: 'epoch-other' });
+
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'identity-recovery-required',
       source: 'identity-recovery-required',
-      error: expect.stringContaining('legacy identity sources disagree'),
+      deviceId: null,
+      error: expect.stringContaining('non-empty installation'),
     });
-
-    expect(createId).not.toHaveBeenCalled();
-    expect(identityStore.writeRecord).not.toHaveBeenCalled();
-    expect(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY)).toBeNull();
+    expect(harness.authority.publishAuthority).not.toHaveBeenCalled();
   });
 
-  it('creates a new device identity and epoch after complete authoritative identity loss', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    localStore.readError = new Error('temp mirror missing');
+  it('fails closed for a single surviving browser identity in a non-empty install', async () => {
+    const harness = createHarness({ evidence: evidence('non-empty', ['canonical-truth-or-frontier']) });
+    harness.caches[0].raw = identity();
 
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId: () => 'device-new',
-      createEpoch: () => 'epoch-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'identity-recovery-required',
+      error: expect.stringContaining('indexeddb=device-stable/epoch-stable'),
+    });
+    expect(harness.createEpoch).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when authority and browser caches are all missing in a non-empty install', async () => {
+    const harness = createHarness({ evidence: evidence('non-empty', ['canonical-truth-or-frontier']) });
+
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'identity-recovery-required',
+      deviceId: null,
+      identityEpoch: null,
+      error: expect.stringContaining('indexeddb=missing, local-storage=missing'),
+    });
+    expect(harness.authority.publishAuthority).not.toHaveBeenCalled();
+    expect(harness.createId).not.toHaveBeenCalled();
+    expect(harness.createEpoch).not.toHaveBeenCalled();
+  });
+
+  it('does not generate from a temp-only device ID in a non-empty install', async () => {
+    const harness = createHarness({ evidence: evidence('non-empty', ['temp-local-identity']) });
+    harness.caches[2].raw = { version: 1, deviceId: 'device-temp' };
+
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'identity-recovery-required',
+      deviceId: null,
+      identityEpoch: null,
+    });
+    expect(harness.createEpoch).not.toHaveBeenCalled();
+  });
+
+  it('creates one new identity only for an empty installation', async () => {
+    const harness = createHarness({ evidence: evidence('empty') });
+    harness.caches[0].raw = identity({ deviceId: 'stale-browser-device' });
+
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'verified',
+      source: 'first-install',
       deviceId: 'device-new',
       identityEpoch: 'epoch-new',
-      source: 'authority-copies',
-      error: null,
+      installationEvidence: { status: 'empty' },
     });
-
-    const expectedRecord = {
-      version: 2,
-      deviceId: 'device-new',
-      identityEpoch: 'epoch-new',
-      hostFingerprint: 'host-1',
-      createdAt: 30,
-      lastSeenAt: 30,
-    };
-    expect(identityStore.writeRecord).toHaveBeenCalledWith(expectedRecord);
-    expect(JSON.parse(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY) ?? 'null')).toEqual(expectedRecord);
+    expect(harness.createId).toHaveBeenCalledTimes(1);
+    expect(harness.createEpoch).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects unverifiable first-install creation when the generated identity is invalid', async () => {
-    const storage = new MemoryStorage();
-    const identityStore = new MemoryIdentityRecordStore();
-    const localStore = new MemoryLocalIdentityStore();
-    const createId = vi.fn(() => '../bad-device');
-
-    await expect(resolveTruthDeviceIdentity({
-      localStore,
-      storage,
-      identityStore,
-      hostFingerprint: 'host-1',
-      createId,
-      createEpoch: () => 'epoch-new',
-      now: () => 30,
-    })).resolves.toMatchObject({
-      deviceId: null,
-      source: 'unavailable',
-      error: expect.stringContaining('invalid generated truth device id: ../bad-device'),
+  it('returns retryable authority unavailable when evidence cannot be probed', async () => {
+    const harness = createHarness({ evidence: evidence('unavailable') });
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'authority-unavailable',
+      source: 'authority-unavailable',
+      error: expect.stringContaining('evidence unavailable'),
     });
-
-    expect(createId).toHaveBeenCalledTimes(1);
-    expect(identityStore.writeRecord).not.toHaveBeenCalled();
-    expect(storage.getItem(TRUTH_DEVICE_IDENTITY_STORAGE_KEY)).toBeNull();
-    expect(localStore.writeTempLocalJSON).not.toHaveBeenCalled();
   });
 
-  it('persists a new identity to temp-local state and localStorage when no valid identity exists', async () => {
-    const storage = new MemoryStorage();
-    const localStore = new MemoryLocalIdentityStore();
+  it('does not fall back to caches when installation authority is malformed', async () => {
+    const harness = createHarness();
+    harness.authority.current = { version: 99 };
+    harness.caches[0].raw = identity();
+    harness.caches[1].raw = identity();
 
-    await expect(resolveTruthDeviceId({ localStore, storage, createId: () => 'device-new' })).resolves.toBe('device-new');
-
-    expect(storage.getItem(TRUTH_DEVICE_ID_STORAGE_KEY)).toBe('device-new');
-    expect(localStore.writeTempLocalJSON).toHaveBeenCalledWith(
-      TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
-      expect.objectContaining({ deviceId: 'device-new' }),
-    );
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'identity-recovery-required',
+      error: expect.stringContaining('invalid or unsupported'),
+    });
+    expect(harness.authority.publishAuthority).not.toHaveBeenCalled();
   });
 
-  it('fails closed when authoritative temp-local identity cannot be read', async () => {
-    const storage = new MemoryStorage();
-    const localStore = new MemoryLocalIdentityStore();
-    localStore.readError = new Error('temp read denied');
-    const createId = vi.fn(() => 'device-new');
-
-    await expect(resolveTruthDeviceIdentity({ localStore, storage, createId })).resolves.toMatchObject({
-      deviceId: null,
-      source: 'unavailable',
-      persisted: false,
-      cacheUpdated: false,
-      error: expect.stringContaining('temp read denied'),
+  it('returns authority unavailable for transient authority reads', async () => {
+    const harness = createHarness();
+    harness.authority.readError = new Error('conf unavailable');
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'authority-unavailable',
+      error: expect.stringContaining('conf unavailable'),
     });
-    await expect(resolveTruthDeviceId({ localStore, storage, createId })).resolves.toBeNull();
-
-    expect(createId).not.toHaveBeenCalled();
-    expect(storage.getItem(TRUTH_DEVICE_ID_STORAGE_KEY)).toBeNull();
   });
 
-  it('fails closed when temp-local identity cannot be persisted', async () => {
-    const storage = new MemoryStorage();
-    const localStore = new MemoryLocalIdentityStore();
-    localStore.writeError = new Error('temp write denied');
-    const createId = vi.fn(() => 'device-new');
-
-    await expect(resolveTruthDeviceIdentity({ localStore, storage, createId })).resolves.toMatchObject({
-      deviceId: null,
-      source: 'unavailable',
-      persisted: false,
-      cacheUpdated: false,
-      error: expect.stringContaining('temp write denied'),
+  it('maps authority read-back verification failure to recovery required', async () => {
+    const harness = createHarness({ evidence: evidence('empty') });
+    harness.authority.publishError = new Error('TRUTH_DEVICE_IDENTITY_AUTHORITY_VERIFICATION_FAILED: mismatch');
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'identity-recovery-required',
+      error: expect.stringContaining('VERIFICATION_FAILED'),
     });
+  });
 
-    expect(createId).toHaveBeenCalledTimes(1);
-    expect(storage.getItem(TRUTH_DEVICE_ID_STORAGE_KEY)).toBeNull();
+  it('does not perform an unfenced identity write', async () => {
+    const harness = createHarness({ evidence: evidence('empty'), fence: new FailingFence() });
+    await expect(resolveTruthDeviceIdentity(harness)).resolves.toMatchObject({
+      status: 'authority-unavailable',
+      error: expect.stringContaining('fence failed'),
+    });
+    expect(harness.authority.publishAuthority).not.toHaveBeenCalled();
+  });
+
+  it('serializes concurrent first-install resolvers onto one authority', async () => {
+    const authority = new MemoryAuthority();
+    const fence = new SerializedFence();
+    const first = createHarness({ authority, fence, evidence: evidence('empty') });
+    const second = createHarness({ authority, fence, evidence: evidence('empty') });
+    second.createId = vi.fn(() => 'device-loser');
+    second.createEpoch = vi.fn(() => 'epoch-loser');
+
+    const [left, right] = await Promise.all([
+      resolveTruthDeviceIdentity(first),
+      resolveTruthDeviceIdentity(second),
+    ]);
+    expect(left.deviceId).toBe('device-new');
+    expect(right.deviceId).toBe('device-new');
+    expect(left.identityEpoch).toBe('epoch-new');
+    expect(right.identityEpoch).toBe('epoch-new');
+    expect(authority.publishAuthority).toHaveBeenCalledTimes(1);
+    expect(second.createId).not.toHaveBeenCalled();
   });
 });

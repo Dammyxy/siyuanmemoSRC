@@ -14,6 +14,8 @@ import type {
   BackendNeuralGraphQueryResult,
   BackendRpcRequest,
   BackendRpcResponse,
+  BackendForeignEpochRecoveryAuthorityPublicationIntent,
+  BackendRecoveryContentHash,
 } from '../../../packages/contracts/src/backend-rpc';
 import type {
   BackendWorkerHostEffect,
@@ -36,6 +38,9 @@ type BackendOperationTimeoutClassification =
   | 'maintenance-mutation'
   | 'storage-pressure-recovery'
   | 'projection-rebuild'
+  | 'recovery-preview'
+  | 'recovery-apply'
+  | 'recovery-status'
   | 'generic-request'
   | 'generic-host-effect';
 
@@ -49,8 +54,11 @@ const BACKEND_OPERATION_TIMEOUT_POLICY_BY_METHOD = new Map<string, BackendOperat
   ['db.load', { timeoutMs: 60_000, classification: 'startup-readiness' }],
   ['db.reload', { timeoutMs: 60_000, classification: 'startup-readiness' }],
   ['storage.maintenance.applyBatch', { timeoutMs: 45_000, classification: 'maintenance-mutation' }],
-  ['storage.pressure.recover', { timeoutMs: 120_000, classification: 'storage-pressure-recovery' }],
+  ['storage.pressure.recover', { timeoutMs: 600_000, classification: 'storage-pressure-recovery' }],
   ['storage.projection.rebuild', { timeoutMs: 120_000, classification: 'projection-rebuild' }],
+  ['recovery.foreignEpoch.preview', { timeoutMs: 30_000, classification: 'recovery-preview' }],
+  ['recovery.foreignEpoch.apply', { timeoutMs: 60_000, classification: 'recovery-apply' }],
+  ['recovery.foreignEpoch.status', { timeoutMs: 5_000, classification: 'recovery-status' }],
 ]);
 const REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT = 5;
 const PENDING_WORK_DIAGNOSTIC_LIMIT = 10;
@@ -71,19 +79,53 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
 ]);
 
 export interface BrowserSrsBackendWorkerHostEffects {
-  readBinary?: (path: string) => Promise<Uint8Array | null>;
-  writeBinary?: (path: string, bytes: Uint8Array) => Promise<void>;
-  readJSON?: <T>(path: string) => Promise<T | null>;
-  writeJSON?: (path: string, value: unknown) => Promise<void>;
+  readBinary?: (path: string, metadata?: BrowserSrsBackendWorkerFileEffectMetadata) => Promise<Uint8Array | null>;
+  writeBinary?: (
+    path: string,
+    bytes: Uint8Array,
+    metadata?: BrowserSrsBackendWorkerFileEffectMetadata,
+  ) => Promise<void>;
+  readJSON?: <T>(path: string, metadata?: BrowserSrsBackendWorkerFileEffectMetadata) => Promise<T | null>;
+  writeJSON?: (
+    path: string,
+    value: unknown,
+    metadata?: BrowserSrsBackendWorkerFileEffectMetadata,
+  ) => Promise<void>;
   listFiles?: (prefix: string) => Promise<BackendWorkerSqliteFileEntry[]>;
   deleteFile?: (path: string) => Promise<void>;
   hasLegacyPetalSqliteDb?: () => Promise<boolean>;
-  readTruthBinary?: (path: string) => Promise<Uint8Array | null>;
-  writeTruthBinary?: (path: string, bytes: Uint8Array) => Promise<void>;
-  readTruthJSON?: <T>(path: string) => Promise<T | null>;
-  writeTruthJSON?: (path: string, value: unknown) => Promise<void>;
+  readTruthBinary?: (path: string, metadata?: BrowserSrsBackendWorkerFileEffectMetadata) => Promise<Uint8Array | null>;
+  writeTruthBinary?: (
+    path: string,
+    bytes: Uint8Array,
+    metadata?: BrowserSrsBackendWorkerFileEffectMetadata,
+  ) => Promise<void>;
+  readTruthJSON?: <T>(path: string, metadata?: BrowserSrsBackendWorkerFileEffectMetadata) => Promise<T | null>;
+  writeTruthJSON?: (
+    path: string,
+    value: unknown,
+    metadata?: BrowserSrsBackendWorkerFileEffectMetadata,
+  ) => Promise<void>;
   listTruthFiles?: (prefix: string) => Promise<string[]>;
   deleteTruthFile?: (path: string) => Promise<void>;
+  readIdentityRecoveryEvidence?: () => Promise<{
+    currentAuthority: unknown | null;
+    previousAuthority: unknown | null;
+    tempLocalIdentity: unknown | null;
+    browserCacheObservations: unknown[];
+  }>;
+  publishCertifiedAuthority?: (input: {
+    requestMethod: string | null | undefined;
+    operationId: string;
+    planHash: BackendRecoveryContentHash;
+    intent: BackendForeignEpochRecoveryAuthorityPublicationIntent;
+  }) => Promise<{ authorityHash: BackendRecoveryContentHash }>;
+  ensureRecoveryActiveWriter?: (input: {
+    requestMethod: string | null | undefined;
+    operationId: string;
+    planHash: BackendRecoveryContentHash;
+    stage: 'authority-publication' | 'continuity';
+  }) => Promise<void>;
   readSyncConflictDatabaseSources?: () => Promise<Array<{
     sourceId: string;
     bytes: Uint8Array;
@@ -108,6 +150,11 @@ export interface BrowserSrsBackendWorkerHostEffects {
   executeTopicDerivedCommand?: (
     request: BackendTopicDerivedCommandExecuteRequest,
   ) => Promise<BackendTopicDerivedCommandExecuteResult>;
+}
+
+export interface BrowserSrsBackendWorkerFileEffectMetadata {
+  purpose?: string | null;
+  substep?: string | null;
 }
 
 export interface BrowserSrsBackendWorkerTransportOptions {
@@ -197,6 +244,23 @@ function unavailable(message: string): Error {
   return new Error(`BACKEND_UNAVAILABLE: ${message}`);
 }
 
+function readFileEffectMetadata(
+  effect: BackendWorkerHostEffect,
+): BrowserSrsBackendWorkerFileEffectMetadata | undefined {
+  const purpose = 'purpose' in effect && typeof effect.purpose === 'string'
+    ? effect.purpose.trim()
+    : '';
+  const substep = 'substep' in effect && typeof effect.substep === 'string'
+    ? effect.substep.trim()
+    : '';
+  return purpose || substep
+    ? {
+        purpose: purpose || null,
+        substep: substep || null,
+      }
+    : undefined;
+}
+
 function backendWorkerCompatibilityError(error: unknown): Error {
   const message = toErrorMessage(error);
   if (message.startsWith('BACKEND_UNAVAILABLE: backend Worker CJS bootstrap')) {
@@ -259,6 +323,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   private lastReadyAt: number | null = null;
   private lastTerminalError: string | null = null;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeStoragePressureRecovery: Promise<BackendRpcResponse> | null = null;
 
   constructor(private readonly options: BrowserSrsBackendWorkerTransportOptions) {
     this.startWorkerGeneration();
@@ -275,6 +340,32 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     if (this.health === 'unavailable') {
       throw unavailable(this.lastTerminalError || 'backend worker unavailable');
     }
+    const recoveryBarrier = request.method === 'storage.pressure.recover'
+      ? null
+      : this.activeStoragePressureRecovery;
+    if (recoveryBarrier) {
+      await recoveryBarrier;
+      if (this.closed) {
+        throw unavailable('backend worker transport closed');
+      }
+      if (this.health === 'unavailable') {
+        throw unavailable(this.lastTerminalError || 'backend worker unavailable');
+      }
+    }
+    const pending = this.postRequest(request);
+    if (request.method !== 'storage.pressure.recover') {
+      return pending;
+    }
+    const trackedRecovery = pending.finally(() => {
+      if (this.activeStoragePressureRecovery === trackedRecovery) {
+        this.activeStoragePressureRecovery = null;
+      }
+    });
+    this.activeStoragePressureRecovery = trackedRecovery;
+    return trackedRecovery;
+  }
+
+  private postRequest(request: BackendRpcRequest): Promise<BackendRpcResponse> {
     const requestId = `req-${++this.requestSeq}`;
     const queuedAt = Date.now();
     const cardId = this.extractReviewFeedbackCardId(request);
@@ -299,7 +390,9 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           + ` classification=${timeoutPolicy.classification}`,
         );
         current.reject(error);
-        this.markWorkerUnhealthy(error, generation, { terminate: true });
+        if (!this.hasPendingStoragePressureRecovery(generation)) {
+          this.markWorkerUnhealthy(error, generation, { terminate: true });
+        }
       }, requestTimeoutMs);
       this.pendingRequests.set(requestId, {
         resolve,
@@ -327,6 +420,12 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       pendingRequests: this.pendingRequests.size,
     });
     return pending;
+  }
+
+  private hasPendingStoragePressureRecovery(generation: number): boolean {
+    return Array.from(this.pendingRequests.values()).some((pending) => (
+      pending.generation === generation && pending.method === 'storage.pressure.recover'
+    ));
   }
 
   async probe(): Promise<void> {
@@ -528,6 +627,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   }
 
   private async executeHostEffect(effect: BackendWorkerHostEffect): Promise<unknown> {
+    const fileMetadata = readFileEffectMetadata(effect);
     if (this.shouldSuppressReviewFeedbackPersistenceHostEffect(effect)) {
       logger.info('[SiYuanMemo][BrowserSrsBackendWorkerTransport] review.feedback suppressed SiYuan persistence host effect', {
         kind: effect.kind,
@@ -541,23 +641,35 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         if (!this.options.hostEffects.readBinary) {
           throw unavailable('sqlite.readBinary host effect unavailable');
         }
-        return this.options.hostEffects.readBinary(effect.path);
+        return fileMetadata
+          ? this.options.hostEffects.readBinary(effect.path, fileMetadata)
+          : this.options.hostEffects.readBinary(effect.path);
       case 'sqlite.writeBinary':
         if (!this.options.hostEffects.writeBinary) {
           throw unavailable('sqlite.writeBinary host effect unavailable');
         }
-        await this.options.hostEffects.writeBinary(effect.path, effect.bytes);
+        if (fileMetadata) {
+          await this.options.hostEffects.writeBinary(effect.path, effect.bytes, fileMetadata);
+        } else {
+          await this.options.hostEffects.writeBinary(effect.path, effect.bytes);
+        }
         return null;
       case 'sqlite.readJSON':
         if (!this.options.hostEffects.readJSON) {
           return null;
         }
-        return this.options.hostEffects.readJSON(effect.path);
+        return fileMetadata
+          ? this.options.hostEffects.readJSON(effect.path, fileMetadata)
+          : this.options.hostEffects.readJSON(effect.path);
       case 'sqlite.writeJSON':
         if (!this.options.hostEffects.writeJSON) {
           throw unavailable('sqlite.writeJSON host effect unavailable');
         }
-        await this.options.hostEffects.writeJSON(effect.path, effect.value);
+        if (fileMetadata) {
+          await this.options.hostEffects.writeJSON(effect.path, effect.value, fileMetadata);
+        } else {
+          await this.options.hostEffects.writeJSON(effect.path, effect.value);
+        }
         return null;
       case 'sqlite.listFiles':
         if (!this.options.hostEffects.listFiles) {
@@ -579,23 +691,35 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         if (!this.options.hostEffects.readTruthBinary) {
           throw unavailable('truth.readBinary host effect unavailable');
         }
-        return this.options.hostEffects.readTruthBinary(effect.path);
+        return fileMetadata
+          ? this.options.hostEffects.readTruthBinary(effect.path, fileMetadata)
+          : this.options.hostEffects.readTruthBinary(effect.path);
       case 'truth.writeBinary':
         if (!this.options.hostEffects.writeTruthBinary) {
           throw unavailable('truth.writeBinary host effect unavailable');
         }
-        await this.options.hostEffects.writeTruthBinary(effect.path, effect.bytes);
+        if (fileMetadata) {
+          await this.options.hostEffects.writeTruthBinary(effect.path, effect.bytes, fileMetadata);
+        } else {
+          await this.options.hostEffects.writeTruthBinary(effect.path, effect.bytes);
+        }
         return null;
       case 'truth.readJSON':
         if (!this.options.hostEffects.readTruthJSON) {
           return null;
         }
-        return this.options.hostEffects.readTruthJSON(effect.path);
+        return fileMetadata
+          ? this.options.hostEffects.readTruthJSON(effect.path, fileMetadata)
+          : this.options.hostEffects.readTruthJSON(effect.path);
       case 'truth.writeJSON':
         if (!this.options.hostEffects.writeTruthJSON) {
           throw unavailable('truth.writeJSON host effect unavailable');
         }
-        await this.options.hostEffects.writeTruthJSON(effect.path, effect.value);
+        if (fileMetadata) {
+          await this.options.hostEffects.writeTruthJSON(effect.path, effect.value, fileMetadata);
+        } else {
+          await this.options.hostEffects.writeTruthJSON(effect.path, effect.value);
+        }
         return null;
       case 'truth.listFiles':
         if (!this.options.hostEffects.listTruthFiles) {
@@ -607,6 +731,32 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('truth.deleteFile host effect unavailable');
         }
         await this.options.hostEffects.deleteTruthFile(effect.path);
+        return null;
+      case 'identity.readRecoveryEvidence':
+        if (!this.options.hostEffects.readIdentityRecoveryEvidence) {
+          throw unavailable('identity.readRecoveryEvidence host effect unavailable');
+        }
+        return this.options.hostEffects.readIdentityRecoveryEvidence();
+      case 'identity.publishCertifiedAuthority':
+        if (!this.options.hostEffects.publishCertifiedAuthority) {
+          throw unavailable('identity.publishCertifiedAuthority host effect unavailable');
+        }
+        return this.options.hostEffects.publishCertifiedAuthority({
+          requestMethod: effect.requestMethod,
+          operationId: effect.operationId,
+          planHash: effect.planHash,
+          intent: effect.intent,
+        });
+      case 'recovery.ensureActiveWriter':
+        if (!this.options.hostEffects.ensureRecoveryActiveWriter) {
+          throw unavailable('recovery.ensureActiveWriter host effect unavailable');
+        }
+        await this.options.hostEffects.ensureRecoveryActiveWriter({
+          requestMethod: effect.requestMethod,
+          operationId: effect.operationId,
+          planHash: effect.planHash,
+          stage: effect.stage,
+        });
         return null;
       case 'sqlite.readSyncConflictDatabaseSources':
         if (!this.options.hostEffects.readSyncConflictDatabaseSources) {
@@ -1266,7 +1416,12 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       'requestMethod' in effect
       && typeof effect.requestMethod === 'string'
       && effect.requestMethod.trim().length > 0
-      && (effect.kind.startsWith('sqlite.') || effect.kind.startsWith('truth.'))
+      && (
+        effect.kind.startsWith('sqlite.')
+        || effect.kind.startsWith('truth.')
+        || effect.kind.startsWith('identity.')
+        || effect.kind.startsWith('recovery.')
+      )
     ) {
       return effect.requestMethod;
     }

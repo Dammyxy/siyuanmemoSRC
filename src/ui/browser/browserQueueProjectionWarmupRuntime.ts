@@ -10,6 +10,7 @@ import type { QueueProjectionLiveIdentityEvent } from '@/types/queue-projection-
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 import type { CardTypeFilter } from './types';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
+import type { ReviewProjectionWorkCoordinator } from '@/application/services/ReviewProjectionWorkCoordinator';
 
 type BrowserQueueProjectionWarmupLogger = {
   trace?: (...args: unknown[]) => void;
@@ -65,12 +66,14 @@ export type BrowserQueueProjectionWarmupRuntimeDeps = {
   currentPreset: ReadonlyRef<PresetFilter>;
   logger: BrowserQueueProjectionWarmupLogger;
   onQueueReady?: (status: Extract<BrowserQueueProjectionWarmupStatus, { status: 'ready' }>) => void | Promise<void>;
-  reviewPressure?: ReadonlyRef<BrowserQueueProjectionReviewPressure | null | undefined>;
   searchQuery: ReadonlyRef<string>;
+  workCoordinator: () => Pick<
+    ReviewProjectionWorkCoordinator,
+    'cancelWork' | 'getSnapshot' | 'scheduleWork'
+  > | null;
 };
 
 const DEFAULT_WARMUP_DEBOUNCE_MS = 120;
-const ACTIVE_REVIEW_WARMUP_DEFER_MS = 750;
 const BROWSER_OPEN_WARMUP_QUEUE_IDS: BrowserQueueId[] = [
   'retrieval',
   'incremental-learning',
@@ -78,6 +81,11 @@ const BROWSER_OPEN_WARMUP_QUEUE_IDS: BrowserQueueId[] = [
   'filter-group',
 ];
 const REPAIRABLE_WARMUP_CAUSES = new Set(['projection_stale', 'missing_derived_cache']);
+const NON_RETRYABLE_WARMUP_REPAIR_ERROR_MARKERS = [
+  'STORAGE_PRESSURE',
+  'STORAGE_RECOVERY_REQUIRED',
+  'STORAGE_MAINTENANCE_EXTERNAL_INPUT_DIRTY',
+];
 
 function isWarmableQueue(queueType: QueueType | null): queueType is QueueType {
   return Boolean(queueType && queueType !== QueueType.NeuralRoam);
@@ -131,9 +139,13 @@ function canRepairWarmupStatus(status: BrowserQueueProjectionWarmupStatus): bool
   return status.status !== 'ready' && REPAIRABLE_WARMUP_CAUSES.has(status.cause);
 }
 
+function formatWarmupError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function isNonRetryableWarmupRepairError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.startsWith('STORAGE_RECOVERY_REQUIRED:');
+  const message = formatWarmupError(error);
+  return NON_RETRYABLE_WARMUP_REPAIR_ERROR_MARKERS.some((marker) => message.includes(marker));
 }
 
 function isReviewPressureActive(
@@ -209,6 +221,7 @@ export function createBrowserQueueProjectionWarmupRuntime(
   let timer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
   const targetedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const deferredWorkKeys = new Set<string>();
   const statuses = new Map<BrowserQueueId, BrowserQueueProjectionWarmupStatus>();
 
   function clearTimer(): void {
@@ -228,6 +241,7 @@ export function createBrowserQueueProjectionWarmupRuntime(
     generation += 1;
     clearTimer();
     clearTargetedTimers();
+    clearDeferredWork();
   }
 
   function currentScope(): QueueProjectionWarmupScope {
@@ -242,16 +256,15 @@ export function createBrowserQueueProjectionWarmupRuntime(
   }
 
   function currentReviewPressure(): BrowserQueueProjectionReviewPressure | null {
-    const pressure = deps.reviewPressure?.value;
-    return isReviewPressureActive(pressure)
-      ? pressure
+    const snapshot = deps.workCoordinator()?.getSnapshot();
+    return snapshot?.active === true
+      ? { active: true, activeQueueType: snapshot.activeQueueType }
       : null;
   }
 
   function logDeferredWarmup(
     reason: string,
     deferredQueueIds: BrowserQueueId[],
-    delayMs: number,
     pressure: BrowserQueueProjectionReviewPressure,
   ): void {
     if (deferredQueueIds.length === 0) {
@@ -260,7 +273,7 @@ export function createBrowserQueueProjectionWarmupRuntime(
     deps.logger.trace?.('[SiYuanMemo][SRSBrowser] Queue projection warmup deferred during active Review', {
       reason,
       deferredQueueIds,
-      delayMs,
+      releasePolicy: 'review-activity-transition',
       activeQueueId: normalizeBrowserQueueId(deps.activeQueueId.value),
       activeQueueType: pressure.activeQueueType ?? null,
     });
@@ -282,7 +295,6 @@ export function createBrowserQueueProjectionWarmupRuntime(
     seq: number,
     reason: string,
     targetQueueIds?: BrowserQueueId[],
-    options: { fromReviewDeferral?: boolean } = {},
   ): Promise<void> {
     const service = deps.browserAppService.value;
     if (!service?.ensureQueueReadModelReady) {
@@ -301,8 +313,8 @@ export function createBrowserQueueProjectionWarmupRuntime(
       reviewPressure,
     );
     if (reviewPressure && deferredQueueIds.length > 0) {
-      logDeferredWarmup(reason, deferredQueueIds, ACTIVE_REVIEW_WARMUP_DEFER_MS, reviewPressure);
-      scheduleTargeted(reason, ACTIVE_REVIEW_WARMUP_DEFER_MS, deferredQueueIds, { fromReviewDeferral: true });
+      logDeferredWarmup(reason, deferredQueueIds, reviewPressure);
+      deferWarmupUntilEligible(seq, reason, deferredQueueIds);
     }
     for (const queueId of immediateQueueIds) {
       if (seq !== generation) return;
@@ -337,16 +349,17 @@ export function createBrowserQueueProjectionWarmupRuntime(
         if (shouldSuppressRepairDuringReview(queueId, queueType, scope, reviewPressure)) {
           continue;
         }
-        if (canRepairWarmupStatus(status) && service.canRepairQueueReadModel?.() === false) {
-          deps.logger.trace?.('[SiYuanMemo][SRSBrowser] Queue projection warmup repair skipped; startup is not writable', {
-            queueId,
-            queueType,
-            reason,
-            cause: status.cause,
-          });
-          continue;
-        }
         if (canRepairWarmupStatus(status) && typeof service.repairQueueReadModel === 'function') {
+          if (typeof service.canRepairQueueReadModel === 'function' && !service.canRepairQueueReadModel()) {
+            deps.logger.trace?.('[SiYuanMemo][SRSBrowser] Queue projection warmup repair skipped', {
+              queueId,
+              queueType,
+              reason,
+              cause: status.cause,
+              skippedReason: 'repair-unavailable',
+            });
+            continue;
+          }
           try {
             const repaired = await measureRuntimePerformance(
               'browser',
@@ -374,16 +387,14 @@ export function createBrowserQueueProjectionWarmupRuntime(
             }
             continue;
           } catch (repairError) {
-            const nonRetryable = isNonRetryableWarmupRepairError(repairError);
             deps.logger.warn?.('[SiYuanMemo][SRSBrowser] Queue projection warmup repair failed', {
               queueId,
               queueType,
               reason,
               cause: status.cause,
-              error: repairError instanceof Error ? repairError.message : String(repairError),
-              nonRetryable,
+              error: formatWarmupError(repairError),
             });
-            if (nonRetryable) {
+            if (isNonRetryableWarmupRepairError(repairError)) {
               continue;
             }
           }
@@ -414,11 +425,52 @@ export function createBrowserQueueProjectionWarmupRuntime(
     return Array.from(new Set(targetQueueIds)).sort().join('|');
   }
 
+  function buildDeferredWorkKey(queueId: BrowserQueueId): string {
+    return `browser-projection-warmup:${queueId}`;
+  }
+
+  function clearDeferredWork(): void {
+    const coordinator = deps.workCoordinator();
+    for (const workKey of deferredWorkKeys) {
+      coordinator?.cancelWork(workKey);
+    }
+    deferredWorkKeys.clear();
+  }
+
+  function deferWarmupUntilEligible(
+    seq: number,
+    reason: string,
+    queueIds: BrowserQueueId[],
+  ): void {
+    const coordinator = deps.workCoordinator();
+    if (!coordinator) {
+      return;
+    }
+    for (const queueId of queueIds) {
+      const queueType = resolveQueueTypeForBrowserQueueId(queueId);
+      if (!isWarmableQueue(queueType)) {
+        continue;
+      }
+      const workKey = buildDeferredWorkKey(queueId);
+      deferredWorkKeys.add(workKey);
+      coordinator.scheduleWork({
+        key: workKey,
+        queueType,
+        run: async () => {
+          deferredWorkKeys.delete(workKey);
+          if (seq !== generation) {
+            return;
+          }
+          await runWarmup(seq, `review-release:${reason}`, [queueId]);
+        },
+      });
+    }
+  }
+
   function scheduleTargeted(
     reason: string,
     delayMs: number,
     targetQueueIds: BrowserQueueId[],
-    options: { fromReviewDeferral?: boolean } = {},
   ): void {
     const seq = generation;
     const timerKey = buildTargetedTimerKey(targetQueueIds);
@@ -428,7 +480,7 @@ export function createBrowserQueueProjectionWarmupRuntime(
     }
     const targetedTimer = setTimeout(() => {
       targetedTimers.delete(timerKey);
-      void runWarmup(seq, reason, targetQueueIds, options);
+      void runWarmup(seq, reason, targetQueueIds);
     }, Math.max(0, Math.floor(delayMs)));
     targetedTimers.set(timerKey, targetedTimer);
   }
@@ -441,6 +493,7 @@ export function createBrowserQueueProjectionWarmupRuntime(
     const seq = ++generation;
     clearTimer();
     clearTargetedTimers();
+    clearDeferredWork();
     timer = setTimeout(() => {
       timer = null;
       void runWarmup(seq, reason, targetQueueIds);

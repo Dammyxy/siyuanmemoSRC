@@ -138,10 +138,6 @@ export interface CreateReviewSessionControllerOptions<TItem extends QueueItem = 
     state: ReviewUIState,
     reason: ReviewSessionUpdateReason,
   ) => Promise<ReviewUIState>;
-  ensureActionSafe?: (input: {
-    action: ReviewSessionRetryAction;
-    item: TItem | null;
-  }) => Promise<QueueFeedback['repairGate'] | void>;
   onQueueCompleted?: (input: { reason: Extract<ReviewSessionUpdateReason, 'grade' | 'skip' | 'custom'> }) => void | Promise<void>;
 }
 
@@ -869,10 +865,6 @@ export function createReviewSessionController<TItem extends QueueItem>(
       markAdvancePending('grade');
       const reviewedItem = currentItem.value;
       reviewedCardId = extractCardId(reviewedItem);
-      const repairGate = await measureReviewPhase('domain-sync-safety', reviewedCardId, () => options?.ensureActionSafe?.({
-        action: { type: 'grade', rating: normalized },
-        item: reviewedItem,
-      }) ?? Promise.resolve());
       const pendingKey = `grade:${reviewedCardId}:${normalized}`;
       const commitIdempotencyKey = pendingCommitKeys.get(pendingKey)
         ?? createReviewCommitIdempotencyKey(reviewedCardId, normalized);
@@ -881,7 +873,6 @@ export function createReviewSessionController<TItem extends QueueItem>(
         action: 'rate',
         rating: normalized,
         commitIdempotencyKey,
-        repairGate: repairGate ?? null,
       };
 
       const feedbackResult = await measureReviewPhase('feedback', reviewedCardId, () => queue.onFeedback(reviewedItem, feedback));
@@ -960,10 +951,6 @@ export function createReviewSessionController<TItem extends QueueItem>(
     let pushedHistory = false;
     try {
       markAdvancePending('skip');
-      await options?.ensureActionSafe?.({
-        action: { type: 'skip' },
-        item: currentItem.value,
-      });
       await queue.onFeedback(currentItem.value, { action: 'skip' });
       pushReviewHistory(context.value, {
         action: 'skip',
@@ -1032,10 +1019,6 @@ export function createReviewSessionController<TItem extends QueueItem>(
       }
 
       markAdvancePending('custom');
-      await options?.ensureActionSafe?.({
-        action: { type: 'custom', commandId: id },
-        item: currentItem.value,
-      });
       await queue.onFeedback(currentItem.value, { action: 'custom', customActionId: id });
       pushReviewHistory(context.value, {
         action: 'custom',

@@ -1,3 +1,5 @@
+> Superseded on 2026-07-16 by `review-domain-sync-independence`: Review no longer has a repair gate or user-facing sync-conflict workflow. This design is historical only.
+
 ## Context
 
 Live Review grading evidence now splits slow rating into two serial costs. This change targets only the worker-side cost: `review.session.feedback` currently performs repairable domain-sync `pre-request-merge` on each ordinary rating, with logs showing `preMerge=kernel:pre-request-merge ... changed=true ... sanity=repairable` and host effects under `siyuanmemo.db / sql-projection-db`.

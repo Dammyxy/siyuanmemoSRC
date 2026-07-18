@@ -1,7 +1,10 @@
 # ADR-002 SQL Worker Authority
 
-- Status: Accepted
+- Series: Runtime Architecture
+- Status: Partially Superseded by [Runtime ADR-006](./ADR-006-truth-device-identity-authority.md)
 - Date: 2026-04-30
+- Superseded Scope: the `Device Identity` section only
+- Registry: [Architecture Decision Registry](./ADR-INDEX.md)
 
 ## Context
 
@@ -17,9 +20,9 @@
 4. renderer、UI 与 `kernel.js` 不实例化 write-capable SQL runtime，也不直接调用整库 `saveStore()`；一次性迁移必须由 Worker-owned migration command 执行。
 5. Worker 不可用时返回 explicit unavailable，不允许 renderer fallback、双写或本地补写。
 
-## Implementation Status
+## Implementation Status at Acceptance (Historical)
 
-这是已接受的目标架构。当前 production composition 仍保留 renderer-side `SqliteDatabaseService`、`UnifiedStorageManager.save()` 与整库 `saveStore()` 写路径；它们是待迁移债务，不代表该 ADR 允许双 authority。
+本节原本记录 ADR 接受时的迁移状态，不是持续更新的架构事实。当前实现状态以 `ARCHITECTURE.md`、活跃 OpenSpec、测试和边界 guard 为准；截至 2026-07-17，`check-no-ui-sql`、`check-no-kernel-db-owner` 与 `check-storage-writer-authority` 均通过。该 ADR 从未允许 production 双 authority。
 
 ## Migration Strategy
 
@@ -116,6 +119,8 @@ SQLite delta 是有限期 crash journal，不是永久审计历史。当前状�
 
 ## Device Identity
 
+> **Superseded scope:** 本节已由 [Runtime ADR-006](./ADR-006-truth-device-identity-authority.md) 替代，不得再按下述 IndexedDB/localStorage authority 方案实施。Runtime ADR-002 的其他决策仍然有效。
+
 SiYuanMemo truth ownership 使用插件安装身份，而不是同步文件、临时目录或单独的 SiYuan runtime `System.ID`：
 
 - `pluginInstallationId` 是稳定的 truth device authority，并作为 device-owned truth directory 的身份来源。
@@ -143,7 +148,7 @@ SiYuanMemo truth ownership 使用插件安装身份，而不是同步文件、�
 
 存储迁移先固定可重复验证的基线，不用模糊的“文件很多”作为实施依据：
 
-- deterministic fixture 记录 192 个 sealed SQLite delta segments、143 个 truth segments、manifest 引用 131 个 segments、27.5 MiB temporary projection，以及 IndexedDB/localStorage 匹配 authority + disposable temp mirror 的 identity 状态。
+- historical deterministic fixture 记录 192 个 sealed SQLite delta segments、143 个 truth segments、manifest 引用 131 个 segments、27.5 MiB temporary projection，以及当时的 IndexedDB/localStorage identity 状态；其中 identity authority 语义已由 Runtime ADR-006 替代。
 - shared contracts 显式版本化 mutation envelope、durability receipt、truth generation、coverage watermark、storage pressure、recovery state 与 identity record；业务实现只能消费这些稳定边界，不得重新定义同名私有 shape。
 - reader 必须保留输入中的实际 format version。未来 MessagePack truth manifest/segment、SQLite delta manifest/segment、queue snapshot 或 identity record 一律 fail closed；禁止把未知版本归一成当前版本、跳过后继续写入或静默创建新 frontier。
 - renderer writer guard 以当前遗留调用点和最大出现次数建立只减不增基线。现有 `ApplicationContext`/migration 整库路径仍是 section 6 待删除债务；基线允许它们继续存在，不允许新增调用者或在同一文件增加第二条路径。

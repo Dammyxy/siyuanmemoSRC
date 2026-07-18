@@ -130,22 +130,6 @@ describe('BaseReviewQueue snapshot rows', () => {
     expect(resolved.map((card) => card.id)).toEqual(['card-b', 'card-a']);
   });
 
-  it('serves read-only recovery cards only from a trusted resolved cache', async () => {
-    const cardA = buildCard('card-a');
-    const queue = new TestQueue([cardA]);
-    const getCardsSpy = vi.spyOn(queue, 'getCards');
-
-    expect(await queue.getReadOnlyRecoveryCards()).toEqual([]);
-    expect(getCardsSpy).not.toHaveBeenCalled();
-
-    await queue.getAllCards();
-    getCardsSpy.mockClear();
-    const recoveryCards = await queue.getReadOnlyRecoveryCards();
-
-    expect(recoveryCards.map((card) => card.id)).toEqual(['card-a']);
-    expect(getCardsSpy).not.toHaveBeenCalled();
-  });
-
   it('uses projection-backed snapshots and hydration for rollout queues when the manager provides them', async () => {
     const cardA = buildCard('card-a', { riffCardId: 'row-a' });
     const cardB = buildCard('card-b', { riffCardId: 'row-b' });

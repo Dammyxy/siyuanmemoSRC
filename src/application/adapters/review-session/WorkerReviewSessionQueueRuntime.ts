@@ -1,7 +1,6 @@
 import type {
   BackendReviewFeedbackQueueImpact,
   BackendReviewSessionFeedbackResult,
-  BackendReviewSessionRepairGateEvidence,
   BackendReviewSessionSkipResult,
   BackendReviewSessionState,
   BackendReviewSessionUndoResult,
@@ -46,7 +45,6 @@ export interface WorkerReviewSessionBackendClient {
     rating: 1 | 2 | 3 | 4;
     reviewedAt?: number | null;
     idempotencyKey?: string | null;
-    repairGate?: BackendReviewSessionRepairGateEvidence | null;
   }): Promise<BackendReviewSessionFeedbackResult>;
   reviewSessionSkip(request: {
     sessionId: string;
@@ -147,7 +145,6 @@ export class WorkerReviewSessionQueueRuntime implements ReviewSessionQueueRuntim
         rating: normalizeRating(input.feedback.rating),
         reviewedAt: this.now(),
         idempotencyKey: input.feedback.commitIdempotencyKey ?? null,
-        repairGate: input.feedback.repairGate as BackendReviewSessionRepairGateEvidence | null | undefined,
       });
       this.applyState(result);
       this.lastUndoToken = normalizeString(result.receipt.undo.token);

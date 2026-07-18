@@ -55,6 +55,7 @@ interface IndexedRecord {
   source: WorkerTruthReconciliationSource;
   record: Record<string, unknown>;
   mutationId: string;
+  duplicateKey: string;
   canonical: string;
   logicalTime: number;
 }
@@ -95,6 +96,10 @@ function recordMutationId(record: Record<string, unknown>, fallback: string): st
     || stringValue(record.operationId)
     || stringValue(record.idempotencyKey)
     || fallback;
+}
+
+function recordIdempotencyKey(record: Record<string, unknown>): string {
+  return stringValue(record.idempotencyKey);
 }
 
 function recordFamily(record: Record<string, unknown>): string {
@@ -153,6 +158,42 @@ function isQueueRecord(record: Record<string, unknown>): record is MessagePackQu
 
 function isReviewRecord(record: Record<string, unknown>): boolean {
   return recordFamily(record) === 'review-events';
+}
+
+function duplicateMutationKey(record: Record<string, unknown>, fallback: string): string {
+  const mutationId = recordMutationId(record, fallback);
+  if (isCardRecord(record)) {
+    return [
+      recordFamily(record),
+      'card',
+      stringValue(record.aggregateId),
+      mutationId,
+    ].join(':');
+  }
+  if (isQueueRecord(record)) {
+    return [
+      recordFamily(record),
+      'queue',
+      stringValue(record.queueFamily),
+      mutationId,
+    ].join(':');
+  }
+  const idempotencyKey = recordIdempotencyKey(record);
+  if (idempotencyKey) {
+    return [
+      recordFamily(record),
+      recordType(record),
+      'idempotency',
+      idempotencyKey,
+    ].join(':');
+  }
+  return [
+    recordFamily(record),
+    recordType(record),
+    'mutation',
+    mutationId,
+    fallback,
+  ].join(':');
 }
 
 function causalBaseRevision(record: Record<string, unknown>): string | null {
@@ -244,20 +285,21 @@ export function reconcileWorkerTruthRecords(
         source,
         record: structuredClone(record),
         mutationId: recordMutationId(record, `${source.sourceId}:${recordIndex}`),
+        duplicateKey: duplicateMutationKey(record, `${source.sourceId}:${recordIndex}`),
         canonical: canonicalJson(record),
         logicalTime: logicalTime(record),
       }))
   )));
 
   const accepted: IndexedRecord[] = [];
-  const firstByMutationId = new Map<string, IndexedRecord>();
+  const firstByDuplicateKey = new Map<string, IndexedRecord>();
   const duplicateMutationIds = new Set<string>();
   const conflicts: WorkerTruthAggregateConflict[] = [];
 
   for (const item of indexed) {
-    const existing = firstByMutationId.get(item.mutationId);
+    const existing = firstByDuplicateKey.get(item.duplicateKey);
     if (!existing) {
-      firstByMutationId.set(item.mutationId, item);
+      firstByDuplicateKey.set(item.duplicateKey, item);
       accepted.push(item);
       continue;
     }

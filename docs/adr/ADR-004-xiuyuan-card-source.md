@@ -1,8 +1,10 @@
 # ADR-004: Xiuyuan 卡片来源抽象层
 
+> Series: Legacy DDD（已冻结）。权威状态见 [Architecture Decision Registry](../ADR-INDEX.md)。
+
 ## 状态
 
-已接受（2026-02-22 更新：移除 CardMapping 层）
+部分已替代（2026-07-17）：Xiuyuan 卡片来源概念保留；本 ADR 的 JSON/sql.js 存储阶段、Riff ownership、具体类型与路径描述均为历史实现。
 
 ## 背景
 
@@ -334,16 +336,16 @@ renderCard(face.questionBlockId, face.answerBlockId);
 ## 参考资料
 
 - [Xiuyuan 模块文档](../../src/core/xiuyuan/README.md)
-- [Xiuyuan 集成文档](../../../.kiro/specs/architecture-optimization/XIUYUAN_INTEGRATION.md)
+- Xiuyuan 集成草案（历史路径已退役）：`.kiro/specs/architecture-optimization/XIUYUAN_INTEGRATION.md`
 - [Anki Manual - Notes & Fields](https://docs.ankiweb.net/getting-started.html#notes-fields)
-- [ADR-001: Trait Pattern](./ADR-001-trait-pattern.md)
-- [ADR-002: Observer Pattern](./ADR-002-observer-pattern.md)
+- [Legacy DDD ADR-001: Trait Pattern](./ADR-001-trait-pattern.md)
+- [Legacy DDD ADR-002: Observer Pattern](./ADR-002-observer-pattern.md)
 
 ## 元数据
 
 - **作者**: FSRS Plugin Team
 - **日期**: 2026-02-02
 - **审阅者**: Architecture Team
-- **相关 ADR**: ADR-001 (Trait Pattern), ADR-002 (Observer Pattern)
+- **相关 ADR**: Legacy DDD ADR-001 (Trait Pattern), Legacy DDD ADR-002 (Observer Pattern)
 - **实现状态**: Phase 1 已完成（JSON 存储）
 - **相关需求**: Requirement 3.6, 4.6, 8.1, 15.1

@@ -34,6 +34,16 @@ import {
   type ActiveReviewFeedbackTiming,
 } from './ReviewFeedbackTimingScope';
 import { createLogger } from '@/utils/logger';
+import { WorkerForeignEpochRecoveryEvidenceInventory } from '../recovery/WorkerForeignEpochRecoveryEvidenceInventory';
+import { WorkerForeignEpochRecoveryEvidenceSourceAdapter } from '../recovery/WorkerForeignEpochRecoveryEvidenceSourceAdapter';
+import { WorkerForeignEpochRecoveryPlanner } from '../recovery/WorkerForeignEpochRecoveryPlanner';
+import { WorkerForeignEpochRecoveryReceiptStore } from '../recovery/WorkerForeignEpochRecoveryReceiptStore';
+import { WorkerForeignEpochRecoveryRuntime } from '../recovery/WorkerForeignEpochRecoveryRuntime';
+import { WorkerSqliteForeignEpochContinuityApplier } from '../recovery/WorkerSqliteForeignEpochContinuityApplier';
+import {
+  bindBackendWorkerHostEffectRequestMethod,
+  createBackendForeignEpochRecoveryHostEffects,
+} from './BackendForeignEpochRecoveryHostEffects';
 
 const logger = createLogger('BackendWorkerEntry');
 const REVIEW_FEEDBACK_WORKER_ENTRY_STEP_SLOW_MS = 120;
@@ -119,10 +129,7 @@ function requestHostEffect<TResult>(effect: BackendWorkerHostEffect): Promise<TR
   scope.postMessage({
     kind: 'host-effect',
     effectId,
-    effect: {
-      ...effect,
-      requestMethod: activeTiming?.method ?? null,
-    },
+    effect: bindBackendWorkerHostEffectRequestMethod(effect, activeTiming?.method ?? null),
   });
   return pending;
 }
@@ -162,7 +169,9 @@ function handleHostEffectResult(message: BackendWorkerHostEffectResultMessage): 
     pending.resolve(message.result);
     return;
   }
-  pending.reject(new Error(`${message.error.code}: ${message.error.message}`));
+  if ('error' in message) {
+    pending.reject(new Error(`${message.error.code}: ${message.error.message}`));
+  }
 }
 
 function extractReviewFeedbackCardId(message: BackendWorkerMainToWorkerMessage): string | null {
@@ -248,7 +257,7 @@ const truthFileStore: MessagePackTruthSegmentFileStore = {
     path,
     value,
   }),
-  listFiles: (prefix) => requestHostEffect<SqlitePersistenceFileEntry[]>({
+  listFiles: (prefix) => requestHostEffect<string[]>({
     kind: 'truth.listFiles',
     prefix,
   }),
@@ -287,7 +296,7 @@ const database = new WorkerSqliteDatabaseService({
     purpose: metadata?.purpose ?? null,
     substep: metadata?.substep ?? null,
   }),
-  listFiles: (prefix) => requestHostEffect<string[]>({
+  listFiles: (prefix) => requestHostEffect<SqlitePersistenceFileEntry[]>({
     kind: 'sqlite.listFiles',
     prefix,
   }),
@@ -317,9 +326,49 @@ const database = new WorkerSqliteDatabaseService({
   }),
 });
 
+const foreignEpochRecoveryEvidenceSource = new WorkerForeignEpochRecoveryEvidenceSourceAdapter({
+  database,
+  truthFileStore,
+  readIdentityEvidence: () => requestHostEffect({
+    kind: 'identity.readRecoveryEvidence',
+  }),
+});
+const foreignEpochRecoveryInventory = new WorkerForeignEpochRecoveryEvidenceInventory(
+  foreignEpochRecoveryEvidenceSource,
+);
+const foreignEpochRecoveryPlanner = new WorkerForeignEpochRecoveryPlanner(foreignEpochRecoveryInventory);
+const foreignEpochRecoveryReceiptStore = new WorkerForeignEpochRecoveryReceiptStore(truthFileStore);
+const foreignEpochContinuityApplier = new WorkerSqliteForeignEpochContinuityApplier({
+  database,
+  truthFileStore,
+  identityEvidence: foreignEpochRecoveryEvidenceSource,
+});
+const foreignEpochRecoveryHostEffects = createBackendForeignEpochRecoveryHostEffects(requestHostEffect);
+const foreignEpochRecoveryRuntime = new WorkerForeignEpochRecoveryRuntime({
+  planner: foreignEpochRecoveryPlanner,
+  receiptStore: foreignEpochRecoveryReceiptStore,
+  recoveryAuthority: foreignEpochRecoveryHostEffects.recoveryAuthority,
+  authorityPublisher: foreignEpochRecoveryHostEffects.authorityPublisher,
+  continuityApplier: foreignEpochContinuityApplier,
+  readRestartEvidence: async () => {
+    const [storage, journal] = await Promise.all([
+      database.getCombinedStorageDiagnostics(),
+      database.readForeignEpochRecoveryJournalEvidence(),
+    ]);
+    return {
+      currentIdentityEpoch: storage.identity.identityEpoch,
+      journalSequenceFrontier: storage.coverage.journalSequenceFrontier,
+      truthCoverageFrontier: storage.coverage.truthCoverageFrontier,
+      nextJournalSequence: journal.nextJournalSequence,
+      recoveryStatus: storage.recovery?.status ?? null,
+    };
+  },
+});
+
 const backendKernel = new BackendKernel({
   database,
   truthFileStore,
+  foreignEpochRecoveryRuntime,
   resolveExistingBlockIds: (blockIds) => requestHostEffect<string[]>({
     kind: 'siyuan.resolveExistingBlockIds',
     blockIds,

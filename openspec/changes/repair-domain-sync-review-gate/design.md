@@ -1,3 +1,5 @@
+> Superseded on 2026-07-16 by `review-domain-sync-independence`: domain-sync diagnostics are passive and cannot block Review or open a conflict dialog. This design is historical only.
+
 ## Context
 
 Domain sync exists to protect users who review or edit cards from more than one SiYuan endpoint and then bring those states back together. The current failure is twofold: repair preview cannot build a plan because worker SQLite calls `this.fnv1a32(...)` without defining that method, and Review entry treats broad repairable status as a global hard stop even when diagnostics have no cleanup source and no current-card risk.

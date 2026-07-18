@@ -86,6 +86,53 @@ async function stripSqliteDeltaMutationEnvelopes(
   await bridge.writeJSON!(SQLITE_DELTA_V2_MANIFEST, manifest);
 }
 
+async function seedLegacyCardDeltaPressure(
+  bridge: InMemorySqliteBridge,
+  identityEpoch: string,
+): Promise<void> {
+  const writer = new WorkerSqliteDatabaseService(
+    bridge,
+    undefined,
+    { truthPromotionScheduleDelayMs: 60_000 },
+  );
+  await writer.load({
+    truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+    identityEpoch,
+  });
+  for (let index = 1; index <= 17; index += 1) {
+    const cardId = `legacy-recovery-card-${index}`;
+    await writer.commitCardScheduleBatch({
+      mutationId: `legacy-recovery-seed-${index}`,
+      schedulingWriteSource: 'manual-reschedule',
+      cards: [{
+        id: cardId,
+        xiuyuanID: `xy-${cardId}`,
+        blockId: `block-${cardId}`,
+        due: 1_700_000_000_000 + index,
+        stability: 0,
+        difficulty: 0,
+        reps: 0,
+        lapses: 0,
+        state: CardState.New,
+        lastReview: 0,
+        elapsedDays: 0,
+        scheduledDays: 0,
+        priority: 50,
+        type: CardType.Item,
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: 1_600_000_000_000,
+        updatedAt: 1_700_000_000_000 + index,
+        schedulerType: 'fsrs-v6',
+      }],
+    });
+  }
+  await writer.shutdown();
+  await stripSqliteDeltaMutationEnvelopes(bridge);
+}
+
 async function seedCardMemoryTruth(
   bridge: InMemorySqliteBridge,
   cardId = 'truth-rebuild-card',
@@ -460,6 +507,29 @@ describe('WorkerSqliteDatabaseService', () => {
     });
   });
 
+  it('serializes canonical truth reconciliation through the publication queue', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await seedCompactableCardTruth(bridge, 'reconciliation-publication-lock-card');
+    const database = await loadWorkerDatabaseFromBridge(bridge);
+    const internals = database as unknown as {
+      truthPromotionModule: {
+        runExclusivePublication<T>(publish: () => Promise<T>): Promise<T>;
+      };
+    };
+    const runExclusivePublication = vi.spyOn(
+      internals.truthPromotionModule,
+      'runExclusivePublication',
+    );
+
+    await expect(database.reconcileCanonicalTruth({
+      reason: 'publication-lock-test',
+    })).resolves.toMatchObject({
+      ok: true,
+    });
+
+    expect(runExclusivePublication).toHaveBeenCalledTimes(1);
+  });
+
   it('requires matching identity epoch for Review truth publication stores', async () => {
     const database = await loadWorkerDatabaseFromBridge(createInMemorySqlitePersistenceBridge());
 
@@ -676,7 +746,7 @@ describe('WorkerSqliteDatabaseService', () => {
 
     await bridge.writeBinary('siyuanmemo.db', new Uint8Array([1, 2, 3, 4]));
     await database.mergeExternalDatabaseIfChanged(1_700_000_200_000, {
-      context: 'read-only-preflight',
+      context: 'snapshot-preflight',
       skipMainDbRead: true,
       externalInputDirty: true,
     });
@@ -709,7 +779,7 @@ describe('WorkerSqliteDatabaseService', () => {
 
     await bridge.writeBinary('siyuanmemo.db', new Uint8Array([5, 6, 7, 8]));
     await database.mergeExternalDatabaseIfChanged(1_700_000_200_000, {
-      context: 'read-only-preflight',
+      context: 'snapshot-preflight',
       skipMainDbRead: true,
       externalInputDirty: true,
     });
@@ -1000,47 +1070,7 @@ describe('WorkerSqliteDatabaseService', () => {
 
   it('adopts legacy card delta, verifies truth, compacts active storage, and rebuilds after restart', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
-    const writer = new WorkerSqliteDatabaseService(
-      bridge,
-      undefined,
-      { truthPromotionScheduleDelayMs: 60_000 },
-    );
-    await writer.load({
-      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
-      identityEpoch: 'epoch-legacy-recovery',
-    });
-    for (let index = 1; index <= 17; index += 1) {
-      const cardId = `legacy-recovery-card-${index}`;
-      await writer.commitCardScheduleBatch({
-        mutationId: `legacy-recovery-seed-${index}`,
-        schedulingWriteSource: 'manual-reschedule',
-        cards: [{
-          id: cardId,
-          xiuyuanID: `xy-${cardId}`,
-          blockId: `block-${cardId}`,
-          due: 1_700_000_000_000 + index,
-          stability: 0,
-          difficulty: 0,
-          reps: 0,
-          lapses: 0,
-          state: CardState.New,
-          lastReview: 0,
-          elapsedDays: 0,
-          scheduledDays: 0,
-          priority: 50,
-          type: CardType.Item,
-          tags: [],
-          leechCount: 0,
-          isLeech: false,
-          skipped: false,
-          createdAt: 1_600_000_000_000,
-          updatedAt: 1_700_000_000_000 + index,
-          schedulerType: 'fsrs-v6',
-        }],
-      });
-    }
-    await writer.shutdown();
-    await stripSqliteDeltaMutationEnvelopes(bridge);
+    await seedLegacyCardDeltaPressure(bridge, 'epoch-legacy-recovery');
 
     const recovering = new WorkerSqliteDatabaseService(
       bridge,
@@ -1103,6 +1133,26 @@ describe('WorkerSqliteDatabaseService', () => {
       id: 'legacy-recovery-card-17',
       reps: 0,
     });
+
+    const repeatedRecovery = await recovering.recoverLegacyDeltaStoragePressure({
+      maxCleanupFiles: 64,
+      maxCleanupBytes: 16 * 1024 * 1024,
+    });
+    expect(repeatedRecovery).toMatchObject({
+      ok: true,
+      phase: 'completed',
+      adoption: null,
+      promotion: null,
+      deltaCompaction: null,
+      orphanCleanup: null,
+      inventory: {
+        pressure: {
+          level: 'normal',
+          blockingMutationGrowth: false,
+        },
+      },
+      error: null,
+    });
     await recovering.shutdown();
 
     await bridge.deleteFile?.('siyuanmemo.db');
@@ -1120,6 +1170,113 @@ describe('WorkerSqliteDatabaseService', () => {
       reps: 0,
     });
     await restarted.shutdown();
+  });
+
+  it('rebinds uncovered provisional legacy adoption after a same-device identity epoch change', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await seedLegacyCardDeltaPressure(bridge, 'epoch-provisional-old');
+    const originalTruthWriteBinary = bridge.truthFileStore!.writeBinary.bind(bridge.truthFileStore);
+    bridge.truthFileStore!.writeBinary = async () => {
+      throw new Error('provisional-truth-publication-interrupted');
+    };
+    const pressurePolicy = [{
+      family: 'sqlite-delta' as const,
+      files: { target: 0, soft: 1, high: 1, hard: 1 },
+    }];
+    const interrupted = new WorkerSqliteDatabaseService(bridge, undefined, {
+      truthPromotionScheduleDelayMs: 60_000,
+      storageBudgetPolicies: pressurePolicy,
+    });
+    await interrupted.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-provisional-old',
+    });
+    await expect(interrupted.recoverLegacyDeltaStoragePressure()).resolves.toMatchObject({
+      ok: false,
+      phase: 'promoting-truth',
+      adoption: {
+        status: 'adopted',
+        adoptedEntryCount: 17,
+      },
+      promotion: {
+        truthCoverageFrontier: 0,
+        retryReason: 'provisional-truth-publication-interrupted',
+      },
+    });
+    await interrupted.shutdown();
+
+    bridge.truthFileStore!.writeBinary = originalTruthWriteBinary;
+    const recovered = new WorkerSqliteDatabaseService(bridge, undefined, {
+      truthPromotionScheduleDelayMs: 60_000,
+      storageBudgetPolicies: pressurePolicy,
+    });
+    await recovered.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-provisional-current',
+    });
+    await expect(recovered.recoverLegacyDeltaStoragePressure()).resolves.toMatchObject({
+      ok: true,
+      phase: 'completed',
+      adoption: {
+        status: 'adopted',
+        adoptedEntryCount: 17,
+        firstJournalSequence: 1,
+        lastJournalSequence: 17,
+      },
+      promotion: {
+        truthCoverageFrontier: 17,
+        pendingMutationCount: 0,
+      },
+      deltaCompaction: {
+        status: 'compacted',
+        retainedEntryCount: 0,
+      },
+      error: null,
+    });
+    await recovered.shutdown();
+  });
+
+  it('recovers legacy delta pressure before the first formal mutation', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await seedLegacyCardDeltaPressure(bridge, 'epoch-legacy-auto-recovery');
+    const database = new WorkerSqliteDatabaseService(
+      bridge,
+      undefined,
+      {
+        truthPromotionScheduleDelayMs: 60_000,
+        storageBudgetPolicies: [{
+          family: 'sqlite-delta',
+          files: { target: 0, soft: 1, high: 2, hard: 2 },
+        }],
+      },
+    );
+    const loadResult = await database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-legacy-auto-recovery',
+    });
+    expect(loadResult.readiness).toMatchObject({
+      status: 'read-only-storage-pressure',
+      projectionReadable: true,
+      writable: false,
+    });
+
+    await expect(database.commitQueueStateBatch({
+      mutationId: 'legacy-pressure-first-formal-write',
+      mutations: [{
+        operation: 'set',
+        key: 'retrievalPracticeQueue',
+        value: { cardIds: ['legacy-recovery-card-1'] },
+      }],
+    })).resolves.toMatchObject({
+      updatedKeys: ['retrievalPracticeQueue'],
+    });
+    await expect(database.getStorageInventory()).resolves.toMatchObject({
+      pressure: {
+        level: 'soft',
+        blockingMutationGrowth: false,
+      },
+    });
+    await database.shutdown();
   });
 
   it('runs production truth compaction behind the Worker publication lock', async () => {
@@ -1198,6 +1355,7 @@ describe('WorkerSqliteDatabaseService', () => {
       identityEpoch: 'epoch-worker-test',
     });
     await seedCompactableCardTruth(bridge, 'hard-pressure-card');
+    await database.getStorageInventory();
     const originalWriteJSON = bridge.truthFileStore!.writeJSON.bind(bridge.truthFileStore);
     bridge.truthFileStore!.writeJSON = async (path, data) => {
       if (path.endsWith('/generation-fence.v1.json')) {
@@ -1243,6 +1401,7 @@ describe('WorkerSqliteDatabaseService', () => {
       identityEpoch: 'epoch-worker-test',
     });
     await seedCompactableCardTruth(bridge, 'soft-pressure-card');
+    await database.getStorageInventory();
     vi.useFakeTimers();
 
     await expect(database.commitQueueStateBatch({
@@ -1289,6 +1448,7 @@ describe('WorkerSqliteDatabaseService', () => {
       identityEpoch: 'epoch-worker-test',
     });
     await seedCompactableCardTruth(bridge, 'high-pressure-card');
+    await database.getStorageInventory();
 
     await expect(database.commitQueueStateBatch({
       mutationId: 'queue:high-pressure-maintained',
@@ -1401,6 +1561,40 @@ describe('WorkerSqliteDatabaseService', () => {
     ]);
   });
 
+  it('preserves db.load mutation identity when startup diagnostics share in-flight initialization', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+
+    const load = database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-concurrent-load',
+      reviewTruthGenerationId: 'review-events-v1',
+    });
+    const diagnostics = database.getCombinedStorageDiagnostics();
+
+    await expect(Promise.all([load, diagnostics])).resolves.toEqual([
+      expect.objectContaining({
+        ok: true,
+        initialized: true,
+      }),
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          available: true,
+          deviceId: WORKER_TRUTH_DEVICE_ID,
+          identityEpoch: 'epoch-concurrent-load',
+        }),
+      }),
+    ]);
+    await expect(database.commitQueueStateBatch({
+      mutationId: 'concurrent-load-queue-state',
+      mutations: [{
+        operation: 'set',
+        key: 'retrievalPracticeQueue',
+        value: { ids: [] },
+      }],
+    })).resolves.toMatchObject({
+      updatedKeys: ['retrievalPracticeQueue'],
+    });
+  });
   it('returns startup readiness and deferred descriptors from db.reload', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(bridge);
@@ -1444,6 +1638,33 @@ describe('WorkerSqliteDatabaseService', () => {
         }),
       }),
     ]);
+  });
+
+  it('preserves verified mutation identity when reload callers omit db.load identity', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(bridge);
+    await database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-reload-preserve',
+    });
+
+    const reloadResult = await database.reloadFromDisk();
+
+    expect(reloadResult).toMatchObject({
+      ok: true,
+      reloaded: true,
+      readiness: {
+        status: 'ready',
+        writable: true,
+      },
+    });
+    await expect(database.getCombinedStorageDiagnostics()).resolves.toMatchObject({
+      identity: {
+        available: true,
+        deviceId: WORKER_TRUTH_DEVICE_ID,
+        identityEpoch: 'epoch-worker-reload-preserve',
+      },
+    });
   });
 
   it('keeps unproven startup phases synchronous before deferred descriptor publication', () => {
@@ -2021,7 +2242,7 @@ describe('WorkerSqliteDatabaseService', () => {
     await expect(database.findNativeRiffImportExclusion({
       blockId: 'native-riff-corrupt-block',
     })).rejects.toThrow(
-      'STORAGE_RECOVERY_REQUIRED: invalid native Riff import exclusion record',
+      'STORAGE_VALIDATION_ERROR: invalid native Riff import exclusion record',
     );
   });
 
@@ -2302,7 +2523,9 @@ describe('WorkerSqliteDatabaseService', () => {
       ['legacy-startup-card'],
     )).toBeNull();
     expect(bridge.jsonSnapshot(LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH)).toBeNull();
-    await expect(listTruthFiles(bridge)).resolves.toEqual([]);
+    await expect(listTruthFiles(bridge)).resolves.toEqual([
+      'truth/promotion/device-device-worker-test/frontier.v1.json',
+    ]);
   });
 
   it('rebuilds a deleted temp projection from truth without legacy MessagePack bytes', async () => {
@@ -3271,6 +3494,83 @@ describe('WorkerSqliteDatabaseService', () => {
     )?.count).toBe(1);
   });
 
+  it('rates a review from cached normal pressure without projection or truth inventory reads', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const cardId = 'review-pressure-admission-card';
+    const reviewedAt = 1_779_188_925_000;
+    await seedCardMemoryTruth(bridge, cardId, {
+      memory: {
+        due: reviewedAt - 10_000,
+        lastReview: reviewedAt - 86_400_000,
+        reps: 4,
+        stability: 4,
+        difficulty: 5,
+        state: CardState.Review,
+      },
+    });
+    const readBinary = vi.fn(bridge.readBinary.bind(bridge));
+    const listTruthFiles = vi.fn(bridge.truthFileStore!.listFiles!.bind(bridge.truthFileStore));
+    const readTruthJSON = vi.fn(bridge.truthFileStore!.readJSON.bind(bridge.truthFileStore));
+    const database = new WorkerSqliteDatabaseService({
+      ...bridge,
+      readBinary,
+      truthFileStore: {
+        ...bridge.truthFileStore!,
+        listFiles: listTruthFiles,
+        readJSON: readTruthJSON,
+      },
+    }, undefined, {
+      truthPromotionScheduleDelayMs: 60_000,
+    });
+    await database.load({ truthDeviceId: WORKER_TRUTH_DEVICE_ID, identityEpoch: 'epoch-worker-test' });
+    await database.upsertCards([{
+      id: cardId,
+      blockId: `block-${cardId}`,
+      due: reviewedAt - 10_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 4,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: reviewedAt - 86_400_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: reviewedAt - 7 * 86_400_000,
+      updatedAt: reviewedAt - 86_400_000,
+      meta: { content: 'review pressure admission card' },
+    }]);
+    readBinary.mockClear();
+    listTruthFiles.mockClear();
+    readTruthJSON.mockClear();
+
+    const result = await database.reviewFeedback({
+      cardId,
+      rating: 3,
+      reviewedAt,
+      queueType: 'retrieval-practice',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+      idempotencyKey: 'review-pressure-admission-feedback',
+    });
+
+    expect(result.durabilityReceipt).toMatchObject({
+      mutationId: 'review-pressure-admission-feedback',
+      stage: 'journaled',
+      journalSequence: expect.any(Number),
+    });
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);
+    expect(listTruthFiles).not.toHaveBeenCalled();
+    expect(readTruthJSON).not.toHaveBeenCalled();
+    await database.shutdown();
+  });
+
   it('resumes uncovered journaled truth promotion after restart', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const cardId = 'truth-promotion-restart-card';
@@ -3403,6 +3703,140 @@ describe('WorkerSqliteDatabaseService', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('continues a same-device journal from prior epoch coverage 403 at sequence 404', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await bridge.writeJSON!(SQLITE_DELTA_V2_MANIFEST, {
+      version: 2,
+      path: SQLITE_DELTA_V2_MANIFEST,
+      openSegment: null,
+      sealedSegments: [],
+      updatedAt: 1_779_188_960_000,
+      nextSequence: 1,
+      nextMutationSequence: 404,
+      checkpoint: null,
+    });
+    await bridge.truthFileStore!.writeJSON(
+      'truth/promotion/device-device-worker-test/epoch-epoch-previous/state.v1.json',
+      {
+        version: 1,
+        deviceId: WORKER_TRUTH_DEVICE_ID,
+        identityEpoch: 'epoch-previous',
+        coverage: {
+          version: 1,
+          deviceId: WORKER_TRUTH_DEVICE_ID,
+          identityEpoch: 'epoch-previous',
+          coveredJournalSequence: 403,
+          coveredMutationId: 'prior-epoch-mutation-403',
+          truthGenerationId: 'prior-epoch-truth-403',
+          updatedAt: 1_779_188_960_000,
+        },
+        retry: null,
+        lastSuccessfulPromotionAt: 1_779_188_960_000,
+        updatedAt: 1_779_188_960_000,
+      },
+    );
+    const first = new WorkerSqliteDatabaseService(bridge, undefined, {
+      truthPromotionScheduleDelayMs: 60_000,
+    });
+    await first.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-current',
+    });
+
+    vi.useFakeTimers();
+    const mutation = await first.commitCardScheduleBatch({
+      mutationId: 'current-epoch-mutation-404',
+      schedulingWriteSource: 'manual-reschedule',
+      cards: [{
+        id: 'frontier-transition-card',
+        xiuyuanID: 'xy-frontier-transition-card',
+        blockId: 'block-frontier-transition-card',
+        due: 1_779_188_970_000,
+        stability: 0,
+        difficulty: 0,
+        reps: 0,
+        lapses: 0,
+        state: CardState.New,
+        lastReview: 0,
+        elapsedDays: 0,
+        scheduledDays: 0,
+        priority: 50,
+        type: CardType.Item,
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: 1_779_188_960_000,
+        updatedAt: 1_779_188_970_000,
+        schedulerType: 'fsrs-v6',
+      }],
+    });
+    expect(mutation.durabilityReceipt).toMatchObject({
+      mutationId: 'current-epoch-mutation-404',
+      stage: 'journaled',
+      journalSequence: 404,
+    });
+    first.dispose();
+    vi.useRealTimers();
+
+    const restarted = new WorkerSqliteDatabaseService(bridge, undefined, {
+      truthPromotionScheduleDelayMs: 60_000,
+    });
+    await restarted.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-current',
+    });
+    await expect(restarted.promotePendingTruth()).resolves.toMatchObject({
+      ok: true,
+      promotedMutationIds: ['current-epoch-mutation-404'],
+      coveredJournalSequence: 404,
+    });
+    await expect(restarted.getTruthPromotionDiagnostics()).resolves.toMatchObject({
+      pendingMutationCount: 0,
+      journalSequenceFrontier: 404,
+      truthCoverageFrontier: 404,
+    });
+  });
+
+  it('stops automatic scheduling after a deterministic promotion sequence gap', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(bridge, undefined, {
+      truthPromotionScheduleDelayMs: 0,
+    });
+    await database.load({
+      truthDeviceId: WORKER_TRUTH_DEVICE_ID,
+      identityEpoch: 'epoch-worker-test',
+    });
+    const internals = database as unknown as {
+      truthPromotionModule: {
+        promotePending(): Promise<unknown>;
+      };
+      scheduleTruthPromotion(reason: string, delayMs?: number): void;
+    };
+    const promotePending = vi.spyOn(internals.truthPromotionModule, 'promotePending')
+      .mockResolvedValue({
+        ok: false,
+        promotedMutationIds: [],
+        coveredJournalSequence: 0,
+        truthGenerationId: null,
+        error: 'journal-sequence-gap:1:404',
+        failureClass: 'recovery-required',
+        retryAfterMs: null,
+        retryAttemptCount: 1,
+      });
+
+    vi.useFakeTimers();
+    internals.scheduleTruthPromotion('deterministic-gap-regression', 0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(promotePending).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(database.getStorageRecoveryState()).toMatchObject({
+      status: 'read-only-recovery-required',
+      diagnosticReason: expect.stringContaining('journal-sequence-gap:1:404'),
+    });
   });
 
   it('automatically continues consecutive bounded truth-promotion batches', async () => {
@@ -4095,7 +4529,7 @@ describe('WorkerSqliteDatabaseService', () => {
     expect(await bridge.readBinary('sqlite-delta-log.v2.open.msgpack')).not.toBeNull();
   });
 
-  it('keeps read-only sync preflight off persisted SQLite and conflict copies', async () => {
+  it('keeps snapshot sync preflight off persisted SQLite and conflict copies', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const readBinary = vi.fn(bridge.readBinary.bind(bridge));
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
@@ -4111,7 +4545,7 @@ describe('WorkerSqliteDatabaseService', () => {
     const result = await database.mergeExternalDatabaseIfChanged(
       1_700_000_200_000,
       {
-        context: 'read-only-preflight',
+        context: 'snapshot-preflight',
         skipMainDbRead: true,
       },
     );

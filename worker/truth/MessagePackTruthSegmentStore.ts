@@ -27,9 +27,36 @@ export interface MessagePackTruthValidationDiagnostic {
   actual?: unknown;
 }
 
+function stringifyDiagnosticValue(value: unknown): string {
+  if (value === undefined) {
+    return '';
+  }
+  const text = typeof value === 'string'
+    ? value
+    : (() => {
+        try {
+          return JSON.stringify(value);
+        } catch {
+          return String(value);
+        }
+      })();
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+}
+
+function describeValidationDiagnostic(diagnostic: MessagePackTruthValidationDiagnostic): string {
+  const actual = stringifyDiagnosticValue(diagnostic.actual);
+  const expected = stringifyDiagnosticValue(diagnostic.expected);
+  return [
+    diagnostic.reason,
+    diagnostic.path,
+    expected ? `expected=${expected}` : '',
+    actual ? `actual=${actual}` : '',
+  ].filter(Boolean).join(':');
+}
+
 export class MessagePackTruthValidationError extends Error {
   constructor(readonly diagnostics: MessagePackTruthValidationDiagnostic[]) {
-    super(`MessagePack truth validation failed: ${diagnostics.map((item) => item.reason).join(', ')}`);
+    super(`MessagePack truth validation failed: ${diagnostics.map(describeValidationDiagnostic).join(', ')}`);
     this.name = 'MessagePackTruthValidationError';
   }
 }
@@ -483,6 +510,13 @@ export class MessagePackTruthSegmentStore {
 
   async replayRecords(options: MessagePackTruthReplayOptions = {}): Promise<MessagePackTruthReplayResult> {
     const manifest = await this.readManifest();
+    return this.replayManifestRecords(manifest, options);
+  }
+
+  async replayManifestRecords(
+    manifest: MessagePackTruthSegmentManifest,
+    options: MessagePackTruthReplayOptions = {},
+  ): Promise<MessagePackTruthReplayResult> {
     this.throwIfManifestInvalid(manifest);
     const validationDiagnostics: MessagePackTruthValidationDiagnostic[] = [];
     const indexedRecords: Array<{

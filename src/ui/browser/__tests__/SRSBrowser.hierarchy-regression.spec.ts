@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserCard } from '../types';
 import { CardState } from '@/types/card';
 import { QueueType } from '@/types/unified-data-source';
+import { BrowserReadModelStateError } from '../utils/browserReadModelStateError';
+import { ReviewProjectionWorkCoordinator } from '@/application/services/ReviewProjectionWorkCoordinator';
 
 const setGlobalBrowserContextMock = vi.fn();
 const clearGlobalBrowserContextMock = vi.fn();
@@ -38,6 +40,7 @@ const browserAdapterSyncHarness = vi.hoisted(() => ({
   },
 }));
 const agGridAttrsSeen: Array<Record<string, unknown>> = [];
+const gridApisCreated: any[] = [];
 let agGridClickRow: BrowserCard | null = null;
 
 function triggerDatasourceFetch(datasource: { getRows?: (params: Record<string, unknown>) => void } | null | undefined): void {
@@ -54,7 +57,7 @@ function triggerDatasourceFetch(datasource: { getRows?: (params: Record<string, 
 function createGridApi() {
   let currentDatasource: { getRows?: (params: Record<string, unknown>) => void } | null = null;
 
-  return {
+  const api = {
     isDestroyed: () => false,
     setGridOption: vi.fn((key: string, value: { getRows?: (params: Record<string, unknown>) => void }) => {
       if (key === 'datasource') {
@@ -71,6 +74,8 @@ function createGridApi() {
     purgeInfiniteCache: vi.fn(() => triggerDatasourceFetch(currentDatasource)),
     getSelectedRows: vi.fn(() => []),
   };
+  gridApisCreated.push(api);
+  return api;
 }
 
 vi.mock('ag-grid-vue3', () => ({
@@ -609,6 +614,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     createFocusDataSourceMock.mockReturnValue(null);
     browserAdapterSyncHarness.options = null;
     agGridAttrsSeen.length = 0;
+    gridApisCreated.length = 0;
     agGridClickRow = null;
   });
 
@@ -658,6 +664,47 @@ describe('SRSBrowser hierarchy regressions', () => {
     await advance(250);
 
     expect(refreshQueueCountsBridgeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reacts to Review activity and releases one coalesced idle queue-count catch-up', async () => {
+    createDeckDataSourceMock.mockReturnValue(createQueryableDataSource([
+      buildBrowserCard('card-review-pressure', 'doc-1'),
+    ]));
+    const workCoordinator = new ReviewProjectionWorkCoordinator({
+      info: vi.fn(),
+      warn: vi.fn(),
+    });
+    const reviewSurface = workCoordinator.activateSurface({
+      surfaceId: 'review-dialog',
+      surfaceKind: 'dialog',
+      queueType: QueueType.IncrementalLearning,
+    });
+
+    const wrapper = mountBrowser({
+      reviewProjectionWorkCoordinator: workCoordinator,
+    });
+    await advance(250);
+
+    expect(refreshQueueCountsBridgeMock).toHaveBeenCalledTimes(1);
+    expect(refreshQueueCountsBridgeMock.mock.calls[0]?.[1]).toMatchObject({
+      reviewPressure: {
+        active: true,
+        activeQueueType: QueueType.IncrementalLearning,
+      },
+    });
+
+    reviewSurface.release();
+    await advance(0);
+
+    expect(refreshQueueCountsBridgeMock).toHaveBeenCalledTimes(2);
+    expect(refreshQueueCountsBridgeMock.mock.calls[1]?.[1]).toMatchObject({
+      forceRefresh: true,
+      reviewPressure: {
+        active: false,
+        activeQueueType: null,
+      },
+    });
+    wrapper.unmount();
   });
 
   it('keeps queue count refreshes alive across datasource version changes', async () => {
@@ -784,6 +831,137 @@ describe('SRSBrowser hierarchy regressions', () => {
       wrapper.unmount();
     },
   );
+
+  it('retries the active queue first page when projection warmup becomes ready', async () => {
+    const queueRow = buildBrowserCard('retrieval-ready-row', 'doc-retrieval');
+    const queueDataSource = {
+      id: 'retrieval',
+      label: 'retrieval',
+      fetchRows: vi.fn()
+        .mockRejectedValueOnce(new BrowserReadModelStateError('preparing', 'projection refreshing'))
+        .mockResolvedValueOnce({
+          rows: [queueRow],
+          totalCount: 1,
+        }),
+      getQueryFingerprint: vi.fn(() => 'retrieval-first-page-retry'),
+      getAllMatchedIds: vi.fn(async () => []),
+      getRowsByIds: vi.fn(async () => []),
+      getActionTargetsByIds: vi.fn(async () => []),
+      getSupportedActions: vi.fn(() => []),
+    };
+    createQueueDataSourceMock.mockReturnValue(queueDataSource);
+    const browserService = {
+      ...createBrowserService(),
+      ensureQueueReadModelReady: vi.fn(async (request: { queueType: QueueType }) => ({
+        status: 'ready' as const,
+        queueId: request.queueType,
+        policyId: `policy-${request.queueType}`,
+        generation: 9,
+      })),
+    };
+
+    const wrapper = mountBrowser({
+      initialQueueId: 'retrieval',
+      browserService: browserService as never,
+    });
+
+    await advance(0);
+
+    expect(queueDataSource.fetchRows).toHaveBeenCalledTimes(1);
+
+    await advance(120);
+    await vi.runOnlyPendingTimersAsync();
+    await flushPromises();
+    await nextTick();
+
+    expect(browserService.ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.RetrievalPractice,
+    }));
+    expect(queueDataSource.fetchRows).toHaveBeenCalledTimes(2);
+
+    wrapper.unmount();
+  });
+
+  it('does not keep rebuilding the active queue datasource for duplicate ready identities while first rows are preparing', async () => {
+    let projectionObserver: ((event: any) => void) | null = null;
+    const queueDataSource = {
+      id: 'incremental-learning',
+      label: 'incremental-learning',
+      fetchRows: vi.fn(async () => {
+        throw new BrowserReadModelStateError('preparing', 'projection refreshing');
+      }),
+      getQueryFingerprint: vi.fn(() => 'incremental-learning-preparing'),
+      getAllMatchedIds: vi.fn(async () => []),
+      getRowsByIds: vi.fn(async () => []),
+      getActionTargetsByIds: vi.fn(async () => []),
+      getSupportedActions: vi.fn(() => []),
+    };
+    createQueueDataSourceMock.mockReturnValue(queueDataSource);
+
+    const manager = {
+      getCard: vi.fn(async () => null),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      getQueue: vi.fn(() => null),
+      getAvailableQueueTypes: vi.fn(() => []),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      observeQueueProjection: vi.fn((observer: (event: any) => void) => {
+        projectionObserver = observer;
+        return vi.fn();
+      }),
+    };
+    const browserService = {
+      ...createBrowserService(),
+      getUnifiedDataSourceManager: vi.fn(() => manager),
+      ensureQueueReadModelReady: vi.fn(async (request: { queueType: QueueType }) => ({
+        status: 'ready' as const,
+        queueId: request.queueType,
+        policyId: `policy-${request.queueType}`,
+        generation: 9,
+      })),
+    };
+
+    const wrapper = mountBrowser({
+      initialQueueId: 'incremental-learning',
+      browserService: browserService as never,
+    });
+
+    await advance(0);
+    expect(queueDataSource.fetchRows).toHaveBeenCalledTimes(1);
+
+    await advance(120);
+    await vi.runOnlyPendingTimersAsync();
+    await flushPromises();
+    await nextTick();
+
+    const gridApi = gridApisCreated.at(-1);
+    expect(queueDataSource.fetchRows).toHaveBeenCalledTimes(2);
+    expect(gridApi.setGridOption).toHaveBeenCalledTimes(2);
+
+    projectionObserver?.({
+      type: 'queue-projection-live-identity',
+      queueId: 'incremental-learning',
+      queueType: QueueType.IncrementalLearning,
+      policyId: 'policy-incremental-learning',
+      generation: 9,
+      reason: 'refreshed',
+      source: 'runtime',
+      timestamp: 1,
+    });
+    await advance(0);
+    await vi.runOnlyPendingTimersAsync();
+    await flushPromises();
+    await nextTick();
+
+    expect(browserService.ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.IncrementalLearning,
+    }));
+    expect(queueDataSource.fetchRows).toHaveBeenCalledTimes(2);
+    expect(gridApi.setGridOption).toHaveBeenCalledTimes(2);
+
+    wrapper.unmount();
+  });
 
   it('opens Browser without triggering Native Riff incremental sync', async () => {
     createDeckDataSourceMock.mockReturnValue(createQueryableDataSource([

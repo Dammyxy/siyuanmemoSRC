@@ -240,7 +240,7 @@ describe('BrowserApplicationService queue query path', () => {
     });
   });
 
-  it('fails closed without projection repair mutation when startup readiness is read-only', async () => {
+  it('keeps Browser warmup projection repair disabled on follower frontend instances', async () => {
     const manager = {
       getQueue: vi.fn(() => ({})),
       repairQueueProjection: vi.fn(async () => ({
@@ -250,9 +250,6 @@ describe('BrowserApplicationService queue query path', () => {
         generation: 9,
       })),
     } as never;
-    const backendClient = {
-      isStartupWriteCapable: vi.fn(() => false),
-    };
     const service = new BrowserApplicationService(
       {
         getCard: vi.fn(),
@@ -287,15 +284,72 @@ describe('BrowserApplicationService queue query path', () => {
       } as never,
       null,
       null,
-      backendClient as never,
+      null,
+      {
+        getMode: vi.fn(() => 'follower'),
+      } as never,
+      {
+        submitAndWait: vi.fn(),
+      } as never,
     );
 
+    expect(service.canRepairQueueReadModel()).toBe(false);
     await expect(service.repairQueueReadModel({
       queueType: 'retrieval',
       preset: 'all',
       cardType: 'all',
       source: 'browser',
-    })).rejects.toThrow('STORAGE_RECOVERY_REQUIRED');
+    })).resolves.toBe(false);
+    expect(manager.repairQueueProjection).not.toHaveBeenCalled();
+  });
+
+  it('keeps Browser warmup projection repair disabled when startup writes are blocked', async () => {
+    const manager = {
+      getQueue: vi.fn(() => ({})),
+      repairQueueProjection: vi.fn(async () => ({
+        status: 'ready',
+        queueType: QueueType.RetrievalPractice,
+        policyHash: 'policy-retrieval',
+        generation: 9,
+      })),
+    } as never;
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      sql: vi.fn(async () => []),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    } as never;
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(() => []),
+        getAllCards: vi.fn(() => []),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      manager,
+      siyuanApi,
+      siyuanApi,
+      null,
+      null,
+      {
+        isStartupWriteCapable: vi.fn(() => false),
+      } as never,
+    );
+
+    expect(service.canRepairQueueReadModel()).toBe(false);
+    await expect(service.repairQueueReadModel({
+      queueType: 'retrieval',
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    })).resolves.toBe(false);
     expect(manager.repairQueueProjection).not.toHaveBeenCalled();
   });
 
@@ -620,7 +674,7 @@ describe('BrowserApplicationService queue query path', () => {
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
   });
 
-  it('uses explicit read-only recovery queue state when projection repair is blocked', async () => {
+  it('uses Browser local queue preview when a projection-backed queue snapshot is refreshing', async () => {
     const card = buildCard('recovery-card', {
       blockId: 'recovery-block',
       priority: 80,
@@ -630,13 +684,13 @@ describe('BrowserApplicationService queue query path', () => {
       getProjectionReadMode: vi.fn(() => 'backend-projection'),
       getReadOnlyRecoveryCards: vi.fn(async () => [card]),
       getCards: vi.fn(() => {
-        throw new Error('read-only recovery Browser read must not use normal queue.getCards');
+        throw new Error('Browser local preview must not use mutating normal queue.getCards');
       }),
       getSnapshotRows: vi.fn(() => {
-        throw new Error('read-only recovery Browser read must not use projection snapshot fallback');
+        throw new Error('Browser local preview must not use local projection snapshot fallback');
       }),
       getCardsBySnapshotIds: vi.fn(() => {
-        throw new Error('read-only recovery Browser read must not use projection row hydration fallback');
+        throw new Error('Browser local preview must not use projection row hydration fallback');
       }),
     };
     const readQueueProjection = vi.fn(async () => ({
@@ -644,18 +698,17 @@ describe('BrowserApplicationService queue query path', () => {
       status: 'refreshing',
       readiness: {
         status: 'refreshing',
-        queueId: QueueType.FilterGroup,
-        policyId: 'filter-policy',
+        queueId: QueueType.IncrementalLearning,
+        policyId: 'incremental-policy',
         generation: 5,
-        cause: 'projection_stale',
+        cause: 'materialization_in_progress',
       },
       snapshot: null,
     }));
-    const repairQueueProjection = vi.fn();
     const manager = {
       getQueue: vi.fn(() => queue),
       getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
-        queueType: QueueType.FilterGroup,
+        queueType: QueueType.IncrementalLearning,
         projectionBacked: true,
         readPath: 'backend-projection',
         state: 'backend-projection',
@@ -663,11 +716,7 @@ describe('BrowserApplicationService queue query path', () => {
         unavailableReason: 'refresh-required',
       }]),
       readQueueProjection,
-      repairQueueProjection,
     } as never;
-    const backendClient = {
-      isStartupWriteCapable: vi.fn(() => false),
-    };
     const siyuanApi = {
       ATTR_CARD_ID: 'custom-fsrs-card-id',
       ATTR_PRIORITY: 'custom-fsrs-priority',
@@ -695,13 +744,16 @@ describe('BrowserApplicationService queue query path', () => {
       {
         getSourceExistenceByBlockIds: vi.fn(() => new Map([['recovery-block', true]])),
       } as never,
-      backendClient as never,
     );
+
+    const counts = await service.getQueueCounts({
+      affectedQueueTypes: [QueueType.IncrementalLearning],
+    });
 
     const page = await service.getBrowserReadModel().page({
       source: 'queue',
       query: {
-        queueId: 'filter-group',
+        queueId: 'incremental-learning',
         preset: 'all',
         searchText: '',
         cardType: 'all',
@@ -718,10 +770,11 @@ describe('BrowserApplicationService queue query path', () => {
       generation: null,
       readOwner: {
         kind: 'read-only-recovery-queue-state',
-        queueId: 'filter-group',
-        queueType: QueueType.FilterGroup,
+        queueId: 'incremental-learning',
+        queueType: QueueType.IncrementalLearning,
         projectionBacked: false,
         readPath: 'read-only-recovery-local-queue',
+        reason: 'browser-local-preview',
       },
       rows: [expect.objectContaining({
         fsrsCardId: 'recovery-card',
@@ -729,18 +782,19 @@ describe('BrowserApplicationService queue query path', () => {
         priority: 80,
       })],
     });
+    expect(counts['incremental-learning']).toBe(1);
     expect(readQueueProjection).toHaveBeenCalledWith({
       type: 'snapshot',
-      queueType: QueueType.FilterGroup,
+      queueType: QueueType.IncrementalLearning,
     });
-    expect(queue.getReadOnlyRecoveryCards).toHaveBeenCalledTimes(2);
+    expect(readQueueProjection).toHaveBeenCalledTimes(2);
+    expect(queue.getReadOnlyRecoveryCards).toHaveBeenCalledTimes(1);
     expect(queue.getCards).not.toHaveBeenCalled();
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
-    expect(repairQueueProjection).not.toHaveBeenCalled();
   });
 
-  it('uses explicit read-only recovery queue state for hierarchy document counts when projection is invalidated', async () => {
+  it('uses Browser local queue preview for hierarchy document counts when projection is unavailable', async () => {
     const cardA = buildCard('recovery-card-a', {
       blockId: 'recovery-block-a',
       meta: { content: 'recovery card a', rootId: 'doc-a', deckId: 'deck-a' },
@@ -753,13 +807,13 @@ describe('BrowserApplicationService queue query path', () => {
       getProjectionReadMode: vi.fn(() => 'backend-projection'),
       getReadOnlyRecoveryCards: vi.fn(async () => [cardA, cardB]),
       getCards: vi.fn(() => {
-        throw new Error('read-only recovery document counts must not use normal queue.getCards');
+        throw new Error('Browser local preview document counts must not use normal queue.getCards');
       }),
       getSnapshotRows: vi.fn(() => {
-        throw new Error('read-only recovery document counts must not use projection snapshot fallback');
+        throw new Error('Browser local preview document counts must not use projection snapshot fallback');
       }),
       getCardsBySnapshotIds: vi.fn(() => {
-        throw new Error('read-only recovery document counts must not use projection row hydration fallback');
+        throw new Error('Browser local preview document counts must not use projection row hydration fallback');
       }),
     };
     const manager = {
@@ -792,7 +846,6 @@ describe('BrowserApplicationService queue query path', () => {
           projectionIdentity: null,
         },
       })),
-      isStartupWriteCapable: vi.fn(() => false),
     };
     const siyuanApi = {
       ATTR_CARD_ID: 'custom-fsrs-card-id',

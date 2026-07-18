@@ -164,7 +164,7 @@ describe('ApplicationContext writer relay command dispatch', () => {
       domainSyncStatus: (request: unknown) => Promise<unknown>;
     };
     const request = {
-      context: 'read-only-preflight',
+      context: 'snapshot-preflight',
       cardId: 'card-domain-status',
     };
 
@@ -507,6 +507,47 @@ describe('ApplicationContext writer relay command dispatch', () => {
       nextBatchIndex: 2,
       backupWritten: true,
     });
+  });
+
+  it('dispatches storage.pressure.recover to the writer backend client', async () => {
+    const storagePressureRecover = vi.fn(async () => ({
+      ok: true,
+      phase: 'completed',
+      error: null,
+    }));
+    const client = {
+      storagePressureRecover,
+    } as unknown as {
+      storagePressureRecover: (request: unknown) => Promise<unknown>;
+    };
+    const request = {
+      reason: 'plugin.onload-ready',
+      maxPromotionBatches: 16,
+    };
+
+    const result = await executeWriterRelayCommand(client, {
+      method: 'storage.pressure.recover',
+      params: request,
+    });
+
+    expect(storagePressureRecover).toHaveBeenCalledWith(request);
+    expect(result).toMatchObject({
+      ok: true,
+      phase: 'completed',
+      error: null,
+    });
+  });
+
+  it('rejects storage.pressure.recover relay when params is not an object', async () => {
+    const client = {
+      storagePressureRecover: vi.fn(),
+    };
+
+    await expect(executeWriterRelayCommand(client, {
+      method: 'storage.pressure.recover',
+      params: 'invalid',
+    })).rejects.toThrow('INVALID_REQUEST: storage.pressure.recover relay requires params object');
+    expect(client.storagePressureRecover).not.toHaveBeenCalled();
   });
 
   it('guards writer Card CRUD and relays follower Card CRUD', async () => {

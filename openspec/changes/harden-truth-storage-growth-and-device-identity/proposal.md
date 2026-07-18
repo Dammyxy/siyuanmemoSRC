@@ -1,5 +1,7 @@
 ## Why
 
+> Historical supersession (2026-07-17): this completed change records the former IndexedDB/localStorage identity-authority design. Its Truth Device Identity authority and complete-loss generation rules are superseded by [Runtime ADR-006](../../../docs/ADR-006-truth-device-identity-authority.md) and `establish-installation-truth-device-identity-authority`; its Worker storage, truth, recovery, and reconciliation decisions remain historical implementation evidence.
+
 SiYuanMemo currently retains 192 sealed SQLite delta segments, 143 truth segments, and a 27.5 MB temporary database while renderer and Worker storage ownership are not fully converged. Device identity can also change after local temporary state is lost, causing a new truth directory to be created and making synchronization ownership ambiguous.
 
 This change makes canonical truth independently recoverable, bounds file count and disk growth, and stabilizes device ownership before larger datasets and more devices make recovery unsafe or prohibitively expensive.

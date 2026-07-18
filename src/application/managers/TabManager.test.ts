@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueueType } from '@/types/unified-data-source';
 import { TabManager } from './TabManager';
+import { ReviewProjectionWorkCoordinator } from '@/application/services/ReviewProjectionWorkCoordinator';
 
 const mocks = vi.hoisted(() => ({
   openTab: vi.fn(),
@@ -54,6 +55,10 @@ function createSiyuanApiMock() {
 }
 
 function createManager() {
+  const reviewProjectionWorkCoordinator = new ReviewProjectionWorkCoordinator({
+    info: vi.fn(),
+    warn: vi.fn(),
+  });
   const refreshCdfLiveRelationOnOpen = vi.fn(async () => ({
     attempted: true,
     card: null,
@@ -86,6 +91,27 @@ function createManager() {
     getReviewService: vi.fn(() => ({
       refreshCdfLiveRelationOnOpen,
     })),
+    getReviewAdmissionModule: vi.fn(() => ({
+      admitReviewSession: vi.fn(async ({ target }: any) => ({
+        queueType: target.queueType,
+        entrySurface: target.entrySurface,
+        entryTargetIdentity: `projection-queue:${target.queueType}:${target.entrySurface}`,
+        projectionPolicyHash: 'test-policy',
+        projectionGeneration: 1,
+        readinessRequest: {
+          queueType: target.queueType,
+          preset: 'all',
+          searchText: null,
+          docId: null,
+          scopeDocIds: [],
+          cardType: 'all',
+          source: 'browser',
+        },
+        admittedAt: Date.now(),
+        source: 'ready-projection',
+      })),
+    })),
+    getReviewProjectionWorkCoordinator: vi.fn(() => reviewProjectionWorkCoordinator),
   } as any;
 
   const plugin = {
@@ -98,6 +124,7 @@ function createManager() {
     tabManager: new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never),
     plugin,
     refreshCdfLiveRelationOnOpen,
+    reviewProjectionWorkCoordinator,
   };
 }
 
@@ -177,13 +204,14 @@ describe('TabManager browser and review tab wiring', () => {
     );
   });
 
-  it('opens review tabs with distinct new-tab and split semantics', () => {
+  it('opens review tabs with distinct new-tab and split semantics', async () => {
     const { tabManager, plugin } = createManager();
 
     tabManager.openReviewTabInNewTab(createReviewOptions());
     tabManager.openReviewTab(createReviewOptions('right'));
     tabManager.openReviewTab(createReviewOptions('bottom'));
     tabManager.openReviewInNewWindow(createReviewOptions('right'));
+    await vi.waitFor(() => expect(mocks.openTab).toHaveBeenCalledTimes(4));
 
     const [newTabCall, rightSplitCall, bottomSplitCall, fallbackCall] = mocks.openTab.mock.calls.map(([payload]) => payload);
     expect(newTabCall).toMatchObject({
@@ -242,6 +270,47 @@ describe('TabManager browser and review tab wiring', () => {
         queue: expect.anything(),
       }),
     );
+  });
+
+  it('publishes Review tab registration, activity, and destroy transitions', async () => {
+    const { tabManager, plugin, reviewProjectionWorkCoordinator } = createManager();
+    tabManager.registerAll();
+    const reviewRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0];
+    const createRuntime = (id: string, queueType: QueueType) => ({
+      id,
+      element: document.createElement('div'),
+      data: {
+        providerId: queueType,
+        title: id,
+        queueType,
+        headerVariant: queueType,
+      },
+      tab: {
+        id,
+        headElement: document.createElement('button'),
+        parent: { switchTab: vi.fn() },
+      },
+    });
+    const retrieval = createRuntime('review-retrieval', QueueType.RetrievalPractice);
+    const incremental = createRuntime('review-incremental', QueueType.IncrementalLearning);
+
+    await reviewRegistration.init.call(retrieval);
+    await reviewRegistration.init.call(incremental);
+    expect(reviewProjectionWorkCoordinator.getSnapshot()).toMatchObject({
+      activeQueueType: QueueType.IncrementalLearning,
+      surfaceId: 'review-incremental',
+    });
+
+    retrieval.element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(reviewProjectionWorkCoordinator.getSnapshot()).toMatchObject({
+      activeQueueType: QueueType.RetrievalPractice,
+      surfaceId: 'review-retrieval',
+    });
+
+    reviewRegistration.destroy.call(retrieval);
+    expect(reviewProjectionWorkCoordinator.getSnapshot().activeQueueType).toBe(QueueType.IncrementalLearning);
+    reviewRegistration.destroy.call(incremental);
+    expect(reviewProjectionWorkCoordinator.getSnapshot().active).toBe(false);
   });
 
   it('returns false when openTab throws', () => {

@@ -1,5 +1,7 @@
 # ADR-005: Native Riff 退役为只读显式导入源
 
+> Series: Legacy DDD（已冻结）。权威状态见 [Architecture Decision Registry](../ADR-INDEX.md)。
+
 ## 状态
 
 已接受（2026-07-10）
@@ -32,4 +34,3 @@ Native Riff 只保留为 **Native Riff Read-Only Import Source**：
 - 保留可选双向同步：拒绝。即使默认关闭，仍需维护完整 reconciliation implementation。
 - 保留单向 transaction 导入：拒绝。离线补偿、删除语义和监听生命周期仍会重新形成持续同步。
 - 将完整同步移入独立包：拒绝。当前产品目标不再需要双向 Native Riff integration。
-

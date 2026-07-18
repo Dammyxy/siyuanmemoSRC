@@ -801,12 +801,6 @@ describe('BackendReviewSyncRpcAdapter', () => {
         rating: 3,
         reviewedAt,
         idempotencyKey: 'session-hot-path-feedback-key',
-        repairGate: {
-          state: 'clean',
-          reason: 'test-clean-gate',
-          createdAt: reviewedAt,
-          cardId: first.id,
-        },
       }],
     });
 
@@ -820,6 +814,87 @@ describe('BackendReviewSyncRpcAdapter', () => {
       }),
     }));
     expect(mergeSpy).not.toHaveBeenCalled();
+  });
+
+  it('starts an admitted incremental review session before canonical truth reconciliation can replace its projection', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'incremental-admission-card',
+      blockId: 'incremental-admission-block',
+      due: 1_779_304_100_000,
+    });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      queueType: 'incremental-learning',
+      policyHash: 'incremental-admission-policy',
+      generation: 1,
+      rows: [card],
+      updatedAt: 1_779_304_100_000,
+    });
+
+    const mergeExternalDatabaseIfChanged = database.mergeExternalDatabaseIfChanged.bind(database);
+    const mergeSpy = vi.spyOn(database, 'mergeExternalDatabaseIfChanged').mockImplementation(async (
+      mergedAt,
+      options = {},
+    ) => {
+      const result = await mergeExternalDatabaseIfChanged(mergedAt, options);
+      if (options.context !== 'snapshot-preflight') {
+        database.run(
+          'DELETE FROM queue_projection_rows WHERE queue_type = ?',
+          ['incremental-learning'],
+        );
+      }
+      return result;
+    });
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'incremental-admission-session-start',
+      jsonrpc: '2.0',
+      method: 'review.session.start',
+      params: [{
+        sessionId: 'incremental-admission-session',
+        queueType: 'incremental-learning',
+        entrySurface: 'dialog-manager:open-incremental-learning-dialog',
+        projectionPolicyHash: 'incremental-admission-policy',
+        projectionGeneration: 1,
+      }],
+    });
+
+    expect(mergeSpy).toHaveBeenCalledWith(undefined, {
+      context: 'snapshot-preflight',
+      skipMainDbRead: true,
+    });
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        sessionId: 'incremental-admission-session',
+        projectionState: 'ready',
+        projectionPolicyHash: 'incremental-admission-policy',
+        projectionGeneration: 1,
+        current: expect.objectContaining({ id: card.id }),
+        counters: expect.objectContaining({ remaining: 1, total: 1 }),
+      }),
+    }));
+
+    mergeSpy.mockClear();
+    const current = await kernel.handle({
+      id: 'incremental-admission-session-current',
+      jsonrpc: '2.0',
+      method: 'review.session.current',
+      params: [{ sessionId: 'incremental-admission-session' }],
+    });
+
+    expect(mergeSpy).toHaveBeenCalledWith(undefined, {
+      context: 'snapshot-preflight',
+      skipMainDbRead: true,
+    });
+    expect(current).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        current: expect.objectContaining({ id: card.id }),
+        counters: expect.objectContaining({ remaining: 1, total: 1 }),
+      }),
+    }));
   });
 
   it('merges review events and newer card state from a synced conflict database', async () => {

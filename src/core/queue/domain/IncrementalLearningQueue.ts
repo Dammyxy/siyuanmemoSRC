@@ -228,7 +228,7 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
 
         return this.cloneResolvedCards(this.applyCustomOrder(orderedCards));
     }
-    
+
     /**
      * 添加卡片到队列
      * 

@@ -7,6 +7,7 @@ import {
   createMessagePackTruthSegmentStore,
   type MessagePackTruthSegmentFileStore,
 } from '../MessagePackTruthSegmentStore';
+import { MessagePackTruthSnapshotGenerationStore } from '../MessagePackTruthSnapshotGenerationStore';
 import { WorkerTruthCompactionModule } from '../WorkerTruthCompactionModule';
 
 class MemoryFileStore implements MessagePackTruthSegmentFileStore {
@@ -39,6 +40,11 @@ class MemoryFileStore implements MessagePackTruthSegmentFileStore {
     return [...this.json.keys(), ...this.binary.keys()]
       .filter((path) => path.startsWith(prefix))
       .sort();
+  }
+
+  async deleteFile(path: string): Promise<void> {
+    this.json.delete(path);
+    this.binary.delete(path);
   }
 }
 
@@ -275,6 +281,191 @@ describe('WorkerTruthCompactionModule', () => {
       },
       previous: {
         generationId: previous.generationId,
+      },
+    });
+  });
+
+  it('does not republish a stale deterministic orphan when the current generation is already equivalent', async () => {
+    const fileStore = new MemoryFileStore();
+    const source = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      generationId: 'card-memory-facts-v1',
+      schemaVersion: 1,
+    });
+    await source.appendRecords([cardChange('card-1', 1, null)]);
+
+    const module = createModule(fileStore);
+    const initial = await module.compactFamily('card-memory-facts');
+    expect(initial.generationId).toBe('compact-card-memory-facts-1-1');
+
+    const deterministicGenerationId = initial.generationId!;
+    const snapshotStore = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      generationId: deterministicGenerationId,
+      schemaVersion: 1,
+    });
+    const snapshot = await snapshotStore.replayRecords({ dedupeByIdempotencyKey: false });
+    const generationStore = new MessagePackTruthSnapshotGenerationStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      schemaVersion: 1,
+      maxSegmentBytes: 64 * 1024,
+      maxSegmentRecords: 2,
+    });
+    await generationStore.publishGeneration({
+      generationId: 'reconcile-card-memory-facts-equivalent',
+      records: snapshot.records,
+      expectedCurrentGenerationId: deterministicGenerationId,
+    });
+    await generationStore.publishGeneration({
+      generationId: 'compact-card-memory-facts-1-1-recovered-3',
+      records: snapshot.records,
+      expectedCurrentGenerationId: 'reconcile-card-memory-facts-equivalent',
+    });
+    await generationStore.publishGeneration({
+      generationId: 'reconcile-card-memory-facts-equivalent-2',
+      records: snapshot.records,
+      expectedCurrentGenerationId: 'compact-card-memory-facts-1-1-recovered-3',
+    });
+    fileStore.json.delete(
+      `truth/card-memory-facts/${deterministicGenerationId}/device-device-A/manifest.v1.json`,
+    );
+
+    const result = await module.compactFamily('card-memory-facts');
+
+    expect(result).toMatchObject({
+      status: 'noop',
+      generationId: 'reconcile-card-memory-facts-equivalent-2',
+      previousGenerationId: 'compact-card-memory-facts-1-1-recovered-3',
+      snapshotRecordCount: 1,
+    });
+    expect(result.reclaimedPaths).toEqual(expect.arrayContaining([
+      expect.stringContaining(`/compact-card-memory-facts-1-1/`),
+    ]));
+    expect(result.orphanPaths).toEqual([]);
+  });
+
+  it('reclaims stale deterministic orphans when publish hits an immutable descriptor conflict', async () => {
+    const fileStore = new MemoryFileStore();
+    const source = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      generationId: 'card-memory-facts-v1',
+      schemaVersion: 1,
+    });
+    const compactedRecord = cardChange('card-1', 1, null);
+    await source.appendRecords([compactedRecord]);
+
+    const generationStore = new MessagePackTruthSnapshotGenerationStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      schemaVersion: 1,
+      maxSegmentBytes: 64 * 1024,
+      maxSegmentRecords: 2,
+    });
+    await generationStore.publishGeneration({
+      generationId: 'compact-card-memory-facts-1-1',
+      records: [compactedRecord],
+      expectedCurrentGenerationId: null,
+    });
+    await generationStore.publishGeneration({
+      generationId: 'reconcile-card-memory-facts-current-1',
+      records: [cardChange('card-2', 2, null)],
+      expectedCurrentGenerationId: 'compact-card-memory-facts-1-1',
+    });
+    await generationStore.publishGeneration({
+      generationId: 'reconcile-card-memory-facts-current-2',
+      records: [cardChange('card-3', 3, null)],
+      expectedCurrentGenerationId: 'reconcile-card-memory-facts-current-1',
+    });
+
+    const staleDescriptorPath = 'truth/card-memory-facts/compact-card-memory-facts-1-1/device-device-A/generation.v1.json';
+    const staleDescriptor = fileStore.json.get(staleDescriptorPath) as Record<string, unknown>;
+    fileStore.json.set(staleDescriptorPath, {
+      ...structuredClone(staleDescriptor),
+      recordCount: 999,
+    });
+
+    const result = await createModule(fileStore).compactFamily('card-memory-facts');
+
+    expect(result).toMatchObject({
+      status: 'compacted',
+      generationId: 'compact-card-memory-facts-1-1',
+      previousGenerationId: 'reconcile-card-memory-facts-current-2',
+      snapshotRecordCount: 1,
+    });
+    expect(result.reclaimedPaths).toEqual(expect.arrayContaining([
+      staleDescriptorPath,
+    ]));
+    expect(result.orphanPaths).toEqual([]);
+    expect(fileStore.json.get(
+      'truth/card-memory-facts/device-device-A/generation-fence.v1.json',
+    )).toMatchObject({
+      current: {
+        generationId: 'compact-card-memory-facts-1-1',
+      },
+      previous: {
+        generationId: 'reconcile-card-memory-facts-current-2',
+      },
+    });
+  });
+
+  it('publishes a recovered generation when the deterministic target is retained as previous', async () => {
+    const fileStore = new MemoryFileStore();
+    const source = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      generationId: 'card-memory-facts-v1',
+      schemaVersion: 1,
+    });
+    await source.appendRecords([cardChange('card-1', 1, null)]);
+
+    const module = createModule(fileStore);
+    const initial = await module.compactFamily('card-memory-facts');
+    expect(initial.generationId).toBe('compact-card-memory-facts-1-1');
+
+    const generationStore = new MessagePackTruthSnapshotGenerationStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      schemaVersion: 1,
+      maxSegmentBytes: 64 * 1024,
+      maxSegmentRecords: 2,
+    });
+    await generationStore.publishGeneration({
+      generationId: 'reconcile-card-memory-facts-current',
+      records: [cardChange('card-2', 2, null)],
+      expectedCurrentGenerationId: initial.generationId,
+    });
+
+    const result = await module.compactFamily('card-memory-facts');
+
+    expect(result).toMatchObject({
+      status: 'compacted',
+      generationId: 'compact-card-memory-facts-1-1-recovered-3',
+      previousGenerationId: 'reconcile-card-memory-facts-current',
+      snapshotRecordCount: 1,
+    });
+    expect(result.reclaimedPaths).toEqual(expect.arrayContaining([
+      expect.stringContaining('/compact-card-memory-facts-1-1/'),
+    ]));
+    expect(result.orphanPaths).toEqual([]);
+    expect(fileStore.json.get(
+      'truth/card-memory-facts/device-device-A/generation-fence.v1.json',
+    )).toMatchObject({
+      current: {
+        generationId: 'compact-card-memory-facts-1-1-recovered-3',
+      },
+      previous: {
+        generationId: 'reconcile-card-memory-facts-current',
       },
     });
   });

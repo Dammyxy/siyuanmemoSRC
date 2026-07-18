@@ -232,6 +232,15 @@ function toBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64');
 }
 
+function checksumSqliteDeltaFixture(bytes: Uint8Array): string {
+  let hash = 0x811c9dc5;
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
 function readSqliteDeltaEntries(fileService: MemorySqliteFileService): TestSqliteDeltaEntry[] {
   const manifest = fileService.json.get(SQLITE_DELTA_V2_MANIFEST) as {
     openSegment?: { path: string } | null;
@@ -1007,6 +1016,173 @@ describe('SqliteDatabaseService', () => {
     });
   });
 
+  it('keeps a representative 113-card review feedback delta entry below 64 KiB', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    const cards = Array.from({ length: 113 }, (_, index) => ({
+      id: `card-budget-${String(index + 1).padStart(3, '0')}`,
+      blockId: `block-budget-${String(index + 1).padStart(3, '0')}`,
+      xiuyuanID: `xy-budget-${String(index + 1).padStart(3, '0')}`,
+      type: 'item',
+      state: 2,
+      due: 1_700_000_000_000 + index * 1_000,
+      priority: 50,
+      updatedAt: 1_700_000_000_000,
+      lapses: 0,
+      reps: 3,
+      lastReview: 1_699_913_600_000,
+      createdAt: 1_699_913_600_000,
+      scheduledDays: 1,
+      stability: 4,
+      difficulty: 5,
+      meta: { representativeContent: 'x'.repeat(900) },
+    }));
+    const beforeCard = cards[0];
+    const afterCard = {
+      ...beforeCard,
+      reps: beforeCard.reps + 1,
+      due: beforeCard.due + 86_400_000,
+      lastReview: 1_700_000_000_000,
+    };
+    database.run(
+      `INSERT OR REPLACE INTO cards
+        (id, block_id, xiuyuan_id, type, state, due, priority, updated_at,
+         lapses, reps, last_review, created_at, scheduled_days, stability, difficulty,
+         source_exists, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        beforeCard.id,
+        beforeCard.blockId,
+        beforeCard.xiuyuanID,
+        beforeCard.type,
+        beforeCard.state,
+        beforeCard.due,
+        beforeCard.priority,
+        beforeCard.updatedAt,
+        beforeCard.lapses,
+        beforeCard.reps,
+        beforeCard.lastReview,
+        beforeCard.createdAt,
+        beforeCard.scheduledDays,
+        beforeCard.stability,
+        beforeCard.difficulty,
+        1,
+        JSON.stringify(beforeCard),
+      ],
+    );
+    await database.persist('seed-budget-card');
+    fileService.resetWriteCounts();
+
+    const undoEntry = {
+      schemaVersion: 2,
+      transactionId: 'transaction-budget',
+      undoToken: 'undo-budget',
+      sessionId: 'session-budget',
+      queueType: 'incremental-learning',
+      operation: 'answer',
+      cardId: beforeCard.id,
+      replayedCardId: beforeCard.id,
+      originalReviewIdempotencyKey: 'review-budget',
+      beforeCard,
+      afterCard,
+      frontierBefore: {
+        cardIds: cards.slice(1).map((card) => card.id),
+        currentCardId: beforeCard.id,
+        currentBlockId: beforeCard.blockId,
+        avoidOnceCardId: null,
+        avoidOnceBlockId: null,
+        projectionGeneration: 7,
+        projectionPolicyHash: 'policy-budget',
+      },
+      frontierAfter: {
+        cardIds: cards.slice(2).map((card) => card.id),
+        currentCardId: cards[1].id,
+        currentBlockId: cards[1].blockId,
+        avoidOnceCardId: null,
+        avoidOnceBlockId: null,
+        projectionGeneration: 7,
+        projectionPolicyHash: 'policy-budget',
+      },
+      queueImpact: null,
+      projectionGeneration: 7,
+      projectionPolicyHash: 'policy-budget',
+      recordedAt: 1_700_000_000_000,
+      status: 'open',
+      undoneAt: null,
+    };
+
+    await database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `UPDATE cards
+            SET due = ?, reps = ?, last_review = ?, payload_json = ?
+          WHERE id = ?`,
+        [afterCard.due, afterCard.reps, afterCard.lastReview, JSON.stringify(afterCard), afterCard.id],
+      );
+      db.run(
+        `INSERT OR REPLACE INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'review-event-budget',
+          afterCard.id,
+          'attempt-budget',
+          3,
+          1_700_000_000_000,
+          'review-budget',
+          2023,
+          11,
+          'review-v2',
+          JSON.stringify({ cardId: afterCard.id, beforeCard, afterCard }),
+        ],
+      );
+      db.run(
+        `INSERT OR REPLACE INTO review_transaction_undo_journal
+          (undo_token, transaction_id, session_id, queue_type, operation, card_id,
+           original_review_idempotency_key, status, recorded_at, undone_at, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          undoEntry.undoToken,
+          undoEntry.transactionId,
+          undoEntry.sessionId,
+          undoEntry.queueType,
+          undoEntry.operation,
+          undoEntry.cardId,
+          undoEntry.originalReviewIdempotencyKey,
+          undoEntry.status,
+          undoEntry.recordedAt,
+          undoEntry.undoneAt,
+          JSON.stringify(undoEntry),
+        ],
+      );
+    }, {
+      persist: true,
+      mutationEnvelope: createTestMutationEnvelope(
+        'review-budget',
+        beforeCard.id,
+        1_700_000_000_000,
+      ),
+    });
+
+    const [entry] = readSqliteDeltaEntries(fileService);
+    const encodedEntryBytes = encode(entry).byteLength;
+    expect(entry.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: 'cards' }),
+      expect.objectContaining({ table: 'review_events' }),
+      expect.objectContaining({ table: 'review_transaction_undo_journal' }),
+    ]));
+    expect(entry.mutationEnvelope?.operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: 'review_transaction_undo_journal' }),
+    ]));
+    expect(encodedEntryBytes).toBeLessThan(64 * 1024);
+  });
+
   it('labels sqlite delta append host effects for open, sealed, and manifest writes', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
@@ -1238,6 +1414,57 @@ describe('SqliteDatabaseService', () => {
       afterJournalSequence: 1,
       limit: 1,
     })).resolves.toEqual([]);
+  });
+
+  it('reports post-append active delta inventory with the verified durability receipt', async () => {
+    const fileService = new MemorySqliteFileService();
+    let observation: unknown = null;
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+      afterDurabilityReceipt: (_receipt, value) => {
+        observation = value;
+      },
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    await database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-append-observation',
+          'card-append-observation',
+          'attempt-append-observation',
+          3,
+          1_700_000_006_250,
+          'mutation-append-observation',
+          2026,
+          7,
+          'review-v2',
+          '{}',
+        ],
+      );
+    }, {
+      mutationEnvelope: createTestMutationEnvelope(
+        'mutation-append-observation',
+        'card-append-observation',
+        1_700_000_006_250,
+      ),
+    });
+
+    expect(observation).toMatchObject({
+      files: 1,
+      entries: 1,
+      bytes: expect.any(Number),
+      oldestCreatedAt: expect.any(Number),
+      entryByteEstimate: expect.any(Number),
+    });
+    expect((observation as { bytes: number }).bytes).toBeGreaterThan(0);
+    expect((observation as { entryByteEstimate: number }).entryByteEstimate).toBeGreaterThan(0);
   });
 
   it('reuses the existing journaled receipt for a duplicate mutation id', async () => {
@@ -2175,6 +2402,80 @@ describe('SqliteDatabaseService', () => {
     ]);
   });
 
+  it('checkpoints when the open sqlite delta payload is unreadable despite matching manifest checksum', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    await insertReviewEventForSqliteDeltaWindow(
+      database,
+      'event-corrupt-payload-before-transaction',
+      1_700_000_000_111,
+    );
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+    });
+
+    const corruptBytes = new Uint8Array(52);
+    corruptBytes[0] = 0xc0;
+    for (let index = 1; index < corruptBytes.length; index += 1) {
+      corruptBytes[index] = index;
+    }
+    const manifest = structuredClone(fileService.json.get(SQLITE_DELTA_V2_MANIFEST)) as {
+      openSegment: ({ checksum: string; byteSize: number } & Record<string, unknown>) | null;
+    };
+    expect(manifest.openSegment).toBeTruthy();
+    manifest.openSegment = {
+      ...manifest.openSegment!,
+      checksum: checksumSqliteDeltaFixture(corruptBytes),
+      byteSize: corruptBytes.byteLength,
+    };
+    fileService.binary.set(SQLITE_DELTA_V2_OPEN_SEGMENT, corruptBytes);
+    fileService.json.set(SQLITE_DELTA_V2_MANIFEST, manifest);
+
+    await database.runTransaction('queue.projection.replace', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-after-corrupt-payload-delta',
+          'card-after-corrupt-payload-delta',
+          'attempt-after-corrupt-payload-delta',
+          3,
+          1_700_000_000_112,
+          'commit-after-corrupt-payload-delta',
+          2026,
+          5,
+          'review-v2',
+          '{}',
+        ],
+      );
+    });
+
+    expect(fileService.binary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeUndefined();
+    expect(fileService.deletedFiles).toContain(SQLITE_DELTA_V2_OPEN_SEGMENT);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastWrite: {
+        ok: true,
+        classification: 'checkpoint',
+        label: 'queue.projection.replace',
+        reason: 'corrupt-open-segment-checkpoint-repair',
+        error: expect.stringContaining('SQLite delta segment corrupt'),
+      },
+      lastCheckpoint: {
+        ok: true,
+        cause: 'queue.projection.replace:corrupt-open-segment-checkpoint-repair',
+        cleared: true,
+      },
+    });
+  });
+
   it('repairs a corrupted open sqlite delta segment discovered while appending review.feedback', async () => {
     const fileService = new CorruptOpenSegmentAfterReadFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
@@ -2460,6 +2761,71 @@ describe('SqliteDatabaseService', () => {
     expect(fileService.writeBinaryFiles).not.toContain(SQLITE_DB_FILE);
     expect(fileService.durableBinary.get(SQLITE_DELTA_V2_SEALED_1)).toBeTruthy();
     expect(fileService.deletedFiles).not.toContain(SQLITE_DELTA_V2_SEALED_1);
+  });
+
+  it('persists truth projection rebuilds when volatile startup finds an undecodable sealed sqlite delta segment', async () => {
+    const seededFiles = new SplitProjectionSqliteFileService();
+    const seeded = new SqliteDatabaseService(seededFiles, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await seeded.init();
+    await seeded.persist('seed-schema');
+
+    for (let index = 0; index < 16; index += 1) {
+      await insertReviewEventForSqliteDeltaWindow(
+        seeded,
+        `event-volatile-startup-sealed-${index}`,
+        1_700_000_006_000 + index,
+      );
+    }
+
+    const fileService = new SplitProjectionSqliteFileService({
+      json: seededFiles.json,
+      durableBinary: seededFiles.durableBinary,
+    });
+    const corruptBytes = new Uint8Array(52);
+    corruptBytes[0] = 0xc0;
+    for (let index = 1; index < corruptBytes.length; index += 1) {
+      corruptBytes[index] = index;
+    }
+    const manifest = structuredClone(fileService.json.get(SQLITE_DELTA_V2_MANIFEST)) as {
+      sealedSegments: Array<{ path: string; checksum: string; byteSize: number }>;
+    };
+    expect(manifest.sealedSegments[0]).toMatchObject({ path: SQLITE_DELTA_V2_SEALED_1 });
+    manifest.sealedSegments[0] = {
+      ...manifest.sealedSegments[0],
+      checksum: checksumSqliteDeltaFixture(corruptBytes),
+      byteSize: corruptBytes.byteLength,
+    };
+    fileService.json.set(SQLITE_DELTA_V2_MANIFEST, manifest);
+    fileService.durableBinary.set(SQLITE_DELTA_V2_SEALED_1, corruptBytes);
+
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init({ skipDeltaReplay: true });
+
+    await expect(database.runTransaction('storage.projection.rebuild.queue-projections', (db) => {
+      db.run(
+        'INSERT OR REPLACE INTO queue_state (key, value_json, updated_at) VALUES (?, ?, ?)',
+        ['neural-roam', JSON.stringify({ routeId: 'default' }), 1_700_000_006_100],
+      );
+    })).resolves.toBeUndefined();
+
+    expect(fileService.writeBinaryFiles).toContain(SQLITE_DB_FILE);
+    expect(fileService.durableBinary.get(SQLITE_DELTA_V2_SEALED_1)).toEqual(corruptBytes);
+    expect(fileService.deletedFiles).not.toContain(SQLITE_DELTA_V2_SEALED_1);
+    expect(database.getOne<{ value_json: string }>(
+      'SELECT value_json FROM queue_state WHERE key = ?',
+      ['neural-roam'],
+    )).toEqual({ value_json: JSON.stringify({ routeId: 'default' }) });
+    await expect(database.getSqliteDeltaDiagnostics()).rejects.toThrow(
+      `SQLite delta segment corrupt: ${SQLITE_DELTA_V2_SEALED_1}`,
+    );
   });
 
   it('recovers a missing versioned sealed sqlite delta segment from an exact legacy candidate', async () => {

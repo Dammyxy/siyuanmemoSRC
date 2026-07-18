@@ -255,7 +255,7 @@ describe('BackendBrowserRpcAdapter', () => {
       expect(timing.innerSteps.find((step) => step.step === 'queryDeckPage.parse')).toBeUndefined();
       expect(timing.innerSteps.find((step) => step.step === 'pre-request-merge')?.extra).toMatchObject({
         mainDbReadSkipped: true,
-        mainDbReadSkipReason: 'read-only-preflight-main-db-disabled',
+        mainDbReadSkipReason: 'sqlite-conflict-copies-non-authoritative',
         nonEmptyConflictSourceCount: 0,
       });
     } finally {

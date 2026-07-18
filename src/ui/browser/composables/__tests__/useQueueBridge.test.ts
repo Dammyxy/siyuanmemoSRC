@@ -137,4 +137,32 @@ describe('useQueueBridge', () => {
       'neural-roam': 4,
     });
   });
+
+  it('skips backend count reads when Review pressure filters out every affected queue', async () => {
+    const getQueueCounts = vi.fn(async () => ({
+      ...EMPTY_QUEUE_COUNTS,
+      'filter-group': 11,
+    }));
+    const bridge = createBridge(getQueueCounts);
+    const queueCounts = ref<Record<string, number>>({
+      ...EMPTY_QUEUE_COUNTS,
+      'incremental-learning': 7,
+      'filter-group': 3,
+    });
+
+    await bridge.refreshQueueCounts(queueCounts, {
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.FilterGroup],
+      reviewPressure: {
+        active: true,
+        activeQueueType: QueueType.IncrementalLearning,
+      },
+    });
+
+    expect(getQueueCounts).not.toHaveBeenCalled();
+    expect(queueCounts.value).toMatchObject({
+      'incremental-learning': 7,
+      'filter-group': 3,
+    });
+  });
 });

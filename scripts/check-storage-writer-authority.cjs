@@ -33,7 +33,26 @@ const authorityRules = [
     kind: 'whole-database-rpc-persist-caller',
     pattern: /\.call\s*\(\s*['"]db\.persist['"]/g,
   },
+  {
+    kind: 'browser-truth-device-identity-authority-construction',
+    pattern: /\bauthority\s*:\s*new\s+(?:IndexedDbTruthDeviceIdentityCache|LocalStorageTruthDeviceIdentityCache|TempLocalTruthDeviceIdentityCache)\s*\(/g,
+  },
+  {
+    kind: 'obsolete-browser-truth-device-identity-authority-import',
+    pattern: /\bIndexedDbTruthDeviceIdentityStore\b/g,
+  },
+  {
+    kind: 'browser-cache-implements-truth-device-identity-authority',
+    pattern: /class\s+\w*(?:IndexedDb|LocalStorage|TempLocal)\w*\s+implements\s+TruthDeviceIdentityAuthorityPort\b/g,
+  },
 ];
+
+const truthDeviceIdentityAuthorityBoundary = {
+  file: 'src/application/factories/createApplicationBackendRuntimeBundle.ts',
+  kind: 'installation-truth-device-identity-authority-construction',
+  pattern: /\bnew\s+SiyuanConfTruthDeviceIdentityAuthorityStore\s*\(\s*options\.fileService\s*\)/g,
+  expectedOccurrences: 1,
+};
 
 const mutationFamilyAuthorityRules = [
   {
@@ -271,6 +290,23 @@ function evaluateMutationFamilyAuthorities(options = {}) {
   return failures;
 }
 
+function evaluateTruthDeviceIdentityAuthority(options = {}) {
+  const rootDir = path.resolve(options.rootDir || root);
+  const boundary = options.boundary || truthDeviceIdentityAuthorityBoundary;
+  const text = readAuthorityFile(rootDir, boundary.file);
+  if (text === null) {
+    return [`truth-device-identity: missing authority composition file ${boundary.file}`];
+  }
+  const occurrences = countMatches(text, boundary.pattern);
+  if (occurrences !== boundary.expectedOccurrences) {
+    return [
+      `truth-device-identity: ${boundary.file} ${boundary.kind} occurrences ${occurrences} `
+      + `must equal ${boundary.expectedOccurrences}`,
+    ];
+  }
+  return [];
+}
+
 function evaluate(options = {}) {
   const rootDir = path.resolve(options.rootDir || root);
   const rules = options.rules || authorityRules;
@@ -302,6 +338,7 @@ function run() {
   const failures = [
     ...evaluate(),
     ...evaluateMutationFamilyAuthorities(),
+    ...evaluateTruthDeviceIdentityAuthority(),
   ];
   if (failures.length > 0) {
     console.error('Storage writer authority check failed:');
@@ -322,7 +359,9 @@ module.exports = {
   authorityRules,
   evaluate,
   evaluateMutationFamilyAuthorities,
+  evaluateTruthDeviceIdentityAuthority,
   legacyWriterInventory,
   mutationFamilyAuthorityRules,
+  truthDeviceIdentityAuthorityBoundary,
   run,
 };

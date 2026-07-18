@@ -102,6 +102,11 @@ export interface SqliteJournaledMutationEntry {
   durabilityReceipt: StorageDurabilityReceipt;
 }
 
+export interface SqliteJournaledMutationFrontierEvidence {
+  nextMutationSequence: number;
+  entries: SqliteJournaledMutationEntry[];
+}
+
 export interface SqliteDeltaLogSnapshot {
   version: typeof SQLITE_DELTA_LOG_VERSION;
   entries: SqliteDeltaEntry[];
@@ -147,11 +152,20 @@ export interface SqliteDeltaStorageInventory {
   oldestCreatedAt: number | null;
 }
 
+export interface SqliteDeltaAppendObservation {
+  files: number;
+  entries: number;
+  bytes: number;
+  oldestCreatedAt: number | null;
+  entryByteEstimate: number;
+}
+
 export interface SqliteDeltaStartupEvidence {
   files: number;
   entries: number;
   segmentPaths: string[];
   checkpoint: SqliteDeltaSegmentManifest['checkpoint'];
+  nextMutationSequence: number;
   truthCoverageFrontier: number | null;
   uncoveredMutationCount: number | null;
 }
@@ -281,7 +295,7 @@ export interface SqliteDeltaCaptureResult {
 }
 
 export type SqliteDeltaPersistResult =
-  | { mode: 'delta'; entry: SqliteDeltaEntry }
+  | { mode: 'delta'; entry: SqliteDeltaEntry; observation: SqliteDeltaAppendObservation }
   | { mode: 'skipped'; reason: string; diagnostics: SqliteDeltaDiagnosticsContext }
   | { mode: 'checkpoint'; reason: string; diagnostics: SqliteDeltaDiagnosticsContext };
 
@@ -299,6 +313,26 @@ function recordSqliteDeltaDiagnostic(
   extra: Record<string, unknown> = {},
 ): void {
   recorder?.(step, Math.max(0, Date.now() - startedAt), extra);
+}
+
+function createAppendObservation(
+  snapshot: SqliteDeltaLogSnapshot,
+  entryByteEstimate: number,
+): SqliteDeltaAppendObservation {
+  const manifestEntries = [
+    ...snapshot.manifest.sealedSegments,
+    ...(snapshot.manifest.openSegment ? [snapshot.manifest.openSegment] : []),
+  ];
+  const oldestCreatedAt = snapshot.entries.reduce<number | null>((oldest, entry) => (
+    oldest === null || entry.createdAt < oldest ? entry.createdAt : oldest
+  ), null);
+  return {
+    files: manifestEntries.length,
+    entries: snapshot.entries.length,
+    bytes: manifestEntries.reduce((total, entry) => total + entry.byteSize, 0),
+    oldestCreatedAt,
+    entryByteEstimate: Math.max(0, Math.floor(Number(entryByteEstimate) || 0)),
+  };
 }
 
 interface AuditRow {
@@ -372,9 +406,50 @@ function isOpenSegmentChecksumMismatch(error: unknown): boolean {
   return describeError(error) === `SQLite delta segment checksum mismatch: ${SQLITE_DELTA_OPEN_SEGMENT_FILE}`;
 }
 
+function isSegmentCorrupt(error: unknown): boolean {
+  return describeError(error).startsWith('SQLite delta segment corrupt:');
+}
+
+function isOpenSegmentCorrupt(error: unknown): boolean {
+  const message = describeError(error);
+  return message === `SQLite delta segment corrupt: ${SQLITE_DELTA_OPEN_SEGMENT_FILE}`
+    || message.startsWith(`SQLite delta segment corrupt: ${SQLITE_DELTA_OPEN_SEGMENT_FILE}:`);
+}
+
+function isSegmentReadValidationError(error: unknown): boolean {
+  return isSegmentChecksumMismatch(error) || isSegmentCorrupt(error);
+}
+
+function isOpenSegmentReadValidationError(error: unknown): boolean {
+  return isOpenSegmentChecksumMismatch(error) || isOpenSegmentCorrupt(error);
+}
+
+function isTruthProjectionRebuildLabel(label: string): boolean {
+  return label.startsWith('storage.projection.rebuild.');
+}
+
+function decodeSegmentEnvelope(bytes: Uint8Array, path: string): SqliteDeltaSegmentEnvelope {
+  try {
+    return normalizeSegmentEnvelope(decode(bytes), path);
+  } catch (error) {
+    const message = describeError(error);
+    if (message.startsWith(`SQLite delta segment corrupt: ${path}`)) {
+      throw error;
+    }
+    throw new Error(`SQLite delta segment corrupt: ${path}: ${message}`);
+  }
+}
+
 function isCorruptOpenSegmentCheckpointRepairReason(reason: string): boolean {
   return normalizeString(reason) === 'corrupt-open-segment-checkpoint-repair'
     || normalizeString(reason).endsWith(':corrupt-open-segment-checkpoint-repair');
+}
+
+function shouldReplayVolatileCheckpointCoveredSegments(reason: string): boolean {
+  const normalized = normalizeString(reason);
+  return normalized !== 'legacy-adoption'
+    && normalized !== 'coverage-compaction'
+    && !isCorruptOpenSegmentCheckpointRepairReason(normalized);
 }
 
 function emptyManifest(updatedAt = 0): SqliteDeltaSegmentManifest {
@@ -1292,7 +1367,7 @@ export class SqliteDeltaCheckpointLayer {
       });
     } catch (error) {
       this.clearAppendHotPathSnapshot();
-      if (!isSegmentChecksumMismatch(error)) {
+      if (!isSegmentReadValidationError(error)) {
         throw error;
       }
       return this.readSnapshot({
@@ -1419,6 +1494,93 @@ export class SqliteDeltaCheckpointLayer {
   }): Promise<SqliteDeltaPersistResult> {
     const diagnostics = normalizeDiagnosticsContext(input.diagnostics);
     const hotPath = diagnostics.hotPath || labelLooksHotPath(input.label);
+    const skippedDerivedTables = input.capture?.skippedDerivedTables ?? [];
+    const skippedDerivedChangeCount = input.capture?.skippedDerivedChangeCount ?? 0;
+    const preflightIndependentCheckpointReason = this.classifyCheckpointReasonBeforeSnapshot(input);
+    if (preflightIndependentCheckpointReason === 'derived-cache-only') {
+      const skipDiagnostics: SqliteDeltaDiagnosticsContext = {
+        cause: input.label,
+        initiator: diagnostics.initiator,
+        projectionGeneration: diagnostics.projectionGeneration,
+        hotPath,
+      };
+      this.lastWrite = {
+        ok: true,
+        at: Date.now(),
+        classification: 'delta',
+        label: input.label,
+        ...skipDiagnostics,
+        reason: preflightIndependentCheckpointReason,
+        pendingCount: 0,
+        pendingBytes: 0,
+        deltaEntryId: null,
+        deltaEntriesWritten: 0,
+        affectedTables: [],
+        skippedDerivedTables,
+        skippedDerivedChangeCount,
+        checkpointStorageClass: this.checkpointStorageClass,
+      };
+      return {
+        mode: 'skipped',
+        reason: preflightIndependentCheckpointReason,
+        diagnostics: skipDiagnostics,
+      };
+    }
+    if (preflightIndependentCheckpointReason) {
+      this.clearAppendHotPathSnapshot();
+      if (hotPath) {
+        const error = new Error(
+          `BACKEND_UNAVAILABLE: SQLite delta durability unavailable for hot path ${input.label}: ${preflightIndependentCheckpointReason}`,
+        );
+        this.lastWrite = {
+          ok: false,
+          at: Date.now(),
+          classification: 'delta',
+          label: input.label,
+          cause: input.label,
+          initiator: diagnostics.initiator,
+          projectionGeneration: diagnostics.projectionGeneration
+            ?? maxProjectionGenerationFromChanges(input.capture?.changes ?? []),
+          hotPath,
+          reason: preflightIndependentCheckpointReason,
+          pendingCount: 0,
+          pendingBytes: 0,
+          affectedTables: input.capture?.touchedTables ?? [],
+          skippedDerivedTables,
+          skippedDerivedChangeCount,
+          error: error.message,
+          checkpointStorageClass: this.checkpointStorageClass,
+        };
+        throw error;
+      }
+      this.checkpointOnlyTotal += 1;
+      const checkpointDiagnostics: SqliteDeltaDiagnosticsContext = {
+        cause: input.label,
+        initiator: diagnostics.initiator,
+        projectionGeneration: diagnostics.projectionGeneration
+          ?? maxProjectionGenerationFromChanges(input.capture?.changes ?? []),
+        hotPath,
+      };
+      this.lastWrite = {
+        ok: true,
+        at: Date.now(),
+        classification: 'checkpoint',
+        label: input.label,
+        ...checkpointDiagnostics,
+        reason: preflightIndependentCheckpointReason,
+        pendingCount: 0,
+        pendingBytes: 0,
+        affectedTables: input.capture?.touchedTables ?? [],
+        skippedDerivedTables,
+        skippedDerivedChangeCount,
+        checkpointStorageClass: this.checkpointStorageClass,
+      };
+      return {
+        mode: 'checkpoint',
+        reason: preflightIndependentCheckpointReason,
+        diagnostics: checkpointDiagnostics,
+      };
+    }
     let snapshot: SqliteDeltaLogSnapshot;
     const preflightStartedAt = Date.now();
     try {
@@ -1433,10 +1595,16 @@ export class SqliteDeltaCheckpointLayer {
         status: 'failed',
       });
       this.clearAppendHotPathSnapshot();
-      if (!this.canClearDeltaAfterCheckpoint() && !isOpenSegmentChecksumMismatch(error)) {
+      const canCheckpointUnreadablePending = this.canClearDeltaAfterCheckpoint()
+        || isOpenSegmentReadValidationError(error)
+        || (
+          isTruthProjectionRebuildLabel(input.label)
+          && isSegmentReadValidationError(error)
+        );
+      if (!canCheckpointUnreadablePending) {
         throw error;
       }
-      const repairReason = isOpenSegmentChecksumMismatch(error)
+      const repairReason = isOpenSegmentReadValidationError(error)
         ? 'corrupt-open-segment-checkpoint-repair'
         : 'pending-delta-unreadable';
       this.checkpointOnlyTotal += 1;
@@ -1491,14 +1659,13 @@ export class SqliteDeltaCheckpointLayer {
       return {
         mode: 'delta',
         entry: existingMutationEntry,
+        observation: createAppendObservation(snapshot, 0),
       };
     }
     const rawCheckpointReason = this.classifyCheckpointReason(input, snapshot, pendingBytes);
     const checkpointReason = rawCheckpointReason === 'delta-threshold-exceeded' && !this.canUseCheckpointForThreshold()
       ? null
       : rawCheckpointReason;
-    const skippedDerivedTables = input.capture?.skippedDerivedTables ?? [];
-    const skippedDerivedChangeCount = input.capture?.skippedDerivedChangeCount ?? 0;
     if (checkpointReason === 'derived-cache-only') {
       const skipDiagnostics: SqliteDeltaDiagnosticsContext = {
         cause: input.label,
@@ -1667,7 +1834,7 @@ export class SqliteDeltaCheckpointLayer {
       nextSnapshot.manifest = writeResult.manifest;
     } catch (error) {
       this.clearAppendHotPathSnapshot();
-      if (isOpenSegmentChecksumMismatch(error)) {
+      if (isOpenSegmentReadValidationError(error)) {
         const reason = 'corrupt-open-segment-checkpoint-repair';
         this.checkpointOnlyTotal += 1;
         const checkpointDiagnostics: SqliteDeltaDiagnosticsContext = {
@@ -1740,6 +1907,7 @@ export class SqliteDeltaCheckpointLayer {
     return {
       mode: 'delta',
       entry,
+      observation: createAppendObservation(nextSnapshot, entry.byteEstimate),
     };
   }
 
@@ -2014,9 +2182,31 @@ export class SqliteDeltaCheckpointLayer {
       const canClearUnreadablePending = this.canClearDeltaAfterCheckpoint()
         || (
           isCorruptOpenSegmentCheckpointRepairReason(reason)
-          && isOpenSegmentChecksumMismatch(snapshotReadError)
+          && isOpenSegmentReadValidationError(snapshotReadError)
         );
       if (!canClearUnreadablePending) {
+        if (!this.canClearDeltaAfterCheckpoint()) {
+          this.checkpointWritesTotal += 1;
+          const diagnostics = normalizeDiagnosticsContext(diagnosticsContext);
+          this.lastCheckpoint = {
+            ok: true,
+            at: Date.now(),
+            classification: 'checkpoint',
+            cause: reason,
+            initiator: diagnostics.initiator,
+            projectionGeneration: diagnostics.projectionGeneration,
+            hotPath: diagnostics.hotPath || labelLooksHotPath(reason),
+            reason,
+            pendingCount: 0,
+            pendingBytes: 0,
+            byteLength,
+            cleared: false,
+            affectedTables: [],
+            checkpointStorageClass: this.checkpointStorageClass,
+            error: `sqlite-delta-checkpoint-diagnostic-read-failed: ${describeError(snapshotReadError)}`,
+          };
+          return null;
+        }
         throw snapshotReadError;
       }
       await this.clearUnreadablePendingAfterCheckpoint(reason, byteLength, diagnosticsContext, snapshotReadError);
@@ -2241,6 +2431,7 @@ export class SqliteDeltaCheckpointLayer {
       checkpoint: snapshot.manifest.checkpoint
         ? structuredClone(snapshot.manifest.checkpoint)
         : null,
+      nextMutationSequence: snapshot.manifest.nextMutationSequence,
       truthCoverageFrontier: normalizedFrontier,
       uncoveredMutationCount: normalizedFrontier === null
         ? null
@@ -2543,6 +2734,7 @@ export class SqliteDeltaCheckpointLayer {
     deviceId: string;
     identityEpoch: string;
     afterJournalSequence: number;
+    rebindableLegacyMutationIds?: string[];
   }): Promise<SqliteDeltaLegacyAdoptionResult> {
     this.clearAppendHotPathSnapshot();
     if (!this.fileService.deleteFile) {
@@ -2558,6 +2750,7 @@ export class SqliteDeltaCheckpointLayer {
     ) {
       const cleanupError = await this.deleteCoveredSegmentFiles(
         manifest.checkpoint.coveredSegmentPaths,
+        { skipAbsent: true },
       );
       if (cleanupError) {
         throw new Error(cleanupError);
@@ -2594,6 +2787,8 @@ export class SqliteDeltaCheckpointLayer {
       deviceId: input.deviceId,
       identityEpoch: input.identityEpoch,
       startingJournalSequence,
+      coveredJournalSequence: input.afterJournalSequence,
+      rebindableLegacyMutationIds: input.rebindableLegacyMutationIds,
     });
     if (plan.status === 'blocked') {
       return {
@@ -2719,6 +2914,37 @@ export class SqliteDeltaCheckpointLayer {
       }));
   }
 
+  async readJournaledMutationFrontierEvidence(): Promise<SqliteJournaledMutationFrontierEvidence> {
+    this.clearAppendHotPathSnapshot();
+    const snapshot = await this.readSnapshot({
+      allowVerifiedSegmentEvidence: true,
+      purpose: 'sqlite-delta.verified-mutation-frontier',
+      substep: 'read-journal-frontier',
+    });
+    return {
+      nextMutationSequence: snapshot.manifest.nextMutationSequence,
+      entries: snapshot.entries
+        .filter((entry): entry is SqliteDeltaEntry & {
+          mutationEnvelope: StorageMutationEnvelope;
+          durabilityReceipt: StorageDurabilityReceipt;
+        } => Boolean(
+          entry.mutationEnvelope
+          && entry.durabilityReceipt
+          && entry.mutationEnvelope.journalSequence !== null
+          && entry.durabilityReceipt.stage !== 'failed',
+        ))
+        .sort((left, right) => (
+          (left.mutationEnvelope.journalSequence ?? 0)
+          - (right.mutationEnvelope.journalSequence ?? 0)
+        ))
+        .map((entry) => ({
+          createdAt: entry.createdAt,
+          mutationEnvelope: structuredClone(entry.mutationEnvelope),
+          durabilityReceipt: structuredClone(entry.durabilityReceipt),
+        })),
+    };
+  }
+
   private async writeRelocatedSegments(
     entries: SqliteDeltaEntry[],
     startSequence: number,
@@ -2817,7 +3043,7 @@ export class SqliteDeltaCheckpointLayer {
     try {
       return await this.readSnapshotFromManifest(manifest, metadata);
     } catch (error) {
-      if (!isSegmentChecksumMismatch(error)) {
+      if (!isSegmentReadValidationError(error)) {
         throw error;
       }
       const refreshedManifest = await this.readManifest({
@@ -2926,7 +3152,7 @@ export class SqliteDeltaCheckpointLayer {
 
   private shouldReplayVolatileCheckpointSegments(manifest: SqliteDeltaSegmentManifest): boolean {
     return this.checkpointStorageClass === 'volatile-projection'
-      && !isCorruptOpenSegmentCheckpointRepairReason(manifest.checkpoint?.reason ?? '')
+      && shouldReplayVolatileCheckpointCoveredSegments(manifest.checkpoint?.reason ?? '')
       && Array.isArray(manifest.checkpoint?.coveredSegmentPaths)
       && manifest.checkpoint.coveredSegmentPaths.length > 0;
   }
@@ -2951,7 +3177,7 @@ export class SqliteDeltaCheckpointLayer {
       purpose: options.purpose,
       substep: options.substep,
     });
-    const envelope = normalizeSegmentEnvelope(decode(bytes), segment.path);
+    const envelope = decodeSegmentEnvelope(bytes, segment.path);
     if (envelope.entries.length !== segment.entryCount) {
       throw new Error(`SQLite delta segment entry count mismatch: ${segment.path}`);
     }
@@ -3028,7 +3254,7 @@ export class SqliteDeltaCheckpointLayer {
     if (!bytes) {
       throw new Error(`SQLite delta segment missing: ${path}`);
     }
-    const envelope = normalizeSegmentEnvelope(decode(bytes), path);
+    const envelope = decodeSegmentEnvelope(bytes, path);
     return {
       envelope,
       manifestEntry: buildSegmentManifestEntry({
@@ -3043,6 +3269,20 @@ export class SqliteDeltaCheckpointLayer {
     capture: SqliteDeltaCaptureResult | null;
     schemaChanged: boolean;
   }, snapshot: SqliteDeltaLogSnapshot, pendingBytes: number): string | null {
+    const preflightIndependentReason = this.classifyCheckpointReasonBeforeSnapshot(input);
+    if (preflightIndependentReason) {
+      return preflightIndependentReason;
+    }
+    if (snapshot.entries.length >= MAX_PENDING_DELTA_ENTRIES || pendingBytes >= MAX_PENDING_DELTA_BYTES) {
+      return 'delta-threshold-exceeded';
+    }
+    return null;
+  }
+
+  private classifyCheckpointReasonBeforeSnapshot(input: {
+    capture: SqliteDeltaCaptureResult | null;
+    schemaChanged: boolean;
+  }): string | null {
     if (input.schemaChanged) {
       return 'schema-dirty';
     }
@@ -3068,9 +3308,6 @@ export class SqliteDeltaCheckpointLayer {
         return 'derived-cache-only';
       }
       return 'delta-capture-empty';
-    }
-    if (snapshot.entries.length >= MAX_PENDING_DELTA_ENTRIES || pendingBytes >= MAX_PENDING_DELTA_BYTES) {
-      return 'delta-threshold-exceeded';
     }
     return null;
   }

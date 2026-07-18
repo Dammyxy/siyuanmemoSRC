@@ -6,6 +6,8 @@ import type {
   BackendNeuralGraphQueryRequest,
   BackendRpcRequest,
   BackendRpcResponse,
+  BackendForeignEpochRecoveryAuthorityPublicationIntent,
+  BackendRecoveryContentHash,
 } from '../../packages/contracts/src/backend-rpc';
 
 export type BackendWorkerHostEffectAttribution = {
@@ -14,12 +16,16 @@ export type BackendWorkerHostEffectAttribution = {
   requestMethod?: string | null;
 };
 
+type BackendWorkerRecoveryApplyAttribution = {
+  requestMethod: 'recovery.foreignEpoch.apply';
+};
+
 export interface BackendWorkerSqliteFileEntry {
   path: string;
   size: number | null;
 }
 
-export type BackendWorkerHostEffect =
+export type BackendWorkerHostEffect = (
   | ({ kind: 'sqlite.readBinary'; path: string } & BackendWorkerHostEffectAttribution)
   | ({ kind: 'sqlite.writeBinary'; path: string; bytes: Uint8Array } & BackendWorkerHostEffectAttribution)
   | ({ kind: 'sqlite.readJSON'; path: string } & BackendWorkerHostEffectAttribution)
@@ -33,6 +39,19 @@ export type BackendWorkerHostEffect =
   | ({ kind: 'truth.writeJSON'; path: string; value: unknown } & BackendWorkerHostEffectAttribution)
   | { kind: 'truth.listFiles'; prefix: string }
   | { kind: 'truth.deleteFile'; path: string }
+  | { kind: 'identity.readRecoveryEvidence' }
+  | ({
+      kind: 'identity.publishCertifiedAuthority';
+      operationId: string;
+      planHash: BackendRecoveryContentHash;
+      intent: BackendForeignEpochRecoveryAuthorityPublicationIntent;
+    } & BackendWorkerRecoveryApplyAttribution)
+  | ({
+      kind: 'recovery.ensureActiveWriter';
+      operationId: string;
+      planHash: BackendRecoveryContentHash;
+      stage: 'authority-publication' | 'continuity';
+    } & BackendWorkerRecoveryApplyAttribution)
   | { kind: 'sqlite.readSyncConflictDatabaseSources' }
   | { kind: 'sqlite.cleanupSyncConflictDatabaseSources'; sourceIds: string[] }
   | { kind: 'siyuan.resolveExistingBlockIds'; blockIds: string[] }
@@ -40,7 +59,8 @@ export type BackendWorkerHostEffect =
   | { kind: 'autocard.execute'; request: BackendAutoCardExecuteRequest }
   | { kind: 'autocard.executeBatch'; request: BackendAutoCardExecuteBatchRequest }
   | { kind: 'progressive.command.execute'; request: BackendProgressiveCommandExecuteRequest }
-  | { kind: 'topic-derived.command.execute'; request: BackendTopicDerivedCommandExecuteRequest };
+  | { kind: 'topic-derived.command.execute'; request: BackendTopicDerivedCommandExecuteRequest }
+) & BackendWorkerHostEffectAttribution;
 
 export type BackendWorkerRequestMessage = {
   kind: 'request';

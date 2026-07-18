@@ -29,11 +29,11 @@ export interface ReviewAdmissionTicket {
   queueType: ReviewAdmissionQueueType;
   entrySurface: string;
   entryTargetIdentity: string;
-  projectionPolicyHash: string | null;
-  projectionGeneration: number | null;
+  projectionPolicyHash: string;
+  projectionGeneration: number;
   readinessRequest: QueueProjectionReadinessRequest;
   admittedAt: number;
-  source: 'ready-projection' | 'materialized-projection' | 'read-only-recovery-queue-state';
+  source: 'ready-projection' | 'materialized-projection';
 }
 
 export interface ReviewAdmissionRequest {
@@ -64,6 +64,11 @@ export class ReviewAdmissionModule {
     }
 
     const target = request.target;
+    if (!this.isStartupWriteCapable()) {
+      throw new Error(
+        `REVIEW_ADMISSION_UNAVAILABLE: ${target.queueType} storage recovery disables Review writes`,
+      );
+    }
     const readinessRequest = buildReviewAdmissionReadinessRequest(target.queueType);
     const readinessResult = await this.manager.readQueueProjection({
       type: 'readiness',
@@ -85,24 +90,6 @@ export class ReviewAdmissionModule {
 
     if (!isRecoverableReadiness(ready)) {
       throw new Error(`REVIEW_ADMISSION_UNAVAILABLE: ${target.queueType} projection is not readable: ${formatReadiness(ready)}`);
-    }
-
-    if (!this.isStartupWriteCapable()) {
-      logger.warn('[SiYuanMemo][ReviewAdmission] admitted read-only recovery queue state without projection materialization', {
-        queueType: target.queueType,
-        entrySurface: target.entrySurface,
-        readiness: formatReadiness(ready),
-      });
-      return {
-        queueType: target.queueType,
-        entrySurface: target.entrySurface,
-        entryTargetIdentity: buildReviewEntryTargetIdentity(target),
-        projectionPolicyHash: null,
-        projectionGeneration: null,
-        readinessRequest,
-        admittedAt: this.now(),
-        source: 'read-only-recovery-queue-state',
-      };
     }
 
     const repaired = await this.manager.repairQueueProjection({
@@ -182,10 +169,8 @@ export function isValidReviewAdmissionTicket(
     && value.entrySurface === target.entrySurface
     && value.entryTargetIdentity === buildReviewEntryTargetIdentity(target)
     && isReviewAdmissionQueueType(value.queueType)
-    && (
-      value.source === 'read-only-recovery-queue-state'
-      || (isNonEmptyString(value.projectionPolicyHash) && isPositiveInteger(value.projectionGeneration))
-    ),
+    && isNonEmptyString(value.projectionPolicyHash)
+    && isPositiveInteger(value.projectionGeneration),
   );
 }
 

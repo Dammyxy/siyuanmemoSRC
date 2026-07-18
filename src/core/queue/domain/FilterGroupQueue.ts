@@ -264,7 +264,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             baseCardsLabel: 'filtered cards from manager',
         });
     }
-    
+
     /**
      * 添加卡片到队列
      * 

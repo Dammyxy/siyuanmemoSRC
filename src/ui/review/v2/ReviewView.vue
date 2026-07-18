@@ -323,10 +323,7 @@ import { createReviewWriterRecoveryRuntime } from './reviewWriterRecoveryRuntime
 import { createReviewTabTransferRuntime } from './reviewTabTransferRuntime';
 import { resolveReviewKeyAction } from './reviewKeyActionResolver';
 import type { ReviewWriterUnavailableRecoveryNotice } from './reviewWriterUnavailableRecovery';
-import type {
-  BackendNeuralRoamCommand,
-  BackendReviewSyncDivergenceAuditResult,
-} from '../../../../packages/contracts/src/backend-rpc';
+import type { BackendNeuralRoamCommand } from '../../../../packages/contracts/src/backend-rpc';
 import {
   createReviewKernelTransactionWriterActionTracker,
   resolveReviewActionForKernelTransactionWriterUnavailable,
@@ -475,9 +472,6 @@ import type {
 import { createReviewFilterRuntime, type ReviewFilterCommandClient, type ReviewFilterGroupQueueLike } from './reviewFilterCommands';
 import { createReviewDataObserverRuntime } from './reviewDataObserverRuntime';
 import { createReviewNativeSplitRuntime } from './reviewNativeSplitRuntime';
-import { buildReviewDomainSyncSafetyDecision } from '@/application/services/ReviewDomainSyncSafetyService';
-import type { BackendReviewSessionRepairGateEvidence } from '../../../../packages/contracts/src/backend-rpc';
-import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 
 const logger = createLogger('ReviewView');
 type ReviewSideAreaTab = 'semantic';
@@ -559,8 +553,6 @@ type ReviewPluginContextLike = {
     getSchedulerType?: (card: FSRSCard) => 'fsrs-v6' | 'a-factor-v2';
   } | undefined;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null | undefined;
-  readDomainSyncDiagnostics?: (request?: { context?: 'review-feedback-preflight'; cardId?: string | null }) => Promise<unknown>;
-  auditReviewSyncDivergence?: (request?: { cardIds?: string[]; limit?: number }) => Promise<BackendReviewSyncDivergenceAuditResult>;
 };
 
 type ReviewRuntimeSettingsLike = Pick<Partial<PluginSettings>,
@@ -1379,82 +1371,6 @@ async function handleReviewArenaFeedback(payload: { cardId: string; rating: numb
   void payload;
 }
 
-async function ensureReviewDomainSyncSafeForAction(input: {
-  action: ReviewSessionRetryAction;
-  item: ActiveReviewItem | null;
-}): Promise<BackendReviewSessionRepairGateEvidence> {
-  const context = getPluginContext(props.plugin);
-  const currentCardId = input.item?.id || input.item?.cardID || null;
-  if (typeof context?.readDomainSyncDiagnostics !== 'function') {
-    throw new Error('DOMAIN_SYNC_DIAGNOSTICS_UNAVAILABLE: Review feedback requires domain sync diagnostics');
-  }
-
-  let blockedDecisionMessage: string | null = null;
-  try {
-    const status = await context.readDomainSyncDiagnostics({
-      context: 'review-feedback-preflight',
-      cardId: currentCardId,
-    });
-    const decision = buildReviewDomainSyncSafetyDecision(status as never, undefined, {
-      currentCardId,
-      surface: 'review-feedback',
-    });
-    if (decision.canOpenReview) {
-      return buildReviewRepairGateEvidence(decision, currentCardId, 'domain-sync-safe');
-    }
-    if (
-      currentCardId
-      && decision.kind === 'block-repairable'
-      && typeof context.auditReviewSyncDivergence === 'function'
-    ) {
-      const audit = await context.auditReviewSyncDivergence({ cardIds: [currentCardId], limit: 1 });
-      if (audit.reasons['review-history-newer-than-card-state'] <= 0) {
-        logger.info('[ReviewView] card-specific domain sync audit allows Review despite global repairable status', {
-          action: input.action.type,
-          cardId: currentCardId,
-          auditReasons: audit.reasons,
-        });
-        return buildReviewRepairGateEvidence(decision, currentCardId, 'current-card-audit-accepted-repairable');
-      }
-    }
-    blockedDecisionMessage = decision.message;
-    await openManualSyncConflictResolutionDialog(context as never, {
-      initialDomainStatus: status as never,
-      reviewBlockDecision: decision,
-      onDiagnosticsSafe: async () => {
-        await reviewSessionController.reload();
-      },
-    });
-    throw new Error(decision.message);
-  } catch (error) {
-    if (blockedDecisionMessage) {
-      throw new Error(blockedDecisionMessage);
-    }
-    const decision = buildReviewDomainSyncSafetyDecision(null, error, {
-      currentCardId,
-    });
-    await openManualSyncConflictResolutionDialog(context as never, {
-      reviewBlockDecision: decision,
-      diagnosticsUnavailableReason: decision.message,
-    });
-    throw error instanceof Error ? error : new Error(String(error));
-  }
-}
-
-function buildReviewRepairGateEvidence(
-  decision: ReturnType<typeof buildReviewDomainSyncSafetyDecision>,
-  currentCardId: string | null,
-  reason: string,
-): BackendReviewSessionRepairGateEvidence {
-  return {
-    state: decision.sanityStatus === 'repairable' ? 'accepted-repairable' : 'clean',
-    reason,
-    createdAt: Date.now(),
-    cardId: currentCardId,
-    sanityStatus: decision.sanityStatus ?? null,
-  };
-}
-
 function createReviewSessionControllerInstance(): ReviewSessionController<ActiveReviewItem> {
   return createReviewSessionController(
     props.queue as never,
@@ -1467,7 +1383,6 @@ function createReviewSessionControllerInstance(): ReviewSessionController<Active
       initialCurrentItem: effectiveInitialCurrentItem as never,
       initialShowAnswer: effectiveInitialShowAnswer,
       prepareStateBeforeCommit: prepareReviewStateBeforeCommit,
-      ensureActionSafe: ensureReviewDomainSyncSafeForAction as never,
       onQueueCompleted: () => requestReviewTruthFlush('queue-complete'),
     },
   ) as ReviewSessionController<ActiveReviewItem>;
@@ -1505,7 +1420,6 @@ const hook = useReviewSession(
     initialCurrentItem: effectiveInitialCurrentItem as never,
     initialShowAnswer: effectiveInitialShowAnswer,
     prepareStateBeforeCommit: prepareReviewStateBeforeCommit,
-    ensureActionSafe: ensureReviewDomainSyncSafeForAction as never,
     onQueueCompleted: () => requestReviewTruthFlush('queue-complete'),
     controller: reviewSessionController as never,
     surfaceId: reviewSessionId.value,

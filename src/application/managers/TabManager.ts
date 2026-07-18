@@ -52,6 +52,7 @@ import {
   loadReviewViewComponent,
   loadSrsBrowserComponent,
 } from './lazySurfaceComponents';
+import type { ReviewProjectionSurfaceHandle } from '@/application/services/ReviewProjectionWorkCoordinator';
 
 const logger = createLogger('TabManager');
 
@@ -115,6 +116,7 @@ interface ReviewTabRuntimeHandle {
   custom: TabRuntimeContext;
   bridge: ReviewViewTabBridge | null;
   lastActiveAt: number;
+  reviewProjectionSurface: ReviewProjectionSurfaceHandle;
   pendingSurfaceRefreshTimer: number | null;
   removeActivityListeners: () => void;
 }
@@ -908,7 +910,7 @@ export class TabManager {
         return 'failed';
       }
 
-      runtime.lastActiveAt = Date.now();
+      this.markReviewTabRuntimeActive(runtime);
       return 'synced';
     } catch (error) {
       logger.error('Failed to sync neural review tab', {
@@ -922,19 +924,6 @@ export class TabManager {
 
   hasOpenNeuralReviewTab(): boolean {
     return this.getLatestNeuralReviewTabRuntime() !== null;
-  }
-
-  getActiveReviewQueueType(): QueueType | null {
-    let selected: ReviewTabRuntimeHandle | null = null;
-    for (const runtime of this.reviewTabRuntimes.values()) {
-      if (!runtime.queueType) {
-        continue;
-      }
-      if (!selected || runtime.lastActiveAt > selected.lastActiveAt) {
-        selected = runtime;
-      }
-    }
-    return selected?.queueType ?? null;
   }
 
   private getPluginI18n(): Record<string, string> {
@@ -996,7 +985,7 @@ export class TabManager {
         return 'failed';
       }
 
-      runtime.lastActiveAt = Date.now();
+      this.markReviewTabRuntimeActive(runtime);
       return 'synced';
     } catch (error) {
       logger.error('Failed to focus Review Semantic session', {
@@ -1070,7 +1059,7 @@ export class TabManager {
     const markActive = () => {
       const handle = this.reviewTabRuntimes.get(customId);
       if (handle) {
-        handle.lastActiveAt = Date.now();
+        this.markReviewTabRuntimeActive(handle);
       }
     };
 
@@ -1094,6 +1083,11 @@ export class TabManager {
       attachListener(runtime.element ?? null, 'focusin', markActive),
     ];
 
+    const reviewProjectionSurface = this.context.getReviewProjectionWorkCoordinator().activateSurface({
+      surfaceId: customId,
+      surfaceKind: 'tab',
+      queueType: data.entryTarget.queueType,
+    });
     this.reviewTabRuntimes.set(customId, {
       customId,
       queueType: data.entryTarget.queueType,
@@ -1101,6 +1095,7 @@ export class TabManager {
       custom: runtime,
       bridge,
       lastActiveAt: Date.now(),
+      reviewProjectionSurface,
       pendingSurfaceRefreshTimer: null,
       removeActivityListeners: () => {
         detachFns.forEach((detach) => detach());
@@ -1431,6 +1426,7 @@ export class TabManager {
     }
     this.restoreTemporaryNeuralRoamEngineModeIfNeeded(this.normalizeReviewTabData(existing.custom.data));
     existing.removeActivityListeners();
+    existing.reviewProjectionSurface.release();
     this.reviewTabRuntimes.delete(normalizedId);
   }
 
@@ -1450,7 +1446,7 @@ export class TabManager {
   private focusReviewTab(runtime: ReviewTabRuntimeHandle): boolean {
     try {
       runtime.custom.tab?.parent?.switchTab(runtime.custom.tab.headElement);
-      runtime.lastActiveAt = Date.now();
+      this.markReviewTabRuntimeActive(runtime);
       return true;
     } catch (error) {
       logger.error('Failed to focus neural review tab', {
@@ -1460,6 +1456,11 @@ export class TabManager {
       });
       return false;
     }
+  }
+
+  private markReviewTabRuntimeActive(runtime: ReviewTabRuntimeHandle): void {
+    runtime.lastActiveAt = Date.now();
+    runtime.reviewProjectionSurface.markActive();
   }
 
   async closeReviewTab(reviewSessionId: string): Promise<void> {

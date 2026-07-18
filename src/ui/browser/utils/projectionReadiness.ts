@@ -3,7 +3,6 @@ import type {
   FetchRowsResult,
   ICardDataSource,
 } from '../datasource/types';
-
 const PROJECTION_NOT_READY_CODE = 'QUEUE_PROJECTION_NOT_READY';
 const PROJECTION_NOT_READY_RETRY_DELAYS_MS = [150, 300, 600, 1200] as const;
 
@@ -17,6 +16,10 @@ export function isQueueProjectionNotReadyError(error: unknown): boolean {
   }
   return typeof candidate.message === 'string'
     && candidate.message.startsWith(`${PROJECTION_NOT_READY_CODE}:`);
+}
+
+function isTransientProjectionReadinessError(error: unknown): boolean {
+  return isQueueProjectionNotReadyError(error);
 }
 
 function delay(ms: number): Promise<void> {
@@ -33,7 +36,7 @@ export async function fetchRowsWithProjectionReadinessRetry(
       return await dataSource.fetchRows(options);
     } catch (error) {
       const retryDelay = PROJECTION_NOT_READY_RETRY_DELAYS_MS[attempt];
-      if (!isQueueProjectionNotReadyError(error) || retryDelay == null || !shouldContinue()) {
+      if (!isTransientProjectionReadinessError(error) || retryDelay == null || !shouldContinue()) {
         throw error;
       }
       await delay(retryDelay);

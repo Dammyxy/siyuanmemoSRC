@@ -36,7 +36,7 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
 
 function createUndoEntry(beforeCard: FSRSCard, afterCard: FSRSCard): ReviewTransactionUndoJournalEntry {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     transactionId: 'txn-undo-sql',
     undoToken: 'worker-review-session-undo:sql:1',
     sessionId: 'session-undo-sql',
@@ -48,16 +48,18 @@ function createUndoEntry(beforeCard: FSRSCard, afterCard: FSRSCard): ReviewTrans
     beforeCard,
     afterCard,
     frontierBefore: {
-      cards: [],
-      current: beforeCard,
+      cardIds: [],
+      currentCardId: beforeCard.id,
+      currentBlockId: beforeCard.blockId,
       avoidOnceCardId: null,
       avoidOnceBlockId: null,
       projectionGeneration: 7,
       projectionPolicyHash: 'retrieval-policy',
     },
     frontierAfter: {
-      cards: [],
-      current: null,
+      cardIds: [],
+      currentCardId: null,
+      currentBlockId: null,
       avoidOnceCardId: null,
       avoidOnceBlockId: null,
       projectionGeneration: 8,
@@ -219,6 +221,76 @@ describe('Review Transaction Undo Journal SQLite integration', () => {
          FROM review_events
         WHERE event_type = 'review-undo-v1'`,
     )).toHaveLength(1);
+
+    db.dispose();
+  });
+
+  it('rejects malformed persisted schema-v1 frontier evidence before consuming the journal row', async () => {
+    const db = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await db.load({
+      truthDeviceId: 'device-undo-legacy-test',
+      identityEpoch: 'epoch-undo-legacy-test',
+    });
+    const beforeCard = createCard({ id: 'card-legacy-invalid' });
+    const legacyPayload = {
+      ...createUndoEntry(beforeCard, { ...beforeCard, reps: beforeCard.reps + 1 }),
+      schemaVersion: 1,
+      undoToken: 'undo-legacy-invalid',
+      transactionId: 'transaction-legacy-invalid',
+      sessionId: 'session-legacy-invalid',
+      frontierBefore: {
+        cards: [{ ...beforeCard, id: '' }],
+        current: beforeCard,
+        avoidOnceCardId: null,
+        avoidOnceBlockId: null,
+        projectionGeneration: 7,
+        projectionPolicyHash: 'retrieval-policy',
+      },
+      frontierAfter: {
+        cards: [],
+        current: null,
+        avoidOnceCardId: null,
+        avoidOnceBlockId: null,
+        projectionGeneration: 7,
+        projectionPolicyHash: 'retrieval-policy',
+      },
+    };
+    db.run(
+      `INSERT OR REPLACE INTO review_transaction_undo_journal
+        (undo_token, transaction_id, session_id, queue_type, operation, card_id,
+         original_review_idempotency_key, status, recorded_at, undone_at, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        legacyPayload.undoToken,
+        legacyPayload.transactionId,
+        legacyPayload.sessionId,
+        legacyPayload.queueType,
+        legacyPayload.operation,
+        legacyPayload.cardId,
+        legacyPayload.originalReviewIdempotencyKey,
+        legacyPayload.status,
+        legacyPayload.recordedAt,
+        legacyPayload.undoneAt,
+        JSON.stringify(legacyPayload),
+      ],
+    );
+
+    const journal = db.createReviewTransactionUndoJournal();
+    await expect(journal.consume({
+      sessionId: legacyPayload.sessionId,
+      undoToken: legacyPayload.undoToken,
+    })).rejects.toThrow('WORKER_REVIEW_UNDO_JOURNAL_INVALID_FRONTIER');
+    expect(db.getOne<{ status: string; undone_at: number | null }>(
+      `SELECT status, undone_at
+         FROM review_transaction_undo_journal
+        WHERE undo_token = ?`,
+      [legacyPayload.undoToken],
+    )).toEqual({ status: 'open', undone_at: null });
+    expect(db.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+         FROM review_events
+        WHERE event_type = 'review-undo-v1'`,
+    )?.count).toBe(0);
 
     db.dispose();
   });

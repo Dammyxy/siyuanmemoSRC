@@ -4,32 +4,32 @@
 The system SHALL derive plugin startup readiness from a typed disposition that distinguishes verified write authority, recovery-required evidence, and transient authority unavailability; it MUST NOT collapse those states into a boolean identity-ready flag.
 
 #### Scenario: Verified identity permits write-capable readiness
-- **WHEN** IndexedDB and localStorage Truth Device Identity evidence agree on `pluginInstallationId` and `identityEpoch`, authoritative truth/delta evidence is trusted, the Disposable SQLite Projection is readable, and no hard-pressure gate remains
+- **WHEN** the installation-local Truth Device Identity authority verifies `pluginInstallationId` and `identityEpoch`, authoritative truth/delta evidence is trusted, the Disposable SQLite Projection is readable, and no hard-pressure gate remains
 - **THEN** startup MAY report write-capable normal readiness
 - **AND** the verified `deviceId` and `identityEpoch` SHALL be supplied to every truth mutation path
 
-#### Scenario: Conflicting identity authorities require recovery
-- **WHEN** Truth Device Identity resolution returns `identity-recovery-required` because the two authority copies conflict
+#### Scenario: Ambiguous legacy identity evidence requires recovery
+- **WHEN** Truth Device Identity resolution returns `identity-recovery-required` because installation authority is missing and legacy browser or immutable continuity evidence is ambiguous
 - **THEN** startup SHALL expose `STORAGE_RECOVERY_REQUIRED` with a safe identity-conflict reason
 - **AND** it SHALL NOT report normal write-capable readiness
 
 #### Scenario: Invalid identity evidence requires recovery
-- **WHEN** either authoritative identity record is structurally invalid or its continuity cannot be proven
+- **WHEN** the installation authority record is structurally invalid or its continuity cannot be proven
 - **THEN** startup SHALL enter the explicit read-only recovery path or fail closed according to the active storage recovery contract
 - **AND** it SHALL NOT generate a replacement identity as a compatibility fallback
 
 #### Scenario: Identity authority read is transiently unavailable
-- **WHEN** IndexedDB or localStorage identity authority cannot be read because of a transient access failure
+- **WHEN** the installation-local identity authority or its initialization fence cannot be accessed because of a transient failure
 - **THEN** startup SHALL enter read-only `STORAGE_RECOVERY_REQUIRED` with a retryable `IDENTITY_AUTHORITY_UNAVAILABLE` subreason
 - **AND** it SHALL remain distinguishable from durable identity conflict, valid first-install absence, and verified identity
 - **AND** it SHALL NOT enable truth writes
 
 #### Scenario: First-install identity creation succeeds
-- **WHEN** both identity authorities validly prove first-install absence and the authoritative identity creation protocol writes and verifies matching copies
+- **WHEN** the evidence probe proves the installation empty and the fenced creation protocol writes and exactly re-reads one installation authority
 - **THEN** startup SHALL continue using the newly verified identity and epoch
 
 #### Scenario: First-install identity creation cannot be verified
-- **WHEN** first-install identity creation cannot write or re-read matching authoritative copies
+- **WHEN** first-install identity creation cannot write or exactly re-read the installation authority
 - **THEN** startup SHALL NOT report write-capable normal readiness
 - **AND** it SHALL expose an explicit recovery or authority-unavailable reason
 
@@ -42,7 +42,7 @@ The typed startup disposition SHALL be evaluated before Review journal replay mu
 - **AND** it SHALL NOT be deleted, marked successful, advanced under an unverified epoch, or written through a fallback identity
 
 #### Scenario: Identity becomes verified later
-- **WHEN** a later retry proves matching identity authority and the pending Review work still has valid durable evidence
+- **WHEN** a later retry verifies the installation authority and the pending Review work still has valid durable evidence
 - **THEN** the Worker-owned writer path MAY resume that work exactly once using the verified identity and epoch
 - **AND** idempotency checks SHALL prevent duplicate Review facts
 

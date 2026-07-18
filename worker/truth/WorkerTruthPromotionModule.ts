@@ -57,6 +57,9 @@ export interface WorkerTruthPromotionResult {
   coveredJournalSequence: number;
   truthGenerationId: string | null;
   error: string | null;
+  failureClass?: 'retryable' | 'recovery-required' | null;
+  retryAfterMs?: number | null;
+  retryAttemptCount?: number;
 }
 
 export interface WorkerTruthPromotionRequest {
@@ -106,6 +109,15 @@ function journalSequence(entry: WorkerTruthPromotionJournalEntry): number | null
 
 function cloneEntry(entry: WorkerTruthPromotionJournalEntry): WorkerTruthPromotionJournalEntry {
   return structuredClone(entry);
+}
+
+function isDeterministicFrontierFailure(error: string): boolean {
+  return error.startsWith('journal-sequence-gap:')
+    || error.includes('identity-mismatch')
+    || error.includes('unsupported-version')
+    || error.includes('journal-sequence-missing')
+    || error.includes('coverage-non-monotonic')
+    || error.includes('frontier-');
 }
 
 export class WorkerTruthPromotionModule {
@@ -309,6 +321,9 @@ export class WorkerTruthPromotionModule {
       coveredJournalSequence: state.coverage?.coveredJournalSequence ?? 0,
       truthGenerationId: state.coverage?.truthGenerationId ?? null,
       error,
+      failureClass: isDeterministicFrontierFailure(error) ? 'recovery-required' : 'retryable',
+      retryAfterMs: isDeterministicFrontierFailure(error) ? null : this.retryDelayMs,
+      retryAttemptCount: priorAttempts + 1,
     };
   }
 

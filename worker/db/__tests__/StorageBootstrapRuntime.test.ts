@@ -246,7 +246,7 @@ describe('StorageBootstrapRuntime', () => {
     expect(truthFileStore.binary.has(corruptSegmentPath)).toBe(true);
   });
 
-  it('classifies invalid canonical truth for read-only recovery without deleting evidence', async () => {
+  it('classifies invalid canonical truth without deleting evidence', async () => {
     const truthFileStore = new MemoryTruthFileStore();
     await seedCardTruth(truthFileStore);
     const manifestPath = 'truth/card-memory-facts/card-memory-facts-v1/device-device-local/manifest.v1.json';

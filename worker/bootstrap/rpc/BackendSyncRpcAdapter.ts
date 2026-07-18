@@ -117,6 +117,9 @@ const BACKEND_SYNC_RPC_HANDLER_ADAPTERS: {
       if (statusRequest.context === 'review-feedback-preflight') {
         return context.sync.database.getDomainSyncStatusForPreflight('review-feedback-preflight');
       }
+      if (statusRequest.context === 'snapshot-preflight') {
+        return context.sync.database.getDomainSyncStatusForPreflight('snapshot-preflight');
+      }
       return context.sync.database.getDomainSyncStatus();
     },
   },

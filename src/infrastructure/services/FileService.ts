@@ -28,6 +28,11 @@ import { ManualSyncBackupInventory } from './ManualSyncBackupInventory';
 
 const logger = createLogger('FileService');
 const SQLITE_DATABASE_HEADER = new TextEncoder().encode('SQLite format 3\0');
+const SIYUANMEMO_INSTALLATION_IDENTITY_ROOT = '/conf/siyuan-plugin-siyuanmemo';
+const SIYUANMEMO_INSTALLATION_IDENTITY_FILES = new Set([
+  'truth-device-identity.v1.json',
+  'truth-device-identity.previous.v1.json',
+]);
 
 function isSqliteDatabaseBytes(bytes: Uint8Array): boolean {
   if (bytes.byteLength < SQLITE_DATABASE_HEADER.byteLength) {
@@ -96,6 +101,15 @@ export interface IFileService {
    * Write local-only temp JSON. This is workspace-local state, not plugin petal storage.
    */
   writeTempLocalJSON?(fileName: string, data: unknown): Promise<void>;
+
+  /** Read a strictly allowlisted local installation identity file under workspace conf/. */
+  readInstallationIdentityText?(fileName: string): Promise<string | null>;
+
+  /** Write a strictly allowlisted local installation identity file under workspace conf/. */
+  writeInstallationIdentityText?(fileName: string, content: string): Promise<void>;
+
+  /** Probe whether a plugin-data subtree contains any files or directories. */
+  hasPluginDataEntries?(prefix: string): Promise<boolean>;
 
   /**
    * 列出插件数据目录下某个相对目录的直接文件
@@ -187,6 +201,20 @@ interface ReadDirEntry {
 interface FileApiEnvelope {
   code?: number;
   data?: unknown;
+}
+
+function parseFileApiEnvelope(response: Response, bytes: Uint8Array): FileApiEnvelope | null {
+  if (!response.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+    return null;
+  }
+  try {
+    const value = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return typeof value === 'object' && value !== null
+      ? value as FileApiEnvelope
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function describeLoadedData(data: unknown): Record<string, unknown> {
@@ -323,7 +351,15 @@ export class FileService implements IFileService {
       if (buffer.byteLength === 0) {
         return null;
       }
-      return new Uint8Array(buffer);
+      const bytes = new Uint8Array(buffer);
+      const envelope = parseFileApiEnvelope(response, bytes);
+      if (envelope?.code === 404) {
+        return null;
+      }
+      if (envelope?.code !== undefined && envelope.code !== 0) {
+        throw new Error(`SiYuan getFile failed with code ${envelope.code}`);
+      }
+      return bytes;
     } catch (error) {
       if (this.isFileNotFoundError(error)) {
         return null;
@@ -497,8 +533,110 @@ export class FileService implements IFileService {
     }
   }
 
+  async readInstallationIdentityText(fileName: string): Promise<string | null> {
+    const path = this.resolveInstallationIdentityPath(fileName, 'read');
+    try {
+      const response = await fetch('/api/file/getFile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      const text = await response.text();
+      const envelope = this.parseTextFileApiEnvelope(response, text);
+      if (envelope?.code === 404) {
+        return null;
+      }
+      if (!response.ok || (envelope?.code !== undefined && envelope.code !== 0)) {
+        throw new Error(`SiYuan getFile failed: HTTP ${response.status}, code ${envelope?.code ?? 'unknown'}`);
+      }
+      return text.trim() ? text : null;
+    } catch (error) {
+      if (this.isFileNotFoundError(error)) {
+        return null;
+      }
+      throw new FileOperationError(
+        'read',
+        path,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
+
+  async writeInstallationIdentityText(fileName: string, content: string): Promise<void> {
+    const path = this.resolveInstallationIdentityPath(fileName, 'write');
+    try {
+      await putFile(
+        path,
+        new Blob([content], { type: 'application/json' }),
+      );
+    } catch (error) {
+      throw new FileOperationError(
+        'write',
+        path,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
+
+  async hasPluginDataEntries(prefix: string): Promise<boolean> {
+    const normalized = String(prefix || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .replace(/\/+$/g, '');
+    if (!normalized || normalized.includes('..')) {
+      throw new FileOperationError('read', prefix, new Error('invalid plugin data evidence prefix'));
+    }
+    const path = this.resolvePluginDataPath(normalized);
+    try {
+      const response = await fetch('/api/file/readDir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      const envelope = await response.json() as FileApiEnvelope;
+      if (envelope.code === 404) {
+        return false;
+      }
+      if (!response.ok || envelope.code !== 0) {
+        throw new Error(`SiYuan readDir failed: HTTP ${response.status}, code ${envelope.code ?? 'unknown'}`);
+      }
+      return normalizeReadDirEntries(envelope.data).length > 0;
+    } catch (error) {
+      throw new FileOperationError(
+        'read',
+        path,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
+
   async listFiles(prefix: string): Promise<string[]> {
-    return (await this.listFileEntries(prefix)).map((entry) => entry.path);
+    const normalized = String(prefix || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .replace(/\/+$/g, '');
+    if (!normalized || normalized.includes('..')) {
+      throw new FileOperationError('read', prefix, new Error('invalid plugin data directory prefix'));
+    }
+    const pending = [normalized];
+    const files: string[] = [];
+    while (pending.length > 0) {
+      const directory = pending.shift()!;
+      const entries = await this.readDir(this.resolvePluginDataPath(directory));
+      for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+        const name = String(entry.name || '').trim();
+        if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) {
+          continue;
+        }
+        const path = `${directory}/${name}`;
+        if (entry.isDir) {
+          pending.push(path);
+        } else {
+          files.push(path);
+        }
+      }
+    }
+    return files.sort();
   }
 
   async listFileEntries(prefix: string): Promise<Array<{ path: string; size: number | null }>> {
@@ -681,6 +819,36 @@ export class FileService implements IFileService {
       throw new FileOperationError(operation, fileName, new Error('invalid temp-local path'));
     }
     return `/${SIYUANMEMO_TEMP_PROJECTION_ROOT_PATH}/local/${normalized}`;
+  }
+
+  private resolveInstallationIdentityPath(fileName: string, operation: 'read' | 'write'): string {
+    const normalized = String(fileName || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '');
+    if (!SIYUANMEMO_INSTALLATION_IDENTITY_FILES.has(normalized)) {
+      throw new FileOperationError(operation, fileName, new Error('invalid installation identity path'));
+    }
+    return `${SIYUANMEMO_INSTALLATION_IDENTITY_ROOT}/${normalized}`;
+  }
+
+  private parseTextFileApiEnvelope(response: Response, text: string): FileApiEnvelope | null {
+    if (!response.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      if (
+        typeof parsed === 'object'
+        && parsed !== null
+        && typeof (parsed as { code?: unknown }).code === 'number'
+        && 'data' in parsed
+      ) {
+        return parsed as FileApiEnvelope;
+      }
+    } catch {
+      return null;
+    }
+    return null;
   }
 
   private async removeAbsoluteFile(path: string): Promise<void> {

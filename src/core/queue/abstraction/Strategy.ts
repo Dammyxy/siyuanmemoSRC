@@ -57,14 +57,6 @@ export type QueueFeedback = {
   durationMs?: number;
   /** Stable command identity for retrying the same user feedback attempt */
   commitIdempotencyKey?: string;
-  /** Review-session sync safety gate captured before an ordinary rating commit */
-  repairGate?: {
-    state: 'clean' | 'accepted-repairable' | 'blocking' | 'unavailable';
-    reason: string;
-    createdAt: number;
-    cardId?: string | null;
-    sanityStatus?: string | null;
-  } | null;
 };
 
 export type QueueFeedbackAdvanceResult<TItem extends import('../types').QueueItem = import('../types').QueueItem> = {

@@ -10,6 +10,7 @@ import { BACKEND_BROWSER_RPC_HANDLER_REGISTRATIONS, type BackendBrowserRpcHandle
 import { BACKEND_CARD_RPC_HANDLER_REGISTRATIONS, type BackendCardRpcHandlerContext } from './BackendCardRpcAdapter';
 import { BACKEND_CORE_RPC_HANDLER_REGISTRATIONS, type BackendCoreRpcHandlerContext } from './BackendCoreRpcAdapter';
 import { BACKEND_GRAPH_RPC_HANDLER_REGISTRATIONS, type BackendGraphRpcHandlerContext } from './BackendGraphRpcAdapter';
+import { BACKEND_FOREIGN_EPOCH_RECOVERY_RPC_HANDLER_REGISTRATIONS, type BackendForeignEpochRecoveryRpcHandlerContext } from './BackendForeignEpochRecoveryRpcAdapter';
 import { BACKEND_HOTSPOT_RPC_HANDLER_REGISTRATIONS, type BackendHotspotRpcHandlerContext } from './BackendHotspotRpcAdapter';
 import { BACKEND_KERNEL_TRANSACTION_RPC_HANDLER_REGISTRATIONS, type BackendKernelTransactionRpcHandlerContext } from './BackendKernelTransactionRpcAdapter';
 import { BACKEND_NEURAL_ROAM_RPC_HANDLER_REGISTRATIONS, type BackendNeuralRoamRpcHandlerContext } from './BackendNeuralRoamRpcAdapter';
@@ -26,6 +27,7 @@ import { BACKEND_TOPIC_DERIVED_RPC_HANDLER_REGISTRATIONS, type BackendTopicDeriv
 export interface BackendKernelRpcHandlerContext
   extends BackendAutoCardRpcHandlerContext,
     BackendCoreRpcHandlerContext,
+    BackendForeignEpochRecoveryRpcHandlerContext,
     BackendBrowserRpcHandlerContext,
     BackendCardRpcHandlerContext,
     BackendHotspotRpcHandlerContext,
@@ -62,6 +64,7 @@ export interface BackendRpcHandlerRegistry<TContext = unknown> {
 
 export const BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS = Object.freeze([
   ...BACKEND_CORE_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_FOREIGN_EPOCH_RECOVERY_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_SYNC_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_BROWSER_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_CARD_RPC_HANDLER_REGISTRATIONS,

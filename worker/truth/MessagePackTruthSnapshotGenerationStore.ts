@@ -4,6 +4,7 @@ import {
   type MessagePackTruthRecord,
   type MessagePackTruthSegmentFileStore,
   type MessagePackTruthSegmentManifest,
+  type MessagePackTruthReplayResult,
 } from './MessagePackTruthSegmentStore';
 
 export const MESSAGEPACK_TRUTH_GENERATION_FENCE_VERSION = 1 as const;
@@ -218,6 +219,29 @@ export class MessagePackTruthSnapshotGenerationStore {
       );
     }
 
+    const existingGeneration = await this.fileStore.readJSON<MessagePackTruthSnapshotGeneration>(
+      this.generationDescriptorPath(generationId),
+    );
+    if (existingGeneration) {
+      let existingReplay: MessagePackTruthVerifiedGenerationReplay;
+      try {
+        existingReplay = await this.replayVerifiedGeneration({
+          generationId,
+          manifestPath: existingGeneration.manifest.path,
+          manifestChecksum: existingGeneration.manifestChecksum,
+          verifiedAt: existingGeneration.verifiedAt,
+        });
+      } catch {
+        throw new Error(`snapshot-generation-immutable-conflict:${generationId}`);
+      }
+      if (
+        existingReplay.records.length !== input.records.length
+        || !recordsEquivalent(existingReplay.records, input.records)
+      ) {
+        throw new Error(`snapshot-generation-immutable-conflict:${generationId}`);
+      }
+    }
+
     const segmentStore = createMessagePackTruthSegmentStore({
       fileStore: this.fileStore,
       family: this.family,
@@ -228,12 +252,19 @@ export class MessagePackTruthSnapshotGenerationStore {
       maxSegmentRecords: this.maxSegmentRecords,
       basePath: this.basePath,
     });
-    const existing = await segmentStore.replayRecords({ dedupeByIdempotencyKey: false });
+    const existing = existingGeneration
+      ? {
+          manifest: existingGeneration.manifest,
+          records: input.records,
+        }
+      : await segmentStore.replayRecords({ dedupeByIdempotencyKey: false });
     let manifest = existing.manifest;
-    if (existing.records.length === 0 && existing.manifest.segments.length === 0) {
-      manifest = (await segmentStore.appendRecords(input.records)).manifest;
-    } else if (!recordsEquivalent(existing.records, input.records)) {
-      throw new Error(`snapshot-generation-immutable-conflict:${generationId}`);
+    if (!existingGeneration) {
+      if (existing.records.length === 0 && existing.manifest.segments.length === 0) {
+        manifest = (await segmentStore.appendRecords(input.records)).manifest;
+      } else if (!recordsEquivalent(existing.records, input.records)) {
+        throw new Error(`snapshot-generation-immutable-conflict:${generationId}`);
+      }
     }
 
     const verified = await segmentStore.replayRecords({ dedupeByIdempotencyKey: false });
@@ -363,7 +394,11 @@ export class MessagePackTruthSnapshotGenerationStore {
       maxSegmentRecords: this.maxSegmentRecords,
       basePath: this.basePath,
     });
-    const replay = await segmentStore.replayRecords({ dedupeByIdempotencyKey: false });
+    const replay = await this.replayVerifiedGenerationManifest(
+      segmentStore,
+      generation,
+      reference,
+    );
     const manifestChecksum = await sha256Json(replay.manifest);
     if (
       replay.manifest.path !== reference.manifestPath
@@ -380,6 +415,58 @@ export class MessagePackTruthSnapshotGenerationStore {
       manifest: replay.manifest,
       records: replay.records,
     };
+  }
+
+  private async replayVerifiedGenerationManifest(
+    segmentStore: ReturnType<typeof createMessagePackTruthSegmentStore>,
+    generation: MessagePackTruthSnapshotGeneration,
+    reference: MessagePackTruthGenerationReference,
+  ): Promise<MessagePackTruthReplayResult> {
+    let currentReplay: MessagePackTruthReplayResult | null = null;
+    let currentError: unknown = null;
+    try {
+      currentReplay = await segmentStore.replayRecords({ dedupeByIdempotencyKey: false });
+      const currentChecksum = await sha256Json(currentReplay.manifest);
+      if (
+        currentReplay.manifest.path === reference.manifestPath
+        && currentChecksum === reference.manifestChecksum
+        && currentChecksum === generation.manifestChecksum
+        && currentReplay.records.length === generation.recordCount
+        && JSON.stringify(currentReplay.manifest) === JSON.stringify(generation.manifest)
+      ) {
+        return currentReplay;
+      }
+    } catch (error) {
+      currentError = error;
+    }
+
+    let descriptorReplay: MessagePackTruthReplayResult;
+    try {
+      descriptorReplay = await segmentStore.replayManifestRecords(
+        generation.manifest,
+        { dedupeByIdempotencyKey: false },
+      );
+    } catch (error) {
+      if (currentError) {
+        throw currentError;
+      }
+      throw error;
+    }
+    const descriptorChecksum = await sha256Json(descriptorReplay.manifest);
+    if (
+      descriptorReplay.manifest.path !== reference.manifestPath
+      || descriptorChecksum !== reference.manifestChecksum
+      || descriptorChecksum !== generation.manifestChecksum
+      || descriptorReplay.records.length !== generation.recordCount
+      || JSON.stringify(descriptorReplay.manifest) !== JSON.stringify(generation.manifest)
+    ) {
+      if (currentError) {
+        throw currentError;
+      }
+      throw new Error(`snapshot-generation-reference-verification-failed:${generation.generationId}`);
+    }
+    await this.fileStore.writeJSON(reference.manifestPath, generation.manifest);
+    return descriptorReplay;
   }
 
   async reclaimObsoleteGenerations(): Promise<MessagePackTruthGenerationRetentionResult> {

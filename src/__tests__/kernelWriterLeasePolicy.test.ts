@@ -457,4 +457,38 @@ describe('kernel writer lease profile policy', () => {
     ]);
   });
 
+  it('serializes Truth Device Identity initialization independently of writer ownership', async () => {
+    const { handlers } = await loadKernelHarness();
+    const first = await handlers['identity.acquireInitializationFence']({
+      instanceId: 'origin-a',
+      ttlMs: 15_000,
+    }) as { ok: boolean; fence: { token: string } };
+    expect(first).toMatchObject({ ok: true, fence: { instanceId: 'origin-a' } });
+
+    await expect(handlers['identity.acquireInitializationFence']({
+      instanceId: 'origin-b',
+      ttlMs: 15_000,
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'FENCE_UNAVAILABLE' },
+      fence: { instanceId: 'origin-a' },
+    });
+
+    await expect(handlers['identity.releaseInitializationFence']({
+      instanceId: 'origin-a',
+      token: first.fence.token,
+    })).resolves.toMatchObject({ ok: true, fence: null });
+    await expect(handlers['identity.acquireInitializationFence']({
+      instanceId: 'origin-b',
+    })).resolves.toMatchObject({ ok: true, fence: { instanceId: 'origin-b' } });
+  });
+
+  it('cleans the identity initialization fence when the kernel plugin unloads', async () => {
+    const { handlers, unload } = await loadKernelHarness();
+    await handlers['identity.acquireInitializationFence']({ instanceId: 'origin-a' });
+    await unload();
+    await expect(handlers['identity.acquireInitializationFence']({ instanceId: 'origin-b' }))
+      .resolves.toMatchObject({ ok: true, fence: { instanceId: 'origin-b' } });
+  });
+
 });

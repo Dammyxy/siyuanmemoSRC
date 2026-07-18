@@ -116,6 +116,7 @@ const SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS = 250;
 const SOURCE_EXISTENCE_STATUS_CACHE_MAX_SIZE = 4096;
 const BROWSER_LOCAL_DELETION_IDENTITY_MAX_SIZE = 4096;
 const BROWSER_QUEUE_DIAGNOSTIC_ID_LIMIT = 8;
+const BROWSER_QUEUE_RECOVERY_PREVIEW_CACHE_TTL_MS = 1_000;
 
 type BrowserApplicationBackendClient = Pick<
   BackendBrowserClientFacet,
@@ -237,6 +238,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly siyuanApi: BrowserSiyuanPort;
   private readonly queueCountInFlight = new Map<BrowserQueueId, Promise<number>>();
   private readonly queueCountCache = new Map<BrowserQueueId, { value: number; timestamp: number }>();
+  private readonly queueRecoveryPreviewCache = new Map<QueueType, { cards: FSRSCard[]; expiresAt: number }>();
+  private readonly queueRecoveryPreviewInFlight = new Map<QueueType, Promise<FSRSCard[]>>();
   private sourceExistenceSweepInFlight: Promise<unknown> | null = null;
   private readonly sourceExistenceUpdateListeners = new Set<(update: BrowserSourceExistenceUpdate) => void>();
   private readonly sourceExistenceStatusCache = new Map<string, boolean | null>();
@@ -288,7 +291,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         querySiyuanApi,
         browserDeckReadPort,
         {
-          isReadOnlyRecoveryQueueStateAllowed: () => !this.canRunBrowserProjectionMutation(),
+          isReadOnlyRecoveryQueueStateAllowed: () => true,
+          readReadOnlyRecoveryCards: (queueType, queue) => this.readQueueRecoveryPreviewCards(queueType, queue),
         },
       )
       : null;
@@ -330,7 +334,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
             sortModel: [],
           }, cards);
         },
-        isReadOnlyRecoveryQueueStateAllowed: () => !this.canRunBrowserProjectionMutation(),
+        isReadOnlyRecoveryQueueStateAllowed: () => true,
+        readReadOnlyRecoveryCards: (queueType, queue) => this.readQueueRecoveryPreviewCards(queueType, queue),
       })
       : null;
     this.siyuanApi = siyuanApi;
@@ -414,6 +419,47 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       documentCounts: (scope) => this.getBrowserDocumentCounts(scope),
     };
     return this.browserReadModelFacade;
+  }
+
+  private async readQueueRecoveryPreviewCards(
+    queueType: QueueType,
+    queue: IReviewQueue,
+  ): Promise<FSRSCard[]> {
+    const cached = this.queueRecoveryPreviewCache.get(queueType);
+    if (cached && cached.expiresAt >= Date.now()) {
+      return cached.cards.map((card) => ({ ...card }));
+    }
+    if (cached) {
+      this.queueRecoveryPreviewCache.delete(queueType);
+    }
+
+    const active = this.queueRecoveryPreviewInFlight.get(queueType);
+    if (active) {
+      return (await active).map((card) => ({ ...card }));
+    }
+    if (typeof queue.getReadOnlyRecoveryCards !== 'function') {
+      return [];
+    }
+
+    const read = measureRuntimePerformance(
+      'browser',
+      'queue.local-preview-cards',
+      () => queue.getReadOnlyRecoveryCards!(),
+      { queueType },
+    );
+    this.queueRecoveryPreviewInFlight.set(queueType, read);
+    try {
+      const cards = await read;
+      this.queueRecoveryPreviewCache.set(queueType, {
+        cards,
+        expiresAt: Date.now() + BROWSER_QUEUE_RECOVERY_PREVIEW_CACHE_TTL_MS,
+      });
+      return cards.map((card) => ({ ...card }));
+    } finally {
+      if (this.queueRecoveryPreviewInFlight.get(queueType) === read) {
+        this.queueRecoveryPreviewInFlight.delete(queueType);
+      }
+    }
   }
 
   private registerBrowserLocalDeletionObserver(): void {
@@ -924,7 +970,6 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     if (
       scope.kind !== 'queue'
       || result.owner !== 'queue-projection'
-      || this.canRunBrowserProjectionMutation()
       || !this.unifiedDataSourceManager
     ) {
       return null;
@@ -946,7 +991,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     const startedAt = performance.now();
-    const cards = await queue.getReadOnlyRecoveryCards();
+    const cards = await this.readQueueRecoveryPreviewCards(route.queueType, queue);
     const browserRows = cards.map((card, index) => mapQueueFsrsCardToBrowserCard(card, {
       firstReviewMode: isRetrievalBrowserQueue(route.queueId) ? 'created-or-last' : 'last-review',
       queueIndex: index + 1,
@@ -1073,14 +1118,9 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
   async repairQueueReadModel(request: QueueProjectionReadinessRequest): Promise<boolean> {
     const queueType = resolveQueueTypeForBrowserQueueId(resolveBrowserQueueIdForQueueType(request.queueType as QueueType) ?? request.queueType);
-    if (!queueType || !this.unifiedDataSourceManager) {
+    if (!queueType || !this.canRepairQueueReadModel()) {
       return false;
     }
-    if (typeof this.unifiedDataSourceManager.repairQueueProjection !== 'function') {
-      return false;
-    }
-    this.assertBrowserProjectionMutationAllowed('browser queue projection repair');
-
     const result = await this.unifiedDataSourceManager.repairQueueProjection({
       type: 'refresh',
       queueType,
@@ -1091,7 +1131,13 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   canRepairQueueReadModel(): boolean {
-    return this.canRunBrowserProjectionMutation();
+    if (typeof this.unifiedDataSourceManager?.repairQueueProjection !== 'function') {
+      return false;
+    }
+    if (this.srsBackendClient?.isStartupWriteCapable?.() === false) {
+      return false;
+    }
+    return this.frontendInstanceRuntime?.getMode?.() !== 'follower';
   }
 
   private buildSubmittedQueueProjectionReadinessRequest(
@@ -1212,7 +1258,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     cards: Array<{ blockId?: unknown }>,
     options: { limit?: number } = {},
   ): void {
-    if (!this.srsBackendClient || cards.length === 0 || !this.canRunBrowserProjectionMutation()) {
+    if (!this.srsBackendClient || cards.length === 0) {
       return;
     }
 
@@ -1397,7 +1443,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   private scheduleSourceExistenceSweepFromBackend(): void {
-    if (!this.srsBackendClient || this.sourceExistenceSweepInFlight || !this.canRunBrowserProjectionMutation()) {
+    if (!this.srsBackendClient || this.sourceExistenceSweepInFlight) {
       return;
     }
 
@@ -1435,7 +1481,9 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         status = 'swept';
       } catch (error) {
         status = 'error';
-        throw error;
+        logger.debug('Worker source existence background sweep failed; keeping cache fail-open', {
+          error,
+        });
       } finally {
         finishSweepSpan({
           candidateCount,
@@ -1463,8 +1511,6 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     if (!this.srsBackendClient) {
       return { checked: 0, updated: 0, changed: false, changedToMissing: false, changedBlockIds: [] };
     }
-    this.assertBrowserProjectionMutationAllowed('source-existence sweep');
-
     const relaySweepHost = async () => {
       if (!this.frontendInstanceRuntime || !this.followerCommandClient) {
         throw new Error('worker relay applySweepHost is unavailable');
@@ -1538,16 +1584,6 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     );
   }
 
-  private canRunBrowserProjectionMutation(): boolean {
-    return this.srsBackendClient?.isStartupWriteCapable?.() !== false;
-  }
-
-  private assertBrowserProjectionMutationAllowed(operation: string): void {
-    if (!this.canRunBrowserProjectionMutation()) {
-      throw new Error(`STORAGE_RECOVERY_REQUIRED: ${operation} requires writable startup readiness`);
-    }
-  }
-
   getQueueById(queueId: string): IReviewQueue | null {
     if (!this.unifiedDataSourceManager) return null;
 
@@ -1582,6 +1618,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       if (
         candidate.message.startsWith('QUEUE_PROJECTION_NOT_READY:')
         || candidate.message.startsWith('QUEUE_PROJECTION_UNAVAILABLE:')
+        || candidate.message.includes('STORAGE_PRESSURE:')
+        || candidate.message.includes('STORAGE_RECOVERY_REQUIRED:')
       ) {
         return true;
       }

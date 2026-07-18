@@ -4,6 +4,10 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 import type { MessagePackTruthSegmentFileStore } from '../MessagePackTruthSegmentStore';
 import {
+  createMessagePackTruthSegmentStore,
+  type MessagePackTruthSegmentManifest,
+} from '../MessagePackTruthSegmentStore';
+import {
   MessagePackTruthSnapshotGenerationStore,
 } from '../MessagePackTruthSnapshotGenerationStore';
 
@@ -159,6 +163,35 @@ describe('MessagePackTruthSnapshotGenerationStore', () => {
     expect(second.generation.manifest.segments.every((segment) => (
       fileStore.json.has(`${segment.path}.checksum.json`)
     ))).toBe(true);
+  });
+
+  it('repairs a descriptor-backed generation manifest that drifted after interrupted retry', async () => {
+    const fileStore = new MemoryFileStore();
+    const store = createStore(fileStore);
+
+    const published = await store.publishGeneration({
+      generationId: 'snapshot-1',
+      records: [snapshot('card-1', 1), snapshot('card-2', 2), snapshot('card-3', 3)],
+      expectedCurrentGenerationId: null,
+    });
+    const descriptorManifest = structuredClone(published.generation.manifest) as MessagePackTruthSegmentManifest;
+    const driftWriter = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      generationId: 'snapshot-1',
+      schemaVersion: 1,
+      maxSegmentBytes: 64 * 1024,
+      maxSegmentRecords: 2,
+    });
+    await driftWriter.appendRecords([snapshot('drift-card', 99)]);
+
+    expect(fileStore.json.get(descriptorManifest.path)).not.toEqual(descriptorManifest);
+
+    const replay = await store.replayVerifiedGeneration(published.fence.current!);
+
+    expect(replay.records.map((record) => record.aggregateId)).toEqual(['card-1', 'card-2', 'card-3']);
+    expect(fileStore.json.get(descriptorManifest.path)).toEqual(descriptorManifest);
   });
 
   it('keeps previous fence authoritative and classifies interrupted candidate files as orphans', async () => {

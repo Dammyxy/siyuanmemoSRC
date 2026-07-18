@@ -1,5 +1,7 @@
 ## Context
 
+> Historical supersession (2026-07-17): Decisions 7 and the identity portion of this migration plan describe the former browser-authority implementation. Use [Runtime ADR-006](../../../docs/ADR-006-truth-device-identity-authority.md) and `establish-installation-truth-device-identity-authority` for the current identity contract. Other decisions in this completed change are not superseded by that identity cutover.
+
 SiYuanMemo already uses Worker-owned SQLite transactions, SQLite delta segments, MessagePack Review truth, and temporary SQLite projections, but ownership is incomplete. Renderer composition still exposes write-capable SQL and whole-database save paths; canonical truth coverage is concentrated in Review; truth compaction is planned but not executed; and temporary device identity can disappear or diverge.
 
 Observed local state already contains 192 sealed delta segments, 143 truth segments, a manifest with 131 segments, and a 27.5 MB temporary database. These numbers prove that durability, compaction, file-count limits, identity, and recovery must become one coherent storage contract.

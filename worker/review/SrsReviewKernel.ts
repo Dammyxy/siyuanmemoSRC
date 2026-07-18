@@ -403,11 +403,8 @@ function mapKernelFailure(
   input: SrsReviewKernelCommand | SrsReviewKernelQuery,
 ): SrsReviewKernelFailure {
   const message = error instanceof Error ? error.message : String(error);
-  if (message.includes('CURRENT_MISMATCH') || message.includes('REPAIR_GATE_BLOCKED')) {
+  if (message.includes('CURRENT_MISMATCH')) {
     return createKernelFailure(command, 'conflict', 'STALE_CURRENT_TARGET', message, input);
-  }
-  if (message.includes('stale repair gate')) {
-    return createKernelFailure(command, 'conflict', 'STALE_REPAIR_GATE', message, input);
   }
   if (message.includes('conflicting review commit idempotency key')) {
     return createKernelFailure(command, 'conflict', 'IDEMPOTENCY_CONFLICT', message, input);

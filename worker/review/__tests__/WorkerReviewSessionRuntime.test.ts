@@ -6,7 +6,10 @@ import {
   beginBackendWorkerTiming,
   endBackendWorkerRequest,
 } from '../../bootstrap/ReviewFeedbackTimingScope';
-import { InMemoryReviewTransactionUndoJournal } from '../ReviewTransactionUndoJournal';
+import {
+  InMemoryReviewTransactionUndoJournal,
+  type ReviewTransactionUndoJournalEntry,
+} from '../ReviewTransactionUndoJournal';
 import { WorkerReviewSessionRuntime } from '../WorkerReviewSessionRuntime';
 
 const NOW = 1_779_300_000_000;
@@ -58,6 +61,51 @@ function createProjectionRow(card: FSRSCard, index: number): QueueProjectionRow 
     sourceGeneration: 7,
     payload: {},
     updatedAt: NOW,
+  };
+}
+
+function createCompactUndoEntry(
+  current: FSRSCard,
+  queued: FSRSCard[],
+  overrides: Partial<ReviewTransactionUndoJournalEntry> = {},
+): ReviewTransactionUndoJournalEntry {
+  return {
+    schemaVersion: 2,
+    transactionId: 'transaction-compact',
+    undoToken: 'undo-compact',
+    sessionId: 'session-compact',
+    queueType: QueueType.RetrievalPractice,
+    operation: 'answer',
+    cardId: current.id,
+    replayedCardId: current.id,
+    originalReviewIdempotencyKey: 'review-compact',
+    beforeCard: current,
+    afterCard: { ...current, reps: current.reps + 1 },
+    frontierBefore: {
+      cardIds: queued.map((card) => card.id),
+      currentCardId: current.id,
+      currentBlockId: current.blockId,
+      avoidOnceCardId: null,
+      avoidOnceBlockId: null,
+      projectionGeneration: 7,
+      projectionPolicyHash: 'retrieval-policy',
+    },
+    frontierAfter: {
+      cardIds: [],
+      currentCardId: queued[0]?.id ?? null,
+      currentBlockId: queued[0]?.blockId ?? null,
+      avoidOnceCardId: current.id,
+      avoidOnceBlockId: current.blockId,
+      projectionGeneration: 7,
+      projectionPolicyHash: 'retrieval-policy',
+    },
+    queueImpact: null,
+    projectionGeneration: 7,
+    projectionPolicyHash: 'retrieval-policy',
+    recordedAt: NOW,
+    status: 'open',
+    undoneAt: null,
+    ...overrides,
   };
 }
 
@@ -115,12 +163,6 @@ describe('WorkerReviewSessionRuntime', () => {
       rating: 3,
       reviewedAt: NOW,
       idempotencyKey: 'feedback-key',
-      repairGate: {
-        state: 'clean',
-        reason: 'test-clean-gate',
-        createdAt: NOW,
-        cardId: first.id,
-      },
     });
 
     expect(result.answeredCardId).toBe(first.id);
@@ -248,62 +290,54 @@ describe('WorkerReviewSessionRuntime', () => {
     expect(feedbackRuntime.reviewFeedback).not.toHaveBeenCalled();
   });
 
-  it('fails closed before commit when repair gate is missing or unsafe', async () => {
-    const first = createCard('card-1');
-    const cardsById = new Map([[first.id, first] as const]);
-    const readRows = vi.fn(() => [createProjectionRow(first, 1)]);
-    const feedbackRuntime = {
-      reviewFeedback: vi.fn(async () => ({
-        cardId: first.id,
-        committed: true,
-        reviewedAt: NOW,
-        queueType: QueueType.RetrievalPractice,
-        updatedCard: null,
-      })),
-    };
+  it('persists skip undo evidence as ordered identities without frontier card objects', async () => {
+    const first = createCard('card-skip-1');
+    const second = createCard('card-skip-2', 1_000);
+    const cardsById = new Map([first, second].map((card) => [card.id, card] as const));
+    const appended: ReviewTransactionUndoJournalEntry[] = [];
     const runtime = new WorkerReviewSessionRuntime({
       repository: {
         getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
       },
       queueProjection: {
-        readGeneration: vi.fn(() => ({
-          queueType: QueueType.RetrievalPractice,
-          policyHash: 'retrieval-policy',
-          generation: 7,
-          status: 'ready',
-        })),
-        readRows,
+        readGeneration: vi.fn(),
+        readRows: vi.fn(() => [createProjectionRow(first, 1), createProjectionRow(second, 2)]),
       },
-      feedbackRuntime,
+      feedbackRuntime: {
+        reviewFeedback: vi.fn(),
+      },
+      undoJournal: {
+        append: vi.fn(async (entry) => {
+          appended.push(entry);
+        }),
+        consume: vi.fn(() => null),
+      },
     });
-
     const started = await runtime.startSession({
-      sessionId: 'session-gate',
+      sessionId: 'session-compact-skip',
       queueType: QueueType.RetrievalPractice,
       ...ADMITTED_PROJECTION,
     });
 
-    await expect(runtime.feedback({
-      sessionId: started.sessionId,
-      cardId: first.id,
-      rating: 3,
-      reviewedAt: NOW,
-    })).rejects.toThrow('WORKER_REVIEW_SESSION_REPAIR_GATE_UNAVAILABLE: missing repair gate');
+    await runtime.skip({ sessionId: started.sessionId, cardId: first.id });
 
-    await expect(runtime.feedback({
-      sessionId: started.sessionId,
-      cardId: first.id,
-      rating: 3,
-      reviewedAt: NOW,
-      repairGate: {
-        state: 'blocking',
-        reason: 'current-card-conflict',
-        createdAt: NOW,
-        cardId: first.id,
+    expect(appended).toHaveLength(1);
+    expect(appended[0]).toMatchObject({
+      schemaVersion: 2,
+      operation: 'skip',
+      frontierBefore: {
+        cardIds: [second.id],
+        currentCardId: first.id,
+        currentBlockId: first.blockId,
       },
-    })).rejects.toThrow('WORKER_REVIEW_SESSION_REPAIR_GATE_BLOCKED: current-card-conflict');
-
-    expect(feedbackRuntime.reviewFeedback).not.toHaveBeenCalled();
+      frontierAfter: {
+        cardIds: [first.id],
+        currentCardId: second.id,
+        currentBlockId: second.blockId,
+      },
+    });
+    expect(appended[0].frontierBefore).not.toHaveProperty('cards');
+    expect(appended[0].frontierAfter).not.toHaveProperty('current');
   });
 
   it('restores answer schedule and frontier from durable undo journal after runtime restart', async () => {
@@ -372,15 +406,10 @@ describe('WorkerReviewSessionRuntime', () => {
       rating: 3,
       reviewedAt: NOW,
       idempotencyKey: 'feedback-key',
-      repairGate: {
-        state: 'clean',
-        reason: 'test-clean-gate',
-        createdAt: NOW,
-        cardId: first.id,
-      },
     });
     expect(cardsById.get(first.id)).toMatchObject({ reps: first.reps + 1, lastReview: NOW });
 
+    repository.getCard.mockClear();
     const restarted = createRuntime();
     const undone = await restarted.undo({
       sessionId: started.sessionId,
@@ -396,6 +425,60 @@ describe('WorkerReviewSessionRuntime', () => {
     });
     expect(cardsById.get(first.id)).toMatchObject({ reps: first.reps, lastReview: first.lastReview, due: first.due });
     expect(repository.upsertCards).toHaveBeenCalledWith([expect.objectContaining({ id: first.id, reps: first.reps })]);
+    expect(repository.getCard.mock.calls.map(([cardId]) => cardId)).toEqual([second.id, first.id]);
+  });
+
+  it('fails closed without installing a partial restarted session when a frontier card is missing', async () => {
+    const current = createCard('card-missing-current');
+    const missing = createCard('card-missing-next', 1_000);
+    const cardsById = new Map([[current.id, current]]);
+    const runtime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
+      },
+      queueProjection: null,
+      feedbackRuntime: { reviewFeedback: vi.fn() },
+      undoJournal: {
+        append: vi.fn(),
+        consume: vi.fn(() => ({
+          ...createCompactUndoEntry(current, [missing]),
+          scheduleRestoreApplied: true,
+        })),
+      },
+    });
+
+    await expect(runtime.undo({
+      sessionId: 'session-compact',
+      undoToken: 'undo-compact',
+    })).rejects.toThrow('WORKER_REVIEW_SESSION_UNDO_FRONTIER_INVALID: missing card card-missing-next');
+    expect(() => runtime.getSessionState('session-compact'))
+      .toThrow('WORKER_REVIEW_SESSION_UNAVAILABLE: session-compact');
+  });
+
+  it('fails closed when the hydrated current card block identity differs from the journal', async () => {
+    const recorded = createCard('card-block-mismatch');
+    const stored = { ...recorded, blockId: 'block-different' };
+    const runtime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: vi.fn(() => stored),
+      },
+      queueProjection: null,
+      feedbackRuntime: { reviewFeedback: vi.fn() },
+      undoJournal: {
+        append: vi.fn(),
+        consume: vi.fn(() => ({
+          ...createCompactUndoEntry(recorded, []),
+          scheduleRestoreApplied: true,
+        })),
+      },
+    });
+
+    await expect(runtime.undo({
+      sessionId: 'session-compact',
+      undoToken: 'undo-compact',
+    })).rejects.toThrow('WORKER_REVIEW_SESSION_UNDO_FRONTIER_INVALID: current block mismatch');
+    expect(() => runtime.getSessionState('session-compact'))
+      .toThrow('WORKER_REVIEW_SESSION_UNAVAILABLE: session-compact');
   });
 
   it('treats duplicate undo requests for the same durable token as idempotent', async () => {
@@ -462,12 +545,6 @@ describe('WorkerReviewSessionRuntime', () => {
       rating: 3,
       reviewedAt: NOW,
       idempotencyKey: 'feedback-key',
-      repairGate: {
-        state: 'clean',
-        reason: 'test-clean-gate',
-        createdAt: NOW,
-        cardId: first.id,
-      },
     });
 
     const firstUndo = await runtime.undo({
@@ -543,12 +620,6 @@ describe('WorkerReviewSessionRuntime', () => {
       rating: 3,
       reviewedAt: NOW,
       idempotencyKey: 'feedback-key',
-      repairGate: {
-        state: 'clean',
-        reason: 'test-clean-gate',
-        createdAt: NOW,
-        cardId: first.id,
-      },
     });
 
     await expect(runtime.undo({
@@ -614,12 +685,6 @@ describe('WorkerReviewSessionRuntime', () => {
         rating: 3,
         reviewedAt: NOW,
         idempotencyKey: 'feedback-key',
-        repairGate: {
-          state: 'clean',
-          reason: 'test-clean-gate',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       });
 
       expect(undoJournal.append).not.toHaveBeenCalled();
@@ -630,10 +695,14 @@ describe('WorkerReviewSessionRuntime', () => {
           cardId: first.id,
           beforeCard: expect.objectContaining({ id: first.id }),
           frontierBefore: expect.objectContaining({
-            current: expect.objectContaining({ id: first.id }),
+            cardIds: [second.id],
+            currentCardId: first.id,
+            currentBlockId: first.blockId,
           }),
           frontierAfter: expect.objectContaining({
-            current: expect.objectContaining({ id: second.id }),
+            cardIds: [],
+            currentCardId: second.id,
+            currentBlockId: second.blockId,
           }),
         }),
       }));
@@ -641,6 +710,72 @@ describe('WorkerReviewSessionRuntime', () => {
     } finally {
       endBackendWorkerRequest(timing);
     }
+  });
+
+  it('keeps a representative 113-card answer undo payload compact', async () => {
+    const cards = Array.from({ length: 113 }, (_, index) => ({
+      ...createCard(`card-budget-${String(index + 1).padStart(3, '0')}`, index * 1_000),
+      meta: {
+        representativeContent: 'x'.repeat(900),
+      },
+    }));
+    const cardsById = new Map(cards.map((card) => [card.id, card] as const));
+    let persistedEntry: ReviewTransactionUndoJournalEntry | null = null;
+    const runtime = new WorkerReviewSessionRuntime({
+      repository: {
+        getCard: vi.fn((cardId: string) => cardsById.get(cardId) ?? null),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(),
+        readRows: vi.fn(() => cards.map(createProjectionRow)),
+      },
+      feedbackRuntime: {
+        reviewFeedback: vi.fn(async (request) => {
+          const updatedCard = { ...cards[0], reps: cards[0].reps + 1 };
+          persistedEntry = request.transactionUndoJournalEntry
+            ? { ...request.transactionUndoJournalEntry, afterCard: updatedCard }
+            : null;
+          return {
+            cardId: cards[0].id,
+            committed: true,
+            reviewedAt: NOW,
+            queueType: QueueType.RetrievalPractice,
+            updatedCard,
+            queueImpact: null,
+          };
+        }),
+      },
+      undoJournal: {
+        append: vi.fn(),
+        consume: vi.fn(() => null),
+      },
+    });
+    const started = await runtime.startSession({
+      sessionId: 'session-budget',
+      queueType: QueueType.RetrievalPractice,
+      ...ADMITTED_PROJECTION,
+    });
+
+    await runtime.feedback({
+      sessionId: started.sessionId,
+      cardId: cards[0].id,
+      rating: 3,
+      reviewedAt: NOW,
+      idempotencyKey: 'review-budget',
+    });
+
+    expect(persistedEntry).toMatchObject({
+      schemaVersion: 2,
+      beforeCard: expect.objectContaining({ id: cards[0].id }),
+      afterCard: expect.objectContaining({ id: cards[0].id }),
+      frontierBefore: {
+        cardIds: cards.slice(1).map((card) => card.id),
+        currentCardId: cards[0].id,
+      },
+    });
+    expect(persistedEntry?.frontierBefore).not.toHaveProperty('cards');
+    expect(persistedEntry?.frontierAfter).not.toHaveProperty('current');
+    expect(new TextEncoder().encode(JSON.stringify(persistedEntry)).byteLength).toBeLessThan(32 * 1024);
   });
 
   it('flushes sub-threshold session steps and unattributed gap when feedback total is slow', async () => {
@@ -705,12 +840,6 @@ describe('WorkerReviewSessionRuntime', () => {
         rating: 3,
         reviewedAt: NOW,
         idempotencyKey: 'feedback-key',
-        repairGate: {
-          state: 'clean',
-          reason: 'test-clean-gate',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       });
 
       expect(timing.innerSteps.map((step) => step.step)).toEqual([
@@ -804,12 +933,6 @@ describe('WorkerReviewSessionRuntime', () => {
         rating: 3,
         reviewedAt: NOW,
         idempotencyKey: 'feedback-key',
-        repairGate: {
-          state: 'clean',
-          reason: 'test-clean-gate',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       });
 
       expect(timing.innerSteps).toEqual([]);

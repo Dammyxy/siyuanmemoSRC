@@ -132,6 +132,14 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
   }
 
   async function refreshNeuralRoutes(): Promise<void> {
+    const backendViewState = await readBackendNeuralRoamViewState();
+    if (applyBackendRoutes(backendViewState)) {
+      return;
+    }
+    await refreshLocalNeuralRoutes();
+  }
+
+  async function refreshLocalNeuralRoutes(): Promise<void> {
     const neuralQueue = getNeuralRoamQueue();
     if (!neuralQueue?.listRoutes) {
       neuralRoutes.value = [];
@@ -143,6 +151,21 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       deps.logError('Failed to list NeuralRoam routes:', error);
       neuralRoutes.value = [];
     }
+  }
+
+  async function readBackendNeuralRoamViewState(): Promise<BackendNeuralRoamViewState | null> {
+    return await deps.readNeuralRoamViewState?.().catch((error) => {
+      deps.logError('Failed to read backend NeuralRoam view state:', error);
+      return null;
+    }) ?? null;
+  }
+
+  function applyBackendRoutes(backendViewState: BackendNeuralRoamViewState | null): boolean {
+    if (!Array.isArray((backendViewState as { routes?: unknown[] } | null)?.routes)) {
+      return false;
+    }
+    neuralRoutes.value = (backendViewState as { routes: NeuralRoamRouteListItem[] }).routes;
+    return true;
   }
 
   function getActiveNeuralRoute(): NeuralRoamRouteListItem | null {
@@ -511,13 +534,9 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     }
 
     await waitForNeuralQueueInitialLoad(neuralQueue);
-    await refreshNeuralRoutes();
-    const backendViewState = await deps.readNeuralRoamViewState?.().catch((error) => {
-      deps.logError('Failed to read backend NeuralRoam view state:', error);
-      return null;
-    }) ?? null;
-    if (Array.isArray((backendViewState as { routes?: unknown[] } | null)?.routes)) {
-      neuralRoutes.value = (backendViewState as { routes: NeuralRoamRouteListItem[] }).routes;
+    const backendViewState = await readBackendNeuralRoamViewState();
+    if (!applyBackendRoutes(backendViewState)) {
+      await refreshLocalNeuralRoutes();
     }
     const navState = neuralQueue.getNavigationState();
     const viewNavState = backendViewState?.navigationState

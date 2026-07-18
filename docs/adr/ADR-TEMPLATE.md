@@ -1,5 +1,7 @@
 # ADR-XXX: [标题]
 
+> 此模板属于已冻结的 Legacy DDD series，不再用于新决策。新 ADR 请按 [Architecture Decision Registry](../ADR-INDEX.md) 继续 Runtime Architecture series。
+
 ## 状态
 
 [提议中 | 已接受 | 已废弃 | 已替代]

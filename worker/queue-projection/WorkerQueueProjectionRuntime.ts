@@ -78,8 +78,10 @@ export class WorkerQueueProjectionRuntime {
     }
 
     const policyHash = normalizeOptionalString(request.policyHash) ?? generation.policyHash;
-    const requestedGeneration = normalizeOptionalInteger(request.generation) ?? generation.generation;
     const counters = this.deps.queueProjection.readCounters(queueType, policyHash);
+    const requestedGeneration = normalizeOptionalInteger(request.generation)
+      ?? normalizeOptionalInteger(counters?.generation)
+      ?? generation.generation;
     if (generation.status !== 'ready') {
       return {
         queueType,
@@ -90,6 +92,22 @@ export class WorkerQueueProjectionRuntime {
         counters,
         freshness: null,
       };
+    }
+    if (!counters) {
+      return buildRefreshingProjectionSnapshotResult({
+        queueType,
+        policyHash,
+        generation: requestedGeneration,
+        cacheState: 'missing-derived-cache',
+      });
+    }
+    if (normalizeOptionalInteger(counters.generation) !== requestedGeneration) {
+      return buildRefreshingProjectionSnapshotResult({
+        queueType,
+        policyHash,
+        generation: requestedGeneration,
+        cacheState: 'missing-derived-cache',
+      });
     }
 
     const rows = this.deps.queueProjection.readRows({
@@ -271,7 +289,7 @@ export class WorkerQueueProjectionRuntime {
       updatedAt,
     });
     const sourceCards = this.deps.repository.getCardsByExactIds(candidateRows.map((row) => row.cardId));
-    const admitted = admitActiveProjectionReplaceRows(candidateRows, sourceCards);
+    const admitted = admitExistingProjectionReplaceRows(candidateRows, sourceCards);
     const rows = admitted.rows;
     const counters = buildQueueProjectionCountersFromRows({
       queueType,
@@ -301,7 +319,7 @@ export class WorkerQueueProjectionRuntime {
             sourceRows: admitted.freshness.totalRows,
             admittedRows: rows.length,
             droppedMissingRows: admitted.freshness.missingRows,
-            droppedStaleRows: admitted.freshness.staleRows,
+            staleRowsAtWrite: admitted.freshness.staleRows,
           },
         },
       });
@@ -504,7 +522,7 @@ function buildProjectionSnapshotRows(
   };
 }
 
-function admitActiveProjectionReplaceRows(
+function admitExistingProjectionReplaceRows(
   projectionRows: QueueProjectionRow[],
   cards: FSRSCard[],
 ): {
@@ -516,7 +534,7 @@ function admitActiveProjectionReplaceRows(
   const rows = projectionRows
     .filter((row) => {
       const card = cardById.get(String(row.cardId || '').trim());
-      return Boolean(card && !isStaleProjectionMembership(row, card));
+      return Boolean(card);
     })
     .map((row, index) => ({
       ...row,

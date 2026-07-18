@@ -194,6 +194,55 @@ describe('WorkerTruthReconciliationModule', () => {
     expect(result.conflicts).toEqual([]);
   });
 
+  it('does not treat legacy delta card snapshots and review facts as duplicate payload conflicts', () => {
+    const result = reconcileWorkerTruthRecords([
+      source('device-A', 'epoch-A', [
+        cardRecord({
+          mutationId: 'legacy-delta:1',
+          aggregateId: 'card-1',
+          revision: 'revision-1',
+          causalBaseRevision: null,
+          logicalTime: 1,
+        }),
+        {
+          family: 'review-events',
+          schemaVersion: 1,
+          type: 'storage.review.event.v1',
+          idempotencyKey: 'truth-output:legacy-delta:1:1:review:event',
+          mutationId: 'legacy-delta:1',
+          mutationFamily: 'review',
+          logicalTime: 2,
+          recordedAt: 2,
+          output: {
+            family: 'review',
+            kind: 'event',
+            aggregateIds: ['card-1'],
+          },
+        },
+        {
+          family: 'review-events',
+          schemaVersion: 1,
+          type: 'storage.review.metadata.v1',
+          idempotencyKey: 'truth-output:legacy-delta:1:2:review:metadata',
+          mutationId: 'legacy-delta:1',
+          mutationFamily: 'review',
+          logicalTime: 2,
+          recordedAt: 2,
+          output: {
+            family: 'review',
+            kind: 'metadata',
+            aggregateIds: ['sync_metadata'],
+          },
+        },
+      ]),
+    ]);
+
+    expect(result.conflicts).toEqual([]);
+    expect(result.blockedAggregateIds).toEqual([]);
+    expect(result.effectiveCardRecords).toHaveLength(1);
+    expect(result.reviewFacts).toHaveLength(2);
+  });
+
   it('preserves concurrent same-card mutations and blocks the aggregate', () => {
     const result = reconcileWorkerTruthRecords([
       source('device-A', 'epoch-A', [cardRecord({

@@ -195,6 +195,65 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('lets hidden canonical desktop primary app acquire an empty writer lease on startup', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'hidden',
+      hasFocus: vi.fn(() => false),
+      body: { className: 'fn__flex-column body--win32' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 SiYuan/3.6.5 Chrome/146 Electron/41 Safari/537.36',
+      platform: 'Win32',
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'primary-instance',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'primary-scope',
+        visibilityState: 'hidden',
+        documentHasFocus: false,
+      },
+      now: 1,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'primary-instance',
+      runtimeScopeId: 'primary-scope',
+      backendContainer: 'std',
+      frontendKind: 'desktop',
+      isBrowser: false,
+      isMobile: false,
+    });
+
+    await runtime.start();
+
+    expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'primary-instance',
+      visibilityState: 'hidden',
+      documentHasFocus: false,
+      writerProfile: expect.objectContaining({
+        surfaceRole: 'primary-app',
+        writerEligibility: 'canonical',
+      }),
+    }));
+    expect(runtime.getMode()).toBe('writer');
+    await runtime.dispose();
+  });
+
   it('releases writer lease and refuses writable mode when backend worker health is unhealthy', async () => {
     let backendHealthy = true;
     const writerReleaseLease = vi.fn(async () => ({ ok: true, lease: null, now: 2 }));

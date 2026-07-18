@@ -219,4 +219,32 @@ describe('KernelSidecarClient', () => {
     });
     expect(call).toHaveBeenCalledWith('queueProjection.publishIdentityChanged', request);
   });
+
+  it('preserves identity initialization fence success and unavailable envelopes', async () => {
+    const call = vi.fn(async (method: string) => {
+      if (method === 'identity.acquireInitializationFence') {
+        return {
+          ok: true,
+          fence: {
+            instanceId: 'origin-a',
+            token: 'token-a',
+            acquiredAt: 1,
+            expiresAt: 100,
+          },
+          now: 1,
+        };
+      }
+      return {
+        ok: false,
+        error: { code: 'FENCE_UNAVAILABLE', message: 'owned elsewhere' },
+        fence: null,
+        now: 2,
+      };
+    });
+    const client = new KernelSidecarClient({ getStatus: vi.fn(), call });
+    await expect(client.identityAcquireInitializationFence({ instanceId: 'origin-a' }))
+      .resolves.toMatchObject({ ok: true, fence: { token: 'token-a' } });
+    await expect(client.identityReleaseInitializationFence({ instanceId: 'origin-a', token: 'token-a' }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'FENCE_UNAVAILABLE' } });
+  });
 });

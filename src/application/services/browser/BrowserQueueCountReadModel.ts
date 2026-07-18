@@ -33,6 +33,10 @@ export interface BrowserQueueCountReadModelOptions {
     cards: FSRSCard[],
   ) => Promise<number>;
   isReadOnlyRecoveryQueueStateAllowed?: () => boolean;
+  readReadOnlyRecoveryCards?: (
+    queueType: QueueType,
+    queue: IReviewQueue,
+  ) => Promise<FSRSCard[]>;
 }
 
 export class ProjectionBrowserQueueCountReadModel implements BrowserQueueCountReadModel {
@@ -122,9 +126,11 @@ export class ProjectionBrowserQueueCountReadModel implements BrowserQueueCountRe
     if (typeof this.options.countVisibleRecoveryCards !== 'function') {
       throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} recovery visibility reader unavailable`);
     }
-    const cards = await queue.getReadOnlyRecoveryCards();
+    const cards = this.options.readReadOnlyRecoveryCards
+      ? await this.options.readReadOnlyRecoveryCards(queueType, queue)
+      : await queue.getReadOnlyRecoveryCards();
     const count = await this.options.countVisibleRecoveryCards(queueId, cards);
-    logger.debug('QUEUE_COUNT_READ_ONLY_RECOVERY: using explicit recovery queue state', {
+    logger.debug('QUEUE_COUNT_READ_ONLY_RECOVERY: using Browser local queue preview', {
       queueId,
       queueType,
       count,
@@ -136,7 +142,8 @@ export class ProjectionBrowserQueueCountReadModel implements BrowserQueueCountRe
     const message = error instanceof Error ? error.message : String(error);
     return message.includes('QUEUE_PROJECTION_UNAVAILABLE')
       || message.includes('QUEUE_PROJECTION_NOT_READY')
-      || message.includes('QUEUE_PROJECTION_REPAIR_REQUIRED');
+      || message.includes('QUEUE_PROJECTION_REPAIR_REQUIRED')
+      || message.includes('STORAGE_RECOVERY_REQUIRED');
   }
 
   private async resolveProjectionVisibleCount(

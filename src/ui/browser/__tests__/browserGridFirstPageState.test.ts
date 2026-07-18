@@ -11,15 +11,15 @@ const baseInput = {
 };
 
 describe('browser grid first-page state', () => {
-  it('shows shell loading before a datasource is attached', () => {
+  it('keeps grid mounted with loading overlay before a datasource is attached', () => {
     expect(resolveBrowserGridFirstPageState({
       ...baseInput,
       loading: true,
     })).toEqual({
-      overlayKind: null,
+      overlayKind: 'loading',
       showEmptyState: false,
-      showGrid: false,
-      showShellLoading: true,
+      showGrid: true,
+      showShellLoading: false,
     });
   });
 

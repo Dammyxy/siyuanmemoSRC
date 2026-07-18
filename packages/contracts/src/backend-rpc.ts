@@ -3,6 +3,7 @@ import { BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/bro
 import { BACKEND_CARD_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/card';
 import { BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/core';
 import { BACKEND_GRAPH_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/graph';
+import { BACKEND_FOREIGN_EPOCH_RECOVERY_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/foreign-epoch-recovery';
 import { BACKEND_HOTSPOT_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/hotspot';
 import { BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/kernel-transaction';
 import { BACKEND_NEURAL_ROAM_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/neural-roam';
@@ -36,6 +37,7 @@ export {
   STORAGE_PRESSURE_RECORD_VERSION,
   STORAGE_RECOVERY_STATE_VERSION,
   TRUTH_COVERAGE_WATERMARK_VERSION,
+  TRUTH_DEVICE_IDENTITY_AUTHORITY_VERSION,
   TRUTH_DEVICE_IDENTITY_RECORD_VERSION,
   TRUTH_GENERATION_RECORD_VERSION,
 } from './backend-rpc/storage-durability-contracts';
@@ -57,7 +59,15 @@ export type {
   StorageRecoveryStatus,
   StorageRequiredTruthOutput,
   TruthCoverageWatermark,
+  TruthDeviceIdentityAuthorityEnvelopeContract,
+  TruthDeviceIdentityCacheDiagnosticContract,
+  TruthDeviceIdentityCacheKind,
+  TruthDeviceIdentityCacheStatus,
+  TruthDeviceIdentityInstallationEvidenceContract,
+  TruthDeviceIdentityInstallationEvidenceStatus,
   TruthDeviceIdentityRecordContract,
+  TruthDeviceIdentityResolutionStatus,
+  TruthDeviceIdentityVerifiedSource,
   TruthGenerationFamilyPublication,
   TruthGenerationRecord,
 } from './backend-rpc/storage-durability-contracts';
@@ -104,6 +114,9 @@ export const BACKEND_RPC_METHODS = [
   'storage.maintenance.status',
   'storage.maintenance.applyBatch',
   'storage.pressure.recover',
+  'recovery.foreignEpoch.preview',
+  'recovery.foreignEpoch.apply',
+  'recovery.foreignEpoch.status',
   'truth.reconciliation.run',
   'sync.reviewDivergence.audit',
   'sync.conflict.summarize',
@@ -181,6 +194,7 @@ export type BackendRpcMethod = typeof BACKEND_RPC_METHODS[number];
 
 export const BACKEND_RPC_FAMILIES = [
   'core',
+  'recovery',
   'sync',
   'domain-sync',
   'browser',
@@ -322,6 +336,9 @@ export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['storage.maintenance.status'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['storage.maintenance.applyBatch'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['storage.pressure.recover'],
+  BACKEND_FOREIGN_EPOCH_RECOVERY_RPC_METHOD_CONTRACT_BY_METHOD['recovery.foreignEpoch.preview'],
+  BACKEND_FOREIGN_EPOCH_RECOVERY_RPC_METHOD_CONTRACT_BY_METHOD['recovery.foreignEpoch.apply'],
+  BACKEND_FOREIGN_EPOCH_RECOVERY_RPC_METHOD_CONTRACT_BY_METHOD['recovery.foreignEpoch.status'],
   BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['truth.reconciliation.run'],
   BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['sync.reviewDivergence.audit'],
   BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['sync.conflict.summarize'],
@@ -999,7 +1016,7 @@ export interface BackendDomainSyncStatusResult {
 }
 
 export interface BackendDomainSyncStatusRequest {
-  context?: 'review-feedback-preflight' | 'read-only-preflight' | null;
+  context?: 'review-feedback-preflight' | 'snapshot-preflight' | null;
   cardId?: string | null;
 }
 
@@ -1258,18 +1275,18 @@ export interface BackendReviewTruthDeviceDiagnostics {
   deviceId: string | null;
   identityEpoch?: string | null;
   source:
-    | 'authority-copies'
-    | 'indexeddb-repaired-localStorage'
-    | 'localStorage-repaired-indexeddb'
+    | 'installation-authority'
+    | 'legacy-browser-authority-migration'
+    | 'first-install'
     | 'identity-recovery-required'
-    | 'temp-local'
-    | 'localStorage'
-    | 'legacy-localStorage'
-    | 'generated'
-    | 'unavailable';
+    | 'authority-unavailable';
+  status: import('./backend-rpc/storage-durability-contracts').TruthDeviceIdentityResolutionStatus;
+  authorityRevision?: number | null;
   localStatePath: string;
   persisted: boolean;
   cacheUpdated: boolean;
+  cacheDiagnostics?: import('./backend-rpc/storage-durability-contracts').TruthDeviceIdentityCacheDiagnosticContract[];
+  installationEvidence?: import('./backend-rpc/storage-durability-contracts').TruthDeviceIdentityInstallationEvidenceContract | null;
   hostFingerprintMatch?: 'match' | 'changed' | 'unknown';
   error: string | null;
 }
@@ -3415,27 +3432,12 @@ export interface BackendReviewSessionCurrentRequest {
   sessionId: string;
 }
 
-export type BackendReviewSessionRepairGateState =
-  | 'clean'
-  | 'accepted-repairable'
-  | 'blocking'
-  | 'unavailable';
-
-export interface BackendReviewSessionRepairGateEvidence {
-  state: BackendReviewSessionRepairGateState;
-  reason: string;
-  createdAt: number;
-  cardId?: string | null;
-  sanityStatus?: BackendDomainSyncSanityStatus | null;
-}
-
 export interface BackendReviewSessionFeedbackRequest {
   sessionId: string;
   cardId: string;
   rating: 1 | 2 | 3 | 4;
   reviewedAt?: number | null;
   idempotencyKey?: string | null;
-  repairGate?: BackendReviewSessionRepairGateEvidence | null;
 }
 
 export interface BackendReviewSessionSkipRequest {

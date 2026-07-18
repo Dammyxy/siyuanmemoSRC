@@ -27,7 +27,7 @@ export function resolveBrowserGridFirstPageState(input: BrowserGridFirstPageStat
   }
 
   const firstRowsPending = !input.hasFirstDataBlockLoaded;
-  const datasourcePending = input.loading && input.currentDataSourceReady && firstRowsPending;
+  const datasourcePending = input.loading && firstRowsPending;
   const projectionRefreshing = firstRowsPending
     && (input.firstRowsStatus === 'projection-not-ready' || input.firstRowsStatus === 'read-model-preparing');
   const repairRequired = firstRowsPending && input.firstRowsStatus === 'read-model-repair-required';
@@ -44,7 +44,9 @@ export function resolveBrowserGridFirstPageState(input: BrowserGridFirstPageStat
       ? 'loading'
       : null,
     showEmptyState: !input.loading && input.hasFirstDataBlockLoaded && input.totalRowCount === 0,
-    showGrid: input.currentDataSourceReady || !input.loading,
-    showShellLoading: input.loading && !input.currentDataSourceReady,
+    // Keep AG Grid mounted on non-neural Browser surfaces; destroying it during
+    // queue datasource preparation causes visible flashes before rows arrive.
+    showGrid: true,
+    showShellLoading: false,
   };
 }

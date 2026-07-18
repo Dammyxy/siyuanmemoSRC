@@ -123,6 +123,56 @@ describe('QueueProjectionRuntime', () => {
     });
   });
 
+  it('coalesces and briefly caches non-ready readiness checks for the same queue policy', async () => {
+    let resolveSnapshot!: (value: unknown) => void;
+    const backend = {
+      queueProjectionSnapshot: vi.fn(() => new Promise((resolve) => {
+        resolveSnapshot = resolve;
+      })),
+    };
+    const { runtime } = createRuntime({ backend });
+    const request = {
+      queueType: QueueType.IncrementalLearning,
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    };
+
+    const first = runtime.ensureReady(request);
+    const second = runtime.ensureReady(request);
+    expect(backend.queueProjectionSnapshot).toHaveBeenCalledTimes(1);
+
+    resolveSnapshot({
+      queueType: QueueType.IncrementalLearning,
+      status: 'refreshing',
+      policyHash: null,
+      generation: null,
+      rows: [],
+      counters: null,
+      cacheState: 'missing-derived-cache',
+    });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({
+        status: 'refreshing',
+        queueId: QueueType.IncrementalLearning,
+        cause: 'missing_derived_cache',
+      }),
+      expect.objectContaining({
+        status: 'refreshing',
+        queueId: QueueType.IncrementalLearning,
+        cause: 'missing_derived_cache',
+      }),
+    ]);
+
+    await expect(runtime.ensureReady(request)).resolves.toMatchObject({
+      status: 'refreshing',
+      queueId: QueueType.IncrementalLearning,
+      cause: 'missing_derived_cache',
+    });
+    expect(backend.queueProjectionSnapshot).toHaveBeenCalledTimes(1);
+  });
+
   it('reports invalidated retrieval readiness without materializing projection', async () => {
     const card = createCard({
       id: 'retrieval-card',
@@ -1121,6 +1171,78 @@ describe('QueueProjectionRuntime', () => {
         }),
       }),
     );
+  });
+
+  it('logs non-ready projection snapshots only on semantic state transitions', async () => {
+    const staleSnapshot = {
+      queueType: QueueType.FilterGroup,
+      status: 'refreshing',
+      policyHash: 'policy-stale',
+      generation: 12,
+      rows: [],
+      counters: {
+        remaining: 4,
+        due: 2,
+        total: 5,
+        source: 'backend-snapshot',
+      },
+      cacheState: 'projection-stale',
+      freshness: {
+        checkedAt: 1_700_000_100_000,
+        totalRows: 2,
+        freshRows: 1,
+        staleRows: 1,
+        missingRows: 0,
+        staleCardIds: ['card-stale'],
+        missingCardIds: [],
+      },
+    };
+    const backend = {
+      queueProjectionSnapshot: vi.fn()
+        .mockResolvedValueOnce(staleSnapshot)
+        .mockResolvedValueOnce({
+          ...staleSnapshot,
+          freshness: {
+            ...staleSnapshot.freshness,
+            checkedAt: staleSnapshot.freshness.checkedAt + 1,
+          },
+        })
+        .mockResolvedValueOnce({
+          ...staleSnapshot,
+          counters: { ...staleSnapshot.counters, remaining: 3 },
+        })
+        .mockResolvedValueOnce({
+          ...staleSnapshot,
+          status: 'ready',
+          cacheState: 'ready',
+          freshness: {
+            ...staleSnapshot.freshness,
+            freshRows: 2,
+            staleRows: 0,
+            staleCardIds: [],
+          },
+        })
+        .mockResolvedValueOnce(staleSnapshot),
+    };
+    const { runtime, logger } = createRuntime({ backend });
+    const nonReadyInfoCalls = () => logger.info.mock.calls.filter(
+      ([message]) => message === '[SiYuanMemo][QueueProjectionRuntime] Queue projection snapshot not ready',
+    );
+
+    await expect(runtime.readSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+    await expect(runtime.readSnapshot(QueueType.FilterGroup, { forceRefresh: true })).resolves.toBeNull();
+    expect(nonReadyInfoCalls()).toHaveLength(1);
+
+    await expect(runtime.readSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+    expect(nonReadyInfoCalls()).toHaveLength(2);
+
+    await expect(runtime.readSnapshot(QueueType.FilterGroup)).resolves.toMatchObject({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'policy-stale',
+      generation: 12,
+    });
+    await expect(runtime.readSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+    expect(nonReadyInfoCalls()).toHaveLength(3);
   });
 
   it('builds rollout diagnostics from runtime-owned unavailable state and capability checks', async () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { classifyWorkerStartupStorageEvidence } from '../WorkerStartupStorageEvidence';
 
 describe('classifyWorkerStartupStorageEvidence', () => {
-  it('classifies verified canonical evidence and a missing temp projection as rebuilding', () => {
+  it('keeps formal writes disabled while a missing temp projection is rebuilt from verified evidence', () => {
     const evidence = classifyWorkerStartupStorageEvidence({
       now: 1_700_000_000_000,
       identity: {
@@ -90,18 +90,14 @@ describe('classifyWorkerStartupStorageEvidence', () => {
         lastVerifiedGenerationId: 'generation-current',
         replayFromJournalSequence: 7,
         quarantinedPaths: [],
-        disabledCapabilities: [
-          'formal-writes',
-          'review',
-          'sync-upload',
-        ],
+        disabledCapabilities: ['formal-writes', 'review', 'sync-upload'],
         diagnosticReason: 'temp-projection-missing',
         updatedAt: 1_700_000_000_000,
       },
     });
   });
 
-  it('enters read-only recovery when canonical truth or uncovered delta is invalid', () => {
+  it('fails closed when canonical truth or uncovered delta is invalid', () => {
     const evidence = classifyWorkerStartupStorageEvidence({
       now: 1_700_000_000_000,
       identity: {
@@ -162,7 +158,7 @@ describe('classifyWorkerStartupStorageEvidence', () => {
     });
   });
 
-  it('keeps transient identity authority unavailable distinct from invalid canonical evidence', () => {
+  it('keeps authority unavailability retryable but blocks formal writes', () => {
     const evidence = classifyWorkerStartupStorageEvidence({
       now: 1_700_000_000_000,
       identity: {
@@ -175,8 +171,8 @@ describe('classifyWorkerStartupStorageEvidence', () => {
           retryable: true,
           deviceId: null,
           identityEpoch: null,
-          source: 'unavailable',
-          reason: 'IDENTITY_AUTHORITY_UNAVAILABLE: indexedDB read denied',
+          source: 'authority-unavailable',
+          reason: 'IDENTITY_AUTHORITY_UNAVAILABLE: installation authority read denied',
         },
       },
       truth: {
@@ -207,16 +203,16 @@ describe('classifyWorkerStartupStorageEvidence', () => {
 
     expect(evidence.identity).toMatchObject({
       status: 'unavailable',
-      reason: 'IDENTITY_AUTHORITY_UNAVAILABLE: indexedDB read denied',
+      reason: 'IDENTITY_AUTHORITY_UNAVAILABLE: installation authority read denied',
     });
     expect(evidence.recoveryState).toMatchObject({
       status: 'read-only-recovery-required',
       code: 'STORAGE_RECOVERY_REQUIRED',
-      diagnosticReason: 'IDENTITY_AUTHORITY_UNAVAILABLE: indexedDB read denied',
+      diagnosticReason: 'IDENTITY_AUTHORITY_UNAVAILABLE: installation authority read denied',
     });
   });
 
-  it('classifies durable identity recovery as storage recovery rather than missing identity', () => {
+  it('classifies a verified installation identity as ready', () => {
     const evidence = classifyWorkerStartupStorageEvidence({
       now: 1_700_000_000_000,
       identity: {
@@ -224,13 +220,13 @@ describe('classifyWorkerStartupStorageEvidence', () => {
         identityEpoch: 'epoch-conflict',
         disposition: {
           version: 1,
-          status: 'read-only-recovery-required',
-          writable: false,
+          status: 'verified',
+          writable: true,
           retryable: false,
           deviceId: 'device-conflict',
           identityEpoch: 'epoch-conflict',
-          source: 'identity-recovery-required',
-          reason: 'identity authority copies disagree',
+          source: 'installation-authority',
+          reason: null,
         },
       },
       truth: {
@@ -260,15 +256,15 @@ describe('classifyWorkerStartupStorageEvidence', () => {
     });
 
     expect(evidence.identity).toMatchObject({
-      status: 'invalid',
+      status: 'verified',
       deviceId: 'device-conflict',
       identityEpoch: 'epoch-conflict',
-      reason: 'identity authority copies disagree',
+      reason: null,
     });
     expect(evidence.recoveryState).toMatchObject({
-      status: 'read-only-recovery-required',
-      code: 'STORAGE_RECOVERY_REQUIRED',
-      diagnosticReason: 'identity authority copies disagree',
+      status: 'ready',
+      code: null,
+      diagnosticReason: null,
     });
   });
 

@@ -1,5 +1,7 @@
 ## 1. Baseline Contracts And Guards
 
+> Historical supersession (2026-07-17): completed identity tasks 2.1-2.8 describe the former browser-authority implementation. Runtime ADR-006 and `establish-installation-truth-device-identity-authority` replace that identity authority without reopening the other completed storage tasks.
+
 - [x] 1.1 Capture current delta, truth, manifest, temporary DB, and device-identity inventory as deterministic test fixtures and diagnostic expectations
 - [x] 1.2 Define versioned mutation envelope, durability receipt, truth generation, coverage watermark, storage-pressure, recovery-state, and identity-record contracts
 - [x] 1.3 Add boundary checks that reject renderer SQL writers, renderer truth/manifest writers, kernel-companion database ownership, and new whole-database save callers

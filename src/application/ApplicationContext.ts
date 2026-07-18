@@ -34,6 +34,7 @@ import {
 } from '@/application/services/LegacyStorageMigrationSourcePlanner';
 import { SiyuanErrorNotificationAdapter } from '@/infrastructure/notifications/SiyuanErrorNotificationAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
+import { ReviewProjectionWorkCoordinator } from '@/application/services/ReviewProjectionWorkCoordinator';
 import { DialogManager } from '@/application/managers/DialogManager';
 import { MenuManager } from '@/application/managers/MenuManager';
 import { TabManager } from '@/application/managers/TabManager';
@@ -269,6 +270,7 @@ interface ApplicationServiceRegistry {
   arenaStoreService: ArenaStoreService;
   arenaKernelService: ArenaKernelService;
   sharedReviewSessionRegistry: SharedReviewSessionRegistry;
+  reviewProjectionWorkCoordinator: ReviewProjectionWorkCoordinator;
   agentToolService: AgentToolService;
   privateApiAuditService: PrivateApiAuditService;
   privateApiClient: PrivateApiClient;
@@ -342,7 +344,6 @@ function createStartupMaintenanceLifecycleDedupeKey(
 
 function createStoragePressureRecoveryLifecycleDedupeKey(
   descriptors: readonly BackendDeferredStartupWorkDescriptor[],
-  runtimeInstanceId: string | null,
 ): string | null {
   const descriptor = descriptors.find((candidate) => candidate.kind === 'storage-pressure-recovery');
   if (!descriptor) {
@@ -354,7 +355,6 @@ function createStoragePressureRecoveryLifecycleDedupeKey(
     descriptor.kind,
     descriptor.owner,
     descriptor.phase,
-    runtimeInstanceId || 'runtime-instance-unavailable',
     frontier.pluginInstallationId ?? 'plugin-installation-unavailable',
     frontier.identityEpoch ?? 'identity-epoch-unavailable',
     frontier.inputVersion,
@@ -488,7 +488,19 @@ function delayStoragePressureRecoveryContinuation(): Promise<void> {
 
 function storagePressureRecoveryExceptionCode(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('TRUTH_VALIDATION_FAILED') || message.includes('MessagePack truth validation failed')) {
+    return 'TRUTH_VALIDATION_FAILED';
+  }
   return message.split(':', 1)[0]?.trim() || 'storage-pressure-recovery-threw';
+}
+
+function isNonRetryableStoragePressureRecoveryError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('TRUTH_VALIDATION_FAILED')
+    || message.includes('MessagePack truth validation failed')
+    || message.includes('snapshot-generation-reference-verification-failed')
+    || message.includes('snapshot-generation-id-not-new')
+    || message.includes('snapshot-generation-descriptor-immutable-conflict');
 }
 type DisposableSrsBackendTransport = ApplicationBackendRuntimeTransport;
 type DisposalErrorCollector = Array<{ service: string; error: unknown }>;
@@ -1121,6 +1133,10 @@ export class ApplicationContext {
       return new SharedReviewSessionRegistry();
     });
 
+    this.registerServiceFactory('reviewProjectionWorkCoordinator', () => {
+      return new ReviewProjectionWorkCoordinator();
+    });
+
     this.registerServiceFactory('agentToolService', (context) => {
       return new AgentToolService({
         browserService: context.getBrowserService(),
@@ -1593,6 +1609,8 @@ export class ApplicationContext {
       : {
           requiredOperationIds: [],
           appliedOperationIds: [],
+          deferredOperationIds: [],
+          deferredOperations: [],
         };
     if (!canRunStartupStorageMigrations) {
       logger.warn('[ApplicationContext] skipped startup storage migrations because backend readiness is read-only', {
@@ -1600,6 +1618,17 @@ export class ApplicationContext {
         writable: startupReadiness.writable,
         recoveryStatus: startupReadiness.recovery?.status ?? null,
         recoveryCode: startupReadiness.recovery?.code ?? null,
+      });
+    }
+    if (migrationResult.deferredOperations.length > 0) {
+      logger.warn('[ApplicationContext] deferred non-critical startup storage migrations after Worker persistence failure', {
+        operationIds: migrationResult.deferredOperationIds,
+        errors: migrationResult.deferredOperations.map((operation) => ({
+          operationId: operation.operationId,
+          batchIndex: operation.batchIndex,
+          totalBatches: operation.totalBatches,
+          error: operation.error,
+        })),
       });
     }
     if (
@@ -2799,6 +2828,10 @@ export class ApplicationContext {
   getDialogManager(): DialogManager {
     return this.getService('dialogManager');
   }
+
+  getReviewProjectionWorkCoordinator(): ReviewProjectionWorkCoordinator {
+    return this.getService('reviewProjectionWorkCoordinator');
+  }
   
   /**
    * 获取菜单管理器
@@ -3154,10 +3187,7 @@ export class ApplicationContext {
       return null;
     }
     const descriptor = descriptors.find((candidate) => candidate.kind === 'storage-pressure-recovery');
-    const lifecycleDedupeKey = createStoragePressureRecoveryLifecycleDedupeKey(
-      descriptors,
-      this.frontendInstanceRuntime?.getInstanceId() ?? null,
-    );
+    const lifecycleDedupeKey = createStoragePressureRecoveryLifecycleDedupeKey(descriptors);
     const submitResult = registry.submit<KernelCompanionStoragePressureRecoveryDiagnostics>({
       kind: 'storage-pressure-recovery',
       dedupeKey: lifecycleDedupeKey,
@@ -3201,9 +3231,11 @@ export class ApplicationContext {
             );
           } catch (error) {
             const errorCode = storagePressureRecoveryExceptionCode(error);
+            const willRetry = batchIndex < STORAGE_PRESSURE_RECOVERY_MAX_BATCHES
+              && !isNonRetryableStoragePressureRecoveryError(error);
             diagnostics = {
               ...diagnostics,
-              phase: batchIndex < STORAGE_PRESSURE_RECOVERY_MAX_BATCHES ? 'retrying' : 'failed',
+              phase: willRetry ? 'retrying' : 'failed',
               batchIndex,
               maxBatches: STORAGE_PRESSURE_RECOVERY_MAX_BATCHES,
               errorCode,
@@ -3212,9 +3244,9 @@ export class ApplicationContext {
               jobId: job.jobId,
               batchIndex,
               error: error instanceof Error ? error.message : String(error),
-              willRetry: batchIndex < STORAGE_PRESSURE_RECOVERY_MAX_BATCHES,
+              willRetry,
             });
-            if (batchIndex >= STORAGE_PRESSURE_RECOVERY_MAX_BATCHES) {
+            if (!willRetry) {
               return {
                 state: 'failed',
                 reason: errorCode,
@@ -3256,6 +3288,7 @@ export class ApplicationContext {
             };
           }
           if (result.phase === 'completed') {
+            await this.refreshBackendReadinessAfterStoragePressureRecovery(job.jobId);
             return {
               state: 'completed',
               diagnostics,
@@ -3287,6 +3320,18 @@ export class ApplicationContext {
     });
     return this.postReadyStoragePressureRecoveryJobId;
   }
+
+  private async refreshBackendReadinessAfterStoragePressureRecovery(jobId: string): Promise<void> {
+    try {
+      await this.reloadBackendDatabaseAfterReady('storage-pressure-recovery-completed');
+    } catch (error) {
+      logger.warn('[ApplicationContext] failed to refresh backend readiness after storage pressure recovery', {
+        jobId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   async reloadBackendDatabaseAfterReady(reason = 'post-ready-reload'): Promise<BackendDbReloadResult> {
     const srsBackendClient = this.srsBackendClient;
     if (!srsBackendClient) {

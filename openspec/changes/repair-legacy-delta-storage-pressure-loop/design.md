@@ -40,6 +40,8 @@ The Browser Worker protocol will add explicit `sqlite.deleteFile` and `sqlite.li
 
 Deletion remains after manifest publication and verification. A failed deletion leaves the cleanup checkpoint intact so the next recovery resumes cleanup without relocating entries again. Listing is scoped to the SQLite delta directory and normalized paths; callers cannot enumerate arbitrary storage roots through this recovery API.
 
+`coverage-compaction` and `legacy-adoption` checkpoints are cleanup journals after an authoritative manifest switch, not delta replay sources. If a process stops after deleting superseded files but before clearing the checkpoint, volatile projection startup ignores those cleanup-only paths and resumes from the active replacement segments. SiYuan `getFile` JSON error envelopes returned with a successful HTTP status are classified before binary decode so an absent cleanup path cannot masquerade as corrupt MessagePack.
+
 ### Adopt legacy evidence by deterministic segment rewrite
 
 Recovery will read only manifest-referenced, checksum-verified delta entries. A pure planner classifies every unjournaled entry from its label, table set, primary keys, rows, and operations. Supported entries receive:
@@ -56,9 +58,13 @@ For an accepted plan, recovery writes a deterministic replacement generation, ve
 
 The rewritten entries then flow through the existing ordered Truth Promotion publisher. Coverage advances only after every required canonical output is replay-verified. Normal coverage compaction can then remove the adopted journal entries. This reuses existing truth validation instead of introducing a second authority path.
 
+An interrupted installation can contain deterministic `LEGACY_DELTA_ADOPTED` receipts produced under an earlier identity epoch for the same device. Recovery may correct that provisional identity only when the receipt is still `journaled`, has no truth generation, exactly matches a fresh deterministic adoption of the source entry, and the old epoch promotion state proves the sequence is not covered. The correction preserves the mutation ID and journal sequence. Formal mutations, another device, covered old-epoch receipts, or unverifiable adoption evidence remain blocking; recovery never skips their journal position.
+
 ### Separate startup readiness from recovery completion
 
 `db.load` will reconstruct readable state and classify pressure, but hard-pressure startup will not synchronously adopt, relocate, or clean the full store. It returns a recovery descriptor identifying legacy adoption, compaction, and orphan cleanup work. ApplicationContext submits that descriptor through the existing post-ready background-work coordinator after the shell is ready.
+
+The renderer backend client records the latest complete `db.load` / `db.reload` readiness disposition. Review and Browser repair gates derive write capability from that disposition rather than from truth identity alone, because verified identity does not imply writable storage.
 
 The storage mode remains `read-only-storage-pressure` while recovery is pending, running, retryable, or terminally blocked. A completed job re-reads the manifest and inventory, verifies truth coverage, runs bounded cleanup, and reclassifies pressure. Writable mode is restored only when the classifier returns an accepted writable status.
 

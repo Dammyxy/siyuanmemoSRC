@@ -5,6 +5,7 @@
 - [x] 1.3 Return `no-progress-uncovered` before replacement segment writes when active storage cannot shrink
 - [x] 1.4 Add a `WorkerSqliteDatabaseService.load` regression proving hard-pressure startup does not synchronously relocate legacy delta
 - [x] 1.5 Record content-safe startup and compaction diagnostics for no-progress outcomes
+- [x] 1.6 Treat interrupted `coverage-compaction` cleanup checkpoints as non-replayable after the verified manifest switch
 
 ## 2. Implement Real Worker File Effects
 
@@ -12,6 +13,7 @@
 - [x] 2.2 Implement Browser host execution for delete and scoped directory inventory with structured failures
 - [x] 2.3 Make SQLite file adapters advertise delete/list only when the underlying bridge capability exists
 - [x] 2.4 Verify deletion by absence and retain cleanup checkpoints on missing, timed-out, or unverifiable effects
+- [x] 2.5 Reject SiYuan `getFile` JSON error envelopes before returning binary delta bytes
 
 ## 3. Adopt Legacy Delta Into Canonical Truth
 
@@ -20,6 +22,7 @@
 - [x] 3.3 Implement resumable immutable replacement generation and verified manifest switch for adopted journal entries
 - [x] 3.4 Feed adopted contiguous mutations through existing Truth Promotion and block coverage on incomplete verification
 - [x] 3.5 Add restart integration tests covering crashes before and after manifest publication and successful projection rebuild from truth
+- [x] 3.6 Repair only promotion-state-proven uncovered provisional legacy receipts across same-device identity epochs and add contiguous recovery regressions
 
 ## 4. Clean Manifest-Proven Orphans
 
@@ -39,6 +42,6 @@
 
 - [x] 6.1 Run focused delta, Worker service, protocol, truth lifecycle, background-work, and ApplicationContext test suites
 - [ ] 6.2 Run type checking, production build, and strict OpenSpec validation
-- [ ] 6.3 Produce a dry-run inventory for the live store and confirm the orphan allowlist before enabling deletion
+- [x] 6.3 Produce a dry-run inventory for the live store and confirm the orphan allowlist before enabling deletion
 - [ ] 6.4 Deploy the repaired plugin build and verify restart duration, zero delta amplification, recovery progress, and final storage pressure
-- [ ] 6.5 Update architecture and debt documentation with recovery ownership and remaining segment-size/concurrency follow-up
+- [x] 6.5 Update architecture and debt documentation with recovery ownership and remaining segment-size/concurrency follow-up

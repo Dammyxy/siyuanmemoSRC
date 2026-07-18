@@ -6,6 +6,7 @@ export const STORAGE_INVENTORY_RECORD_VERSION = 1 as const;
 export const STORAGE_PRESSURE_RECORD_VERSION = 1 as const;
 export const STORAGE_RECOVERY_STATE_VERSION = 1 as const;
 export const TRUTH_DEVICE_IDENTITY_RECORD_VERSION = 2 as const;
+export const TRUTH_DEVICE_IDENTITY_AUTHORITY_VERSION = 1 as const;
 
 export type StorageMutationFamily =
   | 'review'
@@ -192,4 +193,52 @@ export interface TruthDeviceIdentityRecordContract {
   hostFingerprint: string | null;
   createdAt: number;
   lastSeenAt: number;
+}
+
+export interface TruthDeviceIdentityAuthorityEnvelopeContract {
+  version: typeof TRUTH_DEVICE_IDENTITY_AUTHORITY_VERSION;
+  revision: number;
+  identity: TruthDeviceIdentityRecordContract;
+  previousRevision: number | null;
+  publishedAt: number;
+}
+
+export type TruthDeviceIdentityResolutionStatus =
+  | 'verified'
+  | 'authority-unavailable'
+  | 'identity-recovery-required';
+
+export type TruthDeviceIdentityVerifiedSource =
+  | 'installation-authority'
+  | 'legacy-browser-authority-migration'
+  | 'first-install';
+
+export type TruthDeviceIdentityCacheKind =
+  | 'indexeddb'
+  | 'local-storage'
+  | 'temp-local';
+
+export type TruthDeviceIdentityCacheStatus =
+  | 'match'
+  | 'missing'
+  | 'repaired'
+  | 'invalidated'
+  | 'unavailable';
+
+export interface TruthDeviceIdentityCacheDiagnosticContract {
+  kind: TruthDeviceIdentityCacheKind;
+  status: TruthDeviceIdentityCacheStatus;
+  message: string | null;
+}
+
+export type TruthDeviceIdentityInstallationEvidenceStatus =
+  | 'empty'
+  | 'non-empty'
+  | 'unavailable';
+
+export interface TruthDeviceIdentityInstallationEvidenceContract {
+  status: TruthDeviceIdentityInstallationEvidenceStatus;
+  reasons: string[];
+  checkedAt: number;
+  error: string | null;
 }

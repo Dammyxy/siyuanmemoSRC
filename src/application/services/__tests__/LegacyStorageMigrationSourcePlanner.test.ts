@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { UnifiedCardStore } from '@/core/storage/UnifiedStorageManager';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import {
+  ALGORITHM_CARD_STATE_REPAIR_MIGRATION_ID,
   INITIAL_STORAGE_IMPORT_MIGRATION_ID,
   LegacyStorageMigrationSourcePlanner,
+  NEURAL_ROAM_ROUTE_MIGRATION_ID,
   getLegacyStorageMigrationOperationDescriptors,
   runPendingLegacyStorageMigrations,
 } from '../LegacyStorageMigrationSourcePlanner';
@@ -260,5 +262,95 @@ describe('LegacyStorageMigrationSourcePlanner', () => {
     });
     expect(executedBatchIndexes).toEqual([1, 2, 3]);
     expect(writeBackup).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps required post-core storage repair migrations deferred when Worker persistence fails', async () => {
+    const fileService = new MemoryLegacySourceFileService();
+    const planner = new LegacyStorageMigrationSourcePlanner(
+      fileService,
+      async () => createLegacyStore(1),
+    );
+    const executeBatch = vi.fn(async (request: {
+      operationId: string;
+      migrationId: string;
+      batchIndex: number;
+      totalBatches: number;
+    }) => {
+      throw new Error(`INTERNAL_ERROR: ${request.operationId} persistence write failed`);
+    });
+
+    await expect(runPendingLegacyStorageMigrations({
+      planner,
+      readStatus: async ({ operationId, migrationId }) => ({
+        operationId,
+        migrationId,
+        required: operationId === ALGORITHM_CARD_STATE_REPAIR_MIGRATION_ID
+          || operationId === NEURAL_ROAM_ROUTE_MIGRATION_ID,
+        status: 'pending' as const,
+        completedBatches: 0,
+        totalBatches: null,
+        lastMutationId: null,
+        completedAt: null,
+        error: null,
+      }),
+      executeBatch,
+      writeBackup: vi.fn(),
+      now: () => 100,
+    })).resolves.toMatchObject({
+      requiredOperationIds: [
+        ALGORITHM_CARD_STATE_REPAIR_MIGRATION_ID,
+        NEURAL_ROAM_ROUTE_MIGRATION_ID,
+      ],
+      appliedOperationIds: [],
+      deferredOperationIds: [
+        ALGORITHM_CARD_STATE_REPAIR_MIGRATION_ID,
+        NEURAL_ROAM_ROUTE_MIGRATION_ID,
+      ],
+      deferredOperations: [
+        {
+          operationId: ALGORITHM_CARD_STATE_REPAIR_MIGRATION_ID,
+          migrationId: ALGORITHM_CARD_STATE_REPAIR_MIGRATION_ID,
+          batchIndex: 0,
+          totalBatches: 2,
+          error: `INTERNAL_ERROR: ${ALGORITHM_CARD_STATE_REPAIR_MIGRATION_ID} persistence write failed`,
+        },
+        {
+          operationId: NEURAL_ROAM_ROUTE_MIGRATION_ID,
+          migrationId: NEURAL_ROAM_ROUTE_MIGRATION_ID,
+          batchIndex: 0,
+          totalBatches: 1,
+          error: `INTERNAL_ERROR: ${NEURAL_ROAM_ROUTE_MIGRATION_ID} persistence write failed`,
+        },
+      ],
+    });
+    expect(executeBatch).toHaveBeenCalledTimes(2);
+  });
+
+  it('still fails closed when a core legacy storage migration batch cannot persist', async () => {
+    const fileService = new MemoryLegacySourceFileService();
+    const planner = new LegacyStorageMigrationSourcePlanner(
+      fileService,
+      async () => createLegacyStore(1),
+    );
+
+    await expect(runPendingLegacyStorageMigrations({
+      planner,
+      readStatus: async ({ operationId, migrationId }) => ({
+        operationId,
+        migrationId,
+        required: operationId === INITIAL_STORAGE_IMPORT_MIGRATION_ID,
+        status: 'pending' as const,
+        completedBatches: 0,
+        totalBatches: null,
+        lastMutationId: null,
+        completedAt: null,
+        error: null,
+      }),
+      executeBatch: vi.fn(async () => {
+        throw new Error('INTERNAL_ERROR: core storage import failed');
+      }),
+      writeBackup: vi.fn(),
+      now: () => 100,
+    })).rejects.toThrow('INTERNAL_ERROR: core storage import failed');
   });
 });

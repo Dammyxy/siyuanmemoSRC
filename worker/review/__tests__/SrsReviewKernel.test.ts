@@ -165,12 +165,6 @@ describe('SrsReviewKernel', () => {
         cardId: first.id,
         rating: 3,
         reviewedAt: NOW,
-        repairGate: {
-          state: 'clean',
-          reason: 'kernel-contract',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       },
     });
 
@@ -237,12 +231,6 @@ describe('SrsReviewKernel', () => {
         sessionId: started.state.sessionId,
         cardId: first.id,
         rating: 9 as 3,
-        repairGate: {
-          state: 'clean',
-          reason: 'kernel-contract',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       },
     });
 
@@ -294,12 +282,6 @@ describe('SrsReviewKernel', () => {
         sessionId: started.state.sessionId,
         cardId: second.id,
         rating: 3,
-        repairGate: {
-          state: 'clean',
-          reason: 'kernel-contract',
-          createdAt: NOW,
-          cardId: second.id,
-        },
       },
     });
     expect(staleCurrent).toMatchObject({
@@ -316,43 +298,6 @@ describe('SrsReviewKernel', () => {
     });
     const current = kernel.read({ type: 'current', sessionId: started.state.sessionId });
     expect(current).toMatchObject({ type: 'current', state: { current: { id: first.id } } });
-    expect(reviewFeedback).not.toHaveBeenCalled();
-  });
-
-  it('returns a typed conflict for stale Review Admission repair evidence', async () => {
-    const first = createCard('card-1');
-    const { kernel, reviewFeedback } = createKernel([first]);
-    const started = await kernel.execute({
-      type: 'start',
-      request: {
-        queueType: QueueType.RetrievalPractice,
-        ...ADMITTED_PROJECTION,
-      },
-    });
-
-    const result = await kernel.execute({
-      type: 'answer',
-      request: {
-        sessionId: started.state.sessionId,
-        cardId: first.id,
-        rating: 3,
-        repairGate: {
-          state: 'clean',
-          reason: 'stale-admission',
-          createdAt: 0,
-          cardId: first.id,
-        },
-      },
-    });
-
-    expect(result).toMatchObject({
-      type: 'failure',
-      command: 'answer',
-      error: {
-        kind: 'conflict',
-        code: 'STALE_REPAIR_GATE',
-      },
-    });
     expect(reviewFeedback).not.toHaveBeenCalled();
   });
 
@@ -375,12 +320,6 @@ describe('SrsReviewKernel', () => {
         sessionId: 'missing-session',
         cardId: first.id,
         rating: 3,
-        repairGate: {
-          state: 'clean',
-          reason: 'kernel-contract',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       },
     });
     expect(missingSession).toMatchObject({
@@ -420,12 +359,6 @@ describe('SrsReviewKernel', () => {
           cardId: first.id,
           rating: 3,
           idempotencyKey: 'duplicate-key',
-          repairGate: {
-            state: 'clean',
-            reason: 'kernel-contract',
-            createdAt: NOW,
-            cardId: first.id,
-          },
         },
       });
       expect(result).toMatchObject({
@@ -457,12 +390,6 @@ describe('SrsReviewKernel', () => {
         rating: 3 as const,
         reviewedAt: NOW,
         idempotencyKey: 'kernel-answer-duplicate',
-        repairGate: {
-          state: 'clean' as const,
-          reason: 'kernel-contract',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       },
     };
 
@@ -503,12 +430,6 @@ describe('SrsReviewKernel', () => {
       cardId: first.id,
       rating: 3 as const,
       idempotencyKey: 'kernel-answer-conflict',
-      repairGate: {
-        state: 'clean' as const,
-        reason: 'kernel-contract',
-        createdAt: NOW,
-        cardId: first.id,
-      },
     };
 
     expect(await kernel.execute({ type: 'answer', request })).toMatchObject({
@@ -564,12 +485,6 @@ describe('SrsReviewKernel', () => {
         cardId: first.id,
         rating: 3,
         reviewedAt: NOW,
-        repairGate: {
-          state: 'clean',
-          reason: 'kernel-contract',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       },
     });
 
@@ -624,12 +539,6 @@ describe('SrsReviewKernel', () => {
         sessionId: 'missing-session',
         cardId: first.id,
         rating: 3,
-        repairGate: {
-          state: 'clean',
-          reason: 'kernel-contract',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       },
     })).resolves.toMatchObject({
       type: 'failure',
@@ -661,12 +570,6 @@ describe('SrsReviewKernel', () => {
         cardId: first.id,
         rating: 3,
         reviewedAt: NOW,
-        repairGate: {
-          state: 'clean',
-          reason: 'kernel-contract',
-          createdAt: NOW,
-          cardId: first.id,
-        },
       },
     });
     if (answered.type !== 'answer') throw new Error('expected answer result');

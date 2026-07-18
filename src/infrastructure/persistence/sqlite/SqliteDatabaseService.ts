@@ -27,6 +27,7 @@ import {
   type SqliteCheckpointStorageClass,
   type SqliteDeltaStartupEvidence,
   type SqliteDeltaStorageInventory,
+  type SqliteDeltaAppendObservation,
 } from './SqliteDeltaCheckpoint';
 import {
   STORAGE_DURABILITY_RECEIPT_VERSION,
@@ -65,6 +66,10 @@ type SqliteDatabaseServiceOptions = {
     label: string;
     mutationEnvelope?: StorageMutationEnvelope;
   }) => Promise<void>;
+  afterDurabilityReceipt?: (
+    receipt: StorageDurabilityReceipt,
+    observation: SqliteDeltaAppendObservation,
+  ) => void;
 };
 type SqliteDatabaseInitOptions = {
   skipDeltaReplay?: boolean;
@@ -197,6 +202,30 @@ function normalizePersistDiagnostics(
 function isCorruptOpenSegmentRepairCheckpointReason(reason: string): boolean {
   return reason.endsWith(`:${SQLITE_CORRUPT_OPEN_SEGMENT_REPAIR_REASON}`)
     || reason === SQLITE_CORRUPT_OPEN_SEGMENT_REPAIR_REASON;
+}
+
+function describeSqliteError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isSqliteDeltaSegmentReadValidationError(error: unknown): boolean {
+  const message = describeSqliteError(error);
+  return message.startsWith('SQLite delta segment checksum mismatch:')
+    || message.startsWith('SQLite delta segment corrupt:');
+}
+
+function canIgnoreUnreadableDeltaDuringVolatilePersist(
+  reason: string,
+  force: boolean,
+  error: unknown,
+): boolean {
+  return isSqliteDeltaSegmentReadValidationError(error)
+    && (
+      force
+      || reason.startsWith('storage.projection.rebuild.')
+      || reason.includes(':pending-delta-unreadable')
+      || isCorruptOpenSegmentRepairCheckpointReason(reason)
+    );
 }
 
 function createCorruptOpenSegmentRepairRequiredError(error: unknown): Error {
@@ -459,6 +488,7 @@ export class SqliteDatabaseService {
                     `BACKEND_UNAVAILABLE: mutation ${options.mutationEnvelope.mutationId} delta verification did not return its envelope`,
                   );
                 }
+                this.options.afterDurabilityReceipt?.(persistedReceipt, deltaResult.observation);
                 options.onDurabilityReceipt?.(persistedReceipt);
               }
             } else {
@@ -617,7 +647,10 @@ export class SqliteDatabaseService {
     try {
       checkpointablePendingDelta = await this.deltaLayer?.hasCheckpointablePendingDeltasForPersistPreflight() ?? false;
     } catch (error) {
-      if (!this.deltaLayer?.canClearPendingAfterCheckpoint()) {
+      if (
+        !this.deltaLayer?.canClearPendingAfterCheckpoint()
+        && !canIgnoreUnreadableDeltaDuringVolatilePersist(reason, force, error)
+      ) {
         throw error;
       }
       checkpointablePendingDelta = true;
@@ -759,6 +792,7 @@ export class SqliteDatabaseService {
     deviceId: string;
     identityEpoch: string;
     afterJournalSequence: number;
+    rebindableLegacyMutationIds?: string[];
   }): Promise<SqliteDeltaLegacyAdoptionResult | null> {
     return this.deltaLayer ? this.deltaLayer.adoptLegacyEntries(input) : null;
   }
@@ -768,6 +802,12 @@ export class SqliteDatabaseService {
     limit?: number;
   } = {}): Promise<SqliteJournaledMutationEntry[]> {
     return this.deltaLayer ? this.deltaLayer.listJournaledMutations(input) : [];
+  }
+
+  async readJournaledMutationFrontierEvidence() {
+    return this.deltaLayer
+      ? this.deltaLayer.readJournaledMutationFrontierEvidence()
+      : { nextMutationSequence: 1, entries: [] };
   }
 
   getSqliteDeltaHotPathDiagnostics(): SqliteDeltaHotPathDiagnostics | null {
@@ -816,18 +856,29 @@ export class SqliteDatabaseService {
       }
       const restored = new SQL.Database(stored.bytes);
       if (this.deltaLayer) {
-        await this.deltaLayer.replayPending(restored);
+        try {
+          await this.deltaLayer.replayPending(restored);
+        } catch (error) {
+          if (!isSqliteDeltaSegmentReadValidationError(error)) {
+            throw error;
+          }
+          logger.warn('SQLite transaction restore skipped unreadable delta replay', {
+            label,
+            persistError: describeSqliteError(persistError),
+            replayError: describeSqliteError(error),
+          });
+        }
       }
       this.db?.close();
       this.db = restored;
       logger.warn('SQLite transaction persist failed; in-memory DB restored from stored file', {
         label,
-        error: persistError instanceof Error ? persistError.message : String(persistError),
+        error: describeSqliteError(persistError),
       });
     } catch (restoreError) {
       logger.error('SQLite transaction persist failed and in-memory DB restore failed', {
         label,
-        persistError: persistError instanceof Error ? persistError.message : String(persistError),
+        persistError: describeSqliteError(persistError),
         restoreError,
       });
     }

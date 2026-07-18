@@ -43,6 +43,12 @@ function createSiyuanApiMock() {
 
 function createReviewServiceContextSlice() {
   return {
+    getReviewProjectionWorkCoordinator: vi.fn(() => ({
+      activateSurface: vi.fn(() => ({
+        markActive: vi.fn(),
+        release: vi.fn(),
+      })),
+    })),
     getReviewService: vi.fn(() => ({
       refreshCdfLiveRelationOnOpen: vi.fn(async (card: FSRSCard | string) => ({
         attempted: false,

@@ -122,6 +122,11 @@ function deterministicHash(value: unknown): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+function recordsEquivalent(left: MessagePackTruthRecord[], right: MessagePackTruthRecord[]): boolean {
+  return left.length === right.length
+    && JSON.stringify(left.map(stableValue)) === JSON.stringify(right.map(stableValue));
+}
+
 function recordIdempotencyKey(record: MessagePackTruthRecord): string | null {
   const value = typeof record.idempotencyKey === 'string'
     ? record.idempotencyKey.trim()
@@ -394,18 +399,35 @@ export class WorkerTruthReconciliationRuntime {
       records,
     })}`;
     const inspection = await generationStore.inspectGenerations();
-    if (inspection.fence.current?.generationId === generationId) {
-      await generationStore.replayVerifiedGeneration(inspection.fence.current);
-      return inspection.fence.current;
+    if (inspection.fence.current) {
+      const current = await generationStore.replayVerifiedGeneration(inspection.fence.current);
+      if (
+        inspection.fence.current.generationId === generationId
+        || recordsEquivalent(current.records, records)
+      ) {
+        return inspection.fence.current;
+      }
+    }
+    const publishGenerationId = inspection.fence.previous?.generationId === generationId
+      ? `${generationId}-recovered-${inspection.fence.fence + 1}`
+      : generationId;
+    if (inspection.fence.previous?.generationId === generationId) {
+      const previous = await generationStore.replayVerifiedGeneration(inspection.fence.previous);
+      if (!recordsEquivalent(previous.records, records)) {
+        throw new Error(`truth-reconciliation-previous-generation-conflict:${family}:${generationId}`);
+      }
     }
     const published = await generationStore.publishGeneration({
-      generationId,
+      generationId: publishGenerationId,
       records,
       expectedCurrentGenerationId: inspection.fence.current?.generationId ?? null,
+      recoveryPreviousGenerationId: inspection.fence.previous?.generationId === generationId
+        ? generationId
+        : undefined,
     });
     const reference = published.fence.current;
-    if (!reference || reference.generationId !== generationId) {
-      throw new Error(`truth-reconciliation-publication-unverified:${family}:${generationId}`);
+    if (!reference || reference.generationId !== publishGenerationId) {
+      throw new Error(`truth-reconciliation-publication-unverified:${family}:${publishGenerationId}`);
     }
     await generationStore.replayVerifiedGeneration(reference);
     return reference;

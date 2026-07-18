@@ -8,7 +8,6 @@ import { QueueType } from '@/types/unified-data-source';
 import type {
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
-  BackendReviewSessionRepairGateEvidence,
 } from '../../packages/contracts/src/backend-rpc';
 import { createLogger } from '@/utils/logger';
 import { recordBackendWorkerInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
@@ -18,6 +17,7 @@ import type {
   ReviewTransactionUndoJournalFrontier,
   ReviewTransactionUndoOperation,
 } from './ReviewTransactionUndoJournal';
+import { createReviewTransactionUndoJournalFrontier } from './ReviewTransactionUndoJournal';
 
 const REVIEW_SESSION_FEEDBACK_STEP_SLOW_MS = 120;
 const REVIEW_SESSION_FEEDBACK_GAP_SLOW_MS = 50;
@@ -57,7 +57,6 @@ export interface WorkerReviewSessionFeedbackRequest {
   rating: 1 | 2 | 3 | 4;
   reviewedAt?: number | null;
   idempotencyKey?: string | null;
-  repairGate?: BackendReviewSessionRepairGateEvidence | null;
 }
 
 export interface WorkerReviewSessionSkipRequest {
@@ -217,6 +216,9 @@ export class WorkerReviewSessionRuntime {
       rows.map((row) => this.deps.repository.getCard(row.cardId)),
     );
     const cards = hydratedCards.filter((card): card is FSRSCard => Boolean(card));
+    const hydratedCardIds = cards.map((card) => card.id);
+    const hydratedCardCount = cards.length;
+    const missingCardCount = rows.length - hydratedCardCount;
     const session: WorkerReviewSession = {
       sessionId,
       queueType,
@@ -241,15 +243,15 @@ export class WorkerReviewSessionRuntime {
       projectionPolicyHash: generation.policyHash,
       projectionGeneration: generation.generation,
       rowsRead: rows.length,
-      hydratedCards: cards.length,
-      missingCards: rows.length - cards.length,
+      hydratedCards: hydratedCardCount,
+      missingCards: missingCardCount,
       remaining: state.counters.remaining,
       due: state.counters.due,
       total: state.counters.total,
       currentCardId: session.current?.id ?? null,
       currentBlockId: session.current?.blockId ?? null,
       rowCardIds: rows.map((row) => row.cardId),
-      hydratedCardIds: cards.map((card) => card.id),
+      hydratedCardIds,
     });
     return state;
   }
@@ -272,7 +274,6 @@ export class WorkerReviewSessionRuntime {
       request,
       () => {
         this.requireCurrentCard(session, request.cardId);
-        this.requireValidRepairGate(request);
         return this.pushUndoSnapshot(session, request.cardId);
       },
       feedbackTiming,
@@ -542,30 +543,6 @@ export class WorkerReviewSessionRuntime {
     return current;
   }
 
-  private requireValidRepairGate(request: WorkerReviewSessionFeedbackRequest): void {
-    const gate = request.repairGate;
-    if (!gate) {
-      throw new Error('WORKER_REVIEW_SESSION_REPAIR_GATE_UNAVAILABLE: missing repair gate');
-    }
-    const reason = normalizeString(gate.reason) ?? 'unsafe repair gate';
-    if (gate.state === 'blocking') {
-      throw new Error(`WORKER_REVIEW_SESSION_REPAIR_GATE_BLOCKED: ${reason}`);
-    }
-    if (gate.state === 'unavailable') {
-      throw new Error(`WORKER_REVIEW_SESSION_REPAIR_GATE_UNAVAILABLE: ${reason}`);
-    }
-    if (gate.state !== 'clean' && gate.state !== 'accepted-repairable') {
-      throw new Error(`WORKER_REVIEW_SESSION_REPAIR_GATE_UNAVAILABLE: unknown repair gate state ${String(gate.state)}`);
-    }
-    if (!Number.isFinite(Number(gate.createdAt)) || Number(gate.createdAt) <= 0) {
-      throw new Error(`WORKER_REVIEW_SESSION_REPAIR_GATE_UNAVAILABLE: stale repair gate ${reason}`);
-    }
-    const gateCardId = normalizeString(gate.cardId);
-    if (gateCardId && gateCardId !== request.cardId) {
-      throw new Error(`WORKER_REVIEW_SESSION_REPAIR_GATE_BLOCKED: current-card-conflict ${gateCardId}`);
-    }
-  }
-
   private advanceAfterRating(session: WorkerReviewSession, cardId: string, rating: 1 | 2 | 3 | 4): void {
     const current = this.requireCurrentCard(session, cardId);
     this.removeCard(session, cardId);
@@ -743,7 +720,7 @@ export class WorkerReviewSessionRuntime {
     },
   ): ReviewTransactionUndoJournalEntry {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       transactionId: undoEntry.token,
       undoToken: undoEntry.token,
       sessionId: session.sessionId,
@@ -776,6 +753,14 @@ export class WorkerReviewSessionRuntime {
   }
 
   private async restoreFromJournalEntry(entry: ReviewTransactionUndoJournalEntry): Promise<WorkerReviewSessionUndoResult> {
+    const restoreCardSchedule = entry.scheduleRestoreApplied !== true;
+    if (restoreCardSchedule) {
+      if (!entry.beforeCard || !this.deps.repository.upsertCards) {
+        throw new Error(`WORKER_REVIEW_SESSION_UNDO_SCHEDULE_UNAVAILABLE: ${entry.undoToken}`);
+      }
+      await this.deps.repository.upsertCards([cloneCard(entry.beforeCard)]);
+    }
+    const snapshot = await this.hydrateJournalFrontier(entry.frontierBefore);
     const session = this.sessions.get(entry.sessionId) ?? {
       sessionId: entry.sessionId,
       queueType: normalizeQueueType(entry.queueType),
@@ -788,23 +773,53 @@ export class WorkerReviewSessionRuntime {
       undoSequence: 0,
       undoStack: [],
     };
-    this.sessions.set(entry.sessionId, session);
     const result = await this.restoreSessionFromSnapshot(
       session,
-      entry.frontierBefore,
+      snapshot,
       entry.replayedCardId,
       entry.undoToken,
-      entry.scheduleRestoreApplied !== true,
+      false,
     );
+    this.sessions.set(entry.sessionId, session);
     return {
       ...result,
       durabilityReceipt: entry.durabilityReceipt ?? null,
     };
   }
 
+  private async hydrateJournalFrontier(
+    frontier: ReviewTransactionUndoJournalFrontier,
+  ): Promise<WorkerReviewSessionUndoSnapshot> {
+    const identities = [
+      ...frontier.cardIds,
+      ...(frontier.currentCardId ? [frontier.currentCardId] : []),
+    ];
+    const hydrated = await Promise.all(identities.map((cardId) => this.deps.repository.getCard(cardId)));
+    for (let index = 0; index < identities.length; index += 1) {
+      if (!hydrated[index]) {
+        throw new Error(`WORKER_REVIEW_SESSION_UNDO_FRONTIER_INVALID: missing card ${identities[index]}`);
+      }
+    }
+    const cards = hydrated.slice(0, frontier.cardIds.length) as FSRSCard[];
+    const current = frontier.currentCardId
+      ? hydrated[hydrated.length - 1] as FSRSCard
+      : null;
+    if (current && normalizeCardId(current.blockId) !== normalizeCardId(frontier.currentBlockId)) {
+      throw new Error('WORKER_REVIEW_SESSION_UNDO_FRONTIER_INVALID: current block mismatch');
+    }
+    return {
+      cards: cards.map(cloneCard),
+      current: current ? cloneCard(current) : null,
+      avoidOnceCardId: frontier.avoidOnceCardId,
+      avoidOnceBlockId: frontier.avoidOnceBlockId,
+      projectionGeneration: frontier.projectionGeneration,
+      projectionPolicyHash: frontier.projectionPolicyHash,
+    };
+  }
+
   private async restoreSessionFromSnapshot(
     session: WorkerReviewSession,
-    snapshot: ReviewTransactionUndoJournalFrontier,
+    snapshot: WorkerReviewSessionUndoSnapshot,
     replayedCardId: string | null,
     undoToken: string,
     restoreCardSchedule: boolean,
@@ -828,25 +843,25 @@ export class WorkerReviewSessionRuntime {
   }
 
   private cloneFrontier(snapshot: WorkerReviewSessionUndoSnapshot): ReviewTransactionUndoJournalFrontier {
-    return {
-      cards: snapshot.cards.map(cloneCard),
-      current: snapshot.current ? cloneCard(snapshot.current) : null,
+    return createReviewTransactionUndoJournalFrontier({
+      cards: snapshot.cards,
+      current: snapshot.current,
       avoidOnceCardId: snapshot.avoidOnceCardId,
       avoidOnceBlockId: snapshot.avoidOnceBlockId,
       projectionGeneration: snapshot.projectionGeneration,
       projectionPolicyHash: snapshot.projectionPolicyHash,
-    };
+    });
   }
 
   private captureFrontier(session: WorkerReviewSession): ReviewTransactionUndoJournalFrontier {
-    return {
-      cards: session.cards.map(cloneCard),
-      current: session.current ? cloneCard(session.current) : null,
+    return createReviewTransactionUndoJournalFrontier({
+      cards: session.cards,
+      current: session.current,
       avoidOnceCardId: session.avoidOnceCardId,
       avoidOnceBlockId: session.avoidOnceBlockId,
       projectionGeneration: session.projectionGeneration,
       projectionPolicyHash: session.projectionPolicyHash,
-    };
+    });
   }
 
   private cloneSession(session: WorkerReviewSession): WorkerReviewSession {

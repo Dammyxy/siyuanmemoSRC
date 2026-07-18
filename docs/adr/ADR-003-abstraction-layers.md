@@ -1,8 +1,10 @@
 # ADR-003: 保持 Provider-SessionManager-Sequencer 分离
 
+> Series: Legacy DDD（已冻结）。权威状态见 [Architecture Decision Registry](../ADR-INDEX.md)。
+
 ## 状态
 
-已接受
+已替代（2026-07-17）：Provider/SessionManager/Sequencer 三层已退役；当前 Review 运行时按 Runtime ADR-001 与 Runtime ADR-002 的 ownership 边界组织。
 
 ## 背景
 
@@ -394,14 +396,14 @@ describe('RetrievalPracticeProvider', () => {
 - [Single Responsibility Principle](https://en.wikipedia.org/wiki/Single-responsibility_principle)
 - [SOLID Principles](https://en.wikipedia.org/wiki/SOLID)
 - [Separation of Concerns](https://en.wikipedia.org/wiki/Separation_of_concerns)
-- [SessionManager 实现](../../src/ui/review/v2/providers/utils/SessionManager.ts)
-- [Provider 实现](../../src/ui/review/v2/providers/RetrievalPracticeProvider.ts)
-- [Sequencer 实现](../../src/core/queue/sequencers/PrioritySequencer.ts)
+- SessionManager 实现（已退役）：`src/ui/review/v2/providers/utils/SessionManager.ts`
+- Provider 实现（已退役）：`src/ui/review/v2/providers/RetrievalPracticeProvider.ts`
+- Sequencer 实现（已退役）：`src/core/queue/sequencers/PrioritySequencer.ts`
 
 ## 元数据
 
 - **作者**: Kiro AI Assistant
 - **日期**: 2026-02-02
 - **审阅者**: Architecture Team
-- **相关 ADR**: ADR-001 (Trait 模式), ADR-002 (观察者模式)
+- **相关 ADR**: Legacy DDD ADR-001 (Trait 模式), Legacy DDD ADR-002 (观察者模式)
 - **相关需求**: 需求 12.1, 12.2, 12.3, 12.4

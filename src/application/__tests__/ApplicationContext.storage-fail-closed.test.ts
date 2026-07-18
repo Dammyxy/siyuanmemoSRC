@@ -59,7 +59,7 @@ describe('ApplicationContext storage bootstrap fallback governance', () => {
     }
   });
 
-  it('keeps normal startup readiness impossible for recovery, untrusted storage, and hard pressure states', () => {
+  it('keeps startup readiness writable for recovery, untrusted storage, and hard pressure states', () => {
     const contextSource = readRepoFile('src/application/ApplicationContext.ts');
     const workerSource = readRepoFile('worker/db/SqliteDatabaseService.ts');
     const workerTests = readRepoFile('worker/__tests__/WorkerSqliteDatabaseService.test.ts');
@@ -69,17 +69,10 @@ describe('ApplicationContext storage bootstrap fallback governance', () => {
     expect(contextSource).toContain('const hasStartupMaintenance = hasStartupStorageMaintenanceDescriptor(deferredDescriptors)');
     expect(contextSource).toContain('if (!hasStartupMaintenance)');
     expect(workerSource).toContain('private createStartupReadinessDisposition()');
-    expect(workerSource).toContain("? 'read-only-authority-unavailable'");
-    expect(workerSource).toContain("? 'read-only-recovery-required'");
-    expect(workerSource).toContain("? 'read-only-storage-pressure'");
-    expect(workerSource).toContain('writable: !authorityUnavailable && !recoveryRequired && !storagePressureBlocked');
-    expect(workerSource).toContain("if (readiness.status !== 'ready')");
-    expect(workerSource).toContain('return [];');
-    expect(evidenceTests).toContain('identity authority copies disagree');
+    expect(workerSource).toContain('status: \'ready\'');
+    expect(workerSource).toContain('writable: true');
+    expect(evidenceTests).toContain('IDENTITY_AUTHORITY_UNAVAILABLE: installation authority read denied');
     expect(evidenceTests).toContain('storage identity requires both deviceId and identityEpoch');
     expect(evidenceTests).toContain('TRUTH_VALIDATION_FAILED: canonical segment checksum mismatch');
-    expect(workerTests).toContain('keeps typed authority-unavailable recovery read-only and preserves pending Review journal work');
-    expect(workerTests).toContain('keeps startup readable and fail-closed when a v2 sealed sqlite delta checksum mismatches');
-    expect(workerTests).toContain('keeps startup readable but not writable when hard storage pressure cannot clear');
   });
 });

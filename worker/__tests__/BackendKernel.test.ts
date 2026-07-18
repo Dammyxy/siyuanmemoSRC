@@ -301,6 +301,67 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('keeps card schedule maintenance writes off canonical truth preflight', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const mergeExternalDatabaseIfChanged = vi.spyOn(database, 'mergeExternalDatabaseIfChanged');
+    const reconcileCanonicalTruth = vi.spyOn(database, 'reconcileCanonicalTruth');
+    const kernel = new BackendKernel({ database });
+
+    await kernel.handle({
+      id: 'load-for-card-schedule',
+      jsonrpc: '2.0',
+      method: 'db.load',
+      params: [{
+        truthDeviceId: 'truth-device-schedule',
+        identityEpoch: 'epoch-schedule',
+        reviewTruthGenerationId: 'review-events-v1',
+      }],
+    });
+    await expect(kernel.handle({
+      id: 'schedule-batch-skip-preflight',
+      jsonrpc: '2.0',
+      method: 'card.schedule.batchUpdate',
+      params: [{
+        mutationId: 'maintenance:startup-storage-maintenance-v1:schedule-normalization:0:1:card-1:card-1',
+        schedulingWriteSource: 'scheduler-migration',
+        cards: [{
+          id: 'card-1',
+          xiuyuanID: 'xy-card-1',
+          blockId: 'block-card-1',
+          due: 1_800_000_000_000,
+          stability: 5,
+          difficulty: 4,
+          reps: 3,
+          lapses: 0,
+          state: 2,
+          lastReview: 1_700_000_000_000,
+          elapsedDays: 1,
+          scheduledDays: 10,
+          priority: 50,
+          type: 'item',
+          tags: [],
+          leechCount: 0,
+          isLeech: false,
+          skipped: false,
+          createdAt: 1_600_000_000_000,
+          updatedAt: 1_700_000_000_000,
+          schedulerType: 'fsrs-v6',
+        }],
+      }],
+    })).resolves.toMatchObject({
+      id: 'schedule-batch-skip-preflight',
+      result: {
+        updatedCardIds: ['card-1'],
+      },
+    });
+
+    expect(mergeExternalDatabaseIfChanged).toHaveBeenCalledWith(
+      undefined,
+      { context: 'snapshot-preflight', skipMainDbRead: true },
+    );
+    expect(reconcileCanonicalTruth).not.toHaveBeenCalled();
+  });
+
   it('rejects Review truth mutations without identity epoch through the kernel dispatcher', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     const kernel = new BackendKernel({ database });

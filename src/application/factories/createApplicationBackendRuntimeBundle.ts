@@ -10,6 +10,7 @@ import {
 } from '@/application/clients/FrontendInstanceRuntime';
 import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
+import { KernelTruthDeviceIdentityInitializationFence } from '@/application/clients/KernelTruthDeviceIdentityInitializationFence';
 import {
   collectBackendMigrationRuntimeEnv,
   resolveBackendMigrationRuntimePolicy,
@@ -17,9 +18,16 @@ import {
   type RuntimeEnv,
 } from '@/application/backendMigration/runtimePolicy';
 import { FileService } from '@/infrastructure/services/FileService';
-import { IndexedDbTruthDeviceIdentityStore } from '@/infrastructure/persistence/identity/IndexedDbTruthDeviceIdentityStore';
+import { IndexedDbTruthDeviceIdentityCache } from '@/infrastructure/persistence/identity/IndexedDbTruthDeviceIdentityCache';
+import {
+  LocalStorageTruthDeviceIdentityCache,
+  TempLocalTruthDeviceIdentityCache,
+} from '@/infrastructure/persistence/identity/BrowserTruthDeviceIdentityCaches';
+import { SiyuanConfTruthDeviceIdentityAuthorityStore } from '@/infrastructure/persistence/identity/SiyuanConfTruthDeviceIdentityAuthorityStore';
+import { SiyuanTruthDeviceIdentityEvidenceProbe } from '@/infrastructure/persistence/identity/SiyuanTruthDeviceIdentityEvidenceProbe';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
+import { ForeignEpochAuthorityPublicationCoordinator } from '@/application/services/ForeignEpochAuthorityPublicationCoordinator';
 import {
   resolveTruthDeviceIdentity,
   type TruthDeviceIdentityResolution,
@@ -32,19 +40,16 @@ import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics
 import {
   MESSAGEPACK_TRUTH_SCHEMA_VERSION,
   type BackendDbLoadResult,
-  type BackendReviewTruthDeviceDiagnostics,
   type BackendStartupIdentityDisposition,
 } from '../../../packages/contracts/src/backend-rpc';
-import type { SqlitePersistenceBridge } from '../../../worker/db/SqlitePersistenceBridge';
+import type {
+  SqlitePersistenceBridge,
+  SqlitePersistenceHostEffectMetadata,
+} from '../../../worker/db/SqlitePersistenceBridge';
 
 const logger = createLogger('ApplicationContext');
 const REVIEW_TRUTH_GENERATION_ID = `review-events-v${MESSAGEPACK_TRUTH_SCHEMA_VERSION}`;
 const SQLITE_PROJECTION_DB_FILE = 'siyuanmemo.db';
-const REVIEW_TRUTH_MUTATION_IDENTITY_SOURCES = new Set<BackendReviewTruthDeviceDiagnostics['source']>([
-  'authority-copies',
-  'indexeddb-repaired-localStorage',
-  'localStorage-repaired-indexeddb',
-]);
 
 export type ApplicationBackendRuntimeTransport = SrsBackendTransport & {
   dispose?: () => void;
@@ -147,6 +152,27 @@ export async function createApplicationBackendRuntimeBundle(
     try {
       await measureRuntimePerformance('startup', 'backend-worker.bootstrap', async () => {
         const bridge = createWorkerPersistenceBridge(options.fileService);
+        const identityAuthority = new SiyuanConfTruthDeviceIdentityAuthorityStore(options.fileService);
+        const identityCaches = [
+          new IndexedDbTruthDeviceIdentityCache(),
+          new LocalStorageTruthDeviceIdentityCache(),
+          new TempLocalTruthDeviceIdentityCache(options.fileService),
+        ];
+        const identityInitializationFence = new KernelTruthDeviceIdentityInitializationFence(kernelSidecarClient, {
+          instanceId: options.resolveKernelWriterLeaseInstanceId?.(),
+        });
+        const authorityPublicationCoordinator = new ForeignEpochAuthorityPublicationCoordinator({
+          authority: identityAuthority,
+          caches: identityCaches,
+          initializationFence: identityInitializationFence,
+          ensureActiveWriter: async () => {
+            if (!backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) return;
+            if (!frontendInstanceRuntime) {
+              throw new Error('BACKEND_UNAVAILABLE: authority recovery requires active writer runtime');
+            }
+            await frontendInstanceRuntime.ensureWritable();
+          },
+        });
         const browserSiyuanApi = options.createBlockExistenceSiyuanPort();
         const neuralRoamGraphQuery = options.createNeuralRoamGraphQuery({
           nodeTypeResolver: {
@@ -159,14 +185,14 @@ export async function createApplicationBackendRuntimeBundle(
         });
         srsBackendTransport = new BrowserSrsBackendWorkerTransport({
           hostEffects: {
-            readBinary: (path) => bridge.readBinary(path),
-            writeBinary: (path, bytes) => bridge.writeBinary(path, bytes),
-            readJSON: <T>(path: string) => bridge.readJSON?.<T>(path) ?? Promise.resolve(null),
-            writeJSON: (path, value) => {
+            readBinary: (path, metadata) => bridge.readBinary(path, metadata),
+            writeBinary: (path, bytes, metadata) => bridge.writeBinary(path, bytes, metadata),
+            readJSON: <T>(path: string, metadata?: SqlitePersistenceHostEffectMetadata) => bridge.readJSON?.<T>(path, metadata) ?? Promise.resolve(null),
+            writeJSON: (path, value, metadata) => {
               if (!bridge.writeJSON) {
                 return Promise.reject(new Error(`SrsBackendWorker JSON persistence unavailable for ${path}`));
               }
-              return bridge.writeJSON(path, value);
+              return bridge.writeJSON(path, value, metadata);
             },
             listFiles: bridge.listFiles
               ? (prefix) => bridge.listFiles!(prefix)
@@ -174,17 +200,17 @@ export async function createApplicationBackendRuntimeBundle(
             deleteFile: bridge.deleteFile
               ? (path) => bridge.deleteFile!(path)
               : undefined,
-            readTruthBinary: (path) => bridge.truthFileStore?.readBinary(path) ?? bridge.readBinary(path),
-            writeTruthBinary: (path, bytes) => bridge.truthFileStore?.writeBinary(path, bytes) ?? bridge.writeBinary(path, bytes),
-            readTruthJSON: <T>(path: string) => bridge.truthFileStore?.readJSON<T>(path) ?? bridge.readJSON?.<T>(path) ?? Promise.resolve(null),
-            writeTruthJSON: (path, value) => {
+            readTruthBinary: (path, metadata) => bridge.truthFileStore?.readBinary(path) ?? bridge.readBinary(path, metadata),
+            writeTruthBinary: (path, bytes, metadata) => bridge.truthFileStore?.writeBinary(path, bytes) ?? bridge.writeBinary(path, bytes, metadata),
+            readTruthJSON: <T>(path: string, metadata?: SqlitePersistenceHostEffectMetadata) => bridge.truthFileStore?.readJSON<T>(path) ?? bridge.readJSON?.<T>(path, metadata) ?? Promise.resolve(null),
+            writeTruthJSON: (path, value, metadata) => {
               if (bridge.truthFileStore) {
                 return bridge.truthFileStore.writeJSON(path, value);
               }
               if (!bridge.writeJSON) {
                 return Promise.reject(new Error(`SrsBackendWorker truth JSON persistence unavailable for ${path}`));
               }
-              return bridge.writeJSON(path, value);
+              return bridge.writeJSON(path, value, metadata);
             },
             listTruthFiles: (prefix) => bridge.truthFileStore?.listFiles?.(prefix) ?? Promise.resolve([]),
             deleteTruthFile: (path) => {
@@ -196,6 +222,9 @@ export async function createApplicationBackendRuntimeBundle(
               }
               return bridge.deleteFile(path);
             },
+            readIdentityRecoveryEvidence: () => authorityPublicationCoordinator.readEvidence(),
+            ensureRecoveryActiveWriter: (input) => authorityPublicationCoordinator.ensureRecoveryActiveWriter(input),
+            publishCertifiedAuthority: (input) => authorityPublicationCoordinator.publishCertifiedIntent(input),
             hasLegacyPetalSqliteDb: () => bridge.hasLegacyPetalSqliteDb?.() ?? Promise.resolve(false),
             readSyncConflictDatabaseSources: () => bridge.readSyncConflictDatabaseSources?.() ?? Promise.resolve([]),
             cleanupSyncConflictDatabaseSources: (sourceIds) => bridge.cleanupSyncConflictDatabaseSources?.(sourceIds) ?? Promise.resolve({
@@ -215,8 +244,10 @@ export async function createApplicationBackendRuntimeBundle(
           },
         });
         const truthDeviceIdentity = await resolveTruthDeviceIdentity({
-          localStore: options.fileService,
-          identityStore: new IndexedDbTruthDeviceIdentityStore(),
+          authority: identityAuthority,
+          caches: identityCaches,
+          evidenceProbe: new SiyuanTruthDeviceIdentityEvidenceProbe(options.fileService),
+          initializationFence: identityInitializationFence,
           hostFingerprint: (options.resolveSiyuanSystemId ?? resolveSiyuanSystemId)(),
         });
         const startupIdentityDisposition = createStartupIdentityDisposition(truthDeviceIdentity);
@@ -336,7 +367,7 @@ function createStartupIdentityDisposition(
   if (
     deviceId
     && identityEpoch
-    && REVIEW_TRUTH_MUTATION_IDENTITY_SOURCES.has(resolution.source)
+    && resolution.status === 'verified'
   ) {
     return {
       version: 1,
@@ -349,7 +380,7 @@ function createStartupIdentityDisposition(
       reason: null,
     };
   }
-  if (resolution.source === 'unavailable') {
+  if (resolution.status === 'authority-unavailable') {
     return {
       version: 1,
       status: 'read-only-authority-unavailable',
@@ -381,6 +412,19 @@ function formatBackendStartupError(error: unknown): string {
   return String(error || 'unknown backend startup error');
 }
 
+function sqliteHostEffectDiagnostics(
+  metadata?: SqlitePersistenceHostEffectMetadata | null,
+): { diagnostics: Record<string, unknown> } | undefined {
+  const diagnostics: Record<string, unknown> = {};
+  if (metadata?.purpose) {
+    diagnostics.sqliteDeltaPurpose = metadata.purpose;
+  }
+  if (metadata?.substep) {
+    diagnostics.sqliteDeltaSubstep = metadata.substep;
+  }
+  return Object.keys(diagnostics).length > 0 ? { diagnostics } : undefined;
+}
+
 function createWorkerPersistenceBridge(fileService: FileService): SqlitePersistenceBridge {
   const truthFileStore = {
     readBinary: async (path: string) => {
@@ -397,7 +441,7 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
     },
     readJSON: <T>(path: string) => fileService.readJSON<T>(path),
     writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
-    listFiles: (prefix: string) => fileService.listFileEntries(prefix),
+    listFiles: (prefix: string) => fileService.listFiles(prefix),
     deleteFile: (path: string) => fileService.deleteFile(path),
   };
   return {
@@ -408,14 +452,14 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
       }
       return fileService.readBinary(path);
     },
-    writeBinary: async (path: string, bytes: Uint8Array) => {
+    writeBinary: async (path: string, bytes: Uint8Array, metadata?: SqlitePersistenceHostEffectMetadata) => {
       if (path === SQLITE_PROJECTION_DB_FILE) {
-        await fileService.writeTempProjectionBinary(path, bytes);
+        await fileService.writeTempProjectionBinary(path, bytes, sqliteHostEffectDiagnostics(metadata));
         return;
       }
-      await fileService.writeBinary(path, bytes);
+      await fileService.writeBinary(path, bytes, sqliteHostEffectDiagnostics(metadata));
     },
-    listFiles: (prefix: string) => fileService.listFiles(prefix),
+    listFiles: (prefix: string) => fileService.listFileEntries(prefix),
     deleteFile: async (path: string) => {
       await fileService.deleteFile(path);
       if (await fileService.readBinary(path)) {
@@ -469,23 +513,6 @@ function normalizeBackendString(value: unknown): string {
 function normalizeOptionalBackendString(value: unknown): string | undefined {
   const normalized = normalizeBackendString(value);
   return normalized || undefined;
-}
-
-function normalizeBackendStringArray(values: unknown): string[] {
-  if (!Array.isArray(values)) {
-    return [];
-  }
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const value of values) {
-    const item = normalizeBackendString(value);
-    if (!item || seen.has(item)) {
-      continue;
-    }
-    seen.add(item);
-    normalized.push(item);
-  }
-  return normalized;
 }
 
 function readViteEnv(): RuntimeEnv {

@@ -4,6 +4,7 @@ import { createUnifiedReviewDialog } from '@/application/factories/createUnified
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
 import { QueueType } from '@/types/unified-data-source';
+import { ReviewProjectionWorkCoordinator } from '@/application/services/ReviewProjectionWorkCoordinator';
 import { DialogManager } from '../DialogManager';
 
 function cleanDomainSyncStatus() {
@@ -125,7 +126,12 @@ function createDialogManager(options?: {
   backendWorkerAvailable?: boolean;
   srsBackendClient?: unknown;
   backendStartupError?: string | null;
+  reviewAdmissionError?: Error | null;
 }) {
+  const reviewProjectionWorkCoordinator = new ReviewProjectionWorkCoordinator({
+    info: vi.fn(),
+    warn: vi.fn(),
+  });
   const filterGroupQueue = {
     getType: () => 'filter-group',
     setFilter: vi.fn().mockResolvedValue(undefined),
@@ -187,6 +193,7 @@ function createDialogManager(options?: {
       startLeechPractice: '难点攻坚',
       reviewSubsetTitleWithCount: '子集复习 ({n} 张)',
       temporaryDrill: '临时练习',
+      reviewStorageRecoveryRequired: '存储恢复未完成，暂时不能开始复习',
     }),
     getEventBus: vi.fn().mockReturnValue({ subscribe: vi.fn() }),
     getUnifiedDataSourceManager: vi.fn().mockReturnValue(manager),
@@ -203,9 +210,14 @@ function createDialogManager(options?: {
     }),
     getReviewQueuePreparationService: vi.fn().mockReturnValue(preparationService),
     getReviewRuntimeAccess: vi.fn().mockReturnValue({}),
+    getReviewProjectionWorkCoordinator: vi.fn().mockReturnValue(reviewProjectionWorkCoordinator),
     getReviewAdmissionModule: vi.fn().mockReturnValue({
-      admitReviewSession: vi.fn(async ({ target }: { target: { kind: string; queueType: QueueType; entrySurface: string } }) =>
-        target.kind === 'projection-queue' ? createAdmissionTicket(target) : null),
+      admitReviewSession: vi.fn(async ({ target }: { target: { kind: string; queueType: QueueType; entrySurface: string } }) => {
+        if (options?.reviewAdmissionError) {
+          throw options.reviewAdmissionError;
+        }
+        return target.kind === 'projection-queue' ? createAdmissionTicket(target) : null;
+      }),
     }),
     getTabManager: vi.fn().mockReturnValue(tabManager),
     readDomainSyncDiagnostics: vi.fn().mockResolvedValue(cleanDomainSyncStatus()),
@@ -284,6 +296,17 @@ describe('DialogManager review header variants', () => {
     expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith(
       expect.stringContaining('PROJECTION_REBUILD_FAILED'),
     );
+  });
+
+  it('shows storage recovery guidance when Review admission is blocked', async () => {
+    const { dialogManager, siyuanApi } = createDialogManager({
+      reviewAdmissionError: new Error('REVIEW_ADMISSION_UNAVAILABLE: incremental-learning storage recovery disables Review writes'),
+    });
+
+    await dialogManager.openIncrementalLearningDialog();
+
+    expect(createUnifiedReviewDialog).not.toHaveBeenCalled();
+    expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith('存储恢复未完成，暂时不能开始复习');
   });
 
   it('opens NeuralRoam in a new tab when the new-tab default is enabled', async () => {

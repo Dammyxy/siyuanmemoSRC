@@ -137,6 +137,43 @@ export type KernelWriterLeaseEnvelope =
   | KernelWriterLeaseErrorEnvelope
   | KernelWriterLeaseSuccessEnvelope;
 
+export interface IdentityInitializationFencePayload {
+  instanceId: string;
+  token: string;
+  acquiredAt: number;
+  expiresAt: number;
+}
+
+export interface KernelIdentityInitializationFenceAcquireRequest {
+  instanceId: string;
+  ttlMs?: number;
+}
+
+export interface KernelIdentityInitializationFenceReleaseRequest {
+  instanceId: string;
+  token: string;
+}
+
+export interface KernelIdentityInitializationFenceSuccessEnvelope {
+  ok: true;
+  fence: IdentityInitializationFencePayload | null;
+  now: number;
+}
+
+export interface KernelIdentityInitializationFenceErrorEnvelope {
+  ok: false;
+  error: {
+    code: 'FENCE_UNAVAILABLE' | 'INVALID_REQUEST';
+    message: string;
+  };
+  fence: IdentityInitializationFencePayload | null;
+  now: number;
+}
+
+export type KernelIdentityInitializationFenceEnvelope =
+  | KernelIdentityInitializationFenceSuccessEnvelope
+  | KernelIdentityInitializationFenceErrorEnvelope;
+
 export interface KernelWriterHelloRequest {
   instanceId: string;
   surfaceId?: string;

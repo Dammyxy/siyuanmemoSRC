@@ -47,6 +47,7 @@ import {
   scheduleSourceExistenceRefresh,
 } from './SourceExistenceCache';
 import { resolveQueueProjectionReadMode } from '@/core/queue/domain/queueProjectionReadPolicy';
+import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('QueueBrowserQueryKernel');
 
@@ -77,7 +78,18 @@ type QueueProjectionSnapshotReadModelState = QueueProjectionSnapshot & {
 
 type QueueBrowserQueryKernelOptions = {
   isReadOnlyRecoveryQueueStateAllowed?: () => boolean;
+  readReadOnlyRecoveryCards?: (
+    queueType: QueueType,
+    queue: IReviewQueue,
+  ) => Promise<FSRSCard[]>;
 };
+
+type ReadOnlyRecoveryRowsCacheEntry = {
+  expiresAt: number;
+  rows: BrowserCard[];
+};
+
+const READ_ONLY_RECOVERY_ROWS_CACHE_TTL_MS = 1_000;
 
 export type QueueProjectionBrowserReadModelError = Error & {
   browserReadModelState?: Exclude<BrowserReadModelReadState, 'ready'>;
@@ -107,6 +119,8 @@ function createQueueProjectionBrowserReadError(
 }
 
 export class QueueBrowserQueryKernel {
+  private readonly readOnlyRecoveryRowsCache = new Map<QueueType, ReadOnlyRecoveryRowsCacheEntry>();
+
   constructor(
     private readonly manager: IUnifiedDataSourceManagerFacade,
     private readonly siyuanApi: Pick<BrowserQuerySiyuanPort, 'sql'> | null = null,
@@ -181,6 +195,10 @@ export class QueueBrowserQueryKernel {
 
     const route = this.resolveQueueRoute(queueId);
     if (route.projectionBacked) {
+      const cachedRecoveryRows = this.readCachedReadOnlyRecoveryRows(route.queueType, orderedIds);
+      if (cachedRecoveryRows) {
+        return cachedRecoveryRows;
+      }
       let snapshotRows: QueueSnapshotRow[];
       try {
         snapshotRows = await this.readProjectionSnapshotRows(route, false);
@@ -352,6 +370,7 @@ export class QueueBrowserQueryKernel {
       });
       if (result.type === 'snapshot' && result.status === 'ready' && result.snapshot) {
         this.assertProjectionSnapshotReadable(route, result.snapshot);
+        this.readOnlyRecoveryRowsCache.delete(route.queueType);
         return result.snapshot;
       }
       throw createQueueProjectionBrowserReadError(
@@ -441,6 +460,7 @@ export class QueueBrowserQueryKernel {
         ids: orderedIds,
       });
       if (result.type === 'rows-by-id' && result.status === 'ready') {
+        this.readOnlyRecoveryRowsCache.delete(route.queueType);
         return result.cards;
       }
       throw createQueueProjectionBrowserReadError(
@@ -477,12 +497,51 @@ export class QueueBrowserQueryKernel {
       return null;
     }
 
-    const cards = await route.queue.getReadOnlyRecoveryCards();
-    const rows = cards.map((card, index) => mapQueueFsrsCardToBrowserCard(card, {
-      firstReviewMode: isRetrievalBrowserQueue(route.queueId) ? 'created-or-last' : 'last-review',
-      queueIndex: index + 1,
-    }));
-    return this.markMissingRows(rows);
+    const cached = this.readCachedReadOnlyRecoveryRows(route.queueType);
+    if (cached) {
+      return cached;
+    }
+
+    const rows = await measureRuntimePerformance(
+      'browser',
+      'queue.local-preview',
+      async () => {
+        const cards = this.options.readReadOnlyRecoveryCards
+          ? await this.options.readReadOnlyRecoveryCards(route.queueType, route.queue)
+          : await route.queue.getReadOnlyRecoveryCards!();
+        return this.markMissingRows(cards.map((card, index) => mapQueueFsrsCardToBrowserCard(card, {
+          firstReviewMode: isRetrievalBrowserQueue(route.queueId) ? 'created-or-last' : 'last-review',
+          queueIndex: index + 1,
+        })));
+      },
+      { queueType: route.queueType },
+    );
+    this.readOnlyRecoveryRowsCache.set(route.queueType, {
+      expiresAt: Date.now() + READ_ONLY_RECOVERY_ROWS_CACHE_TTL_MS,
+      rows,
+    });
+    return rows.map((row) => ({ ...row }));
+  }
+
+  private readCachedReadOnlyRecoveryRows(
+    queueType: QueueType,
+    orderedIds?: string[],
+  ): BrowserCard[] | null {
+    const cached = this.readOnlyRecoveryRowsCache.get(queueType);
+    if (!cached) {
+      return null;
+    }
+    if (cached.expiresAt < Date.now()) {
+      this.readOnlyRecoveryRowsCache.delete(queueType);
+      return null;
+    }
+    if (!orderedIds) {
+      return cached.rows.map((row) => ({ ...row }));
+    }
+    const orderedRows = this.orderBrowserRowsByIds(cached.rows, orderedIds);
+    return orderedRows.length === orderedIds.length
+      ? orderedRows.map((row) => ({ ...row }))
+      : null;
   }
 
   private async tryBuildReadOnlyRecoverySnapshot(
@@ -514,7 +573,8 @@ export class QueueBrowserQueryKernel {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes('QUEUE_PROJECTION_UNAVAILABLE')
       || message.includes('QUEUE_PROJECTION_NOT_READY')
-      || message.includes('QUEUE_PROJECTION_REPAIR_REQUIRED');
+      || message.includes('QUEUE_PROJECTION_REPAIR_REQUIRED')
+      || message.includes('STORAGE_RECOVERY_REQUIRED');
   }
 
   private buildReadOnlyRecoveryReadOwner(route: QueueReadModelRoute): BrowserReadOwnerMetadata {
@@ -525,7 +585,7 @@ export class QueueBrowserQueryKernel {
       projectionBacked: false,
       readPath: 'read-only-recovery-local-queue',
       state: 'read-only-recovery-required',
-      reason: 'startup-read-only-recovery',
+      reason: 'browser-local-preview',
       unavailableReason: route.readOwner.unavailableReason ?? null,
     };
   }
