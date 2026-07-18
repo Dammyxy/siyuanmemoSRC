@@ -910,6 +910,135 @@ describe('SrsBackendClient', () => {
     }
   });
 
+  it('retries queued Review truth flush when session feedback pressure suppresses truth persistence', async () => {
+    vi.useFakeTimers();
+    try {
+      const requests: Array<{ method: string; params: unknown }> = [];
+      let truthFlushAttempts = 0;
+      const feedback = createDurableReviewFeedbackResult({
+        cardId: 'card-review-session-truth-flush-pressure',
+        queueType: 'incremental-learning',
+        storage: {
+          ...(createDurableReviewFeedbackResult().storage as Record<string, unknown>),
+          truthFlush: {
+            status: 'pending',
+            family: 'review-events',
+            syncVisible: false,
+            pendingCount: 1,
+            oldestPendingAgeMs: 0,
+            lastError: null,
+          },
+        },
+      });
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          requests.push({ method: request.method, params: request.params });
+          if (request.method === 'review.session.feedback') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                sessionId: 'session-a',
+                queueType: 'incremental-learning',
+                current: null,
+                lookaheadCards: [],
+                counters: {
+                  remaining: 0,
+                  due: 0,
+                  total: 1,
+                  source: 'worker-session',
+                },
+                projectionState: 'not-used',
+                projectionGeneration: null,
+                projectionPolicyHash: null,
+                receipt: {
+                  answeredCardId: feedback.cardId,
+                  reviewedAt: feedback.reviewedAt,
+                  queueType: feedback.queueType,
+                  commit: {
+                    outcome: 'committed',
+                    updatedCard: feedback.updatedCard,
+                    duplicate: false,
+                  },
+                  factIdentity: {
+                    kind: 'idempotency-key',
+                    idempotencyKey: 'session-truth-flush-key',
+                  },
+                  durability: {
+                    status: 'durable',
+                    evidence: 'storage-summary',
+                  },
+                  undo: {
+                    token: 'undo-session',
+                    evidence: 'transaction-journal',
+                  },
+                  queueImpact: feedback.queueImpact ?? null,
+                  storage: feedback.storage ?? null,
+                  diagnostics: {
+                    authority: 'worker-review-session',
+                    projectionState: 'not-used',
+                    storageSummaryAvailable: true,
+                  },
+                },
+              },
+            };
+          }
+          if (request.method === 'review.truth.flush') {
+            truthFlushAttempts += 1;
+            if (truthFlushAttempts === 1) {
+              throw new Error('BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect truth.writeBinary');
+            }
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                at: 1_700_000_000_200,
+                journalQueued: 1,
+                recordsWritten: 1,
+                segmentWritten: true,
+                manifestUpdated: true,
+                projectionRefreshScheduled: true,
+                idempotencyDuplicateSkipped: 0,
+                flushedEntryIds: ['review-feedback:session-truth-flush-key'],
+                segmentPaths: ['truth/review-events/review-events-v1/device-device-A/seg-000002-test.msgpack'],
+                error: null,
+              },
+            };
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          identityEpoch: 'epoch-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 8,
+          delayMs: 50,
+        },
+      });
+
+      await client.reviewSessionFeedback({
+        sessionId: 'session-a',
+        cardId: 'card-review-session-truth-flush-pressure',
+        rating: 3,
+        idempotencyKey: 'session-truth-flush-key',
+      });
+
+      await vi.advanceTimersByTimeAsync(50);
+      await vi.waitFor(() => expect(truthFlushAttempts).toBe(2));
+      expect(requests.map((request) => request.method)).toEqual([
+        'review.session.feedback',
+        'review.truth.flush',
+        'review.truth.flush',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not retry queued Review truth flush for non-pressure persistence errors', async () => {
     vi.useFakeTimers();
     try {

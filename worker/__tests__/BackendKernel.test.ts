@@ -134,7 +134,7 @@ describe('BackendKernel', () => {
     });
   });
 
-  it('keeps storage maintenance status off storage-refresh preflight while applyBatch keeps it', async () => {
+  it('keeps storage maintenance status and applyBatch off storage-refresh preflight', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     const mergeExternalDatabaseIfChanged = vi.spyOn(database, 'mergeExternalDatabaseIfChanged').mockResolvedValue({
       changed: false,
@@ -237,10 +237,8 @@ describe('BackendKernel', () => {
         status: 'completed',
       },
     });
-    expect(mergeExternalDatabaseIfChanged).toHaveBeenCalledTimes(1);
-    expect(mergeExternalDatabaseIfChanged.mock.invocationCallOrder[0]).toBeLessThan(
-      applyStorageMaintenanceBatch.mock.invocationCallOrder[0],
-    );
+    expect(mergeExternalDatabaseIfChanged).not.toHaveBeenCalled();
+    expect(applyStorageMaintenanceBatch).toHaveBeenCalledTimes(1);
   });
 
   it('keeps db.load and db.reload identity resolution ahead of storage-refresh preflight', async () => {

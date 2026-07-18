@@ -865,7 +865,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   private countPendingReviewFeedbackRequests(): number {
     let count = 0;
     for (const pending of this.pendingRequests.values()) {
-      if (pending.method === 'review.feedback') {
+      if (this.isReviewFeedbackTimingMethod(pending.method)) {
         count += 1;
       }
     }

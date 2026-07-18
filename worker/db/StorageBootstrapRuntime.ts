@@ -67,6 +67,10 @@ interface TruthManifestTarget {
   generationId: string;
 }
 
+interface StartupTruthProjectionReadOptions {
+  includeReviewEvents: boolean;
+}
+
 interface StartupGenerationEvidence {
   currentGenerationId: string | null;
   previousGenerationId: string | null;
@@ -105,7 +109,9 @@ export class StorageBootstrapRuntime {
     const projectionBytesBeforeStartup = await this.readProjectionBytesForStartupProbe();
     let truthProjectionInput: StartupTruthProjectionInput | null = null;
     try {
-      truthProjectionInput = await this.readStartupTruthProjectionInput(options);
+      truthProjectionInput = await this.readStartupTruthProjectionInput(options, {
+        includeReviewEvents: projectionBytesBeforeStartup === null,
+      });
     } catch (error) {
       if (!isStorageError(error, 'TRUTH_VALIDATION_FAILED')) {
         throw error;
@@ -245,13 +251,18 @@ export class StorageBootstrapRuntime {
 
   private async readStartupTruthProjectionInput(
     options: WorkerStorageBootstrapOptions,
+    readOptions: StartupTruthProjectionReadOptions,
   ): Promise<StartupTruthProjectionInput | null> {
     if (!this.deps.truthFileStore) {
       return null;
     }
 
     const generationEvidence = await this.inspectStartupGenerationEvidence(options);
-    const targets = await this.discoverStartupTruthManifestTargets(options, generationEvidence);
+    const targets = await this.discoverStartupTruthManifestTargets(
+      options,
+      generationEvidence,
+      readOptions,
+    );
     const manifests: MessagePackTruthSegmentManifest[] = [];
     const truthRecords: MessagePackTruthRecord[] = [];
     let primaryDeviceId = options.truthDeviceId;
@@ -437,6 +448,7 @@ export class StorageBootstrapRuntime {
   private async discoverStartupTruthManifestTargets(
     options: WorkerStorageBootstrapOptions,
     generationEvidence: StartupGenerationEvidence,
+    readOptions: StartupTruthProjectionReadOptions,
   ): Promise<TruthManifestTarget[]> {
     const targets: TruthManifestTarget[] = [];
     const defaultDeviceId = normalizeString(options.truthDeviceId);
@@ -448,19 +460,21 @@ export class StorageBootstrapRuntime {
           generationId: options.cardTruthGenerationId,
         },
         {
-          family: 'review-events',
-          deviceId: defaultDeviceId,
-          generationId: options.reviewTruthGenerationId,
-        },
-        {
           family: 'queue-facts',
           deviceId: defaultDeviceId,
           generationId: options.queueTruthGenerationId,
         },
       );
+      if (readOptions.includeReviewEvents) {
+        targets.push({
+          family: 'review-events',
+          deviceId: defaultDeviceId,
+          generationId: options.reviewTruthGenerationId,
+        });
+      }
     }
 
-    if (this.deps.truthFileStore?.listFiles) {
+    if (readOptions.includeReviewEvents && this.deps.truthFileStore?.listFiles) {
       for (const family of ['review-events'] as const) {
         try {
           const paths = await this.deps.truthFileStore.listFiles(`truth/${family}`);

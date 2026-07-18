@@ -88,6 +88,17 @@ export class WorkerStoragePressureAdmissionModule {
     this.pendingObservations = [];
   }
 
+  seedInventory(inventory: StorageInventoryRecord, exact: boolean): void {
+    this.inventory = structuredClone(inventory);
+    this.exact = exact;
+    if (this.inventory.pressure.level !== 'hard') {
+      this.blockingReason = null;
+    } else {
+      this.blockingReason = this.inventory.pressure.reason
+        ?? 'hard storage pressure observed during startup';
+    }
+  }
+
   refreshExact(): Promise<StorageInventoryRecord> {
     if (this.refreshRun) {
       return this.refreshRun;

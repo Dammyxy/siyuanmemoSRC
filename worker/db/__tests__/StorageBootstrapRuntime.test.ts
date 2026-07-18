@@ -68,6 +68,29 @@ async function seedCardTruth(store: MemoryTruthFileStore): Promise<void> {
   }]);
 }
 
+async function seedReviewTruth(store: MemoryTruthFileStore): Promise<void> {
+  const truthStore = createMessagePackTruthSegmentStore({
+    fileStore: store,
+    family: 'review-events',
+    deviceId: BOOTSTRAP_OPTIONS.truthDeviceId!,
+    generationId: BOOTSTRAP_OPTIONS.reviewTruthGenerationId,
+    schemaVersion: 1,
+  });
+  await truthStore.appendRecords([{
+    id: 'seed:review-1',
+    family: 'review-events',
+    schemaVersion: 1,
+    type: 'review.feedback.v2',
+    idempotencyKey: 'seed:review-1',
+    logicalTime: 2,
+    recordedAt: 2,
+    source: {
+      cardId: 'card-1',
+      blockId: 'block-1',
+    },
+  }]);
+}
+
 function createRuntime(input: {
   truthFileStore: MemoryTruthFileStore;
   projectionBytes?: Uint8Array | null;
@@ -106,6 +129,31 @@ describe('StorageBootstrapRuntime', () => {
     expect(result.truthProjectionInput?.truthRecords).toHaveLength(1);
     expect(result.truthProjectionInput?.primaryDeviceId).toBe('device-local');
     expect(result.truthProjectionInput?.primaryGenerationId).toBe('card-memory-facts-v1');
+  });
+
+  it('does not replay review-events truth while an existing sqlite projection is loadable', async () => {
+    const truthFileStore = new MemoryTruthFileStore();
+    await seedCardTruth(truthFileStore);
+    await seedReviewTruth(truthFileStore);
+    const reviewSegmentPath = Array.from(truthFileStore.binary.keys())
+      .find((path) => path.startsWith('truth/review-events/'));
+    expect(reviewSegmentPath).toBeTruthy();
+    const reviewBytes = truthFileStore.binary.get(reviewSegmentPath!)!;
+    reviewBytes[0] ^= 0xff;
+    const runtime = createRuntime({
+      truthFileStore,
+      projectionBytes: new Uint8Array([1, 2, 3]),
+    });
+
+    const result = await runtime.bootstrap(BOOTSTRAP_OPTIONS);
+
+    expect(result).toMatchObject({
+      truthAvailable: true,
+      projectionRebuildRequired: false,
+    });
+    expect(result.truthProjectionInput?.truthRecords.map((record) => record.family)).toEqual([
+      'card-memory-facts',
+    ]);
   });
 
   it('requests truth-backed projection rebuild when sqlite projection is missing', async () => {
@@ -263,7 +311,7 @@ describe('StorageBootstrapRuntime', () => {
 
     expect(result).toMatchObject({
       truthAvailable: false,
-      truthValidationError: 'TRUTH_VALIDATION_FAILED: MessagePack truth validation failed: checksum-mismatch',
+      truthValidationError: expect.stringContaining('TRUTH_VALIDATION_FAILED: MessagePack truth validation failed: checksum-mismatch'),
       projectionRebuildRequired: false,
       truthProjectionInput: null,
       quarantinedPaths: expect.arrayContaining([

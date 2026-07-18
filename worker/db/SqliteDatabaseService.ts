@@ -18,6 +18,7 @@ import type {
 } from '@/types/arena';
 import {
   MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+  STORAGE_INVENTORY_RECORD_VERSION,
   STORAGE_MUTATION_ENVELOPE_VERSION,
   STORAGE_RECOVERY_STATE_VERSION,
 } from '../../packages/contracts/src/backend-rpc';
@@ -163,7 +164,10 @@ import {
   type CardAggregateTruthState,
 } from '../truth/CompactableCanonicalTruth';
 import { WorkerStorageInventory } from './WorkerStorageInventory';
-import type { WorkerStorageBudgetPolicy } from './WorkerStoragePressureClassifier';
+import {
+  classifyWorkerStoragePressure,
+  type WorkerStorageBudgetPolicy,
+} from './WorkerStoragePressureClassifier';
 import { WorkerStoragePressureAdmissionModule } from './WorkerStoragePressureAdmissionModule';
 import type {
   ReviewSqlTruthBackfillProjectionPatch,
@@ -227,6 +231,7 @@ import {
 import {
   LEGACY_SQLITE_DELTA_LOG_FILE,
   SQLITE_DELTA_LOG_FILE,
+  type SqliteDeltaStartupEvidence,
 } from '@/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint';
 import {
   classifyWorkerStartupStorageEvidence,
@@ -1392,11 +1397,16 @@ export class WorkerSqliteDatabaseService {
     await this.replayPendingReviewFeedbackJournalEntries();
     await this.reconcileReviewFeedbackJournalProjectionState();
     await this.kernelTransactionRuntime.restoreSnapshots();
-    await this.runOneTimeStorageGrowthBaseline();
     const startupPromotionDiagnostics = await this.truthPromotionModule?.diagnostics();
     const verifiedDeltaEvidence = await this.runtime.getSqliteDeltaStartupEvidence(
       startupPromotionDiagnostics?.truthCoverageFrontier ?? null,
     );
+    this.seedStartupStorageGrowthBaseline({
+      deltaEvidence: verifiedDeltaEvidence,
+      projectionBytesBeforeStartup,
+      truthProjectionInput,
+      pendingMutationCount: startupPromotionDiagnostics?.pendingMutationCount ?? 0,
+    });
     this.startupStorageEvidence = classifyWorkerStartupStorageEvidence({
       identity: {
         deviceId: bootstrapOptions.truthDeviceId,
@@ -2610,6 +2620,9 @@ export class WorkerSqliteDatabaseService {
       executeBatch: () => this.executeStorageMaintenanceBatch(request),
     });
     if (record.status === 'completed') {
+      if (request.batch.kind === 'startup-maintenance-receipt') {
+        await this.runOneTimeStorageGrowthBaseline();
+      }
       await this.rememberPersistedHash();
     }
     return {
@@ -4477,6 +4490,76 @@ export class WorkerSqliteDatabaseService {
     return inventory;
   }
 
+  private seedStartupStorageGrowthBaseline(input: {
+    deltaEvidence: SqliteDeltaStartupEvidence | null;
+    projectionBytesBeforeStartup: Uint8Array | null;
+    truthProjectionInput: StartupTruthProjectionInput | null;
+    pendingMutationCount: number;
+  }): void {
+    const measuredAt = Date.now();
+    const identity = this.storageMutationIdentity;
+    const metrics: StorageInventoryRecord['metrics'] = [];
+    if (input.deltaEvidence) {
+      metrics.push({
+        family: 'sqlite-delta',
+        deviceId: identity?.deviceId ?? null,
+        identityEpoch: identity?.identityEpoch ?? null,
+        files: input.deltaEvidence.files,
+        bytes: 0,
+        oldestAgeMs: null,
+        generationCount: 0,
+        currentGenerationId: null,
+        previousGenerationId: null,
+        uncoveredMutationCount: input.deltaEvidence.uncoveredMutationCount
+          ?? input.pendingMutationCount,
+        compactionStatus: (input.deltaEvidence.uncoveredMutationCount ?? input.pendingMutationCount) > 0
+          ? 'blocked-uncovered'
+          : 'idle',
+      });
+    }
+    if (input.projectionBytesBeforeStartup) {
+      metrics.push({
+        family: 'temporary-sqlite-projection',
+        deviceId: identity?.deviceId ?? null,
+        identityEpoch: identity?.identityEpoch ?? null,
+        files: 1,
+        bytes: input.projectionBytesBeforeStartup.byteLength,
+        oldestAgeMs: null,
+        generationCount: 0,
+        currentGenerationId: null,
+        previousGenerationId: null,
+        uncoveredMutationCount: 0,
+        compactionStatus: 'not-applicable',
+      });
+    }
+    const truthInput = input.truthProjectionInput;
+    if (truthInput) {
+      const segments = truthInput.truthManifest.segments ?? [];
+      metrics.push({
+        family: truthInput.truthManifest.family,
+        deviceId: truthInput.truthManifest.deviceId,
+        identityEpoch: identity?.deviceId === truthInput.truthManifest.deviceId
+          ? identity?.identityEpoch ?? null
+          : null,
+        files: segments.length,
+        bytes: segments.reduce((total, segment) => total + Math.max(0, Math.floor(Number(segment.byteSize) || 0)), 0),
+        oldestAgeMs: null,
+        generationCount: truthInput.manifestCount,
+        currentGenerationId: truthInput.currentGenerationId,
+        previousGenerationId: truthInput.previousGenerationId,
+        uncoveredMutationCount: 0,
+        compactionStatus: 'idle',
+      });
+    }
+    const pressure = classifyWorkerStoragePressure(metrics, measuredAt, this.storageBudgetPolicies);
+    this.storagePressureAdmission.seedInventory({
+      version: STORAGE_INVENTORY_RECORD_VERSION,
+      measuredAt,
+      metrics,
+      pressure,
+    }, false);
+  }
+
   private async enforceStoragePressureBeforeMutation(input?: { label: string }): Promise<void> {
     if (canBypassStoragePressureForMutationLabel(input?.label)) {
       return;
@@ -4701,6 +4784,10 @@ export class WorkerSqliteDatabaseService {
         });
       }
     }
+    this.markStorageGrowthBaselineMigration();
+  }
+
+  private markStorageGrowthBaselineMigration(): void {
     if (!this.runtime.hasMigration(STORAGE_GROWTH_BASELINE_MIGRATION_ID)) {
       this.runtime.markMigration(STORAGE_GROWTH_BASELINE_MIGRATION_ID);
     }
@@ -8719,6 +8806,7 @@ export class WorkerSqliteDatabaseService {
     await this.truthPromotionRun;
     const currentInventory = await this.collectStorageInventory();
     if (currentInventory.pressure.level !== 'hard') {
+      this.markStorageGrowthBaselineMigration();
       return {
         ok: true,
         phase: 'completed',
@@ -8832,6 +8920,9 @@ export class WorkerSqliteDatabaseService {
       throw new Error('BACKEND_UNAVAILABLE: post-adoption orphan cleanup unavailable');
     }
     const inventory = await this.collectStorageInventory();
+    if (inventory.pressure.level !== 'hard' && orphanCleanup.failedFiles.length === 0) {
+      this.markStorageGrowthBaselineMigration();
+    }
     return {
       ok: inventory.pressure.level !== 'hard' && orphanCleanup.failedFiles.length === 0,
       phase: orphanCleanup.remainingOrphanFileCount > 0 ? 'cleaning-orphans' : 'completed',

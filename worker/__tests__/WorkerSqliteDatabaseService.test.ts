@@ -1012,7 +1012,7 @@ describe('WorkerSqliteDatabaseService', () => {
       pressure: {
         level: 'hard',
         blockingMutationGrowth: true,
-        reason: expect.stringContaining('no-progress-uncovered'),
+        reason: expect.stringContaining('files=17 >= hard=1'),
       },
     });
 
@@ -1675,8 +1675,8 @@ describe('WorkerSqliteDatabaseService', () => {
       'await this.replayPendingReviewFeedbackJournalEntries();',
       'await this.reconcileReviewFeedbackJournalProjectionState();',
       'await this.kernelTransactionRuntime.restoreSnapshots();',
-      'await this.runOneTimeStorageGrowthBaseline();',
       'const startupPromotionDiagnostics = await this.truthPromotionModule?.diagnostics();',
+      'this.seedStartupStorageGrowthBaseline({',
       'this.startupStorageEvidence = classifyWorkerStartupStorageEvidence({',
       'this.startupTruthPromotionPending = (startupPromotionDiagnostics?.pendingMutationCount ?? 0) > 0;',
       'this.initialized = true;',

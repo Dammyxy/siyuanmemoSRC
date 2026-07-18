@@ -97,7 +97,7 @@ function requestHostEffect<TResult>(effect: BackendWorkerHostEffect): Promise<TR
     shouldSuppressReviewFeedbackPersistenceHostEffect(effect.kind, activeTiming)
   ) {
     recordBackendWorkerHostEffect(
-      activeTiming?.method === 'review.feedback' ? activeTiming : null,
+      isReviewFeedbackTimingMethod(activeTiming?.method ?? '') ? activeTiming : null,
       effect.kind,
       Date.now() - startedAt,
       effectMetadata,
@@ -425,7 +425,6 @@ scope.onmessage = (event) => {
     return;
   }
   if (message.kind === 'request') {
-    const isReviewFeedback = message.request.method === 'review.feedback';
     const isReviewFeedbackTiming = isReviewFeedbackTimingMethod(message.request.method);
     const cardId = isReviewFeedbackTiming ? extractReviewFeedbackCardId(message) : null;
     const queueType = extractQueueType(message);
@@ -434,12 +433,12 @@ scope.onmessage = (event) => {
     const sentAt = typeof message.sentAt === 'number' && Number.isFinite(message.sentAt)
       ? message.sentAt
       : null;
-    const requestTiming: ActiveReviewFeedbackTiming | null = isReviewFeedback
-      ? beginBackendWorkerRequest(true, cardId)
+    const requestTiming: ActiveReviewFeedbackTiming | null = isReviewFeedbackTiming
+      ? beginBackendWorkerTiming(message.request.method, cardId, { queueType })
       : captureTiming
         ? beginBackendWorkerTiming(message.request.method, null, { queueType })
         : beginBackendWorkerRequest(false);
-    if (isReviewFeedback) {
+    if (isReviewFeedbackTiming) {
       if (sentAt !== null) {
         logReviewFeedbackWorkerEntryStepIfSlow('main-to-worker-received', cardId, receivedAt - sentAt);
       }
@@ -465,7 +464,7 @@ scope.onmessage = (event) => {
             },
           });
         }
-        if (isReviewFeedback) {
+        if (isReviewFeedbackTiming) {
           logReviewFeedbackWorkerEntryStepIfSlow('handle-to-response', cardId, handledAt - startedAt);
         }
         const timing = captureTiming && requestTiming

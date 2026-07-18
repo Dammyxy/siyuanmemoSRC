@@ -144,7 +144,7 @@ export function shouldSuppressReviewFeedbackPersistenceHostEffect(
   kind: BackendWorkerHostEffect['kind'],
   activeTiming: ActiveBackendWorkerTiming | null,
 ): boolean {
-  return activeTiming?.method === 'review.feedback'
+  return isReviewFeedbackTimingMethod(activeTiming?.method)
     && (
       kind === 'truth.writeJSON'
       || kind === 'truth.writeBinary'
@@ -318,3 +318,7 @@ export function recordReviewFeedbackInnerStep(stepTiming: BackendWorkerInnerStep
 export const recordBackendWorkerHostEffect = recordReviewFeedbackHostEffect;
 
 export const recordBackendWorkerInnerStep = recordReviewFeedbackInnerStep;
+
+function isReviewFeedbackTimingMethod(method: unknown): boolean {
+  return method === 'review.feedback' || method === 'review.session.feedback';
+}

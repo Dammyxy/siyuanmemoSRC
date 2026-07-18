@@ -249,6 +249,21 @@ describe('ReviewFeedbackTimingScope', () => {
     expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON', null)).toBe(false);
   });
 
+  it('suppresses truth persistence host effects for review session feedback timing', () => {
+    const sessionTiming = beginBackendWorkerTiming('review.session.feedback', 'card-1');
+
+    try {
+      expect(hasActiveBackendWorkerTiming('review.session.feedback')).toBe(true);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON', sessionTiming)).toBe(false);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('truth.writeJSON', sessionTiming)).toBe(true);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('truth.writeBinary', sessionTiming)).toBe(true);
+    } finally {
+      endBackendWorkerRequest(sessionTiming);
+    }
+
+    expect(hasActiveBackendWorkerTiming('review.session.feedback')).toBe(false);
+  });
+
   it('keeps sqlite delta purpose and substep attribution in host effect summaries', () => {
     const timing = beginBackendWorkerTiming('review.session.feedback', 'card-1');
 

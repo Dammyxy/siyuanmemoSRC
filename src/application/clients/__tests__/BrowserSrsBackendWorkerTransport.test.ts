@@ -1728,6 +1728,65 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('defers review truth writes while review.session.feedback is pending', async () => {
+    const worker = new FakeWorker();
+    const writeTruthBinary = vi.fn(async () => undefined);
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { writeTruthBinary },
+    });
+    const sessionFeedback = transport.request(createReviewSessionFeedbackRequest(82));
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    const flush = transport.request(createReviewTruthFlushRequest(83));
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-truth-session-feedback-pressure',
+      effect: {
+        kind: 'truth.writeBinary',
+        path: 'truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack',
+        bytes: new Uint8Array([7]),
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(3));
+    expect(writeTruthBinary).not.toHaveBeenCalled();
+    expect(worker.posted[2]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-truth-session-feedback-pressure',
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect truth.writeBinary',
+      },
+    });
+
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 82,
+        result: { ok: true },
+      },
+    });
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[1] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 83,
+        result: { ok: false, error: 'deferred-under-feedback-pressure' },
+      },
+    });
+    await expect(sessionFeedback).resolves.toEqual(expect.objectContaining({ id: 82 }));
+    await expect(flush).resolves.toEqual(expect.objectContaining({ id: 83 }));
+    transport.dispose();
+  });
+
   it('allows required SQLite durability host effects for rating, skip, and custom review feedback', async () => {
     const requiredSqliteEffects = [
       {

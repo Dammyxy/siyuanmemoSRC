@@ -106,6 +106,7 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'review.truth.flush',
   'review.truth.backfill',
   'storage.maintenance.status',
+  'storage.maintenance.applyBatch',
   'storage.pressure.recover',
   'recovery.foreignEpoch.preview',
   'recovery.foreignEpoch.apply',
