@@ -60,7 +60,7 @@ export class WorkerStoragePressureAdmissionModule {
     if (level === 'normal') {
       return { kind: 'allow', level, exact: this.exact };
     }
-    if (level === 'soft') {
+    if (level === 'soft' || level === 'high') {
       return { kind: 'refresh-background', level, exact: this.exact };
     }
     return { kind: 'verify-synchronously', level, exact: this.exact };

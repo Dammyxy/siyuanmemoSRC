@@ -112,6 +112,36 @@ describe('WorkerStoragePressureAdmissionModule', () => {
     expect(collectExactInventory).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps high pressure on the background path and reserves synchronous verification for hard pressure', async () => {
+    const policies: readonly WorkerStorageBudgetPolicy[] = [{
+      family: 'review-events',
+      files: { target: 0, soft: 48, high: 72, hard: 96 },
+    }];
+    const collectExactInventory = vi.fn();
+    const admission = new WorkerStoragePressureAdmissionModule({
+      collectExactInventory,
+      budgetPolicies: policies,
+    });
+
+    admission.seedInventory(inventory([
+      metric('review-events', { files: 72 }),
+    ], 1_700_000_000_000, policies), true);
+    expect(admission.decide()).toMatchObject({
+      kind: 'refresh-background',
+      level: 'high',
+      exact: true,
+    });
+
+    admission.seedInventory(inventory([
+      metric('review-events', { files: 96 }),
+    ], 1_700_000_000_100, policies), true);
+    expect(admission.decide()).toMatchObject({
+      kind: 'verify-synchronously',
+      level: 'hard',
+      exact: true,
+    });
+  });
+
   it('retains hard blocking evidence until an exact lower-pressure refresh', async () => {
     const policies: readonly WorkerStorageBudgetPolicy[] = [{
       family: 'sqlite-delta',
