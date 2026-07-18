@@ -227,6 +227,118 @@ describe('StorageBootstrapRuntime', () => {
     });
   });
 
+  it('uses fenced review-events generation and ignores obsolete default review truth', async () => {
+    const truthFileStore = new MemoryTruthFileStore();
+    await seedCardTruth(truthFileStore);
+    await seedReviewTruth(truthFileStore);
+    const obsoleteReviewSegmentPath = Array.from(truthFileStore.binary.keys())
+      .find((path) => path.startsWith('truth/review-events/review-events-v1/'));
+    expect(obsoleteReviewSegmentPath).toBeTruthy();
+    truthFileStore.binary.get(obsoleteReviewSegmentPath!)![0] ^= 0xff;
+    const generationStore = new MessagePackTruthSnapshotGenerationStore({
+      fileStore: truthFileStore,
+      family: 'review-events',
+      deviceId: BOOTSTRAP_OPTIONS.truthDeviceId!,
+      schemaVersion: BOOTSTRAP_OPTIONS.truthSchemaVersion,
+    });
+    await generationStore.publishGeneration({
+      generationId: 'slim-review-events-1-1-test',
+      expectedCurrentGenerationId: null,
+      records: [{
+        family: 'review-events',
+        schemaVersion: 1,
+        type: 'review.feedback.v1',
+        idempotencyKey: 'skinny-review-1',
+        eventId: 'skinny-review-1',
+        logicalTime: 3,
+        recordedAt: 3,
+        source: { cardId: 'card-1' },
+        review: { action: 'rating', rating: 3, reviewedAt: 3 },
+        memory: {},
+      }],
+    });
+    const runtime = createRuntime({
+      truthFileStore,
+      projectionBytes: null,
+    });
+
+    const result = await runtime.bootstrap(BOOTSTRAP_OPTIONS);
+
+    expect(result.truthAvailable).toBe(true);
+    expect(result.truthValidationError).toBeNull();
+    expect(result.truthProjectionInput?.truthRecords).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        family: 'review-events',
+        eventId: 'skinny-review-1',
+      }),
+    ]));
+    expect(result.truthProjectionInput?.truthRecords).toEqual(expect.not.arrayContaining([
+      expect.objectContaining({
+        id: 'seed:review-1',
+      }),
+    ]));
+  });
+
+  it('replays post-cleanup default review tail after fenced review-events generation', async () => {
+    const truthFileStore = new MemoryTruthFileStore();
+    await seedCardTruth(truthFileStore);
+    const generationStore = new MessagePackTruthSnapshotGenerationStore({
+      fileStore: truthFileStore,
+      family: 'review-events',
+      deviceId: BOOTSTRAP_OPTIONS.truthDeviceId!,
+      schemaVersion: BOOTSTRAP_OPTIONS.truthSchemaVersion,
+    });
+    await generationStore.publishGeneration({
+      generationId: 'slim-review-events-3-1-test',
+      expectedCurrentGenerationId: null,
+      records: [{
+        family: 'review-events',
+        schemaVersion: 1,
+        type: 'review.feedback.v1',
+        idempotencyKey: 'skinny-review-3',
+        eventId: 'skinny-review-3',
+        journalSequence: 3,
+        logicalTime: 3,
+        recordedAt: 3,
+        source: { cardId: 'card-1' },
+        review: { action: 'rating', rating: 3, reviewedAt: 3 },
+        memory: {},
+      }],
+    });
+    const defaultStore = createMessagePackTruthSegmentStore({
+      fileStore: truthFileStore,
+      family: 'review-events',
+      deviceId: BOOTSTRAP_OPTIONS.truthDeviceId!,
+      generationId: BOOTSTRAP_OPTIONS.reviewTruthGenerationId,
+      schemaVersion: 1,
+    });
+    await defaultStore.appendRecords([{
+      family: 'review-events',
+      schemaVersion: 1,
+      type: 'review.feedback.v1',
+      idempotencyKey: 'tail-review-4',
+      eventId: 'tail-review-4',
+      journalSequence: 4,
+      logicalTime: 4,
+      recordedAt: 4,
+      source: { cardId: 'card-1' },
+      review: { action: 'rating', rating: 4, reviewedAt: 4 },
+      memory: {},
+    }]);
+    const runtime = createRuntime({
+      truthFileStore,
+      projectionBytes: null,
+    });
+
+    const result = await runtime.bootstrap(BOOTSTRAP_OPTIONS);
+
+    expect(result.truthValidationError).toBeNull();
+    expect(result.truthProjectionInput?.truthRecords).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventId: 'skinny-review-3' }),
+      expect.objectContaining({ eventId: 'tail-review-4' }),
+    ]));
+  });
+
   it('recovers from the previous verified generation when the current generation is corrupt', async () => {
     const truthFileStore = new MemoryTruthFileStore();
     const generationStore = new MessagePackTruthSnapshotGenerationStore({

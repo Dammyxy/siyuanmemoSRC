@@ -328,6 +328,40 @@ describe('CompactableCanonicalTruth Queue-family changesets', () => {
 });
 
 describe('CompactableCanonicalTruth full reconstruction', () => {
+  it('replays legacy storage.review operation evidence into Review event rows', () => {
+    const result = reconstructCanonicalTruthState({
+      truthRecords: [{
+        family: 'review-events',
+        schemaVersion: 1,
+        type: 'storage.review.event.v1',
+        idempotencyKey: 'legacy-review-operation',
+        mutationId: 'legacy-mutation',
+        operations: [{
+          table: 'review_events',
+          operation: 'insert',
+          primaryKey: { id: 'legacy-review-event' },
+          row: {
+            id: 'legacy-review-event',
+            card_id: 'card-legacy',
+            rating: 3,
+            reviewed_at: 12_000,
+          },
+        }],
+      }],
+      uncoveredMutations: [],
+    });
+
+    expect(result.reviewEvents).toEqual([
+      expect.objectContaining({
+        id: 'legacy-review-event',
+        card_id: 'card-legacy',
+        rating: 3,
+      }),
+    ]);
+    expect(result.undoEntries).toEqual([]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
   it('rebuilds Card, Schedule, Queue, Review, Undo, and tombstones from canonical truth plus uncovered delta', () => {
     const cardSnapshot = snapshotRecord('card-1', 'card-revision-10', 10, card({ due: 10_000 }));
     const deletedSnapshot = {

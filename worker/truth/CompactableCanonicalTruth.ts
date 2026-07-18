@@ -730,7 +730,7 @@ function normalizeOperation(value: unknown): StorageMutationOperation | null {
   };
 }
 
-function operationsFromTruthRecord(record: Record<string, unknown>): StorageMutationOperation[] {
+function legacyReviewOperationsFromTruthRecord(record: Record<string, unknown>): StorageMutationOperation[] {
   return Array.isArray(record.operations)
     ? record.operations.map(normalizeOperation).filter((operation): operation is StorageMutationOperation => Boolean(operation))
     : [];
@@ -810,7 +810,7 @@ export function reconstructCanonicalTruthState(
     if (type.startsWith('review.')) {
       reviewEvents.set(reviewTruthKey(record, index), structuredClone(record));
     }
-    operationsFromTruthRecord(record).forEach((operation, operationIndex) => {
+    legacyReviewOperationsFromTruthRecord(record).forEach((operation, operationIndex) => {
       applyOperationEvidence(
         operation,
         reviewEvents,

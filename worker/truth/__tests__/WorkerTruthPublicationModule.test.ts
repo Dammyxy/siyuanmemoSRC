@@ -7,6 +7,7 @@ import {
   type StorageMutationEnvelope,
 } from '../../../packages/contracts/src/backend-rpc';
 import type { MessagePackTruthSegmentFileStore } from '../MessagePackTruthSegmentStore';
+import { assertReviewTruthPublicationRecord } from '../ReviewTruthPublicationEncoder';
 import { WorkerTruthPublicationModule } from '../WorkerTruthPublicationModule';
 import type { WorkerTruthPromotionJournalEntry } from '../WorkerTruthPromotionModule';
 
@@ -62,7 +63,20 @@ function entry(sequence: number): WorkerTruthPromotionJournalEntry {
       table: 'review_events',
       operation: 'insert',
       primaryKey: { id: `event-${sequence}` },
-      row: { id: `event-${sequence}`, card_id: `card-${sequence}`, reviewed_at: 1_000 * sequence },
+      row: {
+        id: `event-${sequence}`,
+        card_id: `card-${sequence}`,
+        attempt_id: `attempt-${sequence}`,
+        rating: 3,
+        reviewed_at: 1_000 * sequence,
+        commit_idempotency_key: `review-feedback:${sequence}`,
+        event_type: 'review-feedback-v1',
+        payload_json: JSON.stringify({
+          blockId: `block-${sequence}`,
+          queueType: 'incremental-learning',
+          schedulerType: 'fsrs-v6',
+        }),
+      },
     }, {
       table: 'cards',
       operation: 'update',
@@ -117,6 +131,51 @@ function entry(sequence: number): WorkerTruthPromotionJournalEntry {
   return { createdAt: 1_000 * sequence, mutationEnvelope, durabilityReceipt };
 }
 
+function metadataOnlyEntry(sequence: number): WorkerTruthPromotionJournalEntry {
+  const mutationEnvelope: StorageMutationEnvelope = {
+    version: STORAGE_MUTATION_ENVELOPE_VERSION,
+    mutationId: `metadata-mutation-${sequence}`,
+    family: 'review',
+    deviceId: 'device-A',
+    identityEpoch: 'epoch-A',
+    journalSequence: sequence,
+    createdAt: 1_000 * sequence,
+    affectedAggregates: [{
+      family: 'review',
+      aggregateId: `undo-${sequence}`,
+      causalBaseRevision: null,
+    }],
+    operations: [{
+      table: 'review_transaction_undo_journal',
+      operation: 'insert',
+      primaryKey: { undo_token: `undo-${sequence}` },
+      row: {
+        undo_token: `undo-${sequence}`,
+        card_id: `card-${sequence}`,
+        status: 'open',
+      },
+    }],
+    requiredTruthOutputs: [
+      { family: 'review', kind: 'metadata', aggregateIds: [`undo-${sequence}`] },
+    ],
+  };
+  const durabilityReceipt: StorageDurabilityReceipt = {
+    version: STORAGE_DURABILITY_RECEIPT_VERSION,
+    mutationId: mutationEnvelope.mutationId,
+    family: mutationEnvelope.family,
+    stage: 'journaled',
+    journalSequence: sequence,
+    affectedAggregates: mutationEnvelope.affectedAggregates,
+    requiredTruthOutputs: mutationEnvelope.requiredTruthOutputs,
+    truthGenerationId: null,
+    retry: { attemptCount: 0, nextAttemptAt: null, lastError: null },
+    diagnosticCode: null,
+    diagnosticMessage: null,
+    updatedAt: 1_000 * sequence,
+  };
+  return { createdAt: 1_000 * sequence, mutationEnvelope, durabilityReceipt };
+}
+
 describe('WorkerTruthPublicationModule', () => {
   it('publishes all required families and retries without duplicate logical records', async () => {
     const fileStore = new MemoryFileStore();
@@ -146,12 +205,20 @@ describe('WorkerTruthPublicationModule', () => {
       'truth/review-events/review-events-v1/device-device-A/manifest.v1.json',
     ]);
     const records = [...fileStore.binary.values()].flatMap((bytes) => {
-      const envelope = decode(bytes) as { records: Array<{ mutationId?: string }> };
+      const envelope = decode(bytes) as { records: Array<Record<string, unknown> & { mutationId?: string }> };
       return envelope.records;
     });
     expect(records.filter((record) => record.mutationId === 'mutation-1')).toHaveLength(3);
     expect(records.filter((record) => record.mutationId === 'mutation-2')).toHaveLength(3);
     expect(records).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        family: 'review-events',
+        type: 'review.feedback.v1',
+        eventId: 'event-1',
+        idempotencyKey: 'review-feedback:1',
+        source: expect.objectContaining({ cardId: 'card-1', blockId: 'block-1' }),
+        review: expect.objectContaining({ action: 'rating', rating: 3, reviewedAt: 1_000 }),
+      }),
       expect.objectContaining({
         family: 'card-memory-facts',
         type: 'card-aggregate.changeset.v1',
@@ -172,6 +239,53 @@ describe('WorkerTruthPublicationModule', () => {
         ],
       }),
     ]));
+    const reviewRecords = records.filter((record) => record.family === 'review-events') as Array<Record<string, unknown>>;
+    expect(reviewRecords).toHaveLength(2);
+    for (const record of reviewRecords) {
+      expect(record.type).not.toMatch(/^storage\.review\./);
+      expect(record).not.toHaveProperty('operations');
+      expect(record).not.toHaveProperty('affectedAggregates');
+    }
+  });
+
+  it('rejects operation-bearing and oversized Review publication records before append', () => {
+    expect(() => assertReviewTruthPublicationRecord('mutation-bloated', {
+      family: 'review-events',
+      type: 'review.feedback.v1',
+      operations: [],
+    })).toThrow('review-truth-bloated-record:mutation-bloated:operations');
+    expect(() => assertReviewTruthPublicationRecord('mutation-large', {
+      family: 'review-events',
+      type: 'review.feedback.v1',
+      idempotencyKey: 'large',
+      source: { cardId: 'card-large' },
+      review: { action: 'rating', rating: 3, reviewedAt: 1 },
+      memory: {},
+      logicalTime: 1,
+      recordedAt: 1,
+      oversized: 'x'.repeat(70 * 1024),
+    })).toThrow(/review-truth-record-too-large:mutation-large:review\.feedback\.v1:/);
+  });
+
+  it('does not publish legacy storage.review records for metadata-only Review outputs', async () => {
+    const fileStore = new MemoryFileStore();
+    const publisher = new WorkerTruthPublicationModule({
+      fileStore,
+      deviceId: 'device-A',
+      identityEpoch: 'epoch-A',
+      schemaVersion: 1,
+      maxSegmentBytes: 64 * 1024,
+      generationIds: {
+        'review-events': 'review-events-v1',
+        'card-memory-facts': 'card-memory-facts-v1',
+        'queue-facts': 'queue-facts-v1',
+      },
+    });
+
+    const result = await publisher.publishBatch([metadataOnlyEntry(3)]);
+
+    expect(result.verifiedMutationIds).toEqual(['metadata-mutation-3']);
+    expect(await fileStore.listFiles('truth/review-events')).toEqual([]);
   });
 
   it('retries an interrupted manifest publication without duplicate logical records', async () => {
@@ -197,7 +311,7 @@ describe('WorkerTruthPublicationModule', () => {
       verifiedMutationIds: ['mutation-1'],
     });
 
-    expect(fileStore.binary.size).toBe(binaryCountAfterInterruption + 2);
+    expect(fileStore.binary.size).toBe(binaryCountAfterInterruption + 3);
     const records = (await Promise.all([
       publisher.getFamilyStore('review-events').replayRecords({ dedupeByIdempotencyKey: true }),
       publisher.getFamilyStore('card-memory-facts').replayRecords({ dedupeByIdempotencyKey: true }),

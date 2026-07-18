@@ -76,9 +76,9 @@ interface StartupGenerationEvidence {
   previousGenerationId: string | null;
   selectedGenerationId: string | null;
   generationFallbackReason: string | null;
-  selectedGenerationIds: Partial<Record<'card-memory-facts' | 'queue-facts', string>>;
+  selectedGenerationIds: Partial<Record<'card-memory-facts' | 'queue-facts' | 'review-events', string>>;
   selectedGenerations: Partial<Record<
-    'card-memory-facts' | 'queue-facts',
+    'card-memory-facts' | 'queue-facts' | 'review-events',
     MessagePackTruthVerifiedGenerationReplay
   >>;
   quarantinedPaths: string[];
@@ -281,6 +281,7 @@ export class StorageBootstrapRuntime {
     for (const target of targets) {
       const selectedGeneration = target.family === 'card-memory-facts'
         || target.family === 'queue-facts'
+        || target.family === 'review-events'
         ? generationEvidence.selectedGenerations[target.family]
         : null;
       if (
@@ -326,6 +327,9 @@ export class StorageBootstrapRuntime {
           primaryGenerationId = replay.manifest.generationId;
         }
       } catch (error) {
+        if (selectedGeneration && target.family === 'review-events' && error instanceof MessagePackTruthValidationError) {
+          continue;
+        }
         if (error instanceof MessagePackTruthValidationError) {
           throw storageError('TRUTH_VALIDATION_FAILED', error.message);
         }
@@ -377,7 +381,7 @@ export class StorageBootstrapRuntime {
     let currentGenerationId: string | null = null;
     let previousGenerationId: string | null = null;
     let selectedGenerationId: string | null = null;
-    for (const family of ['card-memory-facts', 'queue-facts'] as const) {
+    for (const family of ['card-memory-facts', 'queue-facts', 'review-events'] as const) {
       try {
         const generationStore = new MessagePackTruthSnapshotGenerationStore({
           fileStore: this.deps.truthFileStore,
@@ -474,7 +478,11 @@ export class StorageBootstrapRuntime {
       }
     }
 
-    if (readOptions.includeReviewEvents && this.deps.truthFileStore?.listFiles) {
+    if (
+      readOptions.includeReviewEvents
+      && this.deps.truthFileStore?.listFiles
+      && !generationEvidence.selectedGenerations['review-events']
+    ) {
       for (const family of ['review-events'] as const) {
         try {
           const paths = await this.deps.truthFileStore.listFiles(`truth/${family}`);

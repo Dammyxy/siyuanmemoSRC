@@ -175,7 +175,11 @@ export class MessagePackTruthSnapshotGenerationStore {
   readonly fencePath: string;
 
   constructor(options: MessagePackTruthSnapshotGenerationStoreOptions) {
-    if (options.family !== 'card-memory-facts' && options.family !== 'queue-facts') {
+    if (
+      options.family !== 'card-memory-facts'
+      && options.family !== 'queue-facts'
+      && options.family !== 'review-events'
+    ) {
       throw new Error(`Unsupported compactable snapshot family: ${options.family}`);
     }
     this.fileStore = options.fileStore;

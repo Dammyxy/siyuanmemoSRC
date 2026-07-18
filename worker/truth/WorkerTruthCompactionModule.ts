@@ -4,8 +4,10 @@ import {
   type MessagePackCardAggregateTombstoneTruthRecord,
   type MessagePackQueueSnapshotTruthRecord,
   type MessagePackQueueStateChangesetTruthRecord,
+  type MessagePackReviewEventTruthRecord,
 } from '../../packages/contracts/src/backend-rpc';
 import {
+  reconstructCanonicalTruthState,
   replayCardAggregateTruthRecords,
   replayQueueFamilyTruthRecords,
 } from './CompactableCanonicalTruth';
@@ -20,6 +22,7 @@ import {
   MessagePackTruthSnapshotGenerationStore,
   type MessagePackTruthPublishGenerationResult,
 } from './MessagePackTruthSnapshotGenerationStore';
+import { assertReviewTruthPublicationRecord } from './ReviewTruthPublicationEncoder';
 
 export type WorkerCompactableTruthFamily = 'card-memory-facts' | 'queue-facts';
 
@@ -47,7 +50,20 @@ export interface WorkerTruthFamilyCompactionResult {
 
 export interface WorkerTruthCompactionResult {
   families: WorkerTruthFamilyCompactionResult[];
-  reviewEvents: MessagePackTruthCompactionResult;
+  reviewEvents: WorkerReviewTruthCleanupResult;
+}
+
+export interface WorkerReviewTruthCleanupResult extends MessagePackTruthCompactionResult {
+  family: 'review-events';
+  generationId: string | null;
+  previousGenerationId: string | null;
+  sourceRecordCount: number;
+  skinnyRecordCount: number;
+  bloatedRecordCount: number;
+  coveredJournalSequence: number;
+  verifiedProjectionRows: number;
+  orphanPaths: string[];
+  reclaimedPaths: string[];
 }
 
 function normalizeIdentity(value: string, label: string): string {
@@ -79,6 +95,14 @@ function deterministicGenerationId(
   return `compact-${family}-${coveredJournalSequence}-${snapshotRecordCount}`;
 }
 
+function deterministicReviewGenerationId(
+  coveredJournalSequence: number,
+  snapshotRecordCount: number,
+  records: MessagePackTruthRecord[],
+): string {
+  return `slim-review-events-${coveredJournalSequence}-${snapshotRecordCount}-${shortStableHash(records)}`;
+}
+
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(stableValue);
@@ -96,6 +120,193 @@ function stableValue(value: unknown): unknown {
 function recordsEquivalent(left: MessagePackTruthRecord[], right: MessagePackTruthRecord[]): boolean {
   return left.length === right.length
     && JSON.stringify(left.map(stableValue)) === JSON.stringify(right.map(stableValue));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+  return null;
+}
+
+function readNumber(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key];
+    const numeric = typeof value === 'number' ? value : Number(value);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+  }
+  return null;
+}
+
+function parsePayload(record: Record<string, unknown>): Record<string, unknown> {
+  const raw = record.payload_json ?? record.payloadJson ?? record.payload;
+  if (isRecord(raw)) {
+    return structuredClone(raw);
+  }
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function reviewRecordHasBloat(record: MessagePackTruthRecord): boolean {
+  const type = typeof record.type === 'string' ? record.type : '';
+  return 'operations' in record
+    || 'affectedAggregates' in record
+    || type.startsWith('storage.review.');
+}
+
+function reviewProjectionSignature(record: Record<string, unknown>, index: number): Record<string, unknown> {
+  const source = isRecord(record.source) ? record.source : {};
+  const review = isRecord(record.review) ? record.review : {};
+  const eventId = readString(record, ['eventId', 'id', 'journalEntryId', 'idempotencyKey'])
+    ?? `review:${index}`;
+  return {
+    eventId,
+    cardId: readString(record, ['card_id', 'cardId']) ?? readString(source, ['cardId', 'card_id']),
+    rating: readNumber(record, ['rating']) ?? readNumber(review, ['rating']),
+    reviewedAt: readNumber(record, ['reviewed_at', 'reviewedAt', 'logicalTime'])
+      ?? readNumber(review, ['reviewedAt', 'reviewed_at']),
+  };
+}
+
+function reviewProjectionSignatures(records: Array<Record<string, unknown>>): string[] {
+  return records
+    .map((record, index) => JSON.stringify(stableValue(reviewProjectionSignature(record, index))))
+    .sort();
+}
+
+function stableReviewFactsEquivalent(
+  left: Array<Record<string, unknown>>,
+  right: Array<Record<string, unknown>>,
+): boolean {
+  return JSON.stringify(reviewProjectionSignatures(left)) === JSON.stringify(reviewProjectionSignatures(right));
+}
+
+function reviewRating(record: Record<string, unknown>, payload: Record<string, unknown>, review: Record<string, unknown>): 1 | 2 | 3 | 4 | null {
+  const value = readNumber(record, ['rating'])
+    ?? readNumber(payload, ['rating'])
+    ?? readNumber(review, ['rating']);
+  return value === 1 || value === 2 || value === 3 || value === 4 ? value : null;
+}
+
+function normalizeReviewFact(
+  record: Record<string, unknown>,
+  index: number,
+): MessagePackReviewEventTruthRecord & MessagePackTruthRecord {
+  const payload = parsePayload(record);
+  const source = isRecord(record.source) ? record.source : {};
+  const review = isRecord(record.review) ? record.review : {};
+  const eventId = readString(record, ['eventId', 'id', 'journalEntryId', 'idempotencyKey'])
+    ?? `review-cleanup:${index}`;
+  const cardId = readString(record, ['card_id', 'cardId'])
+    ?? readString(source, ['cardId', 'card_id'])
+    ?? readString(payload, ['cardId', 'card_id'])
+    ?? eventId;
+  const reviewedAt = readNumber(record, ['reviewed_at', 'reviewedAt', 'logicalTime'])
+    ?? readNumber(review, ['reviewedAt', 'reviewed_at'])
+    ?? 0;
+  const rating = reviewRating(record, payload, review);
+  const typedRecord = {
+    family: 'review-events' as const,
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    type: rating === null ? 'review.custom-feedback.v1' as const : 'review.feedback.v1' as const,
+    idempotencyKey: readString(record, ['idempotencyKey', 'commit_idempotency_key', 'commitIdempotencyKey'])
+      ?? eventId,
+    eventId,
+    attemptId: readString(record, ['attemptId', 'attempt_id']) ?? readString(payload, ['attemptId', 'attempt_id']),
+    journalEntryId: readString(record, ['journalEntryId', 'journal_entry_id']),
+    logicalTime: reviewedAt,
+    recordedAt: readNumber(record, ['recordedAt', 'recorded_at']) ?? reviewedAt,
+    source: {
+      cardId,
+      blockId: readString(source, ['blockId', 'block_id']) ?? readString(payload, ['blockId', 'block_id']),
+      sourceBlockId: readString(source, ['sourceBlockId', 'source_block_id'])
+        ?? readString(payload, ['sourceBlockId', 'source_block_id', 'blockId', 'block_id']),
+      deckId: readString(source, ['deckId', 'deck_id']) ?? readString(payload, ['deckId', 'deck_id']),
+      xiuyuanId: readString(source, ['xiuyuanId', 'xiuyuanID', 'xiuyuan_id'])
+        ?? readString(payload, ['xiuyuanId', 'xiuyuanID', 'xiuyuan_id']),
+      cardFaceId: readString(source, ['cardFaceId', 'card_face_id'])
+        ?? readString(payload, ['cardFaceId', 'card_face_id']),
+      sourceHash: readString(source, ['sourceHash', 'source_hash']) ?? readString(payload, ['sourceHash', 'source_hash']),
+    },
+    review: {
+      action: rating === null ? 'custom-feedback' as const : 'rating' as const,
+      rating,
+      customActionId: rating === null
+        ? readString(record, ['event_type', 'eventType', 'type']) ?? 'review-event'
+        : null,
+      reviewedAt,
+      scheduler: readString(review, ['scheduler']) ?? readString(payload, ['scheduler', 'schedulerType']),
+    },
+    memory: {
+      baseMemoryHash: readString(payload, ['baseMemoryHash', 'base_memory_hash']),
+      afterMemoryHash: readString(payload, ['afterMemoryHash', 'after_memory_hash']),
+      projectionGeneration: readNumber(record, ['projection_generation', 'projectionGeneration'])
+        ?? readNumber(payload, ['projectionGeneration']),
+    },
+    queue: {
+      queueType: readString(payload, ['queueType', 'queue_type']) ?? readString(record, ['queueType', 'queue_type']),
+      queueMode: readString(payload, ['queueMode', 'queue_mode']) ?? readString(record, ['queueMode', 'queue_mode']),
+      commitPolicy: readString(payload, ['commitPolicy', 'commit_policy']) ?? readString(record, ['commitPolicy', 'commit_policy']),
+    },
+    scheduler: {
+      schedulerType: readString(payload, ['schedulerType', 'scheduler']) ?? readString(review, ['scheduler']),
+      algorithm: readString(payload, ['algorithm']),
+      configHash: readString(payload, ['schedulerConfigHash', 'configHash']),
+    },
+    projection: {
+      generation: readNumber(record, ['projection_generation', 'projectionGeneration'])
+        ?? readNumber(payload, ['projectionGeneration']),
+      policyHash: readString(payload, ['projectionPolicyHash', 'policyHash']),
+      schemaVersion: readNumber(payload, ['projectionSchemaVersion', 'schemaVersion']),
+    },
+  };
+  assertReviewTruthPublicationRecord(`review-cleanup:${eventId}`, typedRecord);
+  return typedRecord;
+}
+
+function normalizeReviewFacts(records: MessagePackTruthRecord[]): MessagePackTruthRecord[] {
+  const reconstructed = reconstructCanonicalTruthState({
+    truthRecords: records,
+    uncoveredMutations: [],
+  });
+  const deduped = new Map<string, MessagePackTruthRecord>();
+  reconstructed.reviewEvents.forEach((record, index) => {
+    const normalized = normalizeReviewFact(record, index);
+    deduped.set(String(normalized.idempotencyKey || normalized.eventId), normalized);
+  });
+  return [...deduped.values()].sort((left, right) => (
+    (Number(left.logicalTime) || 0) - (Number(right.logicalTime) || 0)
+    || String(left.idempotencyKey || '').localeCompare(String(right.idempotencyKey || ''))
+  ));
+}
+
+function shortStableHash(value: unknown): string {
+  const text = JSON.stringify(stableValue(value));
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function isRecoverableOrphanGenerationConflict(error: unknown): boolean {
@@ -143,16 +354,175 @@ export class WorkerTruthCompactionModule {
         await this.compactFamily('card-memory-facts'),
         await this.compactFamily('queue-facts'),
       ],
-      reviewEvents: await createMessagePackTruthSegmentStore({
-        fileStore: this.fileStore,
-        family: 'review-events',
-        deviceId: this.deviceId,
-        generationId: this.reviewGenerationId,
-        schemaVersion: this.schemaVersion,
-        maxSegmentBytes: this.maxSegmentBytes,
-        maxSegmentRecords: this.maxSegmentRecords,
-      }).compactSegments(),
+      reviewEvents: await this.cleanupReviewEvents(),
     };
+  }
+
+  async cleanupReviewEvents(): Promise<WorkerReviewTruthCleanupResult> {
+    const sourceStore = createMessagePackTruthSegmentStore({
+      fileStore: this.fileStore,
+      family: 'review-events',
+      deviceId: this.deviceId,
+      generationId: this.reviewGenerationId,
+      schemaVersion: this.schemaVersion,
+      maxSegmentBytes: this.maxSegmentBytes,
+      maxSegmentRecords: this.maxSegmentRecords,
+    });
+    const source = await sourceStore.replayRecords({ dedupeByIdempotencyKey: true });
+    if (source.diagnostics.length > 0) {
+      throw new Error(
+        `review-truth-cleanup-source-invalid:${source.diagnostics.map((item) => item.reason).join(',')}`,
+      );
+    }
+    const bloatedRecordCount = source.records.filter(reviewRecordHasBloat).length;
+    const coveredJournalSequence = source.records.reduce(
+      (maximum, record) => Math.max(maximum, recordJournalSequence(record)),
+      0,
+    );
+    if (bloatedRecordCount === 0) {
+      const compacted = await sourceStore.compactSegments();
+      return {
+        ...compacted,
+        family: 'review-events',
+        generationId: null,
+        previousGenerationId: null,
+        sourceRecordCount: source.records.length,
+        skinnyRecordCount: source.records.length,
+        bloatedRecordCount,
+        coveredJournalSequence,
+        verifiedProjectionRows: source.records.length,
+        orphanPaths: [],
+        reclaimedPaths: compacted.deletedPaths,
+      };
+    }
+    if (!this.fileStore.deleteFile || !this.fileStore.listFiles) {
+      throw new Error('review-truth-cleanup-delete-unavailable');
+    }
+
+    const skinnyRecords = normalizeReviewFacts(source.records);
+    const before = reconstructCanonicalTruthState({
+      truthRecords: source.records,
+      uncoveredMutations: [],
+    });
+    const after = reconstructCanonicalTruthState({
+      truthRecords: skinnyRecords,
+      uncoveredMutations: [],
+    });
+    if (!stableReviewFactsEquivalent(before.reviewEvents, after.reviewEvents)) {
+      throw new Error('review-truth-cleanup-projection-verification-failed');
+    }
+
+    const generationStore = new MessagePackTruthSnapshotGenerationStore({
+      fileStore: this.fileStore,
+      family: 'review-events',
+      deviceId: this.deviceId,
+      schemaVersion: this.schemaVersion,
+      maxSegmentBytes: this.maxSegmentBytes,
+      maxSegmentRecords: this.maxSegmentRecords,
+    });
+    const inspection = await generationStore.inspectGenerations();
+    let published: MessagePackTruthPublishGenerationResult | null = null;
+    let generationId = deterministicReviewGenerationId(
+      coveredJournalSequence,
+      skinnyRecords.length,
+      skinnyRecords,
+    );
+    if (inspection.fence.current) {
+      try {
+        const current = await generationStore.replayVerifiedGeneration(inspection.fence.current);
+        if (recordsEquivalent(current.records, skinnyRecords)) {
+          const reclaimedLegacy = await this.deleteReviewSourceGenerationPaths();
+          const retained = await generationStore.reclaimObsoleteGenerations();
+          const retainedInspection = await generationStore.inspectGenerations();
+          return {
+            status: 'compacted',
+            reason: 'closed-segment-count-exceeded',
+            sourceSegmentCount: source.manifest.segments.length,
+            replacementSegmentCount: 0,
+            remainingSegmentCount: current.manifest.segments.length,
+            recordCount: source.records.length,
+            deletedPaths: [...reclaimedLegacy, ...retained.deletedPaths],
+            family: 'review-events',
+            generationId: inspection.fence.current.generationId,
+            previousGenerationId: inspection.fence.previous?.generationId ?? null,
+            sourceRecordCount: source.records.length,
+            skinnyRecordCount: skinnyRecords.length,
+            bloatedRecordCount,
+            coveredJournalSequence,
+            verifiedProjectionRows: after.reviewEvents.length,
+            orphanPaths: retainedInspection.orphanPaths,
+            reclaimedPaths: [...reclaimedLegacy, ...retained.deletedPaths],
+          };
+        }
+      } catch {
+        // publishGeneration keeps the existing fence unchanged unless verification succeeds.
+      }
+    }
+
+    try {
+      published = await generationStore.publishGeneration({
+        generationId,
+        records: skinnyRecords,
+        expectedCurrentGenerationId: inspection.fence.current?.generationId ?? null,
+      });
+    } catch (error) {
+      if (!isRecoverableOrphanGenerationConflict(error)) {
+        throw error;
+      }
+      await generationStore.reclaimObsoleteGenerations();
+      const reclaimedInspection = await generationStore.inspectGenerations();
+      generationId = `${generationId}-recovered-${reclaimedInspection.fence.fence + 1}`;
+      published = await generationStore.publishGeneration({
+        generationId,
+        records: skinnyRecords,
+        expectedCurrentGenerationId: reclaimedInspection.fence.current?.generationId ?? null,
+      });
+    }
+    const reclaimedLegacy = await this.deleteReviewSourceGenerationPaths();
+    const retained = await generationStore.reclaimObsoleteGenerations();
+    const retainedInspection = await generationStore.inspectGenerations();
+    return {
+      status: 'compacted',
+      reason: 'closed-segment-count-exceeded',
+      sourceSegmentCount: source.manifest.segments.length,
+      replacementSegmentCount: published.generation.manifest.segments.length,
+      remainingSegmentCount: published.generation.manifest.segments.length,
+      recordCount: source.records.length,
+      deletedPaths: [...reclaimedLegacy, ...retained.deletedPaths],
+      family: 'review-events',
+      generationId: published.fence.current?.generationId ?? generationId,
+      previousGenerationId: published.fence.previous?.generationId ?? null,
+      sourceRecordCount: source.records.length,
+      skinnyRecordCount: skinnyRecords.length,
+      bloatedRecordCount,
+      coveredJournalSequence,
+      verifiedProjectionRows: after.reviewEvents.length,
+      orphanPaths: retainedInspection.orphanPaths,
+      reclaimedPaths: [...reclaimedLegacy, ...retained.deletedPaths],
+    };
+  }
+
+  private async deleteReviewSourceGenerationPaths(): Promise<string[]> {
+    if (!this.fileStore.listFiles || !this.fileStore.deleteFile) {
+      throw new Error('review-truth-cleanup-delete-unavailable');
+    }
+    const prefix = `truth/review-events/${this.reviewGenerationId}/device-${this.deviceId}/`;
+    const paths = (await this.fileStore.listFiles(prefix))
+      .map((path) => String(path || '').replace(/\\/g, '/').trim())
+      .filter((path) => path.startsWith(prefix))
+      .sort();
+    const deletedPaths: string[] = [];
+    for (const path of paths) {
+      await this.fileStore.deleteFile(path);
+      if (await this.fileStore.readBinary(path)) {
+        throw new Error(`review-truth-cleanup-delete-verification-failed:${path}`);
+      }
+      if (await this.fileStore.readJSON(path)) {
+        throw new Error(`review-truth-cleanup-delete-verification-failed:${path}`);
+      }
+      deletedPaths.push(path);
+    }
+    return deletedPaths;
   }
 
   async compactFamily(

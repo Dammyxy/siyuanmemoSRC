@@ -16,6 +16,10 @@ import {
   encodeCardAggregateTruthRecords,
   encodeQueueFamilyTruthRecords,
 } from './CompactableCanonicalTruth';
+import {
+  assertReviewTruthPublicationRecord,
+  encodeReviewTruthPublicationRecords,
+} from './ReviewTruthPublicationEncoder';
 
 export type WorkerTruthPhysicalFamily = 'review-events' | 'card-memory-facts' | 'queue-facts';
 
@@ -144,6 +148,19 @@ export class WorkerTruthPublicationModule implements WorkerTruthPromotionPublish
       throw new Error(`truth-promotion-journal-sequence-missing:${envelope.mutationId}`);
     }
     const planned: PlannedRecord[] = [];
+    const reviewOutputs = envelope.requiredTruthOutputs.filter((output) => output.family === 'review');
+    if (reviewOutputs.length > 0) {
+      const records = encodeReviewTruthPublicationRecords(envelope);
+      for (const record of records) {
+        assertReviewTruthPublicationRecord(envelope.mutationId, record);
+        planned.push({
+          mutationId: envelope.mutationId,
+          family: 'review-events',
+          idempotencyKey: record.idempotencyKey,
+          record,
+        });
+      }
+    }
     const cardOutputs = envelope.requiredTruthOutputs.filter((output) => (
       output.family === 'card-schedule' || output.family === 'card-crud'
     ));
@@ -174,6 +191,7 @@ export class WorkerTruthPublicationModule implements WorkerTruthPromotionPublish
         output.family === 'card-schedule'
         || output.family === 'card-crud'
         || output.family === 'queue'
+        || output.family === 'review'
       ) {
         return;
       }

@@ -469,4 +469,111 @@ describe('WorkerTruthCompactionModule', () => {
       },
     });
   });
+
+  it('rewrites bloated review-events operation records into a verified skinny generation', async () => {
+    const fileStore = new MemoryFileStore();
+    const source = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'review-events-v1',
+      schemaVersion: 1,
+      maxSegmentBytes: 64 * 1024,
+      maxSegmentRecords: 2,
+    });
+    await source.appendRecords([{
+      family: 'review-events',
+      schemaVersion: 1,
+      type: 'storage.review.event.v1',
+      idempotencyKey: 'legacy-review-event',
+      mutationId: 'legacy-review-mutation',
+      journalSequence: 3,
+      logicalTime: 3_000,
+      affectedAggregates: Array.from({ length: 20 }, (_, index) => ({
+        family: 'review',
+        aggregateId: `card-${index}`,
+        causalBaseRevision: null,
+      })),
+      operations: [{
+        table: 'review_events',
+        operation: 'insert',
+        primaryKey: { id: 'review-event-1' },
+        row: {
+          id: 'review-event-1',
+          card_id: 'card-1',
+          rating: 3,
+          reviewed_at: 3_000,
+          commit_idempotency_key: 'review-feedback:1',
+          payload_json: JSON.stringify({ blockId: 'block-1', queueType: 'incremental-learning' }),
+        },
+      }],
+    }]);
+
+    const result = await createModule(fileStore).cleanupReviewEvents();
+
+    expect(result).toMatchObject({
+      family: 'review-events',
+      status: 'compacted',
+      sourceRecordCount: 1,
+      skinnyRecordCount: 1,
+      bloatedRecordCount: 1,
+      verifiedProjectionRows: 1,
+    });
+    expect(result.generationId).toMatch(/^slim-review-events-3-1-/);
+    expect(await fileStore.listFiles('truth/review-events/review-events-v1/device-device-A/')).toEqual([]);
+    const skinnyStore = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: result.generationId!,
+      schemaVersion: 1,
+    });
+    const replay = await skinnyStore.replayRecords({ dedupeByIdempotencyKey: false });
+    expect(replay.records).toEqual([
+      expect.objectContaining({
+        family: 'review-events',
+        type: 'review.feedback.v1',
+        idempotencyKey: 'review-feedback:1',
+        source: expect.objectContaining({ cardId: 'card-1', blockId: 'block-1' }),
+        review: expect.objectContaining({ action: 'rating', rating: 3, reviewedAt: 3_000 }),
+      }),
+    ]);
+    expect(replay.records[0]).not.toHaveProperty('operations');
+    expect(replay.records[0]).not.toHaveProperty('affectedAggregates');
+  });
+
+  it('leaves legacy review-events source untouched when verified generation publish fails', async () => {
+    const fileStore = new MemoryFileStore();
+    const source = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'review-events-v1',
+      schemaVersion: 1,
+    });
+    await source.appendRecords([{
+      family: 'review-events',
+      schemaVersion: 1,
+      type: 'storage.review.event.v1',
+      idempotencyKey: 'legacy-review-event',
+      journalSequence: 1,
+      operations: [{
+        table: 'review_events',
+        operation: 'insert',
+        primaryKey: { id: 'review-event-1' },
+        row: {
+          id: 'review-event-1',
+          card_id: 'card-1',
+          rating: 4,
+          reviewed_at: 1_000,
+        },
+      }],
+    }]);
+    const sourcePaths = await fileStore.listFiles('truth/review-events/review-events-v1/device-device-A/');
+    fileStore.failWritePathOnce = 'truth/review-events/device-device-A/generation-fence.v1.json';
+
+    await expect(createModule(fileStore).cleanupReviewEvents()).rejects.toThrow('fence-write-interrupted');
+
+    expect(await fileStore.listFiles('truth/review-events/review-events-v1/device-device-A/')).toEqual(sourcePaths);
+  });
 });
