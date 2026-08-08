@@ -357,6 +357,17 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return 0;
     }
 
+    if (queueId === 'neural-roam') {
+      try {
+        await queue.getSize();
+      } catch (error) {
+        logger.debug('Failed to await neural-roam initial load before reading visible counters:', {
+          queueId,
+          error,
+        });
+      }
+    }
+
     if (
       queueId === 'neural-roam'
       && typeof (queue as { getConceptBlocks?: () => unknown[] }).getConceptBlocks === 'function'

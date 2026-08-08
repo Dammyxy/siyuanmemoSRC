@@ -629,6 +629,47 @@ Review：
 - `NeuralRoam`：engine-session 队列，不因窗口自动出队
 - `Leech`：按 `lapses/manual membership` 建队列，但复习后仍按 today-window 判定留队
 
+### 6.1 队列投影就绪生命周期（Queue Projection Readiness）
+
+`UnifiedDataSourceManager` 为 `QUEUE_PROJECTION_BACKED_TYPES`（当前 5 个：`retrieval-practice`、`final-drill`、`incremental-learning`、`filter-group`、`neural-roam`）维护三阶段单向就绪状态机：
+
+```
+INITIALIZING ──▶ MATERIALIZED ──▶ BACKEND_READY
+```
+
+**阶段语义与读路由**：
+
+| 阶段 | 主数据源 | 对投影的态度 | 错误策略 |
+|------|----------|-------------|----------|
+| `initializing` | 策略路径 `getCards()` | 投影不可用，不尝试读取 | 不抛异常，静默降级到策略 |
+| `materialized` | 前端物化投影（策略结果推入后端后的回显） | 投影优先，失败时降级到策略 | 投影失败降级到 `getCards()` |
+| `backend-ready` | 后端投影（worker/kernel companion 预计算排序） | 投影必须可用 | 后端不可用时抛出 `QUEUE_PROJECTION_UNAVAILABLE` |
+
+**自动物化**：
+- 当阶段为 `initializing` 且 `readQueueProjectionSnapshot()` 返回后端 `status !== 'ready'` 时，自动调用 `tryMaterializeQueueProjection()` 将策略计算结果推送到后端
+- 物化成功 → 切换到 `materialized`；失败 → 保持 `initializing`，记录警告日志
+- 物化后若后端恢复 ready → 自动切换到 `backend-ready`
+
+**强制单向转换**：
+- `transitionQueueProjectionReadiness()` 实现 `initializing → materialized → backend-ready` 单向顺序
+- 反向转换请求被拒绝并记录警告日志，保证就绪状态只向前不退化
+
+**消费者集成**：
+- `BaseReviewQueue.isProjectionReadRequired()`：只有 `readiness === 'backend-ready'` 时返回 `true`
+- `BrowserApplicationService.isProjectionBackedBrowserQueue()`：只有 `'backend-ready'` 时返回 `true`
+- `DocTreeReviewScopeService`：不依赖此状态机，`cardProjectionReadPort` 为 null 时降级到 SQL/storage
+
+**诊断输出**：
+- `buildQueueProjectionRolloutDiagnostic()` 输出包含 `readiness` 字段，反映当前实际就绪阶段而非硬编码 `readPath`
+
+受影响的文件：
+- `src/types/unified-data-source.ts`：`QueueProjectionReadiness` 类型定义
+- `src/application/services/UnifiedDataSourceManager.ts`：状态机实现与自动物化
+- `src/core/queue/domain/BaseReviewQueue.ts`：读路由决策
+- `src/application/services/BrowserApplicationService.ts`：Browser 队列视图投影就绪检查
+- `src/application/services/DocTreeReviewScopeService.ts`：文档树卡片范围降级查询
+- `src/application/managers/BlockMenuHandler.ts`：块菜单复习范围快照
+
 ---
 
 ## 7. Browser 架构与数据流

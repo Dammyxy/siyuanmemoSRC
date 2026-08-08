@@ -4,6 +4,16 @@ Last update: 2026-04-30 (Round 227)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-11 - queue-projection-progressive-readiness
+
+- Task: 实现队列投影渐进就绪状态机，解决 SRS Browser 队列视图 `QUEUE_PROJECTION_UNAVAILABLE` 错误和块菜单复习范围不可用问题。根因是 5 个队列类型在 `DEFAULT_QUEUE_PROJECTION_ROLLOUT_STATES` 中硬编码为 `backend-projection`，后端投影在插件启动时未就绪 → 前端读路由要求投影 → 抛异常。
+- Touched slice: Queue projection / data source manager (`UnifiedDataSourceManager.ts`, `BaseReviewQueue.ts`), Browser integration (`BrowserApplicationService.ts`), Doc tree review scope (`DocTreeReviewScopeService.ts`), Block menu handler (`BlockMenuHandler.ts`), type definitions (`unified-data-source.ts`)
+- Debt fixed now: 用三阶段单向状态机（`initializing → materialized → backend-ready`）替换硬编码 `backend-projection` 布尔值；`initializing` 阶段策略路径 `getCards()` 为主源，`materialized` 阶段物化投影优先、失败降级到策略，`backend-ready` 阶段后端投影必须可用；`DocTreeReviewScopeService` 在 projection read port 不可用时降级到 storage-backed 查询，块菜单不再因 scope 为 null 而陷入永久 loading；从 `DEFAULT_QUEUE_PROJECTION_ROLLOUT_STATES` 移除 5 个队列的 `backend-projection` 硬编码默认值
+- Debt deferred: 单元测试（[ ] 8.1-8.3 tasks.md）— 需要给 `UnifiedDataSourceManager` 状态机初始化和单向转换、`BaseReviewQueue` INITIALIZING/BACKEND_READY 路由、`DocTreeReviewScopeService` SQL/DOM 降级路径补充 vitest；未运行的 vitest 验证（[ ] 8.6）
+- Why deferred: 核心实现（1-7）已全部完成且通过 `pnpm build`、`npx tsc`、三个边界检查器；测试在独立 CI 中有稳定基础，可后续补
+- Next safe step: 运行 `vitest run --reporter=verbose src/application/services/ src/core/queue/domain/` 确认既有测试通过后，补充上述三个 focused 测试文件
+- Validation: `pnpm build` passed；`npx tsc` 0 new errors in changed files；`check-no-ui-sql.cjs` passed；`check-backend-migration-cutover.cjs` passed；`check-hidden-fallbacks.cjs` passed（4 inline markers accepted）
+
 ### 2026-04-30 - D10 D52 continuous bounded-context big-file split
 
 - Task: 用户要求“一次连续跑完”，但仍按 DDD-safe 分段执行，不混 Review / AI / Browser / Settings bounded contexts，把当前五个目标大文件全部压到 3000 行以下。

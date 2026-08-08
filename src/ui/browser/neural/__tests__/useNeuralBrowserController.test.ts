@@ -189,6 +189,25 @@ describe('useNeuralBrowserController', () => {
     ], expect.objectContaining({ applyQueryFilter: false }));
   });
 
+  it('waits for the neural queue initial load before reading source snapshots', async () => {
+    let loaded = false;
+    const queue = createQueue({
+      getSize: vi.fn(async () => {
+        loaded = true;
+        return 1;
+      }),
+      getSourceSnapshot: vi.fn(() => loaded
+        ? [{ nodeId: 'source-node', title: 'Source', visitedAt: 10 }]
+        : []),
+    });
+    const { controller } = createController(queue);
+
+    await controller.refreshNeuralSubviewData();
+
+    expect(queue.getSize).toHaveBeenCalled();
+    expect(controller.neuralSourceEntries.value).toHaveLength(1);
+  });
+
   it('clears projected state when neural queue is unavailable', async () => {
     const { controller } = createController(null);
 

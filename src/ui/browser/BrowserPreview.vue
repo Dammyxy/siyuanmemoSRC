@@ -99,6 +99,7 @@ import { createLogger } from '@/utils/logger';
 import {
   ensureSiyuanMenuComponentFallbacks,
   isMissingSiyuanMenuComponentReferenceError,
+  isSiyuanMenuInjectionError,
 } from '@/utils/siyuanMenuComponentFallbacks';
 
 const logger = createLogger('BrowserPreview');
@@ -271,20 +272,7 @@ function shouldSuppressPreviewMenuInjectionError(event: ErrorEvent): boolean {
     return false;
   }
 
-  const message = event.message ?? '';
-  const stack = event.error instanceof Error && typeof event.error.stack === 'string'
-    ? event.error.stack
-    : '';
-  const relatedToMenuInjector = /(InsertMenuItem|MenuShow)/i.test(`${message}\n${stack}`);
-  if (!relatedToMenuInjector) {
-    return false;
-  }
-
-  return [
-    /(ViewSelect|MenuSeparator) is not defined/i,
-    /Failed to execute 'insertBefore' on 'Node': parameter 1 is not of type 'Node'/i,
-    /Failed to execute 'insertBefore' on 'Node': The node before which the new node is to be inserted is not a child of this node/i,
-  ].some(pattern => pattern.test(message));
+  return isSiyuanMenuInjectionError(event);
 }
 
 function handlePreviewWindowError(event: ErrorEvent): void {

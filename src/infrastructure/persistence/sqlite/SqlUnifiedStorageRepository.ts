@@ -58,6 +58,17 @@ interface SourceExistenceProjection {
   sourceMissingAt: number | null;
 }
 
+type StoredCardRow = {
+  payload_json: string;
+  dto_json?: string | null;
+  deck_id?: string | null;
+  root_id?: string | null;
+  content_text?: string | null;
+  tags?: string | null;
+  source_exists?: number | null;
+  source_missing_at?: number | null;
+};
+
 interface WhereClause {
   sql: string;
   params: Array<string | number>;
@@ -182,6 +193,16 @@ function normalizeProjectionTags(card: FSRSCard): string | null {
   return `\n${Array.from(tags).sort().join('\n')}\n`;
 }
 
+function parseProjectionTags(value: string | null | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split('\n')
+    .map((tag) => normalizeString(tag))
+    .filter(Boolean);
+}
+
 function resolveCardTypeMarker(card: FSRSCard, dto?: CardPersistenceDTO): string | null {
   const directMarker = normalizeString((card as { cardTypeMarker?: unknown }).cardTypeMarker);
   const metaMarker = isObjectRecord(card.meta)
@@ -254,6 +275,17 @@ function stateRowKey(cardId: string, algorithmId: string): string {
 }
 
 export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
+  private static readonly CARD_ROW_SELECT = [
+    'payload_json',
+    'dto_json',
+    'deck_id',
+    'root_id',
+    'content_text',
+    'tags',
+    'source_exists',
+    'source_missing_at',
+  ].join(', ');
+
   constructor(private readonly database: SqliteDatabaseService) {}
 
   async loadStore(_reason: StorageLoadReason = 'unspecified'): Promise<UnifiedCardStore> {
@@ -393,8 +425,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     if (!normalizedId) {
       return undefined;
     }
-    const row = this.database.getOne<{ payload_json: string }>(
-      'SELECT payload_json FROM cards WHERE id = ?',
+    const row = this.database.getOne<StoredCardRow>(
+      `SELECT ${SqlUnifiedStorageRepository.CARD_ROW_SELECT} FROM cards WHERE id = ?`,
       [normalizedId],
     );
     return row ? this.parseCardRows([row])[0] : undefined;
@@ -427,8 +459,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
     const uniqueIds = Array.from(new Set(orderedIds));
     const placeholders = uniqueIds.map(() => '?').join(', ');
-    const rows = this.database.getAll<{ payload_json: string }>(
-      `SELECT payload_json FROM cards WHERE id IN (${placeholders}) OR block_id IN (${placeholders})`,
+    const rows = this.database.getAll<StoredCardRow>(
+      `SELECT ${SqlUnifiedStorageRepository.CARD_ROW_SELECT} FROM cards WHERE id IN (${placeholders}) OR block_id IN (${placeholders})`,
       [...uniqueIds, ...uniqueIds],
     );
     const cardById = new Map<string, FSRSCard>();
@@ -451,8 +483,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     const orderBy = query?.dueDate?.lte !== undefined || query?.dueDate?.gte !== undefined
       ? 'ORDER BY due ASC, priority ASC, id ASC'
       : 'ORDER BY id ASC';
-    const rows = this.database.getAll<{ payload_json: string }>(
-      `SELECT payload_json FROM cards ${whereClause} ${orderBy}`,
+    const rows = this.database.getAll<StoredCardRow>(
+      `SELECT ${SqlUnifiedStorageRepository.CARD_ROW_SELECT} FROM cards ${whereClause} ${orderBy}`,
       where?.params,
     );
 
@@ -485,8 +517,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     const where = this.buildStructuredWhereClause(query);
     const total = this.countCards(query);
     const { startRow, limit } = this.normalizePageRequest(page, total);
-    const rows = this.database.getAll<{ payload_json: string }>(
-      `SELECT payload_json FROM cards ${this.toWhereSql(where)} ORDER BY id ASC LIMIT ? OFFSET ?`,
+    const rows = this.database.getAll<StoredCardRow>(
+      `SELECT ${SqlUnifiedStorageRepository.CARD_ROW_SELECT} FROM cards ${this.toWhereSql(where)} ORDER BY id ASC LIMIT ? OFFSET ?`,
       [...(where?.params || []), limit, startRow],
     );
     return {
@@ -518,8 +550,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
     const total = this.countByWhere(deckQuery.where);
     const { startRow, limit } = this.normalizePageRequest(page, total);
-    const rows = this.database.getAll<{ payload_json: string }>(
-      `SELECT payload_json FROM cards ${this.toWhereSql(deckQuery.where)} ${deckQuery.orderBy} LIMIT ? OFFSET ?`,
+    const rows = this.database.getAll<StoredCardRow>(
+      `SELECT ${SqlUnifiedStorageRepository.CARD_ROW_SELECT} FROM cards ${this.toWhereSql(deckQuery.where)} ${deckQuery.orderBy} LIMIT ? OFFSET ?`,
       [...(deckQuery.where?.params || []), limit, startRow],
     );
     return {
@@ -1023,23 +1055,48 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     return Math.max(0, Number(row?.count) || 0);
   }
 
-  private parseBaseCardRow(row: { payload_json: string; dto_json?: string | null }): FSRSCard | null {
+  private applyStoredProjection(row: StoredCardRow, card: FSRSCard): FSRSCard {
+    const meta = isObjectRecord(card.meta) ? { ...card.meta } : {};
+    const content = normalizeString(row.content_text);
+    const rootId = normalizeString(row.root_id);
+    const deckId = normalizeString(row.deck_id);
+    const tags = parseProjectionTags(row.tags);
+
+    if (content && !normalizeString(meta.content)) {
+      meta.content = content;
+    }
+    if (rootId && !normalizeString(meta.rootId)) {
+      meta.rootId = rootId;
+    }
+    if (deckId && !normalizeString(meta.deckId)) {
+      meta.deckId = deckId;
+    }
+    if (row.source_exists === 0) {
+      meta.blockType = 'missing';
+      meta.sourceMissingAt = normalizeNumber(row.source_missing_at) ?? undefined;
+    }
+
+    return {
+      ...card,
+      meta,
+      tags: Array.isArray(card.tags) && card.tags.length > 0 ? card.tags : tags,
+    };
+  }
+
+  private parseBaseCardRow(row: StoredCardRow): FSRSCard | null {
     if (row.dto_json) {
       const dto = parseJson<CardPersistenceDTO | null>(row.dto_json, null);
       if (dto?.id) {
-        return CardMapper.toDomain(dto);
+        return this.applyStoredProjection(row, CardMapper.toDomain(dto));
       }
     }
     const card = parseJson<FSRSCard | null>(row.payload_json, null);
-    return card?.id ? canonicalizeSqlCard(card) : null;
+    return card?.id ? this.applyStoredProjection(row, canonicalizeSqlCard(card)) : null;
   }
 
-  private parseCardRows(rows: Array<{ payload_json: string }>): FSRSCard[] {
+  private parseCardRows(rows: StoredCardRow[]): FSRSCard[] {
     const baseCards = rows
-      .map((row) => {
-        const card = parseJson<FSRSCard | null>(row.payload_json, null);
-        return card?.id ? canonicalizeSqlCard(card) : null;
-      })
+      .map((row) => this.parseBaseCardRow(row))
       .filter((card): card is FSRSCard => Boolean(card));
     const stateRows = this.loadAlgorithmStateRowMap(baseCards.map((card) => card.id));
     return baseCards.map((card) => this.hydrateWithAlgorithmState(card, stateRows));
@@ -1378,7 +1435,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
     if (parsed.text) {
       const like = `%${escapeLike(parsed.text.toLowerCase())}%`;
-      clauses.push("search_text LIKE ? ESCAPE '\\'");
+      clauses.push("LOWER(COALESCE(search_text, '') || ' ' || COALESCE(content_text, '')) LIKE ? ESCAPE '\\'");
       params.push(like);
     }
 

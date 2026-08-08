@@ -78,3 +78,52 @@ export function isMissingSiyuanMenuComponentReferenceError(error: unknown): bool
 
   return /(ViewSelect|MenuSeparator) is not defined/i.test(error.message);
 }
+
+function getErrorMessage(error: unknown): string {
+  if (typeof ErrorEvent !== 'undefined' && error instanceof ErrorEvent) {
+    return error.message || '';
+  }
+  if (error instanceof Error) {
+    return error.message || '';
+  }
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    return typeof message === 'string' ? message : '';
+  }
+  return typeof error === 'string' ? error : '';
+}
+
+function getErrorStack(error: unknown): string {
+  if (typeof ErrorEvent !== 'undefined' && error instanceof ErrorEvent) {
+    const nestedError = error.error;
+    return nestedError instanceof Error && typeof nestedError.stack === 'string'
+      ? nestedError.stack
+      : '';
+  }
+  if (error instanceof Error && typeof error.stack === 'string') {
+    return error.stack;
+  }
+  if (typeof error === 'object' && error !== null && 'stack' in error) {
+    const stack = (error as { stack?: unknown }).stack;
+    return typeof stack === 'string' ? stack : '';
+  }
+  return '';
+}
+
+export function isSiyuanMenuInjectionError(error: unknown): boolean {
+  const message = getErrorMessage(error);
+  if (/(ViewSelect|MenuSeparator) is not defined/i.test(message)) {
+    return true;
+  }
+
+  const stack = getErrorStack(error);
+  const context = `${message}\n${stack}`;
+  if (!/(InsertMenuItem|MenuShow)/i.test(context)) {
+    return false;
+  }
+
+  return [
+    /Failed to execute 'insertBefore' on 'Node': parameter 1 is not of type 'Node'/i,
+    /Failed to execute 'insertBefore' on 'Node': The node before which the new node is to be inserted is not a child of this node/i,
+  ].some(pattern => pattern.test(message));
+}

@@ -712,12 +712,69 @@ export class BlockMenuHandler {
     };
   }
 
-  private addSiyuanMemoMenu(menu: SiyuanMenu, submenu: SiyuanMenuItem[]): void {
-    menu.addItem({
-      icon: 'iconRiffCard',
-      label: 'SiYuanMemo',
-      submenu,
+  private formatMenuActionError(error: unknown): string {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return String(error || this.text('unknownError', '未知错误'));
+  }
+
+  private notifyMenuActionFailed(label: string | undefined, error: unknown): void {
+    const actionLabel = String(label || this.text('menuAction', '菜单操作')).replace(/<[^>]+>/g, '').trim();
+    const errorMessage = this.formatMenuActionError(error);
+    void this.siyuanApi.pushErrMsg(`${actionLabel}失败：${errorMessage}`).catch((notifyError) => {
+      logger.warn('[BlockMenuHandler] Failed to show menu action error notification:', notifyError);
     });
+  }
+
+  private wrapMenuAction(
+    item: SiyuanMenuItem,
+    action: NonNullable<SiyuanMenuItem['click']>,
+  ): () => void | Promise<void> {
+    return () => {
+      try {
+        const result = action();
+        if (result && typeof (result as Promise<void>).then === 'function') {
+          return (result as Promise<void>).catch((error) => {
+            logger.error('[BlockMenuHandler] Menu action failed:', {
+              label: item.label,
+              error,
+            });
+            this.notifyMenuActionFailed(item.label, error);
+          });
+        }
+      } catch (error) {
+        logger.error('[BlockMenuHandler] Menu action failed:', {
+          label: item.label,
+          error,
+        });
+        this.notifyMenuActionFailed(item.label, error);
+      }
+    };
+  }
+
+  private wrapMenuItem(item: SiyuanMenuItem): SiyuanMenuItem {
+    const wrapped: SiyuanMenuItem = { ...item };
+    if (item.click) {
+      wrapped.click = this.wrapMenuAction(item, item.click);
+    }
+    if (item.submenu) {
+      wrapped.submenu = item.submenu.map((child) => this.wrapMenuItem(child));
+    }
+    return wrapped;
+  }
+
+  private addSiyuanMemoMenu(menu: SiyuanMenu, submenu: SiyuanMenuItem[]): void {
+    try {
+      menu.addItem({
+        icon: 'iconRiffCard',
+        label: 'SiYuanMemo',
+        submenu: submenu.map((item) => this.wrapMenuItem(item)),
+      });
+    } catch (error) {
+      logger.error('[BlockMenuHandler] Failed to add SiYuanMemo menu:', error);
+      this.notifyMenuActionFailed('SiYuanMemo', error);
+    }
   }
 
   private buildDocReviewMenuItems(docId: string, scope: ReviewScopeSnapshot): SiyuanMenuItem[] {

@@ -60,6 +60,7 @@ vi.mock('@/application/entries/BlockContextResolver', () => ({
 
 vi.mock('@/utils/siyuanMenuComponentFallbacks', () => ({
   ensureSiyuanMenuComponentFallbacks: vi.fn(() => []),
+  isSiyuanMenuInjectionError: vi.fn(() => false),
 }));
 
 vi.mock('@/index.scss', () => ({}));

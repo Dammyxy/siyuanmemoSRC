@@ -80,6 +80,7 @@ function createDTO(overrides: Partial<CardPersistenceDTO>): CardPersistenceDTO {
 }
 
 async function seedRepositories(): Promise<{
+  database: SqliteDatabaseService;
   storage: UnifiedStorageManager;
   repository: SqlUnifiedStorageRepository;
   readModel: SqlCardReadModel;
@@ -144,6 +145,7 @@ async function seedRepositories(): Promise<{
   await repository.saveStore(storage.getStoreData());
 
   return {
+    database,
     storage,
     repository,
     readModel: new SqlCardReadModel(repository),
@@ -205,6 +207,46 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       docId: 'doc-a',
       sortModel: [{ colId: 'priority', sort: 'desc' }],
     })).toEqual(['card-a', 'card-d', 'card-b']);
+  });
+
+  it('hydrates browser cards from SQL projection columns when stored payload content is blank', async () => {
+    const { database, repository } = await seedRepositories();
+    const card = repository.getCard('card-b')!;
+    database.run(
+      `UPDATE cards
+       SET payload_json = ?, dto_json = NULL, content_text = ?, root_id = ?, deck_id = ?, tags = ?
+       WHERE id = ?`,
+      [
+        JSON.stringify({
+          ...card,
+          tags: [],
+          meta: {
+            xiuyuanID: card.meta?.xiuyuanID,
+            templateID: card.meta?.templateID,
+          },
+        }),
+        'Projected Beta topic',
+        'doc-projected',
+        'deck-projected',
+        '\nprojected\n',
+        'card-b',
+      ],
+    );
+
+    const hydrated = repository.getCard('card-b')!;
+    expect(hydrated.meta?.content).toBe('Projected Beta topic');
+    expect(hydrated.meta?.rootId).toBe('doc-projected');
+    expect(hydrated.meta?.deckId).toBe('deck-projected');
+    expect(hydrated.tags).toEqual(['projected']);
+
+    const page = repository.queryDeckPage({
+      docId: 'doc-projected',
+      deckIds: ['deck-projected'],
+      searchText: 'Projected',
+      sortModel: [],
+    });
+    expect(ids(page?.cards || [])).toEqual(['card-b']);
+    expect(page?.cards[0]?.meta?.content).toBe('Projected Beta topic');
   });
 
   it('updates projection columns on upsert and serves missing-block SQL pages from source cache', async () => {

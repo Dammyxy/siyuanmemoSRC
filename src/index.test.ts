@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   getFrontend: vi.fn(() => 'desktop'),
   showMessage: vi.fn(),
   eventBusOn: vi.fn(),
+  isSiyuanMenuInjectionError: vi.fn(() => false),
 }));
 
 vi.mock('siyuan', () => {
@@ -133,6 +134,7 @@ vi.mock('@/application/handlers/ProgressiveExcerptHotkeyHandler', () => ({
 
 vi.mock('@/utils/siyuanMenuComponentFallbacks', () => ({
   ensureSiyuanMenuComponentFallbacks: () => [],
+  isSiyuanMenuInjectionError: mocks.isSiyuanMenuInjectionError,
 }));
 
 function createDeferred<T>() {
@@ -236,6 +238,7 @@ function createContext(plugin: any) {
 describe('FSRSPlugin deferred custom tab bootstrap', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.isSiyuanMenuInjectionError.mockReturnValue(false);
     delete (window as Window & { require?: unknown }).require;
   });
 
@@ -342,5 +345,59 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
     expect(registeredLangKeys).toContain('progressiveItemSelection');
     expect(registeredLangKeys).not.toContain('imageOcclusionCardCurrentBlock');
     expect(registeredLangKeys).not.toContain('syncRiffNow');
+  });
+
+  it('guards known SiYuan menu injection errors and removes the guard on unload', async () => {
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
+    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    const context = createContext(plugin);
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+
+    await plugin.onload();
+
+    const errorHandler = addEventListenerSpy.mock.calls.find(
+      ([type]) => type === 'error',
+    )?.[1] as EventListener | undefined;
+    const rejectionHandler = addEventListenerSpy.mock.calls.find(
+      ([type]) => type === 'unhandledrejection',
+    )?.[1] as EventListener | undefined;
+
+    expect(errorHandler).toBeDefined();
+    expect(rejectionHandler).toBeDefined();
+
+    mocks.isSiyuanMenuInjectionError.mockReturnValue(true);
+
+    const errorEvent = new ErrorEvent('error', {
+      message: 'Failed to execute insertBefore',
+      error: new Error('InsertMenuItem failed'),
+      cancelable: true,
+    });
+    const stopImmediatePropagation = vi.fn();
+    Object.defineProperty(errorEvent, 'stopImmediatePropagation', {
+      value: stopImmediatePropagation,
+    });
+    errorHandler?.(errorEvent);
+
+    expect(errorEvent.defaultPrevented).toBe(true);
+    expect(stopImmediatePropagation).toHaveBeenCalledTimes(1);
+
+    const rejectionEvent = new PromiseRejectionEvent('unhandledrejection', {
+      promise: Promise.reject(new Error('MenuShow failed')).catch(() => undefined),
+      reason: new Error('MenuShow failed'),
+      cancelable: true,
+    });
+    rejectionHandler?.(rejectionEvent);
+
+    expect(rejectionEvent.defaultPrevented).toBe(true);
+
+    plugin.onunload();
+
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('error', errorHandler, true);
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('unhandledrejection', rejectionHandler);
+
+    addEventListenerSpy.mockRestore();
+    removeEventListenerSpy.mockRestore();
   });
 });

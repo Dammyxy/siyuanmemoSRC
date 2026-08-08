@@ -106,6 +106,14 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     return queue;
   }
 
+  async function waitForNeuralQueueInitialLoad(neuralQueue: NeuralRoamQueue): Promise<void> {
+    const loadBarrier = neuralQueue as NeuralRoamQueue & { getSize?: () => Promise<number> };
+    if (typeof loadBarrier.getSize !== 'function') {
+      return;
+    }
+    await loadBarrier.getSize();
+  }
+
   function resetNeuralTraceConvergenceState(): void {
     neuralTraceConvergenceRequestSeq += 1;
     neuralTraceConvergenceCache.clear();
@@ -401,6 +409,7 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       return;
     }
 
+    await waitForNeuralQueueInitialLoad(neuralQueue);
     const navState = neuralQueue.getNavigationState();
     const sourceSnapshot = neuralQueue.getSourceSnapshot();
     const historyPage = neuralQueue.getHistoryPage({
