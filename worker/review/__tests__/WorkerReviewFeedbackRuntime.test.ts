@@ -451,6 +451,52 @@ describe('WorkerReviewFeedbackRuntime', () => {
     }));
   });
 
+  it.each([QueueType.RetrievalPractice, QueueType.IncrementalLearning])(
+    'preserves every rapid %s feedback impact coalesced under one deferred projection task',
+    async (queueType) => {
+      const cards = [1, 2, 3].map((index) => createCard({
+        id: `card-srs-rapid-${queueType}-${index}`,
+        blockId: `block-srs-rapid-${queueType}-${index}`,
+      }));
+      const {
+        reviewRuntime,
+        readRows,
+        applyQueueProjectionDelta,
+      } = createRuntimeFixture(cards, queueType);
+
+      await Promise.all(cards.map((card, index) => reviewRuntime.reviewFeedback({
+        cardId: card.id,
+        rating: 3,
+        queueType,
+        projectionGeneration: 2,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt: REVIEWED_AT + index,
+        idempotencyKey: `srs-rapid-${queueType}-${index + 1}`,
+      })));
+
+      expect(readRows).not.toHaveBeenCalled();
+      expect(applyQueueProjectionDelta).not.toHaveBeenCalled();
+
+      await flushDeferredMaintenance();
+
+      expect(readRows).toHaveBeenCalledOnce();
+      expect(applyQueueProjectionDelta).toHaveBeenCalledOnce();
+      expect(applyQueueProjectionDelta).toHaveBeenCalledWith(expect.objectContaining({
+        queueType,
+        policyHash: 'policy-a',
+        generation: 3,
+        removeRowIds: cards.map((card) => card.id),
+        upsertRows: [],
+        counters: expect.objectContaining({
+          generation: 3,
+          remaining: 0,
+          due: 0,
+          total: 0,
+        }),
+      }));
+    },
+  );
+
   it('returns deferred impact before non-SRS projection maintenance reads rows', async () => {
     const reviewed = createCard({ id: 'card-deferred', blockId: 'block-deferred' });
     const peer = createCard({ id: 'card-peer', blockId: 'block-peer' });

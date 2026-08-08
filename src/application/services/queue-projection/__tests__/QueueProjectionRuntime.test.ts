@@ -173,6 +173,75 @@ describe('QueueProjectionRuntime', () => {
     expect(backend.queueProjectionSnapshot).toHaveBeenCalledTimes(1);
   });
 
+  it('clears cached non-ready readiness after successful materialization', async () => {
+    const request = {
+      queueType: QueueType.IncrementalLearning,
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    };
+    const card = createCard({
+      id: 'incremental-card',
+      blockId: 'incremental-block',
+      meta: { rootId: 'doc-a', deckId: 'deck-a', content: 'incremental projection' },
+    });
+    let snapshotCallCount = 0;
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async (snapshotRequest: { queueType: string; policyHash?: string | null }) => {
+        snapshotCallCount += 1;
+        if (snapshotCallCount === 1) {
+          return {
+            queueType: QueueType.IncrementalLearning,
+            status: 'refreshing',
+            policyHash: null,
+            generation: null,
+            rows: [],
+            counters: null,
+            cacheState: 'missing-derived-cache',
+          };
+        }
+        return {
+          queueType: QueueType.IncrementalLearning,
+          status: 'ready',
+          policyHash: snapshotRequest.policyHash,
+          generation: 1,
+          rows: [],
+          counters: null,
+        };
+      }),
+      queueProjectionReplace: vi.fn(async (replaceRequest: { policyHash: string; generation?: number | null; rows: unknown[] }) => ({
+        queueType: QueueType.IncrementalLearning,
+        status: 'ready',
+        policyHash: replaceRequest.policyHash,
+        generation: replaceRequest.generation ?? 1,
+        rows: replaceRequest.rows.length,
+        counters: null,
+      })),
+    };
+    const { runtime } = createRuntime({ backend, queueCards: [card] });
+
+    await expect(runtime.ensureReady(request)).resolves.toMatchObject({
+      status: 'refreshing',
+      queueId: QueueType.IncrementalLearning,
+      cause: 'missing_derived_cache',
+    });
+    await expect(runtime.materialize(QueueType.IncrementalLearning, null, {
+      readinessRequest: request,
+      reason: 'review-admission',
+    })).resolves.toMatchObject({
+      status: 'ready',
+      queueType: QueueType.IncrementalLearning,
+      generation: 1,
+    });
+    await expect(runtime.ensureReady(request)).resolves.toMatchObject({
+      status: 'ready',
+      queueId: QueueType.IncrementalLearning,
+      generation: 1,
+    });
+
+    expect(backend.queueProjectionSnapshot).toHaveBeenCalledTimes(2);
+  });
+
   it('reports invalidated retrieval readiness without materializing projection', async () => {
     const card = createCard({
       id: 'retrieval-card',

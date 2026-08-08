@@ -675,6 +675,13 @@ export class QueueProjectionRuntime {
           frontendMode: this.deps.getFrontendRuntime()?.getMode?.() ?? null,
         },
       );
+      if (
+        result.status === 'ready'
+        && this.isValidProjectionPolicyHash(result.policyHash)
+        && this.isValidProjectionGeneration(result.generation)
+      ) {
+        this.clearQueueProjectionReadinessCache(queueType);
+      }
       this.cacheMaterializedProjectionEcho(queueType, result, cards, projection.rows);
       this.emitReadyLiveIdentity(queueType, {
         policyHash: result.policyHash,

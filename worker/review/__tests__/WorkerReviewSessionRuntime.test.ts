@@ -175,6 +175,8 @@ describe('WorkerReviewSessionRuntime', () => {
       queueType: QueueType.RetrievalPractice,
       sessionId: 'session-a',
       idempotencyKey: 'feedback-key',
+      projectionGeneration: ADMITTED_PROJECTION.projectionGeneration,
+      projectionPolicyHash: ADMITTED_PROJECTION.projectionPolicyHash,
     }));
   });
 

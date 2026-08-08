@@ -293,6 +293,8 @@ export class WorkerReviewSessionRuntime {
         sessionId: session.sessionId,
         reviewedAt: request.reviewedAt ?? Date.now(),
         idempotencyKey: request.idempotencyKey ?? null,
+        projectionGeneration: session.projectionGeneration,
+        projectionPolicyHash: session.projectionPolicyHash,
         transactionUndoJournalEntry,
       }),
       feedbackTiming,

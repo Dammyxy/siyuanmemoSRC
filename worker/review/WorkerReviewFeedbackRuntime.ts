@@ -85,6 +85,14 @@ type DeferredReviewFeedbackProjectionMaintenanceInput = {
   reviewedCard: FSRSCard;
   committed: boolean;
   reviewedAt: number;
+  reviewedItems: DeferredReviewFeedbackProjectionMaintenanceItem[];
+};
+
+type DeferredReviewFeedbackProjectionMaintenanceItem = {
+  request: BackendReviewFeedbackRequest;
+  reviewedCard: FSRSCard;
+  committed: boolean;
+  reviewedAt: number;
 };
 
 type DeferredReviewFeedbackProjectionMaintenanceTask = {
@@ -323,6 +331,12 @@ export class WorkerReviewFeedbackRuntime {
       reviewedCard: input.reviewedCard,
       committed: input.committed,
       reviewedAt: input.reviewedAt,
+      reviewedItems: [{
+        request: input.request,
+        reviewedCard: input.reviewedCard,
+        committed: input.committed,
+        reviewedAt: input.reviewedAt,
+      }],
     });
 
     if (!scheduled.scheduled) {
@@ -370,7 +384,17 @@ export class WorkerReviewFeedbackRuntime {
     const key = buildDeferredReviewFeedbackProjectionMaintenanceKey(input);
     const existing = queue.get(key);
     if (existing) {
-      existing.input = input;
+      existing.input = {
+        ...existing.input,
+        request: input.request,
+        reviewedCard: input.reviewedCard,
+        committed: input.committed,
+        reviewedAt: Math.max(existing.input.reviewedAt, input.reviewedAt),
+        reviewedItems: mergeDeferredReviewFeedbackProjectionMaintenanceItems(
+          existing.input.reviewedItems,
+          input.reviewedItems,
+        ),
+      };
       existing.queuedAt = queuedAt;
       this.recordDeferredProjectionMaintenanceEnqueue(input, Date.now() - startedAt, {
         queuedAt,
@@ -492,6 +516,11 @@ export class WorkerReviewFeedbackRuntime {
       }),
     );
     const nextGeneration = input.requestedCurrentGeneration + 1;
+    const reviewedItems = normalizeDeferredReviewFeedbackProjectionMaintenanceItems(input);
+    const latestReviewedAt = reviewedItems.reduce(
+      (latest, item) => Math.max(latest, item.reviewedAt),
+      input.reviewedAt,
+    );
     const nextRows = this.measureQueueImpactStep(
       'projection-deferred-build-rows',
       input.queueType,
@@ -499,10 +528,9 @@ export class WorkerReviewFeedbackRuntime {
       () => buildDeferredReviewFeedbackNextRows({
         queueType: input.queueType,
         previousRows,
-        reviewedCard: input.reviewedCard,
-        rating: Number(input.request.rating),
+        reviewedItems,
         nextGeneration,
-        updatedAt: input.reviewedAt,
+        updatedAt: latestReviewedAt,
       }),
     );
     if (!nextRows) {
@@ -517,8 +545,8 @@ export class WorkerReviewFeedbackRuntime {
       queueType: input.queueType,
       policyHash: input.policyHash,
       generation: nextGeneration,
-      updatedAt: input.reviewedAt,
-      now: input.reviewedAt,
+      updatedAt: latestReviewedAt,
+      now: latestReviewedAt,
       rows: nextRows,
     });
 
@@ -536,15 +564,17 @@ export class WorkerReviewFeedbackRuntime {
         invalidation: {
           queueType: input.queueType,
           reason: 'review-feedback',
-          affectedCardIds: [input.reviewedCard.id],
-          affectedBlockIds: input.reviewedCard.blockId ? [input.reviewedCard.blockId] : [],
+          affectedCardIds: uniqueStrings(reviewedItems.map((item) => item.reviewedCard.id)),
+          affectedBlockIds: uniqueStrings(reviewedItems.map((item) => item.reviewedCard.blockId)),
           generation: nextGeneration,
           metadata: {
             reviewedCardId: input.reviewedCard.id,
-            committed: input.committed,
+            reviewedCardIds: uniqueStrings(reviewedItems.map((item) => item.reviewedCard.id)),
+            committed: reviewedItems.every((item) => item.committed),
             commitPolicy: input.request.commitPolicy ?? null,
             deferred: true,
             deferredQueuedAt: queuedAt,
+            deferredBatchSize: reviewedItems.length,
           },
         },
       }),
@@ -623,6 +653,54 @@ function buildDeferredReviewFeedbackProjectionMaintenanceKey(
   input: Pick<DeferredReviewFeedbackProjectionMaintenanceInput, 'queueType' | 'policyHash'>,
 ): string {
   return `${input.queueType}:${input.policyHash}`;
+}
+
+function normalizeDeferredReviewFeedbackProjectionMaintenanceItems(
+  input: DeferredReviewFeedbackProjectionMaintenanceInput,
+): DeferredReviewFeedbackProjectionMaintenanceItem[] {
+  return input.reviewedItems.length > 0
+    ? input.reviewedItems
+    : [{
+      request: input.request,
+      reviewedCard: input.reviewedCard,
+      committed: input.committed,
+      reviewedAt: input.reviewedAt,
+    }];
+}
+
+function mergeDeferredReviewFeedbackProjectionMaintenanceItems(
+  existingItems: DeferredReviewFeedbackProjectionMaintenanceItem[],
+  incomingItems: DeferredReviewFeedbackProjectionMaintenanceItem[],
+): DeferredReviewFeedbackProjectionMaintenanceItem[] {
+  const merged = [...existingItems];
+  for (const item of incomingItems) {
+    const key = deferredReviewFeedbackProjectionMaintenanceItemKey(item);
+    const existingIndex = merged.findIndex((candidate) => (
+      deferredReviewFeedbackProjectionMaintenanceItemKey(candidate) === key
+    ));
+    if (existingIndex >= 0) {
+      merged[existingIndex] = item;
+    } else {
+      merged.push(item);
+    }
+  }
+  return merged;
+}
+
+function deferredReviewFeedbackProjectionMaintenanceItemKey(
+  item: DeferredReviewFeedbackProjectionMaintenanceItem,
+): string {
+  const idempotencyKey = normalizeOptionalString(item.request.idempotencyKey);
+  if (idempotencyKey) {
+    return `idempotency:${idempotencyKey}`;
+  }
+  return [
+    'card',
+    item.reviewedCard.id,
+    item.reviewedCard.blockId ?? '',
+    item.reviewedAt,
+    item.request.rating,
+  ].join(':');
 }
 
 function buildDeferredQueueImpact(input: {
@@ -816,21 +894,29 @@ function queueProjectionRowSignature(row: QueueProjectionRow): string {
 function buildDeferredReviewFeedbackNextRows(input: {
   queueType: ProjectionWorkerQueueType;
   previousRows: QueueProjectionRow[];
-  reviewedCard: FSRSCard;
-  rating: number;
+  reviewedItems: DeferredReviewFeedbackProjectionMaintenanceItem[];
   nextGeneration: number;
   updatedAt: number;
 }): QueueProjectionRow[] | null {
-  const targetRows = input.previousRows.filter((row) => rowMatchesReviewedCard(row, input.reviewedCard));
-  if (targetRows.length === 0) {
-    return null;
+  let applied = false;
+  let nextRows = [...input.previousRows];
+  for (const item of input.reviewedItems) {
+    const targetRows = nextRows.filter((row) => rowMatchesReviewedCard(row, item.reviewedCard));
+    if (targetRows.length === 0) {
+      continue;
+    }
+    const remainingRows = nextRows.filter((row) => !rowMatchesReviewedCard(row, item.reviewedCard));
+    const shouldMoveFinalDrillToTail = input.queueType === QueueType.FinalDrill
+      && Number(item.request.rating) < 4;
+    nextRows = shouldMoveFinalDrillToTail
+      ? [...remainingRows, ...targetRows]
+      : remainingRows;
+    applied = true;
   }
 
-  const remainingRows = input.previousRows.filter((row) => !rowMatchesReviewedCard(row, input.reviewedCard));
-  const shouldMoveFinalDrillToTail = input.queueType === QueueType.FinalDrill && input.rating < 4;
-  const nextRows = shouldMoveFinalDrillToTail
-    ? [...remainingRows, ...targetRows]
-    : remainingRows;
+  if (!applied) {
+    return null;
+  }
 
   return reindexDeferredProjectionRows(nextRows, {
     nextGeneration: input.nextGeneration,
@@ -874,6 +960,10 @@ function buildProjectionSortKeyFromRow(row: QueueProjectionRow, queueIndexHint: 
   const duePart = String(Math.max(0, Number(row.dueAt) || 0)).padStart(16, '0');
   const priorityPart = String(Math.max(0, Math.min(100, Math.floor(Number(row.priorityScore) || 0)))).padStart(3, '0');
   return `${indexPart}:${duePart}:${priorityPart}:${row.rowId || row.cardId}`;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
 function normalizeOptionalInteger(value: unknown): number | null {
